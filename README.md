@@ -20,7 +20,7 @@ backend/
 │   ├── app/               # wire 依赖注入（wire.go / wire_gen.go）与启动流程
 │   ├── config/            # viper 配置加载
 │   ├── database/          # pgxpool 连接池、自动迁移、PG 错误判断
-│   ├── repository/        # sqlc 生成代码（勿手改）
+│   ├── repository/        # sqlc 生成代码（勿手改）；store.go 为手写的事务封装
 │   ├── service/           # 业务逻辑
 │   ├── handler/           # HTTP 处理
 │   ├── server/            # Echo 实例、中间件、全局错误处理、路由
@@ -121,7 +121,18 @@ pnpm dev        # /api 代理到 http://localhost:8080
 
 1. `make migration name=create_xxx`，在生成的文件里编写建表 SQL（下次启动时自动执行）
 2. 在 `db/queries/xxx.sql` 中编写查询，执行 `make sqlc`
-3. 在 `internal/service` 中编写 service，并加入 `service.ProviderSet`
+3. 在 `internal/service` 中编写 service（依赖 `repository.Store`），并加入 `service.ProviderSet`
 4. 在 `internal/handler` 中编写 handler，加入 `handler.ProviderSet` 与 `Handlers` 结构体
 5. 在 `internal/server/router.go` 中注册路由
 6. 执行 `make wire`
+
+## 数据库事务
+
+service 通过 `repository.Store` 访问数据库：直接调用查询方法时每条语句自动提交；
+需要多条语句同时成功或同时失败时用 `ExecTx`，回调里必须使用传入的 `q`：
+
+```go
+err := s.store.ExecTx(ctx, func(q repository.Querier) error {
+	// 通过 q 执行的语句都在同一个事务中，返回 error 时回滚，否则提交
+})
+```

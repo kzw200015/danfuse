@@ -13,15 +13,15 @@ import (
 )
 
 type UserService struct {
-	q repository.Querier
+	store repository.Store
 }
 
-func NewUserService(q repository.Querier) *UserService {
-	return &UserService{q: q}
+func NewUserService(store repository.Store) *UserService {
+	return &UserService{store: store}
 }
 
 func (s *UserService) Create(ctx context.Context, arg repository.CreateUserParams) (repository.User, error) {
-	user, err := s.q.CreateUser(ctx, arg)
+	user, err := s.store.CreateUser(ctx, arg)
 	if err != nil {
 		if database.IsUniqueViolation(err) {
 			return repository.User{}, errcode.ErrUserEmailExists.Wrap(err)
@@ -32,7 +32,7 @@ func (s *UserService) Create(ctx context.Context, arg repository.CreateUserParam
 }
 
 func (s *UserService) Get(ctx context.Context, id int64) (repository.User, error) {
-	user, err := s.q.GetUser(ctx, id)
+	user, err := s.store.GetUser(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return repository.User{}, errcode.ErrUserNotFound
@@ -44,11 +44,11 @@ func (s *UserService) Get(ctx context.Context, id int64) (repository.User, error
 
 // List 分页查询，page 从 1 开始。
 func (s *UserService) List(ctx context.Context, page, pageSize int32) ([]repository.User, int64, error) {
-	total, err := s.q.CountUsers(ctx)
+	total, err := s.store.CountUsers(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
 	}
-	users, err := s.q.ListUsers(ctx, repository.ListUsersParams{
+	users, err := s.store.ListUsers(ctx, repository.ListUsersParams{
 		Limit:  pageSize,
 		Offset: (page - 1) * pageSize,
 	})

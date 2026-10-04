@@ -6,7 +6,6 @@ import (
 	"context"
 
 	"github.com/google/wire"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
@@ -25,9 +24,8 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		wire.FieldsOf(new(*config.Config), "Server", "Log", "Database"),
 		logger.New,
 		database.NewPool,
-		repository.New,
-		wire.Bind(new(repository.DBTX), new(*pgxpool.Pool)),
-		wire.Bind(new(repository.Querier), new(*repository.Queries)),
+		repository.NewStore,
+		wire.Bind(new(repository.Store), new(*repository.SQLStore)),
 		service.ProviderSet,
 		handler.ProviderSet,
 		server.New,

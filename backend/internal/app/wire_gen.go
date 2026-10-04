@@ -35,8 +35,8 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		return nil, nil, err
 	}
 	healthHandler := handler.NewHealthHandler(pool)
-	queries := repository.New(pool)
-	userService := service.NewUserService(queries)
+	sqlStore := repository.NewStore(pool)
+	userService := service.NewUserService(sqlStore)
 	userHandler := handler.NewUserHandler(userService)
 	handlers := &handler.Handlers{
 		Health: healthHandler,
