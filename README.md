@@ -1,143 +1,361 @@
 # danfuse
 
-基于 Go 与 React 的前后端分离项目脚手架，提供分层清晰的后端骨架、类型安全的数据访问、统一的接口响应与错误码，以及配套的现代化前端工程。
+在 Jellyfin 里看番剧、剧集、电影和从 B 站下载的投稿视频时显示 B 站弹幕：danfuse 从 Jellyfin 同步出一份目录，你在某一集上贴 B 站链接，[jellyfin-danmaku](https://github.com/Izumiko/jellyfin-danmaku) 插件把 danfuse 当作弹弹play 服务器来取弹幕。
+
+![管理界面的目录页：左栏是剧列表，中栏是选中的剧和集列表，右栏是选中的集和它的绑定](docs/images/catalog.png)
 
 ## 特性
 
-**后端**
+- **从 Jellyfin 同步目录**：按配置的媒体库同步剧、季、集，特别篇、电影、一个文件含多集的情况都能处理，可以定时同步。Jellyfin 里改文件名、换片源、补高清版本之后，集的 ID 不变，插件缓存的匹配结果一直有效。
+- **贴链接就能绑定**：在某一集上贴 B 站投稿链接（可带分 P）、番剧单集链接、`b23.tv` 短链，或者直接输入 BV、av、ep 号。
+- **弹幕保存在自己手里**：创建绑定时当场拉取全部弹幕并保存；之后可以随时重新拉取，只增不删，越积越全。视频被删除后，已经保存的弹幕照常输出。
+- **一集可以挂多个弹幕源**：例如不同 UP 主的搬运。播放时合并输出，按每个绑定的偏移校正时间，不同弹幕源之间重复的弹幕只保留一条。
+- **兼容弹弹play 协议**：jellyfin-danmaku 插件里填一个地址即可使用，插件按剧名自动搜到对应的季和集；弹幕标为 BiliBili 来源，插件按来源过滤的功能照常可用。可以设置 token，把弹弹 API 藏在一段路径后面。
+- **部署简单**：一个 Docker 镜像（内嵌管理界面）加一个 PostgreSQL，支持 amd64 和 arm64；升级时数据库迁移自动执行。所有配置都可以用环境变量设置。
+- **可选登录 B 站**：配置 SESSDATA 后以登录身份拉取，弹幕更全。
 
-- handler / service / repository 三层结构，使用 wire 在编译期完成依赖注入
-- 用 sqlc 从 SQL 生成类型安全的查询代码，通过 pgx 访问 PostgreSQL，并封装事务
-- 迁移文件打包进二进制，服务启动时自动执行；多实例同时启动时只有一个实例执行迁移
-- 统一响应结构与业务错误码，由全局错误处理器统一输出，未知错误不向客户端暴露细节
-- 结构化日志（服务端错误带 Request ID 与完整错误链）、优雅退出
-- YAML 配置文件，所有配置项均可被环境变量覆盖
+## 工作原理
 
-**前端**
+```mermaid
+flowchart LR
+    jellyfin["Jellyfin"] -->|"① 同步剧、季、集"| danfuse["danfuse<br/>目录 · 绑定 · 弹幕"]
+    admin["管理界面"] -->|"② 在某一集上贴 B 站链接"| danfuse
+    danfuse -->|"拉取弹幕并保存"| bilibili["B 站"]
+    plugin["jellyfin-danmaku 插件<br/>（运行在 Jellyfin Web 里）"] -->|"③ 弹弹 API：搜索季和集、取弹幕"| danfuse
+```
 
-- React 19 + TypeScript + Vite
-- 类型化的 API 请求层，自动解包统一响应、统一错误类型
-- TanStack Query 管理接口数据，Zustand 管理客户端共享状态
-- shadcn/ui + Tailwind CSS v4 组件与样式
-- Vitest + Testing Library 单元测试，oxlint + oxfmt 代码检查与格式化
-
-## 技术栈
-
-| 端 | 技术栈 |
-| --- | --- |
-| backend | Go · Echo v5 · viper · pgx/v5 + PostgreSQL · sqlc · goose · wire · golangci-lint v2 |
-| frontend | React 19 · TypeScript · Vite · React Router · TanStack Query · Zustand · shadcn/ui（Base UI · Tailwind CSS v4）· axios · Vitest · oxlint · oxfmt |
+1. **同步**：danfuse 读取配置的 Jellyfin 媒体库，把剧、季、集写进自己的**目录**。同步是单向的，只新增和更新、从不删除；平时浏览目录、播放时取弹幕都不再访问 Jellyfin。danfuse 也不读取视频文件。
+2. **绑定**：在管理界面选中一集，贴一个 B 站链接，就为这一集创建了一个**绑定**。danfuse 当场拉取这个弹幕源的全部弹幕，存进 PostgreSQL。
+3. **播放**：在 Jellyfin Web 里播放时，插件用剧名调用 danfuse 的**弹弹 API**，搜到对应的季（例如"剧名 第2季"），按集在列表里的顺序找到这一集，再取这一集所有绑定合并后的弹幕。
 
 ## 快速开始
 
-### 环境要求
+需要：
 
-- Go 1.27+
-- Node.js 22.18+ 或 24.12+，pnpm 12
-- PostgreSQL
+- Jellyfin 10.11 及以上。
+- PostgreSQL 18（其他版本不保证兼容）。docker compose 方式会一起启动。
+- 在 Jellyfin Web 里装好 [jellyfin-danmaku](https://github.com/Izumiko/jellyfin-danmaku) 插件，见[设置插件](#设置插件)。
 
-### 1. 准备数据库
+### 方式一：docker compose
 
-本地没有 PostgreSQL 时，可以用 Docker 启动一个与默认配置匹配的实例：
+1. 下载仓库根目录的 [`compose.yaml`](compose.yaml)，放进一个单独的目录。
+2. 在 Jellyfin 的"控制台 → API 密钥"里新建一个 API key。
+3. 按实际情况修改 `compose.yaml` 里 danfuse 的 `environment`：
+   - `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL`：容器里能访问到的 Jellyfin 地址，例如 `http://192.168.1.10:8096`。容器里的 `localhost` 是容器自己，不是宿主机。
+   - `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES`：要同步的媒体库名，用逗号分隔，例如 `番剧,电影`。
+   - 其他配置项见[配置](#配置)。
+4. 在 `compose.yaml` 旁边新建 `.env`，写入敏感值（不要提交进仓库）：
+
+   ```sh
+   # 第 2 步生成的 API key
+   JELLYFIN_API_KEY=xxxxxxxxxxxxxxxx
+   # 可选：B 站登录 Cookie 里的 SESSDATA，见"配置"
+   BILIBILI_SESSDATA=
+   # 可选：设置后弹弹 API 挂在 /dandanplay/<token>/api/v2，见"设置插件"
+   DANDANPLAY_TOKEN=
+   ```
+
+5. 启动：
+
+   ```sh
+   docker compose up -d
+   ```
+
+6. 打开 `http://<本机地址>:8080`，在"同步"页点"立即同步"，同步完成后在"目录"页就能看到剧了。
+
+镜像是 `ghcr.io/kzw200015/danfuse:latest`，包含 linux/amd64 和 linux/arm64；每次发布还有一个 `sha-<短哈希>` 标签，可以用来固定版本。想用本地源码构建镜像，按 `compose.yaml` 里的注释把 `image` 换成 `build`。
+
+管理界面没有登录，不要把 8080 端口直接暴露到公网；外网播放的做法见[反向代理](#反向代理)。
+
+**升级**：拉取新镜像后重启即可，数据库迁移在启动时自动执行：
 
 ```sh
-docker run -d --name danfuse-postgres \
-  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=danfuse \
-  -p 5432:5432 postgres:18
+docker compose pull && docker compose up -d
 ```
 
-### 2. 启动后端
+**数据**：目录、绑定和弹幕都保存在 PostgreSQL 里，也就是 compose 的数据卷 `postgres-data`；danfuse 自己不在磁盘上存任何文件。`docker compose down -v` 会连同这个数据卷一起删除。
+
+### 方式二：自行编译
+
+需要 Go 1.27+、Node.js 22.18+ 或 24.12+、make，以及一个 PostgreSQL 18 数据库。
 
 ```sh
-cd backend
-cp configs/config.example.yaml configs/config.yaml
-make run
-```
+git clone https://github.com/kzw200015/danfuse.git
+cd danfuse
 
-服务默认监听 `:8080`，启动时会自动执行数据库迁移。
-
-### 3. 启动前端
-
-```sh
+# 先构建管理界面，产物输出到 backend/web/static/dist，编译后端时内嵌进二进制
 cd frontend
-pnpm install
-pnpm dev
+corepack enable          # 按 package.json 的 packageManager 安装对应版本的 pnpm；没有 corepack 时先 npm install -g corepack
+pnpm install --frozen-lockfile
+pnpm build
+
+# 再编译后端，得到 backend/bin/server
+cd ../backend
+make build
 ```
 
-访问 <http://localhost:5173>。开发服务器会把 `/api`、`/dandanplay` 请求代理到 `http://localhost:8080`。
+不构建管理界面也能编译和运行，只是打开管理界面时只显示"前端未构建"。
+
+运行时可以只用环境变量（完整列表见[配置](#配置)）：
+
+```sh
+export DANFUSE_DATABASE_DSN="postgres://danfuse:password@localhost:5432/danfuse?sslmode=disable"
+export DANFUSE_CATALOG_SOURCE_KIND=jellyfin
+export DANFUSE_CATALOG_SOURCE_JELLYFIN_URL=http://192.168.1.10:8096
+export DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY=xxxxxxxxxxxxxxxx
+export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
+./bin/server
+```
+
+也可以把 [`backend/configs/config.example.yaml`](backend/configs/config.example.yaml) 复制一份改好，用 `./bin/server -config <配置文件路径>` 启动。服务默认监听 `:8080`，启动时自动执行数据库迁移。
+
+也可以在仓库根目录用 `docker build -t danfuse .` 构建镜像，与发布的镜像使用同一份 Dockerfile。
 
 ## 配置
 
-后端配置位于 `backend/configs/config.yaml`，只有传入 `-config` 时才读取（`make run` 会传入），否则只用默认值和环境变量。完整配置项及说明见 [`config.example.yaml`](backend/configs/config.example.yaml)。
+配置项可以写在 YAML 配置文件里（启动时用 `-config <路径>` 指定，模板是 [`config.example.yaml`](backend/configs/config.example.yaml)），也可以用环境变量设置：前缀 `DANFUSE_`，层级之间用下划线连接，环境变量优先。不传 `-config` 时只用默认值和环境变量，Docker 镜像就是这样运行的。
 
-所有配置项都可以用 `DANFUSE_` 前缀的环境变量覆盖，层级之间用下划线连接：
+时长写成 `30s`、`90m`、`24h` 这样的格式。
+
+| YAML 键 | 环境变量 | 默认值 | 说明 |
+|---|---|---|---|
+| `server.addr` | `DANFUSE_SERVER_ADDR` | `:8080` | 监听地址 |
+| `server.graceful_timeout` | `DANFUSE_SERVER_GRACEFUL_TIMEOUT` | `10s` | 退出时等待进行中的请求结束的最长时间 |
+| `server.read_timeout` | `DANFUSE_SERVER_READ_TIMEOUT` | `30s` | 读取请求的超时 |
+| `server.write_timeout` | `DANFUSE_SERVER_WRITE_TIMEOUT` | `30s` | 写响应的超时。创建绑定和重新拉取要当场拉取弹幕，最长约 25 秒，不要改小 |
+| `log.level` | `DANFUSE_LOG_LEVEL` | `info` | 日志级别：`debug`、`info`、`warn`、`error` |
+| `log.format` | `DANFUSE_LOG_FORMAT` | `text` | 日志格式：`text`、`json` |
+| `database.dsn` | `DANFUSE_DATABASE_DSN` | 无，必填 | PostgreSQL 连接串，例如 `postgres://user:pass@host:5432/danfuse?sslmode=disable` |
+| `database.max_conns` | `DANFUSE_DATABASE_MAX_CONNS` | `10` | 连接池的连接数上限。`0` 表示用 pgx 的默认值，否则至少为 `2`：同步进行时要一直占用一个连接 |
+| `database.min_conns` | `DANFUSE_DATABASE_MIN_CONNS` | `1` | 连接池保持的最少连接数 |
+| `database.max_conn_lifetime` | `DANFUSE_DATABASE_MAX_CONN_LIFETIME` | `1h` | 单个连接的最长使用时间 |
+| `database.max_conn_idle_time` | `DANFUSE_DATABASE_MAX_CONN_IDLE_TIME` | `30m` | 连接空闲多久后关闭 |
+| `dandanplay.token` | `DANFUSE_DANDANPLAY_TOKEN` | 空 | 可选。设置后弹弹 API 挂在 `/dandanplay/<token>/api/v2`，否则为 `/dandanplay/api/v2`。只能含字母、数字和 `-` `.` `_` `~`，不能是 `.` 或 `..` |
+| `catalog_source.kind` | `DANFUSE_CATALOG_SOURCE_KIND` | 空 | 目录源的种类。为空表示不启用同步；目前只支持 `jellyfin` |
+| `catalog_source.jellyfin.url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL` | 空 | Jellyfin 的地址，`http://` 或 `https://` 开头，可以带子路径，不能带查询串；末尾的 `/` 会被去掉 |
+| `catalog_source.jellyfin.api_key` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY` | 空 | Jellyfin 的 API key，在"控制台 → API 密钥"里生成 |
+| `catalog_source.jellyfin.libraries` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES` | 空 | 要同步的媒体库名。YAML 里写成列表，环境变量里用逗号分隔，例如 `番剧,电影`。媒体库的类型必须是节目或电影，其他类型的会被跳过 |
+| `sync.interval` | `DANFUSE_SYNC_INTERVAL` | `0` | 定时同步的间隔，例如 `24h`；`0` 表示关闭，只手动同步。启动时不会立即同步 |
+| `bilibili.sessdata` | `DANFUSE_BILIBILI_SESSDATA` | 空 | 可选。B 站登录 Cookie 里 SESSDATA 的值，配置后以登录身份拉取，弹幕更全 |
+
+- `catalog_source.kind` 为 `jellyfin` 时，`url`、`api_key`、`libraries` 都必须填写；`sync.interval` 大于 0 时必须配置目录源。
+- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为 1 或负数；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；token 或 SESSDATA 含不允许的字符。
+- 启动时不连接 Jellyfin，两个服务的启动顺序互不影响；媒体库存不存在、类型对不对在每次同步时检查，有问题的会出现在同步记录的警告里。
+- **SESSDATA**：在浏览器里登录 B 站，从开发者工具的 Cookie 里找到 `SESSDATA`，原样复制它的值（里面的逗号显示为 `%2C`，不要还原），不能含空格、逗号、分号、引号和反斜杠。它会过期，过期后悄悄退化成未登录的效果，需要换上新的值后重启。没有配置时以未登录的身份拉取，弹幕可能不全。
+- Jellyfin 的 API key、SESSDATA 和 token 都不会写进日志；API key 和 SESSDATA 不入库，管理界面上只显示"已配置"。
+
+## 设置插件
+
+jellyfin-danmaku 是注入到 Jellyfin Web 页面里的脚本，不是 Jellyfin 的服务端插件，安装方法见[它的 README](https://github.com/Izumiko/jellyfin-danmaku)（浏览器用户脚本，或者把脚本注入 Jellyfin Web 的页面）。
+
+**插件地址**是 danfuse 的地址加上 `/dandanplay`，配置了 token 时再加上 `/<token>`：
+
+```
+http://192.168.1.20:8080/dandanplay
+https://danmaku.example.com/dandanplay/<token>
+```
+
+- 末尾不要带 `/`。插件会在后面拼上 `/api/v2`。
+- 管理界面右上角的齿轮里有可以直接复制的插件地址，它按你打开管理界面时的地址拼出；插件要通过反向代理访问 danfuse 时，把前半段换成反代的地址。
+- 插件地址能不能用，取决于 Jellyfin 和 danfuse 各自的地址，见[浏览器限制](#浏览器限制)。
+
+在 Jellyfin Web 里播放任意一集，打开插件的弹幕设置，在"配置第三方弹幕库"一栏的 **API** 里填插件地址，**CORS代理** 留空，保存。插件的设置保存在浏览器里，每个浏览器、每台设备都要各填一次。
+
+插件的"使用本地xml弹幕"请保持关闭（默认即关闭）：开启后，视频旁边有同名的 XML 弹幕文件时，插件只用本地文件，不再请求 danfuse。
+
+可以用 curl 确认地址是通的（把剧名换成目录里的一部剧）：
 
 ```sh
-export DANFUSE_DATABASE_DSN="postgres://user:pass@localhost:5432/danfuse?sslmode=disable"
-export DANFUSE_SERVER_ADDR=":9090"
+curl -G --data-urlencode 'anime=剧名' https://danmaku.example.com/dandanplay/<token>/api/v2/search/episodes
 ```
 
-前端开发时如果后端不在 8080 端口，在 `frontend/.env.local` 中设置 `API_PROXY_TARGET=http://localhost:<port>`。
+**token 的作用**：弹弹 API 暴露到公网时，任何人都能搜索你的目录、取走你保存的弹幕。设置 `dandanplay.token` 后，只有路径里带对了 token 的请求才能访问，其他请求一律 404。插件不能加自定义请求头，所以 token 只能放在路径里。它不是登录：token 会出现在插件地址和浏览器的请求里，能用这个 Jellyfin 播放的人都看得到，只用来挡住随意的调用。可以用 `openssl rand -hex 16` 生成一个。改了 token 之后，每个浏览器里的插件地址都要跟着改。
 
-## 构建与部署
+## 反向代理
 
-前端的构建产物 embed 进后端二进制，发布时只有一个产物，管理界面与 `/api` 同源，直接刷新前端路由也能打开。
+管理界面和管理 API（`/api/`）没有登录，只应在内网访问。在外网播放时，插件只需要访问弹弹 API，也就是 `/dandanplay/` 下的路径，反向代理只转发这一个前缀。
 
-```sh
-# Docker 镜像：仓库根目录的多阶段 Dockerfile（Node 构建前端 → Go 编译 → 最小运行镜像）
-docker build -t danfuse .
+### 首选：HTTPS 子域名
 
-# 自行编译：先构建前端（产物输出到 backend/web/static/dist），再编译后端；迁移文件同样已内置
-cd frontend && pnpm build
-cd ../backend && make build
-./bin/server -config configs/config.yaml
+给 danfuse 一个单独的子域名（例如 `danmaku.example.com`），使用公开可信的证书，由反向代理终结 TLS，只转发 `/dandanplay/`。管理界面在内网用 `http://<danfuse 所在主机>:8080` 打开。插件地址填 `https://danmaku.example.com/dandanplay[/<token>]`。
+
+跨域由 danfuse 处理：浏览器发来的跨域请求，弹弹 API 的响应都带 CORS 头。反向代理不需要、也不要再加 `Access-Control-*` 响应头。
+
+Nginx：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name danmaku.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/danmaku.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/danmaku.example.com/privkey.pem;
+
+    # 只转发弹弹 API。proxy_pass 不带路径，请求路径原样转发，不剥离 /dandanplay
+    location /dandanplay/ {
+        proxy_pass http://192.168.1.20:8080;
+    }
+
+    # 管理界面与管理 API 不对外
+    location / {
+        return 404;
+    }
+}
 ```
 
-没构建前端时后端照常编译运行，访问管理界面只显示"前端未构建"。
+Caddy（自动申请证书）：
 
-根目录的 [`compose.yaml`](compose.yaml) 是部署示例（danfuse + PostgreSQL 18）：按注释修改配置，把 API key 等敏感值写进旁边的 `.env`，再 `docker compose up -d`。容器里不需要配置文件，所有配置都用环境变量。
-
-## 项目结构
-
+```caddyfile
+danmaku.example.com {
+	# handle 不剥离前缀（handle_path 才会）
+	handle /dandanplay/* {
+		reverse_proxy 192.168.1.20:8080
+	}
+	handle {
+		respond 404
+	}
+}
 ```
-.
-├── backend/
-│   ├── cmd/server/     # 程序入口
-│   ├── configs/        # 配置模板
-│   ├── db/             # 数据库迁移与 SQL 查询
-│   ├── internal/       # 应用代码：handler、service、repository、server 等
-│   └── web/            # 内嵌的前端构建产物
-├── frontend/
-│   └── src/
-│       ├── api/        # 接口请求
-│       ├── components/ # UI 组件
-│       ├── router/     # 路由
-│       └── views/      # 页面
-├── e2e/                # 端到端环境（Jellyfin 10.11、12.1，PostgreSQL 18 与 danfuse）
-├── Dockerfile          # 多阶段构建镜像
-└── compose.yaml        # 部署示例
+
+### 备选：与 Jellyfin 同一个域名
+
+在 Jellyfin 的反向代理上把 `/dandanplay/` 转给 danfuse，前缀不剥离。插件地址填 `https://jellyfin.example.com/dandanplay[/<token>]`。
+
+Nginx，在 Jellyfin 所在的 `server` 块里加上：
+
+```nginx
+location /dandanplay/ {
+    proxy_pass http://192.168.1.20:8080;
+}
 ```
+
+Caddy：
+
+```caddyfile
+jellyfin.example.com {
+	handle /dandanplay/* {
+		reverse_proxy 192.168.1.20:8080
+	}
+	handle {
+		reverse_proxy 192.168.1.10:8096
+	}
+}
+```
+
+### 备选：纯内网
+
+Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理。插件地址填 `http://192.168.1.20:8080/dandanplay`。
+
+### 注意
+
+- 需要在外网管理时，请自行在反向代理上加认证（例如 HTTP Basic Auth），danfuse 不做登录。
+- 弹弹 API 暴露到公网时，建议设置 [token](#设置插件)。
+- danfuse 不内置 TLS，HTTPS 由反向代理提供。
+- 不支持把 danfuse 挂在子路径下（例如 `https://example.com/danfuse/`）。
+
+### 浏览器限制
+
+插件运行在 Jellyfin Web 的页面里，从 Jellyfin 的页面向 danfuse 发请求，所以能不能取到弹幕，取决于浏览器怎么对待这两个地址的组合（调研时间 2026-10，Chrome 154 / Firefox 153）：
+
+| Jellyfin | 插件里填的 danfuse 地址 | Chrome | Firefox | Safari / iOS |
+|---|---|---|---|---|
+| 内网 http | 内网 http | 可用 | 可用 | 可用 |
+| 公网 https | `http://192.168.x.x` | 弹窗允许后可用，且只在家里能用 | 混合内容，被拦 | 混合内容，被拦 |
+| 公网 https | `http://` 加非 `.local` 主机名 | 被拦 | 被拦 | 被拦 |
+| 公网 https | 公网 https 子域名，证书可信 | 可用 | 可用 | 可用 |
+
+另外三条提醒：
+
+- 不要给 danfuse 用自签证书：插件的请求会直接失败，浏览器不会给出手动信任证书的页面。
+- 用 split DNS 让子域名在家里解析到内网 IP 时，Chrome、Firefox 可能弹出授权窗口；有些路由器的 DNS 重绑定保护会拒绝解析指向内网 IP 的公网域名。
+- macOS、iOS 上，Chrome、Firefox 访问内网地址需要系统的"本地网络"权限。
+
+插件的请求设置了 `User-Agent` 请求头，按 Fetch 规范会触发 CORS 预检；Chrome 会丢掉这个头，所以在 Chrome 里是不发预检的简单请求，其他浏览器可能先发预检，danfuse 对预检回 204，不影响使用。不需要 `Access-Control-Allow-Private-Network`。
+
+## 使用
+
+### 同步
+
+在"同步"页点"立即同步"，同步在后台进行，顶栏的"同步"导航项上显示进度（已完成/总数）；失败、中断或有警告时也显示在那里。配置了 `sync.interval` 时按间隔自动同步。同步页列出最近 20 次同步，选中一次可以看到新增了多少剧、季、集，以及跳过了哪些条目（媒体库不存在或类型不对、季号或集号缺失、多集文件的集号范围异常、海报下载失败）。
+
+- 同步是单向的：剧按（类型、标题、年份）、季按季号、集按集号与目录里已有的对应，对上的更新原名、季和集的标题、时长、海报，对不上的新增，**从不删除**。
+- 所以在 Jellyfin 里改文件名、换片源、补高清版本，都不会产生新的集，集上的绑定和插件缓存的 ID 一直有效；而剧的标题或年份变了会新增一部剧，见[已知限制](#目录与同步)。
+- 同一部剧分在多个文件夹或多个媒体库时合成一部；同名但年份不同的（例如重制版）是两部剧。
+- 特别篇是第 0 季。电影在目录里是只有一季一集的剧，界面上直接显示这一集（"正片"）。一个文件包含多集（例如 `S01E01-E02`）时，每个集号各有一行。
+- 剧的海报同步时保存进 danfuse 自己的数据库。
+- 同步失败时，已经写入的部分保留，修好问题后重新同步即可补齐；被服务重启打断的同步显示为"中断"。
+
+### 贴链接
+
+在"目录"页选中一集，在右栏贴链接，点"绑定"。danfuse 当场拉取这个弹幕源的全部弹幕并保存，最长约 25 秒；失败时不会留下绑定，原因显示在输入框下方。
+
+- 能识别的链接：B 站投稿链接（BV 或 av，可带 `?p=N` 指定分 P，不带时为第 1 个分 P）、番剧单集链接（ep）、`b23.tv` 和 `bili2233.cn` 短链，也可以直接输入 BV、av、ep 号。投稿链接实际指向番剧单集时，自动按番剧处理。
+- 整季的番剧链接（ss、md）不能绑定，请打开具体某一集再复制链接。
+- 一集可以挂多个绑定，例如不同 UP 主的搬运。播放时合并输出，不同绑定之间重复的弹幕只保留一条；同一个弹幕源里多人刷的同一句话照常保留。同一个来源在同一集上只能绑定一次（不管写成 BV 还是 av）。
+- 绑定卡片上并排显示弹幕源的时长和本集的时长，相差 3 秒以上时标出，提示可能需要调[偏移](#偏移)。
+- 一个文件包含两集（例如 `S01E01-E02`）时，插件播放这个文件只会取第 1 集的弹幕。要显示两集的弹幕，在第 1 集上建两个绑定，把第二个的偏移设为第一集的时长。
+
+### 重新拉取与清空后重新拉取
+
+每个绑定的卡片上有两个按钮：
+
+- **重新拉取**：再拉取一遍，只插入新的弹幕，从不删除已有的。B 站上已经删除的弹幕、已经滑出滚动窗口的旧弹幕（B 站对每个视频只提供有限条数的弹幕，新弹幕会把旧的挤出去）都继续保留。新番、热门视频隔一段时间重新拉取一次，弹幕越积越全。danfuse 不会自动重新拉取。
+- **清空后重新拉取**：先完整拉取一遍，成功后用这次的结果替换现有的全部弹幕。B 站上已经删除、或已经滑出滚动窗口的弹幕会**永久丢失**；拉取失败时不做任何改动。适合 UP 主重新上传视频之后，只想保留新视频的弹幕的情况（重新拉取会让新旧两批弹幕并存）。
+
+拉取时弹幕源已经不存在（视频被删除、不可见）的，绑定会被标为"失效"，已保存的弹幕保留，播放时照常输出；视频恢复后重新拉取成功即恢复正常。B 站限流、需要登录、接口异常时只提示原因，绑定不变，稍后再试即可。
+
+### 偏移
+
+绑定卡片上的"偏移"是这个弹幕源的时间偏移，单位为秒：正数让弹幕延后，负数让弹幕提前，最多三位小数，范围为正负一天。回车或输入框失去焦点时保存，之后插件取弹幕时生效。校正后时间小于 0 的弹幕被丢掉。
+
+偏移按绑定保存，对所有观众生效。插件自己的设置里也有一个偏移，只作用于当前浏览器，与 danfuse 的偏移叠加。
+
+### 删除
+
+- **删除绑定**：这个绑定和它的全部弹幕一起删除，无法恢复。
+- **删除剧、季、集**：中栏有"删除这部剧"；点中栏的季标题行，右栏显示季面板，里面有"删除这一季"；集面板里有"删除这一集"。电影只能整部删除。下级的季、集、绑定和弹幕一起删除（删除剧时连同海报），确认框里写明会删掉多少，无法恢复。
+- 删除剧、季、集是用来清理目录源里已经没有的条目的。如果它在目录源里还在，之后的同步（包括正在进行的这次）会用**新的 ID** 把它重新建出来，绑定不会恢复；插件里缓存的旧 ID 随之失效，需要在插件里重新搜索一次。目前没有"从同步中排除"的功能。
+- 同步进行中也可以删除。
+
+## 已知限制
+
+### 插件
+
+以下是 jellyfin-danmaku 插件自身的限制，danfuse 按弹弹play 协议实现，不在服务端迁就。遇到时在插件的"弹幕设置 → 弹幕搜索"里手动搜索并选择：搜索支持剧名或原名中连续的一段（中文、日文两个字以上，英文按整个单词），结果显示为"剧名""剧名 第N季""剧名 特别篇"。
+
+- **特别篇要手动选一次**：插件播放第 0 季时发出的搜索词和第 1 季相同，会自动匹配到第 1 季。每部剧的特别篇手动选一次"剧名 特别篇"，之后特别篇的其他集会沿用这个选择。
+- **同名作品可能选错**：插件自动选搜索结果的第一项，同名的剧按年份从新到旧排列，自动选中的是年份最新的那部。
+- **标题含 `&`、`#`、`+` 时搜不到**：插件不对搜索词做 URL 编码，这几个字符会截断或改变搜索词。手动搜索时只输入标题里不含这些字符的一段。
+- **剧名以数字结尾的，从第 2 季起搜不到**：插件把季号直接拼在剧名后面，例如 `86` 的第 2 季会搜索 `862`。
+- **`×` 与 `x` 不等价**：例如 `hunter x hunter` 搜不到 `HUNTER×HUNTER`。
+- **目录里中间缺集时会错位**：插件按集在列表里的位置取集，一季中间缺了某一集（例如 Jellyfin 里没有第 3 集），后面各集都会取到错的集。
+- **匹配错一次之后要手动重新搜索**：插件把匹配结果永久保存在浏览器里，之后不再搜索。删除后又被同步建回来的剧、季、集，ID 变了，也要重新搜索一次。
+- **"增加弹幕源"不可用**：danfuse 不提供这个功能用到的接口。要给一集加弹幕，在管理界面上贴链接。
+
+### 目录与同步
+
+- 环境变量里的媒体库名不能含逗号（逗号是分隔符）。媒体库名含逗号时，改用配置文件。
+- 季号取自集本身。季文件夹用了 Jellyfin 认不出季号的名字（例如 `第1季`），文件名里又没有 `S01E01` 这样的季号时，这些集没有季号，同步时被跳过并记警告。季文件夹请用 `Season 01` 这样的名字，或者在文件名里写上季号。
+- 剧的标题或年份变化后（例如重新刮削元数据，或者从 Jellyfin 10.11 升级到 12.x 后，没有刮削元数据的剧，标题里不再带文件夹名里的年份），同步会新增一部剧。新的那部没有绑定；旧的那部连同绑定和弹幕保留在目录里。先在新的那部上重新贴链接，再删除旧的（删除会连同它的弹幕一起删掉）。
+- 目前只支持 Jellyfin 一种目录源，同一时间只能配置一个。
+
+### B 站
+
+- **SESSDATA 就是 B 站账号的登录凭据**，拿到它就能登录这个账号，建议用小号。
+- 不支持港澳台限定的番剧。
+- 手机 App 分享出来的整段文字（例如"【标题】 https://b23.tv/xxx"）不能直接贴，只贴其中的链接。
+- 只支持 B 站的弹幕源。
 
 ## 开发
 
-后端代码生成与检查还需要安装 [sqlc](https://docs.sqlc.dev) 和 [golangci-lint](https://golangci-lint.run) v2。
+欢迎贡献。本地开发环境、常用命令、测试（数据库测试需要 Docker）、端到端测试环境、数据库迁移规则和提交约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-| 后端（`backend/`） | 说明 |
-| --- | --- |
-| `make run` | 启动服务 |
-| `make build` | 编译到 `bin/server` |
-| `make generate` | 重新生成 sqlc 与 wire 代码 |
-| `make migration name=<name>` | 新建数据库迁移文件 |
-| `make lint` / `make fmt` | 代码检查 / 格式化 |
-| `go test ./...` | 运行测试（数据库测试需要 Docker，`go test -short ./...` 跳过它们） |
+## 免责声明
 
-| 前端（`frontend/`） | 说明 |
-| --- | --- |
-| `pnpm dev` | 启动开发服务器 |
-| `pnpm build` | 类型检查并构建 |
-| `pnpm test:unit` | 运行单元测试（监听模式，加 `--run` 只执行一次） |
-| `pnpm lint` / `pnpm lint:fix` | 代码检查 |
-| `pnpm format` / `pnpm format:check` | 代码格式化 |
+- 本项目仅供个人使用：在自己的 Jellyfin 上看视频时显示弹幕。
+- 弹幕内容的版权属于 B 站和弹幕的发送者。请遵守 B 站的用户协议，不要公开传播保存下来的弹幕。
+- danfuse 只在用户贴链接、点重新拉取时，拉取这个视频当前能看到的弹幕；不做历史弹幕回溯，也不做批量抓取。
+- 本项目与 B 站、弹弹play、Jellyfin、jellyfin-danmaku 均无关联。
 
 ## 许可证
 

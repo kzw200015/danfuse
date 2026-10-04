@@ -81,7 +81,7 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影,其他
 go run ./cmd/server
 ```
 
-`DANFUSE_CATALOG_SOURCE_*` 这几项配置随 Jellyfin 同步功能一起加入，在那之前设置了也不起作用。`其他` 是混合库，同步时应被跳过并记一条警告。
+`其他` 是混合库，同步时应被跳过并记一条警告。
 
 本地运行的 danfuse 和 compose 里的 danfuse 用的是同一个库，只留一个在跑：`docker compose stop danfuse`。
 

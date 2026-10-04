@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-前后端分离的基础框架：`backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind v4）。两端各自构建，命令需在对应目录下执行；前端的构建产物由后端 embed 托管，发布时只有一个二进制（见"前端托管"）。
+danfuse 是自托管的弹幕聚合服务：从目录源（目前只有 Jellyfin）同步出目录，在集上绑定 B 站弹幕源，通过弹弹 API（弹弹play 协议，目前的客户端是 jellyfin-danmaku 插件）提供弹幕（术语见 `GLOSSARY.md`）。代码分 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind v4）。两端各自构建，命令需在对应目录下执行；前端的构建产物由后端 embed 托管，发布时只有一个二进制（见"前端托管"）。
 
 ## 常用命令
 
@@ -55,12 +55,12 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 **启动流程**：`app.Init` 在依赖构造阶段完成 配置加载 → 日志 → 连接池 + 自动迁移（`database.NewPool`），不连接外部系统；`App.Run` 用 errgroup 同时运行 HTTP 服务与后台同步（`SyncService.Run`），HTTP 服务出错（例如端口被占用）时同步也随之退出；Run 等进行中的同步写完最终状态才返回，之后 wire 的 cleanup 才关闭连接池。迁移文件通过 `db/embed.go` embed 进二进制，用 PG advisory lock 保证多实例只有一个执行迁移；应用自己的 advisory lock 键集中登记在 `internal/database/lock.go`（`TryAdvisoryLock` 用专用连接持锁），与迁移锁的键不同。
 
 **生成代码，勿手改**：`internal/repository/` 下除 `store.go` 外均为 sqlc 生成；`internal/app/wire_gen.go` 为 wire 生成。
-- sqlc 直接把 `db/migrations`（goose 迁移文件）当作 schema 读取，所以改表结构 = 新增迁移，再 `make sqlc`。
+- sqlc 直接把 `db/migrations`（goose 迁移文件）当作 schema 读取，所以改表结构 = 新增迁移，再 `make sqlc`。迁移文件推到 main 之后就算已经发布（推送 main 即发布镜像），不再修改，改表结构一律新增迁移。
 - sqlc 配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`；个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型（如 jsonb 的 `sync_runs.warnings` 为 `[]string`，tsvector 的 `seasons.search_vector` 为 `string`）。
 - Go 迁移：分词规则（`fulltext`）或搜索列的组成（`catalog.SearchVector`）改变时，已有的搜索列靠 goose 的 Go 迁移重算，不设版本列。在 `db/migrations` 下按序号新增 `000NN_xxx.go`，在 `init` 里 `goose.AddMigrationContext(recomputeSearchVectors, nil)`（goose 从注册它的文件名取版本号）；`database` 包空导入 `db/migrations`，Go 迁移与 SQL 迁移按版本号一起执行。
 
 **数据库访问**：service 依赖 `repository.Store` 接口（`Querier` + `ExecTx`）。单条查询直接调用，自动提交；多条语句需要原子性时用 `store.ExecTx(ctx, func(q repository.Querier) error {...})`，回调内必须用传入的 `q`。唯一约束冲突用 `database.IsUniqueViolation(err)` 判断，查无记录比较 `pgx.ErrNoRows`。
-- 并发：保持默认的 READ COMMITTED，不加应用层的锁。网络请求（取目录源、拉取弹幕）都在事务之外，拿到结果才开写入事务；写入事务的第一句锁住要写的行（例如创建绑定时 `LockEpisode` 以 `FOR KEY SHARE` 锁住集，查不到就返回"这一集已被删除"的 404；重新拉取、标为失效时 `LockBinding` 以 `FOR UPDATE` 锁住绑定，同一个绑定的写入排队执行，查不到就返回"绑定已被删除"的 404），不靠捕获外键错误；拉取前的查重只为省一次请求，并发重复以唯一约束为准。写回时只更新自己负责的列（拉取不覆盖 offset）。
+- 并发：保持默认的 READ COMMITTED，不加应用层的锁。网络请求（取目录源、拉取弹幕）都在事务之外，拿到结果才开写入事务；写入事务的第一句锁住要写的行（例如创建绑定时 `LockEpisode` 以 `FOR KEY SHARE` 锁住集，查不到就返回"这一集已被删除"的 404；重新拉取、标为失效时 `LockBinding` 以 `FOR UPDATE` 锁住绑定，同一个绑定的写入排队执行，查不到就返回"绑定已被删除"的 404），不靠捕获外键错误；拉取前的查重只为省一次请求，并发重复以唯一约束为准。写回时只更新自己负责的列（拉取不覆盖 offset）。删除剧用 `DeleteSeries` 的 `RETURNING poster_image_id` 拿到海报 ID，在同一个事务里再删这张图，不先 SELECT；`series.poster_image_id` 不级联，顺序固定：同步换图为插入新图 → 剧指向新图 → 删除旧图，删除剧为先删剧、再删图。
 - 批量写入用数组参数加 `unnest` 一条语句写完（如 `InsertDanmaku`，`ON CONFLICT DO NOTHING` 按主键去重，`:execrows` 返回实际插入的条数）；`bindings.danmaku_count` 这类计数在同一个事务里按插入的条数维护，读取时不 COUNT。列名 `offset` 是保留字，SQL 里要加引号。
 
 **错误处理与统一响应**（贯穿两端的核心约定）：
@@ -82,7 +82,7 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 - 外部系统适配器的测试用 `httptest` 回放 `testdata/` 里的真实样本，不联网；加 `-update` 时从 `e2e/` 环境重新抓取（例如 `go test ./internal/catalog/jellyfin -run TestListSamples -update`，需要先按 `e2e/README.md` 搭好环境；`-update` 只作用于负责录制的那个用例，其他用例始终只回放）。Jellyfin 的 JSON 样本按"路径 + ParentId"命名，海报样本按条目 Id 存成原始图片 `image-<Id>.jpg`/`.png`，回放时 Content-Type 按内容识别。
 - B 站适配器（`internal/source/bilibili`）平时同样只回放 `testdata/` 里脱敏后的样本。live 模式请求真实的 B 站，默认关闭，CI 不请求：`go test ./internal/source/bilibili -run TestLive -args -live` 只验证；再加 `-update` 时先清空 `testdata/`，把响应脱敏后写进去（原始响应不落盘，限流、接口异常这类出错的响应不录制）。在改动 B 站适配器之后和里程碑验收时各跑一遍，全部用例约 26 次请求（结束时打印实际次数），靠适配器自己的令牌桶限速；以未登录的身份请求，港澳台限定番剧的用例要求从大陆的网络请求。固定的公开视频列表、脱敏规则见 `live_test.go` 开头，列表只挑内容中性的视频和番剧，状态变了就换一个再重新录制。测试里假 B 站换掉的是适配器 `http.Client` 的 Transport：各个域名（API、XML 弹幕、短链）的请求都转给它，按 Host 区分接口。
 
-**配置**：`internal/config` 基于 viper。新增配置项必须在 `setDefaults` 里登记默认值，否则环境变量覆盖不生效（viper `AutomaticEnv` 只认已知 key）；同时更新 `config.example.yaml`。
+**配置**：`internal/config` 基于 viper。新增配置项必须在 `setDefaults` 里登记默认值，否则环境变量覆盖不生效（viper `AutomaticEnv` 只认已知 key）；同时更新 `config.example.yaml` 和 README 的配置项表，需要时还有 `compose.yaml`。
 
 **API 版本注意**：Echo v5 的 handler 签名是 `func(c *echo.Context) error`（指针）；代码使用 Go 1.26+ 的 `errors.AsType`。golangci-lint 的 goimports 本地前缀为 `github.com/kzw200015/danfuse`（第三方与本项目 import 分组）。
 
@@ -106,9 +106,13 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 - **UI**：shadcn/ui（style `base-nova`，底层是 Base UI 而非 Radix），组件通过 CLI 添加到 `src/components/ui/`；路径别名 `@/*` → `src/*`（Vite 通过 `resolve.tsconfigPaths` 读取 tsconfig）。
 - **测试**：测试文件放在各目录的 `__tests__/` 下，命名 `*.spec.ts(x)`；jsdom 环境，未开启 globals，需从 `vitest` 显式 import。测试文件被 `tsconfig.app.json` 排除，由 `tsconfig.vitest.json` 单独做类型检查。组件测试用 `vi.mock('@/api/<资源>')` 自动 mock 请求函数，并为每个用例新建 `QueryClient`；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应；涉及路由的测试用 `src/__tests__/utils.tsx` 的 `renderRoutes(path)`（`createMemoryRouter(routes)` 加新的 `QueryClient`，根布局会取同步列表和设置，所以要 mock `@/api/sync`、`@/api/settings`）。涉及轮询的用例用 `vi.useFakeTimers({ shouldAdvanceTime: true })`，`vi.advanceTimersByTimeAsync` 推进轮询；点按钮前先等依赖的查询取到（按钮渲染出来时查询可能还没发出）。jsdom 缺少的 `matchMedia`、`scrollIntoView` 在 `vitest.setup.ts` 里补上。
 
+## 文档
+
+`README.md` 面向使用者，只写中文：部署、配置项表、插件设置、反向代理、各项操作的含义和已知限制；改动用户能看到的行为、配置项或部署方式时同步更新。开发相关的内容（环境、命令、测试、迁移规则、提交约定）放在 `CONTRIBUTING.md`。README 和其他文档里不写 B 站的接口地址和参数，只说"贴 B 站链接"。
+
 ## 提交约定
 
-Conventional Commits，scope 用 `backend` / `frontend`，描述用中文，例如 `feat(backend): 新增 repository.Store，支持在 service 层开启事务`。
+Conventional Commits，scope 用 `backend` / `frontend`（同时改了两端或只改根目录的文件时省略 scope），描述用中文，例如 `feat(backend): 新增 repository.Store，支持在 service 层开启事务`。
 
 ## Agent skills
 

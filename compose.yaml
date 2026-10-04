@@ -7,7 +7,7 @@
 #      DANDANPLAY_TOKEN=<可选，设置后弹弹 API 挂在 /dandanplay/<token>/api/v2>
 # 3. docker compose up -d，管理界面在 http://<本机地址>:8080
 #
-# 配置项都是 DANFUSE_ 前缀的环境变量，完整列表见 backend/configs/config.example.yaml。
+# 配置项都是 DANFUSE_ 前缀的环境变量，完整列表与说明见 README 的"配置"一节。
 name: danfuse
 
 services:
