@@ -3,3 +3,6 @@
 
 # macOS
 .DS_Store
+
+# Agent skills 本地 issue
+.scratch/

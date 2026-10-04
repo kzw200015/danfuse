@@ -77,3 +77,17 @@ pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/compon
 ## 提交约定
 
 Conventional Commits，scope 用 `backend` / `frontend`，描述用中文，例如 `feat(backend): 新增 repository.Store，支持在 service 层开启事务`。
+
+## Agent skills
+
+### Issue tracker
+
+Issue 以本地 Markdown 文件形式存放在 `.scratch/<feature>/` 下。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用默认的五个分诊标签：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+single-context：根目录一个 `GLOSSARY.md` 加 `docs/adr/`。详见 `docs/agents/domain.md`。
