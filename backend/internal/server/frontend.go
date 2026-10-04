@@ -48,7 +48,13 @@ func frontend(files fs.FS) echo.MiddlewareFunc {
 // assets/ 下不存在的文件直接 404，不回退到 index.html，免得 index.html 被当作脚本长期缓存。
 func setCacheControl(c *echo.Context, files fs.FS) error {
 	header := c.Response().Header()
-	name := strings.TrimPrefix(c.Request().URL.Path, "/")
+	// 与 Static 中间件找文件时用的路径一致：编码方式与默认不同时（例如 %2D）用原样的 RawPath，
+	// 否则会出现这里找到了文件、Static 却回退到 index.html 的情况
+	p := c.Request().URL.Path
+	if raw := c.Request().URL.RawPath; raw != "" {
+		p = raw
+	}
+	name := strings.TrimPrefix(p, "/")
 	if !strings.HasPrefix(name, "assets/") {
 		header.Set(echo.HeaderCacheControl, "no-cache")
 		return nil

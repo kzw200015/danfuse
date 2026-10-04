@@ -10,4 +10,3 @@
 backend/bin
 backend/configs/config.yaml
 backend/web/static/dist
-frontend/dist

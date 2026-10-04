@@ -34,7 +34,8 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U danfuse -d danfuse"]
+      # 走 TCP 检查：首次初始化时临时启动的服务器只监听 unix socket，不带 -h 会提前报告就绪
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U danfuse -d danfuse"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -48,7 +49,7 @@ services:
       DANFUSE_DATABASE_DSN: postgres://danfuse:danfuse@postgres:5432/danfuse?sslmode=disable
       DANFUSE_CATALOG_SOURCE_KIND: jellyfin
       # 容器里用服务名访问 Jellyfin，默认同步 12.1。改为同步 10.11：在 .env 里加上
-      # JELLYFIN_URL=http://jellyfin-10-11:8096 和 JELLYFIN_API_KEY=<JELLYFIN_10_11_API_KEY 的值>，
+      # JELLYFIN_URL=http://jellyfin-10-11:8096 和 JELLYFIN_API_KEY=${JELLYFIN_10_11_API_KEY}，
       # 再 docker compose up -d danfuse
       DANFUSE_CATALOG_SOURCE_JELLYFIN_URL: ${JELLYFIN_URL:-http://jellyfin-12-1:8096}
       DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-${JELLYFIN_12_1_API_KEY:-}}

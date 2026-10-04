@@ -41,6 +41,7 @@ func TestFrontend(t *testing.T) {
 		{"根目录下的文件", "/favicon.svg", http.StatusOK, `<svg xmlns="http://www.w3.org/2000/svg"/>`, "no-cache"},
 		{"带哈希的资源", "/assets/index-abc.js", http.StatusOK, script, immutable},
 		{"不存在的资源不回退到 index.html", "/assets/index-old.js", http.StatusNotFound, notFound, ""},
+		{"编码过的资源路径不回退到 index.html", "/assets/index%2Dabc.js", http.StatusNotFound, notFound, ""},
 		{"管理 API", "/api/items", http.StatusOK, `{"code":0,"message":"ok","data":null}`, ""},
 		{"不存在的管理 API", "/api/%E4%B8%8D%E5%AD%98%E5%9C%A8", http.StatusNotFound, notFound, ""},
 		{"/api 本身", "/api", http.StatusNotFound, notFound, ""},

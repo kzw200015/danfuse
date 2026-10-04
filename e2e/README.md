@@ -49,11 +49,11 @@ API key 也可以手工查看或新建：用管理员登录 Jellyfin，进入"�
 
 ### compose 里的 danfuse
 
-容器里通过服务名访问 Jellyfin，默认同步 12.1（`http://jellyfin-12-1:8096`，API key 取 `.env` 里的 `JELLYFIN_12_1_API_KEY`），媒体库为 `番剧,电影,其他`，不开定时同步。改为同步 10.11 时，在 `.env` 里加上：
+容器里通过服务名访问 Jellyfin，默认同步 12.1（`http://jellyfin-12-1:8096`，API key 取 `.env` 里的 `JELLYFIN_12_1_API_KEY`），媒体库为 `番剧,电影,其他`，不开定时同步。改为同步 10.11 时，在 `.env` 末尾加上（compose 读 `.env` 时会展开前面定义的变量，重建环境、key 变了也不用改）：
 
 ```sh
 JELLYFIN_URL=http://jellyfin-10-11:8096
-JELLYFIN_API_KEY=<JELLYFIN_10_11_API_KEY 的值>
+JELLYFIN_API_KEY=${JELLYFIN_10_11_API_KEY}
 ```
 
 再执行 `docker compose up -d danfuse`；删掉这两行再执行一次就切回 12.1。两个版本共用同一个数据库，剧名又不同（见下文），切换后目录里会同时有两边的剧。要从空库开始：

@@ -3,11 +3,13 @@
 
 # Node 版本满足 frontend/package.json 的 engines；pnpm 由 corepack 按 packageManager 安装
 FROM --platform=$BUILDPLATFORM node:24-slim AS frontend
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# pnpm 的 store 放进缓存挂载（pnpm 12 只认 pnpm_config_ 前缀的环境变量），依赖变了也不必重新下载全部包
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm_config_store_dir=/pnpm/store
 RUN corepack enable
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,target=/pnpm/store \
+    pnpm install --frozen-lockfile
 COPY frontend/ ./
 # 产物输出到 /src/backend/web/static/dist（见 vite.config.ts）
 RUN pnpm build

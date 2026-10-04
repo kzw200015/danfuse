@@ -41,7 +41,7 @@ docker build -t danfuse .        # 多阶段 Dockerfile：Node 构建前端 → 
 docker compose up -d             # compose.yaml 是部署示例（danfuse + postgres:18），敏感值放旁边的 .env
 ```
 
-`e2e/compose.yaml` 里的 danfuse 也用这份 Dockerfile 从本地源码构建，用法见 `e2e/README.md`。
+`compose.yaml` 默认拉 ghcr 上的镜像（CI 首次推送后才存在）；验证本地改动时按它的注释改成 `build: .`，或者用 `e2e/compose.yaml`：那里的 danfuse 也用这份 Dockerfile 从本地源码构建，用法见 `e2e/README.md`。
 
 ## 后端架构
 
