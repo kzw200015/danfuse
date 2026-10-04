@@ -1,29 +1,25 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createMemoryRouter, RouterProvider } from 'react-router'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 
-import { routes } from '@/router/routes'
+import { getSettings } from '@/api/settings'
+import { getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
+import { renderRoutes, syncRun } from './utils'
 
 vi.mock('@/api/series', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/series')>()
   return { ...actual, listSeries: vi.fn<typeof actual.listSeries>().mockResolvedValue([]) }
 })
+vi.mock('@/api/settings')
+vi.mock('@/api/sync')
 
-function renderAt(path: string) {
-  const router = createMemoryRouter(routes, { initialEntries: [path] })
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  )
-  return router
-}
+beforeEach(() => {
+  vi.mocked(getSettings).mockResolvedValue({ catalogSource: null, syncInterval: 0 })
+  vi.mocked(listSyncRuns).mockResolvedValue([])
+})
 
 describe('App', () => {
   it('根路径重定向到目录页', async () => {
-    const router = renderAt('/')
+    const { router } = renderRoutes('/')
 
     expect(await screen.findByRole('link', { name: '目录' })).toHaveAttribute(
       'aria-current',
@@ -33,7 +29,7 @@ describe('App', () => {
   })
 
   it('顶栏导航切换页面', async () => {
-    const router = renderAt('/catalog')
+    const { router } = renderRoutes('/catalog')
 
     fireEvent.click(await screen.findByRole('link', { name: '同步' }))
 
@@ -42,12 +38,78 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: '同步' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('link', { name: '目录' })).not.toHaveAttribute('aria-current')
   })
+})
 
-  it('齿轮打开设置弹出层', async () => {
-    renderAt('/catalog')
+describe('"同步"导航项上的同步状态', () => {
+  it.each<{ name: string; latest: SyncRunDetail; want: string }>([
+    {
+      name: '还在列出媒体库',
+      latest: syncRun(1, { status: 'running', finishedAt: null, total: null, done: 0 }),
+      want: '同步…',
+    },
+    {
+      name: '进行中显示已完成/总数',
+      latest: syncRun(1, { status: 'running', finishedAt: null, total: 12, done: 5 }),
+      want: '同步5/12',
+    },
+    {
+      name: '失败',
+      latest: syncRun(1, { status: 'failed', total: null, done: 0, error: '列出媒体库失败' }),
+      want: '同步最近一次同步失败',
+    },
+    {
+      name: '中断',
+      latest: syncRun(1, { status: 'interrupted', finishedAt: null, done: 2 }),
+      want: '同步最近一次同步已中断',
+    },
+    { name: '有警告显示条数', latest: syncRun(1, { warningCount: 4 }), want: '同步4' },
+    { name: '正常结束不显示', latest: syncRun(1), want: '同步' },
+  ])('$name', async ({ latest, want }) => {
+    vi.mocked(listSyncRuns).mockResolvedValue([latest, syncRun(0, { warningCount: 9 })])
+    vi.mocked(getSyncRun).mockResolvedValue(latest)
+    renderRoutes('/sync')
 
-    fireEvent.click(await screen.findByRole('button', { name: '设置' }))
+    // 同步页的表格出现时列表已经取到
+    await screen.findByRole('cell', { name: '#1' })
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /^同步/ })).toHaveAccessibleName(want),
+    )
+  })
+})
 
-    expect(await screen.findByRole('dialog')).toHaveTextContent('设置')
+async function openSettings() {
+  fireEvent.click(await screen.findByRole('button', { name: '设置' }))
+  return screen.findByRole('dialog')
+}
+
+describe('设置弹出层', () => {
+  it('只读显示目录源的配置，API key 只显示已配置', async () => {
+    vi.mocked(getSettings).mockResolvedValue({
+      catalogSource: {
+        kind: 'jellyfin',
+        url: 'http://192.168.1.10:8096',
+        libraries: ['番剧', '电影'],
+      },
+      syncInterval: 86400,
+    })
+    renderRoutes('/catalog')
+
+    const dialog = await openSettings()
+
+    const value = async (term: string) =>
+      (await within(dialog).findByText(term)).nextElementSibling?.textContent
+    expect(await value('种类')).toBe('Jellyfin')
+    expect(await value('地址')).toBe('http://192.168.1.10:8096')
+    expect(await value('媒体库')).toBe('番剧电影')
+    expect(await value('定时同步')).toBe('每 24 小时')
+    expect(await value('API key')).toBe('已配置')
+  })
+
+  it('未配置目录源', async () => {
+    renderRoutes('/catalog')
+
+    const dialog = await openSettings()
+
+    expect(await within(dialog).findByText('未配置目录源')).toBeInTheDocument()
   })
 })

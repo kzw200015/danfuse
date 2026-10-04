@@ -43,10 +43,12 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	sync := configConfig.Sync
 	syncService := service.NewSyncService(sqlStore, pool, source, sync, slogLogger)
 	syncHandler := handler.NewSyncHandler(syncService)
+	settingsHandler := handler.NewSettingsHandler(catalogSource, sync)
 	handlers := &handler.Handlers{
-		Health:  healthHandler,
-		Catalog: catalogHandler,
-		Sync:    syncHandler,
+		Health:   healthHandler,
+		Catalog:  catalogHandler,
+		Sync:     syncHandler,
+		Settings: settingsHandler,
 	}
 	serverServer := server.New(configServer, slogLogger, handlers)
 	app := New(serverServer, syncService)

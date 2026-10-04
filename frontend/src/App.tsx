@@ -1,8 +1,10 @@
 import { NavLink, Outlet } from 'react-router'
 
 import SettingsPopover from '@/components/SettingsPopover'
+import { SyncNavStatus } from '@/components/SyncStatus'
 import { buttonVariants } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
+import { useLatestSyncRun } from '@/hooks/use-sync-runs'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -11,6 +13,9 @@ const navItems = [
 ]
 
 export default function App() {
+  // 同步状态挂在"同步"导航项上，在这里轮询，不切换页面也能看到
+  const latestRun = useLatestSyncRun()
+
   return (
     <div className="flex h-svh flex-col bg-background text-foreground">
       <header className="flex h-12 shrink-0 items-center gap-4 border-b px-4">
@@ -25,6 +30,7 @@ export default function App() {
               }
             >
               {item.label}
+              {item.to === '/sync' && <SyncNavStatus run={latestRun} />}
             </NavLink>
           ))}
         </nav>

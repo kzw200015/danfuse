@@ -17,4 +17,6 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 	api.POST("/sync-runs", h.Sync.Trigger)
 	api.GET("/sync-runs", h.Sync.List)
 	api.GET("/sync-runs/:id", h.Sync.Get)
+
+	api.GET("/settings", h.Settings.Get)
 }

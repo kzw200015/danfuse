@@ -89,10 +89,13 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 ## 前端架构
 
 - **API 层**：`src/api/request.ts` 的 `request<T>()` 基于 axios（`baseURL: '/api'`），自动解包统一响应返回 `data`；非 0 业务码、HTTP 错误、网络错误、非统一结构响应都转换为 `ApiError(message, code, status)`（网络错误 `status=0`、`code=CODE_FAIL`）。每个后端模块对应 `src/api/<module>.ts`，类型手写并与后端 camelCase JSON 对齐。
-- **状态管理**：服务端数据一律用 TanStack Query（`useQuery` 查询；`useMutation` 成功后 `invalidateQueries` 刷新）。查询键和请求函数放在同一个 API 模块里导出，查询与失效都用它，例如 `src/api/series.ts` 的 `seriesKeys`：剧列表 `['series']`、剧详情 `['series', id]`，让 `['series']` 失效会连同已加载的剧详情一起刷新。全局 `QueryClient`（`src/lib/query-client.ts`）设置 `retry: false`，失败直接展示 `ApiError.message`。跨组件共享的客户端状态用 Zustand，放在 `src/stores/`（按需创建）；局部状态用 `useState`。
+- **状态管理**：服务端数据一律用 TanStack Query（`useQuery` 查询；`useMutation` 成功后 `invalidateQueries` 刷新）。全局 `QueryClient`（`src/lib/query-client.ts`）设置 `retry: false`，失败直接展示 `ApiError.message`。跨组件共享的客户端状态用 Zustand，放在 `src/stores/`（按需创建）；局部状态用 `useState`。
+  - 查询键与查询 hook 放在 `src/hooks/use-<资源>.ts`，API 模块只放请求函数和类型（测试自动 mock `@/api/*` 时不会把 hook 和查询键一起替换掉）。查询键：列表 `['<资源>']`、详情 `['<资源>', id]`，例如 `use-series.ts` 的 `seriesKeys`；让列表的键失效会连同已加载的详情一起刷新。
+  - 同步状态由根布局调用一次 `useLatestSyncRun`（`src/hooks/use-sync-runs.ts`）统一轮询：只在最近一次同步为 running 时每秒轮询它的详情，详情顺带替换同步列表里的这一条，结束后让剧列表和剧详情（`seriesKeys.list` 前缀）失效；其他组件读同一份缓存，不要另开轮询。
+  - 操作反馈：成功用 toast；失败用 `components/ErrorNote` 显示在出错的位置，保留到下次操作或手动关闭（例外：触发同步被拒绝的 409 用 toast）。
 - **路由**：React Router data mode（从 `react-router` 导入，不是 `react-router-dom`），路由表在 `src/router/routes.ts`（页面用 `lazy` 动态导入 `src/views/*`），`src/router/index.ts` 据此创建 browser router；`/` 重定向到 `/catalog`。`App.tsx` 是根布局：顶栏（`Danfuse`、"目录 / 同步"导航、右上角设置弹出层）+ 占满剩余高度的 `<Outlet />` + `Toaster`。
 - **UI**：shadcn/ui（style `base-nova`，底层是 Base UI 而非 Radix），组件通过 CLI 添加到 `src/components/ui/`；路径别名 `@/*` → `src/*`（Vite 通过 `resolve.tsconfigPaths` 读取 tsconfig）。
-- **测试**：测试文件放在各目录的 `__tests__/` 下，命名 `*.spec.ts(x)`；jsdom 环境，未开启 globals，需从 `vitest` 显式 import。测试文件被 `tsconfig.app.json` 排除，由 `tsconfig.vitest.json` 单独做类型检查。组件测试用 `vi.mock` 模拟 `@/api/*` 模块（用 `importOriginal` 保留查询键，只替换请求函数），并为每个用例新建 `QueryClient`；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应；涉及路由的测试用 `createMemoryRouter(routes)`。jsdom 缺少的 `matchMedia`、`scrollIntoView` 在 `vitest.setup.ts` 里补上。
+- **测试**：测试文件放在各目录的 `__tests__/` 下，命名 `*.spec.ts(x)`；jsdom 环境，未开启 globals，需从 `vitest` 显式 import。测试文件被 `tsconfig.app.json` 排除，由 `tsconfig.vitest.json` 单独做类型检查。组件测试用 `vi.mock('@/api/<资源>')` 自动 mock 请求函数，并为每个用例新建 `QueryClient`；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应；涉及路由的测试用 `src/__tests__/utils.tsx` 的 `renderRoutes(path)`（`createMemoryRouter(routes)` 加新的 `QueryClient`，根布局会取同步列表和设置，所以要 mock `@/api/sync`、`@/api/settings`）。涉及轮询的用例用 `vi.useFakeTimers({ shouldAdvanceTime: true })`，`vi.advanceTimersByTimeAsync` 推进轮询；点按钮前先等依赖的查询取到（按钮渲染出来时查询可能还没发出）。jsdom 缺少的 `matchMedia`、`scrollIntoView` 在 `vitest.setup.ts` 里补上。
 
 ## 提交约定
 
