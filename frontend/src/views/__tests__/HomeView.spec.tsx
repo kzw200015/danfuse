@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { render, screen } from '@testing-library/react'
 
 import { getHealth } from '@/api/health'
 import { ApiError } from '@/api/request'
-import HomeView from '@/views/HomeView.vue'
+import HomeView from '@/views/HomeView'
 
 vi.mock('@/api/health', () => ({ getHealth: vi.fn<typeof getHealth>() }))
 
@@ -15,19 +15,17 @@ describe('HomeView', () => {
   it('后端正常时显示连接正常', async () => {
     vi.mocked(getHealth).mockResolvedValue({ status: 'ok' })
 
-    const wrapper = mount(HomeView)
-    expect(wrapper.text()).toContain('检查中...')
+    render(<HomeView />)
+    expect(screen.getByText('检查中...')).toBeInTheDocument()
 
-    await flushPromises()
-    expect(wrapper.text()).toContain('后端与数据库连接正常')
+    expect(await screen.findByText('后端与数据库连接正常')).toBeInTheDocument()
   })
 
   it('后端异常时显示错误信息与业务码', async () => {
     vi.mocked(getHealth).mockRejectedValue(new ApiError('数据库不可用', 1, 503))
 
-    const wrapper = mount(HomeView)
-    await flushPromises()
+    render(<HomeView />)
 
-    expect(wrapper.text()).toContain('数据库不可用（code: 1）')
+    expect(await screen.findByText('数据库不可用（code: 1）')).toBeInTheDocument()
   })
 })

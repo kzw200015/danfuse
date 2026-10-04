@@ -1,19 +1,14 @@
 {
   "extends": "./tsconfig.app.json",
 
-  // Override to include only test files and clear exclusions.
-  // Application code imported in tests is automatically included via module resolution.
-  "include": ["src/**/__tests__/*", "env.d.ts"],
+  // 只包含测试文件与测试初始化脚本；被测试引用的应用代码会通过模块解析自动纳入
+  "include": ["src/**/__tests__/*", "vitest.setup.ts"],
   "exclude": [],
 
   "compilerOptions": {
-    // Vitest runs in a different environment than the application code.
-    // Adjust lib and types accordingly.
-    "lib": [],
-    "types": ["node", "jsdom"],
+    // 测试运行在 Node（jsdom）环境中
+    "types": ["node", "vite/client"],
 
-    // `vue-tsc --build` produces a .tsbuildinfo file for incremental type-checking.
-    // Specified here to keep it out of the root directory.
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.vitest.tsbuildinfo"
   }
 }

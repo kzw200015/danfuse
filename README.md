@@ -5,7 +5,7 @@
 | 端 | 技术栈 |
 | --- | --- |
 | backend | Go · Echo v5 · viper · pgx/v5 + PostgreSQL · sqlc · goose（启动时自动迁移）· wire · golangci-lint v2 |
-| frontend | Vue 3 · TypeScript · Vite · Vue Router · Pinia · shadcn-vue（Tailwind CSS v4）· axios · Vitest · oxlint · oxfmt |
+| frontend | React 19 · TypeScript · Vite · React Router · Zustand · shadcn/ui（Base UI · Tailwind CSS v4）· axios · Vitest + Testing Library · oxlint · oxfmt |
 
 ## 目录结构
 
@@ -35,11 +35,11 @@ backend/
 frontend/
 ├── src/
 │   ├── api/               # request.ts 封装统一响应；按模块划分接口
-│   ├── components/ui/     # shadcn-vue 组件（通过 CLI 添加）
-│   ├── stores/            # Pinia
-│   ├── router/
+│   ├── components/ui/     # shadcn/ui 组件（通过 CLI 添加）
+│   ├── stores/            # Zustand
+│   ├── router/            # React Router（data mode），App.tsx 为根布局
 │   └── views/
-├── components.json        # shadcn-vue 配置
+├── components.json        # shadcn/ui 配置
 ├── .oxlintrc.json
 └── .oxfmtrc.json
 ```
@@ -89,7 +89,7 @@ pnpm dev        # /api 代理到 http://localhost:8080
 | `pnpm test:unit` | Vitest 单元测试（默认监听模式，加 `--run` 只执行一次）；测试文件放在各目录的 `__tests__/` 下 |
 | `pnpm lint` / `pnpm lint:fix` | oxlint |
 | `pnpm format` / `pnpm format:check` | oxfmt |
-| `pnpm dlx shadcn-vue@latest add <component>` | 添加 shadcn-vue 组件 |
+| `pnpm dlx shadcn@latest add <component>` | 添加 shadcn/ui 组件 |
 
 ## 统一响应
 

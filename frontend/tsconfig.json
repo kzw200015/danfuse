@@ -1,17 +1,11 @@
 {
   "files": [],
   "references": [
-    {
-      "path": "./tsconfig.node.json"
-    },
-    {
-      "path": "./tsconfig.app.json"
-    },
-    {
-      "path": "./tsconfig.vitest.json"
-    }
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.vitest.json" }
   ],
-  // shadcn-vue CLI 通过根 tsconfig 解析 @ 别名
+  // shadcn CLI 通过根 tsconfig 解析 @ 别名
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"]

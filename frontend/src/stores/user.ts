@@ -1,34 +1,40 @@
-import { computed, ref } from 'vue'
-import { defineStore } from 'pinia'
+import { create } from 'zustand'
 
 import { createUser, listUsers, type CreateUserPayload, type User } from '@/api/user'
 
-export const useUserStore = defineStore('user', () => {
-  const users = ref<User[]>([])
-  const total = ref(0)
-  const page = ref(1)
-  const pageSize = ref(10)
-  const loading = ref(false)
+interface UserState {
+  users: User[]
+  total: number
+  page: number
+  pageSize: number
+  loading: boolean
+  fetchUsers: (targetPage?: number) => Promise<void>
+  addUser: (payload: CreateUserPayload) => Promise<User>
+}
 
-  const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+export const useUserStore = create<UserState>()((set, get) => ({
+  users: [],
+  total: 0,
+  page: 1,
+  pageSize: 10,
+  loading: false,
 
-  async function fetchUsers(targetPage = page.value) {
-    loading.value = true
+  async fetchUsers(targetPage = get().page) {
+    set({ loading: true })
     try {
-      const res = await listUsers({ page: targetPage, pageSize: pageSize.value })
-      users.value = res.list
-      total.value = res.total
-      page.value = res.page
+      const res = await listUsers({ page: targetPage, pageSize: get().pageSize })
+      set({ users: res.list, total: res.total, page: res.page })
     } finally {
-      loading.value = false
+      set({ loading: false })
     }
-  }
+  },
 
-  async function addUser(payload: CreateUserPayload) {
+  async addUser(payload) {
     const user = await createUser(payload)
-    await fetchUsers(1)
+    await get().fetchUsers(1)
     return user
-  }
+  },
+}))
 
-  return { users, total, page, pageSize, loading, totalPages, fetchUsers, addUser }
-})
+export const selectTotalPages = (state: UserState) =>
+  Math.max(1, Math.ceil(state.total / state.pageSize))
