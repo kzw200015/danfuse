@@ -40,3 +40,9 @@ pnpm dev
 ```sh
 pnpm build
 ```
+
+### Run Unit Tests with [Vitest](https://vitest.dev/)
+
+```sh
+pnpm test:unit
+```

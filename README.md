@@ -5,7 +5,7 @@
 | 端 | 技术栈 |
 | --- | --- |
 | backend | Go · Echo v5 · viper · pgx/v5 + PostgreSQL · sqlc · goose（启动时自动迁移）· wire · golangci-lint v2 |
-| frontend | Vue 3 · TypeScript · Vite · Vue Router · Pinia · shadcn-vue（Tailwind CSS v4）· axios · oxlint · oxfmt |
+| frontend | Vue 3 · TypeScript · Vite · Vue Router · Pinia · shadcn-vue（Tailwind CSS v4）· axios · Vitest · oxlint · oxfmt |
 
 ## 目录结构
 
@@ -86,6 +86,7 @@ pnpm dev        # /api 代理到 http://localhost:8080
 | --- | --- |
 | `pnpm dev` | 开发服务器 |
 | `pnpm build` | 类型检查 + 构建 |
+| `pnpm test:unit` | Vitest 单元测试（默认监听模式，加 `--run` 只执行一次）；测试文件放在各目录的 `__tests__/` 下 |
 | `pnpm lint` / `pnpm lint:fix` | oxlint |
 | `pnpm format` / `pnpm format:check` | oxfmt |
 | `pnpm dlx shadcn-vue@latest add <component>` | 添加 shadcn-vue 组件 |
