@@ -21,6 +21,9 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 	api.GET("/images/:id", h.Catalog.GetImage)
 
 	api.POST("/episodes/:id/bindings", h.Binding.Create)
+	api.PATCH("/bindings/:id", h.Binding.Update)
+	api.DELETE("/bindings/:id", h.Binding.Delete)
+	api.POST("/bindings/:id/refetch", h.Binding.Refetch)
 
 	api.POST("/sync-runs", h.Sync.Trigger)
 	api.GET("/sync-runs", h.Sync.List)

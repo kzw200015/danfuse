@@ -60,7 +60,7 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 - Go 迁移：分词规则（`fulltext`）或搜索列的组成（`catalog.SearchVector`）改变时，已有的搜索列靠 goose 的 Go 迁移重算，不设版本列。在 `db/migrations` 下按序号新增 `000NN_xxx.go`，在 `init` 里 `goose.AddMigrationContext(recomputeSearchVectors, nil)`（goose 从注册它的文件名取版本号）；`database` 包空导入 `db/migrations`，Go 迁移与 SQL 迁移按版本号一起执行。
 
 **数据库访问**：service 依赖 `repository.Store` 接口（`Querier` + `ExecTx`）。单条查询直接调用，自动提交；多条语句需要原子性时用 `store.ExecTx(ctx, func(q repository.Querier) error {...})`，回调内必须用传入的 `q`。唯一约束冲突用 `database.IsUniqueViolation(err)` 判断，查无记录比较 `pgx.ErrNoRows`。
-- 并发：保持默认的 READ COMMITTED，不加应用层的锁。网络请求（取目录源、拉取弹幕）都在事务之外，拿到结果才开写入事务；写入事务的第一句锁住要写的父行（例如创建绑定时 `LockEpisode` 以 `FOR KEY SHARE` 锁住集，查不到就返回"这一集已被删除"的 404），不靠捕获外键错误；拉取前的查重只为省一次请求，并发重复以唯一约束为准。
+- 并发：保持默认的 READ COMMITTED，不加应用层的锁。网络请求（取目录源、拉取弹幕）都在事务之外，拿到结果才开写入事务；写入事务的第一句锁住要写的行（例如创建绑定时 `LockEpisode` 以 `FOR KEY SHARE` 锁住集，查不到就返回"这一集已被删除"的 404；重新拉取、标为失效时 `LockBinding` 以 `FOR UPDATE` 锁住绑定，同一个绑定的写入排队执行，查不到就返回"绑定已被删除"的 404），不靠捕获外键错误；拉取前的查重只为省一次请求，并发重复以唯一约束为准。写回时只更新自己负责的列（拉取不覆盖 offset）。
 - 批量写入用数组参数加 `unnest` 一条语句写完（如 `InsertDanmaku`，`ON CONFLICT DO NOTHING` 按主键去重，`:execrows` 返回实际插入的条数）；`bindings.danmaku_count` 这类计数在同一个事务里按插入的条数维护，读取时不 COUNT。列名 `offset` 是保留字，SQL 里要加引号。
 
 **错误处理与统一响应**（贯穿两端的核心约定）：
@@ -97,11 +97,11 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 ## 前端架构
 
-- **API 层**：`src/api/request.ts` 的 `request<T>()` 基于 axios（`baseURL: '/api'`，默认 15 秒超时），自动解包统一响应返回 `data`；非 0 业务码、HTTP 错误、网络错误、非统一结构响应都转换为 `ApiError(message, code, status)`（网络错误 `status=0`、`code=CODE_FAIL`）。每个后端模块对应 `src/api/<module>.ts`，类型手写并与后端 camelCase JSON 对齐。服务端要等较久的请求在 API 模块里单独放宽 `timeout`（如 `bindings.ts` 的创建绑定：后端当场拉取，最长约 25 秒），界面上用 `useElapsed`（`src/hooks/use-elapsed.ts`）显示已用秒数。
+- **API 层**：`src/api/request.ts` 的 `request<T>()` 基于 axios（`baseURL: '/api'`，默认 15 秒超时），自动解包统一响应返回 `data`；非 0 业务码、HTTP 错误、网络错误、非统一结构响应都转换为 `ApiError(message, code, status)`（网络错误 `status=0`、`code=CODE_FAIL`）。每个后端模块对应 `src/api/<module>.ts`，类型手写并与后端 camelCase JSON 对齐。服务端要等较久的请求在 API 模块里单独放宽 `timeout`（如 `bindings.ts` 的创建绑定、重新拉取：后端当场拉取，最长约 25 秒），界面上用 `useElapsed`（`src/hooks/use-elapsed.ts`）显示已用秒数。
 - **状态管理**：服务端数据一律用 TanStack Query（`useQuery` 查询；`useMutation` 成功后 `invalidateQueries` 刷新）。全局 `QueryClient`（`src/lib/query-client.ts`）设置 `retry: false`，失败直接展示 `ApiError.message`。跨组件共享的客户端状态用 Zustand，放在 `src/stores/`（按需创建）；局部状态用 `useState`。
   - 查询键与查询 hook 放在 `src/hooks/use-<资源>.ts`，API 模块只放请求函数和类型（测试自动 mock `@/api/*` 时不会把 hook 和查询键一起替换掉）。查询键：列表 `['<资源>']`、详情 `['<资源>', id]`，例如 `use-series.ts` 的 `seriesKeys`；让列表的键失效会连同已加载的详情一起刷新。
   - 同步状态由根布局调用一次 `useLatestSyncRun`（`src/hooks/use-sync-runs.ts`）统一轮询：只在最近一次同步为 running 时每秒轮询它的详情，详情顺带替换同步列表里的这一条，结束后让剧列表和剧详情（`seriesKeys.list` 前缀）失效；其他组件读同一份缓存，不要另开轮询。
-  - 操作反馈：成功用 toast；失败用 `components/ErrorNote` 显示在出错的位置，保留到下次操作或手动关闭（例外：触发同步被拒绝的 409 用 toast）。
+  - 操作反馈：成功用 toast；失败用 `components/ErrorNote` 显示在出错的位置，保留到下次操作或手动关闭（例外：触发同步被拒绝的 409 用 toast）。删除这类不可恢复的操作先用 `components/ConfirmButton` 确认，确认框写明后果；确认后确认框随即关闭，进行中的状态和失败提示显示在页面上（例如绑定卡片），不留在确认框里。
 - **路由**：React Router data mode（从 `react-router` 导入，不是 `react-router-dom`），路由表在 `src/router/routes.ts`（页面用 `lazy` 动态导入 `src/views/*`），`src/router/index.ts` 据此创建 browser router；`/` 重定向到 `/catalog`。`App.tsx` 是根布局：顶栏（`Danfuse`、"目录 / 同步"导航、右上角设置弹出层）+ 占满剩余高度的 `<Outlet />` + `Toaster`。
 - **UI**：shadcn/ui（style `base-nova`，底层是 Base UI 而非 Radix），组件通过 CLI 添加到 `src/components/ui/`；路径别名 `@/*` → `src/*`（Vite 通过 `resolve.tsconfigPaths` 读取 tsconfig）。
 - **测试**：测试文件放在各目录的 `__tests__/` 下，命名 `*.spec.ts(x)`；jsdom 环境，未开启 globals，需从 `vitest` 显式 import。测试文件被 `tsconfig.app.json` 排除，由 `tsconfig.vitest.json` 单独做类型检查。组件测试用 `vi.mock('@/api/<资源>')` 自动 mock 请求函数，并为每个用例新建 `QueryClient`；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应；涉及路由的测试用 `src/__tests__/utils.tsx` 的 `renderRoutes(path)`（`createMemoryRouter(routes)` 加新的 `QueryClient`，根布局会取同步列表和设置，所以要 mock `@/api/sync`、`@/api/settings`）。涉及轮询的用例用 `vi.useFakeTimers({ shouldAdvanceTime: true })`，`vi.advanceTimersByTimeAsync` 推进轮询；点按钮前先等依赖的查询取到（按钮渲染出来时查询可能还没发出）。jsdom 缺少的 `matchMedia`、`scrollIntoView` 在 `vitest.setup.ts` 里补上。

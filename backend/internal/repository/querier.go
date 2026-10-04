@@ -12,11 +12,17 @@ type Querier interface {
 	// 这一集是否已经绑定过这个弹幕源。只用于在拉取前省掉一次注定 409 的拉取，并发时以唯一约束为准。
 	BindingExists(ctx context.Context, arg BindingExistsParams) (bool, error)
 	CreateSyncRun(ctx context.Context, trigger string) (int64, error)
+	// 删除绑定，它的弹幕随外键级联删除。
+	DeleteBinding(ctx context.Context, id int64) (int64, error)
+	// 清空后重新拉取：在写入这次结果的同一个事务里，先删掉这个绑定的全部弹幕。
+	DeleteDanmaku(ctx context.Context, bindingID int64) error
 	DeleteImage(ctx context.Context, id int64) error
 	// 只保留最近 keep 次：新同步开始时先删到剩 19 次，再插入这一次。
 	DeleteOldSyncRuns(ctx context.Context, keep int32) error
 	// 创建绑定前确认这一集存在，拉取之前就能返回 404。
 	EpisodeExists(ctx context.Context, id int64) (bool, error)
+	// 重新拉取之前取出适配器和 ref。
+	GetBinding(ctx context.Context, id int64) (Binding, error)
 	// 图片接口用：原始字节与 content-type。
 	GetImage(ctx context.Context, id int64) (GetImageRow, error)
 	// 同步时与目录源的新图比较，不取图片本身。
@@ -45,10 +51,18 @@ type Querier interface {
 	ListSeries(ctx context.Context) ([]ListSeriesRow, error)
 	// 列表不带警告正文。
 	ListSyncRuns(ctx context.Context, limit int32) ([]ListSyncRunsRow, error)
+	// 重新拉取、标为失效的写入事务的第一句：锁住这个绑定到提交。同一个绑定的写入因此排队执行，
+	// 计数的算术准确；删除绑定也要等它提交。绑定已被删除时没有行。
+	LockBinding(ctx context.Context, id int64) (int64, error)
 	// 创建绑定的写入事务的第一句：锁住这一集到提交，期间删不掉它。FOR KEY SHARE 与同步的 upsert 兼容。
 	// 这一集已被删除时没有行。
 	LockEpisode(ctx context.Context, id int64) (int64, error)
-	// 一次拉取写入弹幕之后更新绑定：新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
+	// 重新拉取时弹幕源已不存在：标为失效。已保存的弹幕、计数、标题和时长都不动；
+	// 这次拉取得到了确定的结果，拉取时间照常更新。
+	MarkBindingDead(ctx context.Context, id int64) error
+	// 一次拉取写入弹幕之后更新绑定：
+	//   只增不删时，新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
+	//   清空后重新拉取（replace）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1。
 	// 标题、时长用这次拉取的值覆盖；拉取成功即为 active。只更新拉取相关的列，不覆盖 offset。
 	RecordFetch(ctx context.Context, arg RecordFetchParams) (Binding, error)
 	// 目录搜索，query 是 Go 拼好的 tsquery 文本（fulltext.Query）。排序全在这里：
@@ -59,6 +73,8 @@ type Querier interface {
 	SetSeasonSearchVector(ctx context.Context, arg SetSeasonSearchVectorParams) error
 	// 剧指向新的海报，没有图时为 null。
 	SetSeriesPoster(ctx context.Context, arg SetSeriesPosterParams) error
+	// 只改偏移，content_version 不变。
+	UpdateBindingOffset(ctx context.Context, arg UpdateBindingOffsetParams) (Binding, error)
 	// 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。
 	UpdateSyncRun(ctx context.Context, arg UpdateSyncRunParams) error
 	// 按自然键 (season_id, number) 写入一集，规则同 UpsertSeries。

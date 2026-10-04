@@ -83,6 +83,20 @@ export function durationMismatch(source: number, episode: number | null) {
   return Math.abs(diff) >= 3 ? diff : null
 }
 
+/** 偏移绝对值的上限，秒（一天），与后端一致 */
+export const MAX_OFFSET = 86400
+
+/**
+ * 偏移输入框里的秒数：十进制数，可带正负号，小数最多到毫秒（三位；读取时校正后的时间也只精确到毫秒），
+ * 绝对值不超过 MAX_OFFSET。不合法时为 null（空的、指数写法、Infinity 这类都不算），在前端拦下，不发请求。
+ */
+export function parseOffset(text: string) {
+  const s = text.trim()
+  if (!/^[+-]?(\d+(\.\d{0,3})?|\.\d{1,3})$/.test(s)) return null
+  const offset = Number(s)
+  return Math.abs(offset) <= MAX_OFFSET ? offset : null
+}
+
 /** 目录页的地址：/catalog[/剧[/季[/集]]] */
 export function catalogPath(...ids: number[]) {
   return ['/catalog', ...ids].join('/')

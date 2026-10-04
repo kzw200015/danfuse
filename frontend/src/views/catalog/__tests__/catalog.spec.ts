@@ -9,6 +9,7 @@ import {
   filterSeries,
   formatDuration,
   parseId,
+  parseOffset,
   resolveSelection,
   seasonLabel,
   seasonName,
@@ -182,6 +183,43 @@ describe('durationMismatch', () => {
     ['本集没有时长', 1420, null, null],
   ])('%s', (_, source, episode, want) => {
     expect(durationMismatch(source, episode)).toBe(want)
+  })
+})
+
+describe('parseOffset', () => {
+  it.each([
+    ['1.5', 1.5],
+    ['1.234', 1.234],
+    ['-0.5', -0.5],
+    [' -2 ', -2],
+    ['+3', 3],
+    ['.5', 0.5],
+    ['7.', 7],
+    ['0', 0],
+    ['86400', 86400],
+    ['-86400', -86400],
+  ])('%j 合法', (text, want) => {
+    expect(parseOffset(text)).toBe(want)
+  })
+
+  it.each([
+    '',
+    '  ',
+    'abc',
+    '1,5',
+    '1.2.3',
+    '--1',
+    '86400.1',
+    '-86401',
+    '1e3',
+    'Infinity',
+    'NaN',
+    '0x10',
+    // 小数最多到毫秒
+    '0.0001',
+    '.1234',
+  ])('%j 不合法', (text) => {
+    expect(parseOffset(text)).toBeNull()
   })
 })
 

@@ -23,10 +23,10 @@ export interface Binding {
 }
 
 /**
- * 创建绑定时后端当场拉取全部弹幕，最长约 25 秒（服务端的写超时是 30 秒）；
+ * 创建绑定、重新拉取时后端当场拉取全部弹幕，最长约 25 秒（服务端的写超时是 30 秒）；
  * 默认的 15 秒请求超时不够，放宽到 35 秒，让服务端先给出结果。
  */
-const createTimeout = 35_000
+const fetchTimeout = 35_000
 
 /** 贴链接给一集创建绑定，当场拉取全部弹幕；拉取失败时不创建 */
 export function createBinding(episodeId: number, url: string) {
@@ -34,6 +34,35 @@ export function createBinding(episodeId: number, url: string) {
     url: `/episodes/${episodeId}/bindings`,
     method: 'POST',
     data: { url },
-    timeout: createTimeout,
+    timeout: fetchTimeout,
   })
+}
+
+export interface RefetchResult {
+  binding: Binding
+  /** 新增条数；清空后重新拉取时为这次的总条数 */
+  added: number
+}
+
+/**
+ * 重新拉取一个绑定的全部弹幕。clear 为 false 时只插入新弹幕；为 true 时拉取成功后替换现有弹幕。
+ * 拉取失败时不改动弹幕；弹幕源不存在（422）时后端把绑定标为失效。
+ */
+export function refetchBinding(id: number, clear: boolean) {
+  return request<RefetchResult>({
+    url: `/bindings/${id}/refetch`,
+    method: 'POST',
+    data: { clear },
+    timeout: fetchTimeout,
+  })
+}
+
+/** 改偏移（秒，正数表示弹幕延后） */
+export function updateBindingOffset(id: number, offset: number) {
+  return request<Binding>({ url: `/bindings/${id}`, method: 'PATCH', data: { offset } })
+}
+
+/** 删除绑定，它的弹幕一起删除 */
+export function deleteBinding(id: number) {
+  return request<null>({ url: `/bindings/${id}`, method: 'DELETE' })
 }

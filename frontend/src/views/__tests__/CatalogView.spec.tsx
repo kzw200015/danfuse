@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import { renderRoutes } from '@/__tests__/utils'
-import { createBinding, type Binding } from '@/api/bindings'
+import {
+  createBinding,
+  deleteBinding,
+  refetchBinding,
+  updateBindingOffset,
+  type Binding,
+} from '@/api/bindings'
 import { ApiError } from '@/api/request'
 import { getSeries, listSeries, type SeriesDetail } from '@/api/series'
 import { getSettings } from '@/api/settings'
@@ -121,6 +127,8 @@ afterEach(() => {
 })
 
 const seasonNav = () => within(screen.getByRole('navigation', { name: '季' }))
+/** 标题为 title 的绑定卡片 */
+const card = async (title: string) => within(await screen.findByRole('article', { name: title }))
 
 describe('CatalogView', () => {
   it('剧：默认选中第 1 季，右栏显示季面板', async () => {
@@ -369,5 +377,166 @@ describe('绑定', () => {
     expect(await screen.findByRole('heading', { name: '第 1 集启程' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '弹幕源链接' })).toHaveValue('')
+  })
+})
+
+describe('维护绑定', () => {
+  /** 服务端「启程」这一集的绑定，用例改它来模拟后端的修改 */
+  const bindingsOf110 = () => all[0]!.seasons[1]!.episodes[0]!.bindings
+
+  it('重新拉取：进行中显示已用秒数，成功后用 toast 显示新增条数', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    let finish!: () => void
+    vi.mocked(refetchBinding).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => {
+            const b = bindingsOf110()[0]!
+            b.danmakuCount += 12
+            resolve({ binding: b, added: 12 })
+          }
+        }),
+    )
+    renderRoutes('/catalog/1/11/110')
+    const first = await card('弹幕源 1')
+
+    fireEvent.click(first.getByRole('button', { name: '重新拉取' }))
+
+    await waitFor(() => expect(refetchBinding).toHaveBeenCalledWith(1, false))
+    expect(await first.findByText('正在拉取全部弹幕，最长约 25 秒…')).toBeInTheDocument()
+    await act(() => vi.advanceTimersByTimeAsync(3000))
+    expect(first.getByRole('button', { name: /^拉取中/ })).toHaveTextContent('拉取中 3s')
+    expect(first.getByRole('button', { name: '删除' })).toBeDisabled()
+
+    act(() => finish())
+
+    expect(await screen.findByText('新增 12 条弹幕')).toBeInTheDocument()
+    expect(await first.findByText('弹幕 1,246 条')).toBeInTheDocument()
+    expect(first.queryByText(/最长约 25 秒/)).not.toBeInTheDocument()
+  })
+
+  it('清空后重新拉取：确认框写明后果，确认后才拉取', async () => {
+    vi.mocked(refetchBinding).mockResolvedValue({
+      binding: binding(1, { danmakuCount: 1100 }),
+      added: 1100,
+    })
+    renderRoutes('/catalog/1/11/110')
+    const first = await card('弹幕源 1')
+
+    fireEvent.click(first.getByRole('button', { name: '清空后重新拉取' }))
+
+    const dialog = within(await screen.findByRole('alertdialog'))
+    expect(dialog.getByText('先完整拉取一遍，成功后替换现有弹幕。')).toBeInTheDocument()
+    expect(
+      dialog.getByText('B 站上已经删除、或已经滑出滚动窗口的弹幕会永久丢失。'),
+    ).toBeInTheDocument()
+    expect(dialog.getByText('拉取失败时不做任何改动。')).toBeInTheDocument()
+    expect(refetchBinding).not.toHaveBeenCalled()
+
+    fireEvent.click(dialog.getByRole('button', { name: '清空并重新拉取' }))
+
+    await waitFor(() => expect(refetchBinding).toHaveBeenCalledWith(1, true))
+    expect(await screen.findByText('已清空并重新拉取，共 1,100 条弹幕')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+  })
+
+  it('重新拉取失败：提示显示在这张卡片下方；弹幕源不存在时重新加载这部剧，显示失效', async () => {
+    vi.mocked(refetchBinding).mockRejectedValue(new ApiError('B 站接口异常', 1, 502))
+    renderRoutes('/catalog/1/11/110')
+    const article = await screen.findByRole('article', { name: '弹幕源 1' })
+    const first = within(article)
+
+    fireEvent.click(first.getByRole('button', { name: '重新拉取' }))
+
+    const alert = await first.findByRole('alert')
+    expect(alert).toHaveTextContent('B 站接口异常')
+    expect(article.lastElementChild).toBe(alert)
+    expect(
+      within(screen.getByRole('article', { name: '弹幕源 2' })).queryByRole('alert'),
+    ).toBeNull()
+    // 临时错误：状态不变，不重新加载
+    expect(getSeries).toHaveBeenCalledTimes(1)
+
+    // 弹幕源不存在：后端已把绑定标为失效
+    vi.mocked(refetchBinding).mockImplementation(async () => {
+      bindingsOf110()[0]!.status = 'dead'
+      throw new ApiError('视频不存在、已删除或不可见', 1, 422)
+    })
+    fireEvent.click(first.getByRole('button', { name: '重新拉取' }))
+
+    expect(await first.findByText('失效')).toBeInTheDocument()
+    expect(first.getByRole('alert')).toHaveTextContent('视频不存在、已删除或不可见')
+
+    // 保留到手动关闭
+    fireEvent.click(within(first.getByRole('alert')).getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(first.queryByRole('alert')).not.toBeInTheDocument())
+  })
+
+  it('偏移：回车或失焦时保存，不合法时在前端拦下', async () => {
+    vi.mocked(updateBindingOffset).mockImplementation(async (id, offset) => {
+      const b = bindingsOf110().find((x) => x.id === id)!
+      b.offset = offset
+      return b
+    })
+    renderRoutes('/catalog/1/11/110')
+    const first = await card('弹幕源 1')
+    const input = first.getByRole('textbox', { name: '偏移（秒）' })
+    expect(input).toHaveValue('0')
+
+    // 没改动：不保存
+    fireEvent.blur(input)
+    expect(updateBindingOffset).not.toHaveBeenCalled()
+
+    // 不合法：拦下，提示在卡片下方，输入保留
+    fireEvent.change(input, { target: { value: '90000' } })
+    fireEvent.blur(input)
+    expect(first.getByRole('alert')).toHaveTextContent(
+      '偏移必须是 -86400 到 86400 之间的秒数，小数最多三位',
+    )
+    expect(updateBindingOffset).not.toHaveBeenCalled()
+    expect(input).toHaveValue('90000')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+
+    // 回车保存，提示清除
+    fireEvent.change(input, { target: { value: '-2.5' } })
+    act(() => input.focus())
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(updateBindingOffset).toHaveBeenCalledWith(1, -2.5))
+    expect(await screen.findByText('偏移已改为 -2.5 秒')).toBeInTheDocument()
+    expect(first.queryByRole('alert')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(first.getByRole('textbox', { name: '偏移（秒）' })).toHaveValue('-2.5'),
+    )
+  })
+
+  it('删除绑定：确认框写明它的弹幕会一起删除，确认后才删除', async () => {
+    vi.mocked(deleteBinding).mockImplementation(async (id) => {
+      const episode = all[0]!.seasons[1]!.episodes[0]!
+      episode.bindings = episode.bindings.filter((b) => b.id !== id)
+      return null
+    })
+    renderRoutes('/catalog/1/11/110')
+    const first = await card('弹幕源 1')
+
+    // 取消：不删除
+    fireEvent.click(first.getByRole('button', { name: '删除' }))
+    fireEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: '取消' }),
+    )
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(deleteBinding).not.toHaveBeenCalled()
+
+    fireEvent.click(first.getByRole('button', { name: '删除' }))
+    const dialog = within(await screen.findByRole('alertdialog'))
+    expect(dialog.getByText(/弹幕会一起删除/)).toHaveTextContent(
+      '「弹幕源 1」的 1,234 条弹幕会一起删除，无法恢复。',
+    )
+    fireEvent.click(dialog.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteBinding).toHaveBeenCalledWith(1))
+    expect(await screen.findByText('已删除绑定')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '绑定（1）' })).toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: '弹幕源 1' })).not.toBeInTheDocument()
   })
 })

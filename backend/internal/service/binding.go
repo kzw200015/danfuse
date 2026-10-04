@@ -22,10 +22,12 @@ var (
 	errEpisodeNotFound = errcode.ErrNotFound.WithMessage("集不存在")
 	errEpisodeDeleted  = errcode.ErrNotFound.WithMessage("这一集已被删除")
 	errBindingExists   = errcode.ErrConflict.WithMessage("这一集已经绑定过这个来源")
+	errBindingNotFound = errcode.ErrNotFound.WithMessage("绑定不存在")
+	errBindingDeleted  = errcode.ErrNotFound.WithMessage("绑定已被删除")
 )
 
-// BindingService 绑定：贴链接创建，拉取弹幕源的全部弹幕写入 snapshot。
-// 拉取（网络请求）都在事务之外，拉完才开写入事务，写入事务的第一句锁住要写的父行；
+// BindingService 绑定：贴链接创建，拉取弹幕源的全部弹幕写入 snapshot；重新拉取、改偏移与删除。
+// 拉取（网络请求）都在事务之外，拉完才开写入事务，写入事务的第一句锁住要写的行（创建时锁集，重新拉取时锁绑定）；
 // 不加应用层的锁，并发靠行锁、外键级联和唯一约束。
 type BindingService struct {
 	store   repository.Store
@@ -103,7 +105,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 			}
 			return fmt.Errorf("insert binding of episode %d: %w", episodeID, err)
 		}
-		binding, added, err = saveFetched(ctx, q, id, fetched)
+		binding, added, err = saveFetched(ctx, q, id, fetched, false)
 		return err
 	})
 	if err != nil {
@@ -113,6 +115,109 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 	return bindingView(s.sources, binding)
 }
 
+// Refetch 重新拉取一个绑定的全部弹幕，返回更新后的绑定和新增条数。不依赖 HTTP 请求，以后的定时拉取直接复用。
+//   - replace 为 false（重新拉取）：只插入新弹幕，从不删除，平台上已经删掉的弹幕继续保留。
+//   - replace 为 true（清空后重新拉取，即管理 API 的 clear）：拉取成功后，在同一个事务里删掉这个绑定的全部弹幕、
+//     写入这次的结果；新增条数为这次的总条数。
+//
+// 拉取失败时什么都不改，只有弹幕源不存在（NotFound）时把绑定标为失效，已保存的弹幕保留；失效的绑定拉取成功后恢复正常。
+// 拉取期间绑定被删除时返回 404"绑定已被删除"，拉取结果丢弃。
+func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (BindingView, int64, error) {
+	b, err := s.store.GetBinding(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return BindingView{}, 0, errBindingNotFound
+		}
+		return BindingView{}, 0, fmt.Errorf("get binding %d: %w", id, err)
+	}
+	adapter, ok := s.sources.Get(b.Adapter)
+	if !ok {
+		return BindingView{}, 0, fmt.Errorf("binding %d: unknown adapter %q", id, b.Adapter)
+	}
+
+	fetched, err := fetch(ctx, adapter, b.Ref)
+	if err != nil {
+		if srcErr, ok := errors.AsType[*source.Error](err); ok && srcErr.Kind == source.NotFound {
+			if err := s.markDead(ctx, b, srcErr); err != nil {
+				return BindingView{}, 0, err
+			}
+		}
+		return BindingView{}, 0, sourceError(err)
+	}
+
+	var added int64
+	err = s.store.ExecTx(ctx, func(q repository.Querier) error {
+		if err := lockBinding(ctx, q, id); err != nil {
+			return err
+		}
+		var err error
+		b, added, err = saveFetched(ctx, q, id, fetched, replace)
+		return err
+	})
+	if err != nil {
+		return BindingView{}, 0, err
+	}
+	s.logFetched(ctx, b, fetched, added)
+	view, err := bindingView(s.sources, b)
+	return view, added, err
+}
+
+// markDead 重新拉取时弹幕源已不存在：把绑定标为失效，已保存的弹幕保留。
+// 成功后记一条 info 日志，连同适配器给的原因：422 不经过 errorHandler 的日志，以后定时拉取时也能看出绑定失效了。
+func (s *BindingService) markDead(ctx context.Context, b repository.Binding, reason error) error {
+	err := s.store.ExecTx(ctx, func(q repository.Querier) error {
+		if err := lockBinding(ctx, q, b.ID); err != nil {
+			return err
+		}
+		if err := q.MarkBindingDead(ctx, b.ID); err != nil {
+			return fmt.Errorf("mark binding %d dead: %w", b.ID, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	s.logger.LogAttrs(ctx, slog.LevelInfo, "binding marked dead",
+		slog.Int64("binding_id", b.ID), slog.String("adapter", b.Adapter), slog.String("reason", reason.Error()))
+	return nil
+}
+
+// lockBinding 重新拉取的写入事务的第一句：锁住这个绑定到提交，同一个绑定的写入排队执行。
+// 绑定已被删除时返回 404"绑定已被删除"。
+func lockBinding(ctx context.Context, q repository.Querier, id int64) error {
+	if _, err := q.LockBinding(ctx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errBindingDeleted
+		}
+		return fmt.Errorf("lock binding %d: %w", id, err)
+	}
+	return nil
+}
+
+// UpdateOffset 改偏移（秒，正数表示弹幕延后），单条语句，content_version 不变。取值范围由调用方校验。
+func (s *BindingService) UpdateOffset(ctx context.Context, id int64, offset float64) (BindingView, error) {
+	b, err := s.store.UpdateBindingOffset(ctx, repository.UpdateBindingOffsetParams{ID: id, Offset: offset})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return BindingView{}, errBindingNotFound
+		}
+		return BindingView{}, fmt.Errorf("update offset of binding %d: %w", id, err)
+	}
+	return bindingView(s.sources, b)
+}
+
+// Delete 删除绑定，它的弹幕随外键级联删除。单条语句；进行中的拉取写回时会发现绑定已被删除。
+func (s *BindingService) Delete(ctx context.Context, id int64) error {
+	n, err := s.store.DeleteBinding(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete binding %d: %w", id, err)
+	}
+	if n == 0 {
+		return errBindingNotFound
+	}
+	return nil
+}
+
 // fetch 拉取一个弹幕源的全部弹幕，总时限 fetchTimeout。调用方拉完才开写入事务。
 func fetch(ctx context.Context, adapter source.Adapter, ref source.Ref) (source.Fetched, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
@@ -120,10 +225,15 @@ func fetch(ctx context.Context, adapter source.Adapter, ref source.Ref) (source.
 	return adapter.Fetch(ctx, ref)
 }
 
-// saveFetched 在写入事务里保存一次拉取的结果：插入弹幕（按原始 ID 去重，已有的跳过），
-// 再更新绑定的计数、标题、时长与拉取时间。调用方已在同一个事务里锁住或刚插入这个绑定。
-// 返回更新后的绑定和新增条数。
-func saveFetched(ctx context.Context, q repository.Querier, bindingID int64, f source.Fetched) (repository.Binding, int64, error) {
+// saveFetched 在写入事务里保存一次拉取的结果：replace 时先删掉这个绑定的全部弹幕；
+// 插入弹幕（按原始 ID 去重，已有的跳过），再更新绑定的计数、content_version、标题、时长与拉取时间。
+// 调用方已在同一个事务里锁住或刚插入这个绑定。返回更新后的绑定和新增条数（replace 时即这次的总条数）。
+func saveFetched(ctx context.Context, q repository.Querier, bindingID int64, f source.Fetched, replace bool) (repository.Binding, int64, error) {
+	if replace {
+		if err := q.DeleteDanmaku(ctx, bindingID); err != nil {
+			return repository.Binding{}, 0, fmt.Errorf("delete danmaku of binding %d: %w", bindingID, err)
+		}
+	}
 	p := repository.InsertDanmakuParams{
 		BindingID: bindingID,
 		SourceIds: make([]int64, len(f.Danmaku)),
@@ -145,6 +255,7 @@ func saveFetched(ctx context.Context, q repository.Querier, bindingID int64, f s
 	}
 	b, err := q.RecordFetch(ctx, repository.RecordFetchParams{
 		ID:       bindingID,
+		Replace:  replace,
 		Added:    int32(added),
 		Title:    f.Title,
 		Duration: int32(f.Duration),

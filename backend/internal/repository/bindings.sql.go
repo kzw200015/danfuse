@@ -27,6 +27,31 @@ func (q *Queries) BindingExists(ctx context.Context, arg BindingExistsParams) (b
 	return exists, err
 }
 
+const deleteBinding = `-- name: DeleteBinding :execrows
+DELETE FROM bindings
+WHERE id = $1
+`
+
+// 删除绑定，它的弹幕随外键级联删除。
+func (q *Queries) DeleteBinding(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBinding, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteDanmaku = `-- name: DeleteDanmaku :exec
+DELETE FROM danmaku
+WHERE binding_id = $1
+`
+
+// 清空后重新拉取：在写入这次结果的同一个事务里，先删掉这个绑定的全部弹幕。
+func (q *Queries) DeleteDanmaku(ctx context.Context, bindingID int64) error {
+	_, err := q.db.Exec(ctx, deleteDanmaku, bindingID)
+	return err
+}
+
 const episodeExists = `-- name: EpisodeExists :one
 SELECT EXISTS (SELECT 1 FROM episodes WHERE id = $1)
 `
@@ -37,6 +62,36 @@ func (q *Queries) EpisodeExists(ctx context.Context, id int64) (bool, error) {
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const getBinding = `-- name: GetBinding :one
+SELECT id, episode_id, adapter, ref, "offset", scale, mode, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
+FROM bindings
+WHERE id = $1
+`
+
+// 重新拉取之前取出适配器和 ref。
+func (q *Queries) GetBinding(ctx context.Context, id int64) (Binding, error) {
+	row := q.db.QueryRow(ctx, getBinding, id)
+	var i Binding
+	err := row.Scan(
+		&i.ID,
+		&i.EpisodeID,
+		&i.Adapter,
+		&i.Ref,
+		&i.Offset,
+		&i.Scale,
+		&i.Mode,
+		&i.Status,
+		&i.ContentVersion,
+		&i.DanmakuCount,
+		&i.Title,
+		&i.Duration,
+		&i.LastFetchedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const insertBinding = `-- name: InsertBinding :one
@@ -150,6 +205,22 @@ func (q *Queries) ListBindingsBySeries(ctx context.Context, seriesID int64) ([]B
 	return items, nil
 }
 
+const lockBinding = `-- name: LockBinding :one
+SELECT id
+FROM bindings
+WHERE id = $1
+FOR UPDATE
+`
+
+// 重新拉取、标为失效的写入事务的第一句：锁住这个绑定到提交。同一个绑定的写入因此排队执行，
+// 计数的算术准确；删除绑定也要等它提交。绑定已被删除时没有行。
+func (q *Queries) LockBinding(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, lockBinding, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const lockEpisode = `-- name: LockEpisode :one
 SELECT id
 FROM episodes
@@ -166,35 +237,93 @@ func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 	return id_2, err
 }
 
+const markBindingDead = `-- name: MarkBindingDead :exec
+UPDATE bindings
+SET status          = 'dead',
+    last_fetched_at = now(),
+    updated_at      = now()
+WHERE id = $1
+`
+
+// 重新拉取时弹幕源已不存在：标为失效。已保存的弹幕、计数、标题和时长都不动；
+// 这次拉取得到了确定的结果，拉取时间照常更新。
+func (q *Queries) MarkBindingDead(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, markBindingDead, id)
+	return err
+}
+
 const recordFetch = `-- name: RecordFetch :one
 UPDATE bindings
-SET danmaku_count   = danmaku_count + $1::int,
-    content_version = content_version + ($1::int > 0)::int,
-    title           = $2,
-    duration        = $3,
+SET danmaku_count   = CASE WHEN $1::boolean THEN 0 ELSE danmaku_count END + $2::int,
+    content_version = content_version + ($1::boolean OR $2::int > 0)::int,
+    title           = $3,
+    duration        = $4,
     status          = 'active',
     last_fetched_at = now(),
     updated_at      = now()
-WHERE id = $4
+WHERE id = $5
 RETURNING id, episode_id, adapter, ref, "offset", scale, mode, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
 `
 
 type RecordFetchParams struct {
+	Replace  bool   `json:"replace"`
 	Added    int32  `json:"added"`
 	Title    string `json:"title"`
 	Duration int32  `json:"duration"`
 	ID       int64  `json:"id"`
 }
 
-// 一次拉取写入弹幕之后更新绑定：新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
+// 一次拉取写入弹幕之后更新绑定：
+//
+//	只增不删时，新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
+//	清空后重新拉取（replace）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1。
+//
 // 标题、时长用这次拉取的值覆盖；拉取成功即为 active。只更新拉取相关的列，不覆盖 offset。
 func (q *Queries) RecordFetch(ctx context.Context, arg RecordFetchParams) (Binding, error) {
 	row := q.db.QueryRow(ctx, recordFetch,
+		arg.Replace,
 		arg.Added,
 		arg.Title,
 		arg.Duration,
 		arg.ID,
 	)
+	var i Binding
+	err := row.Scan(
+		&i.ID,
+		&i.EpisodeID,
+		&i.Adapter,
+		&i.Ref,
+		&i.Offset,
+		&i.Scale,
+		&i.Mode,
+		&i.Status,
+		&i.ContentVersion,
+		&i.DanmakuCount,
+		&i.Title,
+		&i.Duration,
+		&i.LastFetchedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateBindingOffset = `-- name: UpdateBindingOffset :one
+UPDATE bindings
+SET "offset"   = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, episode_id, adapter, ref, "offset", scale, mode, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
+`
+
+type UpdateBindingOffsetParams struct {
+	ID     int64   `json:"id"`
+	Offset float64 `json:"offset"`
+}
+
+// 只改偏移，content_version 不变。
+func (q *Queries) UpdateBindingOffset(ctx context.Context, arg UpdateBindingOffsetParams) (Binding, error) {
+	row := q.db.QueryRow(ctx, updateBindingOffset, arg.ID, arg.Offset)
 	var i Binding
 	err := row.Scan(
 		&i.ID,

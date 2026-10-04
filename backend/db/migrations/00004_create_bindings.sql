@@ -9,7 +9,7 @@ CREATE TABLE bindings (
     scale           DOUBLE PRECISION NOT NULL DEFAULT 1.0, -- 时间缩放系数，纠正线性漂移；只建字段，不出界面
     mode            TEXT             NOT NULL DEFAULT 'snapshot',
     status          TEXT             NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'dead')),
-    content_version INT              NOT NULL DEFAULT 0, -- 每次拉取插入了新弹幕时加 1
+    content_version INT              NOT NULL DEFAULT 0, -- 插入了新弹幕、或清空后重新拉取时加 1
     danmaku_count   INT              NOT NULL DEFAULT 0, -- 在拉取的事务里与弹幕一起维护，读取时不 COUNT
     title           TEXT             NOT NULL, -- 弹幕源的标题，每次拉取都用最新值覆盖
     duration        INT              NOT NULL, -- 弹幕源视频的时长，秒，每次拉取都用最新值覆盖
