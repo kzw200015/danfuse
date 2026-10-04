@@ -9,28 +9,46 @@ import (
 )
 
 type Querier interface {
+	// 这一集是否已经绑定过这个弹幕源。只用于在拉取前省掉一次注定 409 的拉取，并发时以唯一约束为准。
+	BindingExists(ctx context.Context, arg BindingExistsParams) (bool, error)
 	CreateSyncRun(ctx context.Context, trigger string) (int64, error)
 	DeleteImage(ctx context.Context, id int64) error
 	// 只保留最近 keep 次：新同步开始时先删到剩 19 次，再插入这一次。
 	DeleteOldSyncRuns(ctx context.Context, keep int32) error
+	// 创建绑定前确认这一集存在，拉取之前就能返回 404。
+	EpisodeExists(ctx context.Context, id int64) (bool, error)
 	// 图片接口用：原始字节与 content-type。
 	GetImage(ctx context.Context, id int64) (GetImageRow, error)
 	// 同步时与目录源的新图比较，不取图片本身。
 	GetImageSHA256(ctx context.Context, id int64) ([]byte, error)
 	GetSeries(ctx context.Context, id int64) (Series, error)
 	GetSyncRun(ctx context.Context, id int64) (SyncRun, error)
+	// 同一集重复绑定同一个弹幕源时撞上唯一约束 (episode_id, adapter, ref)。
+	InsertBinding(ctx context.Context, arg InsertBindingParams) (int64, error)
+	// 写入一次拉取的弹幕，五个等长的数组按下标一一对应（SELECT 列表里的多个 unnest 同步展开）。
+	// 按主键 (binding_id, source_id) 去重：已有的、以及同一批里重复的原始 ID 都跳过，返回实际插入的条数。
+	InsertDanmaku(ctx context.Context, arg InsertDanmakuParams) (int64, error)
 	InsertImage(ctx context.Context, arg InsertImageParams) (int64, error)
 	// 把残留的 running（进程崩溃或被杀）改为 interrupted，结束时间未知，保持为空。
 	// 只能在持有同步锁时调用：这时不会有正在进行的同步。
 	InterruptRunningSyncRuns(ctx context.Context) (int64, error)
+	// 剧详情用：一部剧所有集的绑定，按创建顺序排列。
+	ListBindingsBySeries(ctx context.Context, seriesID int64) ([]Binding, error)
 	// 一部剧的全部集，按集号排序。
 	ListEpisodesBySeries(ctx context.Context, seriesID int64) ([]Episode, error)
 	// 只选剧详情用到的列，不取搜索列。
 	ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]ListSeasonsBySeriesRow, error)
-	// 剧列表：全部剧连同季数、集数，一条 SQL 聚合。没有季、集的剧计为 0。
+	// 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。
+	// 一集有多个绑定时连接出多行，所以季数、集数、已绑定集数都按 DISTINCT 计。
 	ListSeries(ctx context.Context) ([]ListSeriesRow, error)
 	// 列表不带警告正文。
 	ListSyncRuns(ctx context.Context, limit int32) ([]ListSyncRunsRow, error)
+	// 创建绑定的写入事务的第一句：锁住这一集到提交，期间删不掉它。FOR KEY SHARE 与同步的 upsert 兼容。
+	// 这一集已被删除时没有行。
+	LockEpisode(ctx context.Context, id int64) (int64, error)
+	// 一次拉取写入弹幕之后更新绑定：新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
+	// 标题、时长用这次拉取的值覆盖；拉取成功即为 active。只更新拉取相关的列，不覆盖 offset。
+	RecordFetch(ctx context.Context, arg RecordFetchParams) (Binding, error)
 	// 剧指向新的海报，没有图时为 null。
 	SetSeriesPoster(ctx context.Context, arg SetSeriesPosterParams) error
 	// 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。

@@ -55,6 +55,14 @@ export default function SeriesList({ selectedId }: { selectedId?: number }) {
                         {s.type === 'tv' && ` · ${s.seasonCount} 季`}
                       </div>
                     </div>
+                    <div className="shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+                      <div title="已绑定集数 / 总集数">
+                        {s.boundEpisodeCount}/{s.episodeCount}
+                      </div>
+                      {s.deadBindingCount > 0 && (
+                        <div className="text-destructive">{s.deadBindingCount} 失效</div>
+                      )}
+                    </div>
                   </Link>
                 </li>
               )

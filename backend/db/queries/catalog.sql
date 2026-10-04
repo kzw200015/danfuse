@@ -35,13 +35,18 @@ SET title      = excluded.title,
 RETURNING id, (xmax = 0)::boolean AS created;
 
 -- name: ListSeries :many
--- 剧列表：全部剧连同季数、集数，一条 SQL 聚合。没有季、集的剧计为 0。
+-- 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。
+-- 一集有多个绑定时连接出多行，所以季数、集数、已绑定集数都按 DISTINCT 计。
 SELECT s.id, s.type, s.title, s.original_title, s.year, s.poster_image_id,
-       count(DISTINCT se.id)::int AS season_count,
-       count(e.id)::int           AS episode_count
+       count(DISTINCT se.id)::int                         AS season_count,
+       count(DISTINCT e.id)::int                          AS episode_count,
+       count(DISTINCT b.episode_id)::int                  AS bound_episode_count,
+       count(b.id)::int                                   AS binding_count,
+       count(b.id) FILTER (WHERE b.status = 'dead')::int AS dead_binding_count
 FROM series s
 LEFT JOIN seasons se ON se.series_id = s.id
 LEFT JOIN episodes e ON e.season_id = se.id
+LEFT JOIN bindings b ON b.episode_id = e.id
 GROUP BY s.id
 ORDER BY s.id;
 

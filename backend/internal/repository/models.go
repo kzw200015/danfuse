@@ -8,6 +8,33 @@ import (
 	"time"
 )
 
+type Binding struct {
+	ID             int64      `json:"id"`
+	EpisodeID      int64      `json:"episodeId"`
+	Adapter        string     `json:"adapter"`
+	Ref            []byte     `json:"ref"`
+	Offset         float64    `json:"offset"`
+	Scale          float64    `json:"scale"`
+	Mode           string     `json:"mode"`
+	Status         string     `json:"status"`
+	ContentVersion int32      `json:"contentVersion"`
+	DanmakuCount   int32      `json:"danmakuCount"`
+	Title          string     `json:"title"`
+	Duration       int32      `json:"duration"`
+	LastFetchedAt  *time.Time `json:"lastFetchedAt"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+}
+
+type Danmaku struct {
+	BindingID int64  `json:"bindingId"`
+	SourceID  int64  `json:"sourceId"`
+	TimeMs    int32  `json:"timeMs"`
+	Mode      int16  `json:"mode"`
+	Color     int32  `json:"color"`
+	Text      string `json:"text"`
+}
+
 type Episode struct {
 	ID        int64     `json:"id"`
 	SeasonID  int64     `json:"seasonId"`

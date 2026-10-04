@@ -12,6 +12,7 @@ import (
 var ProviderSet = wire.NewSet(
 	NewHealthHandler,
 	NewCatalogHandler,
+	NewBindingHandler,
 	NewSyncHandler,
 	NewSettingsHandler,
 	wire.Struct(new(Handlers), "*"),
@@ -21,6 +22,7 @@ var ProviderSet = wire.NewSet(
 type Handlers struct {
 	Health   *HealthHandler
 	Catalog  *CatalogHandler
+	Binding  *BindingHandler
 	Sync     *SyncHandler
 	Settings *SettingsHandler
 }

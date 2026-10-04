@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Season, SeriesDetail, SeriesSummary } from '@/api/series'
+import type { Binding, BindingStatus } from '@/api/bindings'
+import type { Episode, Season, SeriesDetail, SeriesSummary } from '@/api/series'
 import {
+  bindingStats,
   defaultSeason,
+  durationMismatch,
   filterSeries,
   formatDuration,
   parseId,
@@ -22,6 +25,9 @@ function summary(id: number, title: string, originalTitle: string | null, year: 
     posterImageId: null,
     seasonCount: 1,
     episodeCount: 1,
+    boundEpisodeCount: 0,
+    bindingCount: 0,
+    deadBindingCount: 0,
   } satisfies SeriesSummary
 }
 
@@ -30,7 +36,13 @@ function season(id: number, number: number, episodeIds: number[] = []): Season {
     id,
     number,
     title: null,
-    episodes: episodeIds.map((e, i) => ({ id: e, number: i + 1, title: null, duration: null })),
+    episodes: episodeIds.map((e, i) => ({
+      id: e,
+      number: i + 1,
+      title: null,
+      duration: null,
+      bindings: [],
+    })),
   }
 }
 
@@ -136,6 +148,40 @@ describe('formatDuration', () => {
     [5405, '1:30:05'],
   ])('%j 秒', (seconds, want) => {
     expect(formatDuration(seconds)).toBe(want)
+  })
+})
+
+describe('bindingStats', () => {
+  /** 一集，按给出的状态各带一个绑定 */
+  function episode(...statuses: BindingStatus[]): Episode {
+    return {
+      ...season(1, 1, [1]).episodes[0]!,
+      bindings: statuses.map((status, id) => ({ id, status }) as Binding),
+    }
+  }
+
+  it.each([
+    ['没有集', [], { bound: 0, dead: 0 }],
+    ['都没有绑定', [episode(), episode()], { bound: 0, dead: 0 }],
+    [
+      '一集有多个绑定只算一个已绑定集，失效按绑定计',
+      [episode('active', 'dead'), episode(), episode('dead')],
+      { bound: 2, dead: 2 },
+    ],
+  ])('%s', (_, episodes, want) => {
+    expect(bindingStats(episodes)).toEqual(want)
+  })
+})
+
+describe('durationMismatch', () => {
+  it.each([
+    ['相同', 1420, 1420, null],
+    ['相差不到 3 秒', 1422, 1420, null],
+    ['长 3 秒', 1423, 1420, 3],
+    ['短 7 秒', 1413, 1420, -7],
+    ['本集没有时长', 1420, null, null],
+  ])('%s', (_, source, episode, want) => {
+    expect(durationMismatch(source, episode)).toBe(want)
   })
 })
 

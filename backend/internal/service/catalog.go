@@ -9,6 +9,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 var (
@@ -18,14 +19,15 @@ var (
 
 // CatalogService 管理界面浏览目录。
 type CatalogService struct {
-	store repository.Store
+	store   repository.Store
+	sources *source.Registry // 剧详情里绑定的来源链接和标签由适配器生成
 }
 
-func NewCatalogService(store repository.Store) *CatalogService {
-	return &CatalogService{store: store}
+func NewCatalogService(store repository.Store, sources *source.Registry) *CatalogService {
+	return &CatalogService{store: store, sources: sources}
 }
 
-// ListSeries 全部剧连同海报的图片 ID、季数、集数，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
+// ListSeries 全部剧连同海报的图片 ID、季数、集数与绑定统计，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
 func (s *CatalogService) ListSeries(ctx context.Context) ([]repository.ListSeriesRow, error) {
 	series, err := s.store.ListSeries(ctx)
 	if err != nil {
@@ -53,14 +55,16 @@ type SeasonDetail struct {
 }
 
 type EpisodeDetail struct {
-	ID       int64   `json:"id"`
-	Number   int32   `json:"number"`
-	Title    *string `json:"title"`
-	Duration *int32  `json:"duration"` // 秒
+	ID       int64         `json:"id"`
+	Number   int32         `json:"number"`
+	Title    *string       `json:"title"`
+	Duration *int32        `json:"duration"` // 秒
+	Bindings []BindingView `json:"bindings"` // 按创建顺序
 }
 
-// GetSeries 一部剧的完整子树。剧、季、集分开查询，在 Go 里组装；剧不存在时返回 404。
-// 几次查询不在同一个快照里：查完季之后同步新增的季，它的集会出现在集的查询结果里，组装时丢弃，下次加载就完整了。
+// GetSeries 一部剧的完整子树：季 → 集 → 绑定。剧、季、集、绑定分开查询，在 Go 里组装；剧不存在时返回 404。
+// 几次查询不在同一个快照里：查完季之后同步新增的季，它的集会出现在集的查询结果里；查完集之后新增的集，
+// 它的绑定会出现在绑定的查询结果里。组装时都丢弃，下次加载就完整了。
 func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail, error) {
 	series, err := s.store.GetSeries(ctx, id)
 	if err != nil {
@@ -76,6 +80,18 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 	episodes, err := s.store.ListEpisodesBySeries(ctx, id)
 	if err != nil {
 		return SeriesDetail{}, fmt.Errorf("list episodes of series %d: %w", id, err)
+	}
+	bindings, err := s.store.ListBindingsBySeries(ctx, id)
+	if err != nil {
+		return SeriesDetail{}, fmt.Errorf("list bindings of series %d: %w", id, err)
+	}
+	views := make(map[int64][]BindingView) // 集 ID → 这一集的绑定
+	for _, b := range bindings {
+		v, err := bindingView(s.sources, b)
+		if err != nil {
+			return SeriesDetail{}, err
+		}
+		views[b.EpisodeID] = append(views[b.EpisodeID], v)
 	}
 
 	detail := SeriesDetail{
@@ -102,6 +118,7 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 			Number:   e.Number,
 			Title:    e.Title,
 			Duration: e.Duration,
+			Bindings: append([]BindingView{}, views[e.ID]...), // 没有绑定时输出 []
 		})
 	}
 	return detail, nil

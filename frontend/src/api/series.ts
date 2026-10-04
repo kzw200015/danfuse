@@ -1,3 +1,4 @@
+import type { Binding } from './bindings'
 import { request } from './request'
 
 export type SeriesType = 'tv' | 'movie'
@@ -13,6 +14,10 @@ export interface SeriesSummary {
   posterImageId: number | null
   seasonCount: number
   episodeCount: number
+  /** 至少有一个绑定的集数 */
+  boundEpisodeCount: number
+  bindingCount: number
+  deadBindingCount: number
 }
 
 export interface Episode {
@@ -21,6 +26,8 @@ export interface Episode {
   title: string | null
   /** 秒 */
   duration: number | null
+  /** 按创建顺序 */
+  bindings: Binding[]
 }
 
 /** 季，第 0 季是特别篇 */

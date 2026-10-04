@@ -104,27 +104,35 @@ func (q *Queries) ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]Li
 
 const listSeries = `-- name: ListSeries :many
 SELECT s.id, s.type, s.title, s.original_title, s.year, s.poster_image_id,
-       count(DISTINCT se.id)::int AS season_count,
-       count(e.id)::int           AS episode_count
+       count(DISTINCT se.id)::int                         AS season_count,
+       count(DISTINCT e.id)::int                          AS episode_count,
+       count(DISTINCT b.episode_id)::int                  AS bound_episode_count,
+       count(b.id)::int                                   AS binding_count,
+       count(b.id) FILTER (WHERE b.status = 'dead')::int AS dead_binding_count
 FROM series s
 LEFT JOIN seasons se ON se.series_id = s.id
 LEFT JOIN episodes e ON e.season_id = se.id
+LEFT JOIN bindings b ON b.episode_id = e.id
 GROUP BY s.id
 ORDER BY s.id
 `
 
 type ListSeriesRow struct {
-	ID            int64   `json:"id"`
-	Type          string  `json:"type"`
-	Title         string  `json:"title"`
-	OriginalTitle *string `json:"originalTitle"`
-	Year          *int32  `json:"year"`
-	PosterImageID *int64  `json:"posterImageId"`
-	SeasonCount   int32   `json:"seasonCount"`
-	EpisodeCount  int32   `json:"episodeCount"`
+	ID                int64   `json:"id"`
+	Type              string  `json:"type"`
+	Title             string  `json:"title"`
+	OriginalTitle     *string `json:"originalTitle"`
+	Year              *int32  `json:"year"`
+	PosterImageID     *int64  `json:"posterImageId"`
+	SeasonCount       int32   `json:"seasonCount"`
+	EpisodeCount      int32   `json:"episodeCount"`
+	BoundEpisodeCount int32   `json:"boundEpisodeCount"`
+	BindingCount      int32   `json:"bindingCount"`
+	DeadBindingCount  int32   `json:"deadBindingCount"`
 }
 
-// 剧列表：全部剧连同季数、集数，一条 SQL 聚合。没有季、集的剧计为 0。
+// 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。
+// 一集有多个绑定时连接出多行，所以季数、集数、已绑定集数都按 DISTINCT 计。
 func (q *Queries) ListSeries(ctx context.Context) ([]ListSeriesRow, error) {
 	rows, err := q.db.Query(ctx, listSeries)
 	if err != nil {
@@ -143,6 +151,9 @@ func (q *Queries) ListSeries(ctx context.Context) ([]ListSeriesRow, error) {
 			&i.PosterImageID,
 			&i.SeasonCount,
 			&i.EpisodeCount,
+			&i.BoundEpisodeCount,
+			&i.BindingCount,
+			&i.DeadBindingCount,
 		); err != nil {
 			return nil, err
 		}

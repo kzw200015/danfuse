@@ -47,8 +47,8 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 **分层与依赖方向**：`handler` → `service` → `repository.Store` → PostgreSQL。所有组件由 wire 在 `internal/app/wire.go` 组装，`wire_gen.go` 是生成文件。新增/修改构造函数后需加入对应包的 `ProviderSet`（handler 还要加进 `Handlers` 结构体），再执行 `make wire`。
 - 凡是读写数据库的业务都在 `service`（例如同步核心在 `SyncService`）。
-- 领域包（包名取自 `GLOSSARY.md`，如 `catalog`）只放接口、类型、纯计算与外部适配，不访问数据库；外部系统的适配器放在领域包的子包里（如 `catalog/jellyfin` 实现 `catalog.Source`）。
-- 适配器由 `app` 装配（`internal/app/providers.go`，例如按配置的 `kind` 选目录源，未配置时为 nil），只有 `app` 引用适配器子包；业务代码只依赖领域包的接口。
+- 领域包（包名取自 `GLOSSARY.md`，如 `catalog`、`source`）只放接口、类型、纯计算与外部适配，不访问数据库；外部系统的适配器放在领域包的子包里（如 `catalog/jellyfin` 实现 `catalog.Source`，`source/bilibili` 实现 `source.Adapter` 与 `source.Linker`）。
+- 适配器由 `app` 装配（`internal/app/providers.go`：按配置的 `kind` 选目录源，未配置时为 nil；源适配器注册进 `source.Registry`），只有 `app` 引用适配器子包；业务代码只依赖领域包的接口。绑定存的是适配器 ID 加适配器自己的 ref（jsonb），ref 只交给适配器解析：绑定 JSON 里的 `sourceUrl`/`sourceLabel` 一律经适配器的 `Describe` 生成（`service.bindingView`），原始 ref 不对外输出。
 
 **启动流程**：`app.Init` 在依赖构造阶段完成 配置加载 → 日志 → 连接池 + 自动迁移（`database.NewPool`），不连接外部系统；`App.Run` 用 errgroup 同时运行 HTTP 服务与后台同步（`SyncService.Run`），HTTP 服务出错（例如端口被占用）时同步也随之退出；Run 等进行中的同步写完最终状态才返回，之后 wire 的 cleanup 才关闭连接池。迁移文件通过 `db/embed.go` embed 进二进制，用 PG advisory lock 保证多实例只有一个执行迁移；应用自己的 advisory lock 键集中登记在 `internal/database/lock.go`（`TryAdvisoryLock` 用专用连接持锁），与迁移锁的键不同。
 
@@ -57,6 +57,8 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 - sqlc 配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`；个别 jsonb 列在 `sqlc.yaml` 里覆盖为具体的 Go 类型（如 `sync_runs.warnings` 为 `[]string`）。
 
 **数据库访问**：service 依赖 `repository.Store` 接口（`Querier` + `ExecTx`）。单条查询直接调用，自动提交；多条语句需要原子性时用 `store.ExecTx(ctx, func(q repository.Querier) error {...})`，回调内必须用传入的 `q`。唯一约束冲突用 `database.IsUniqueViolation(err)` 判断，查无记录比较 `pgx.ErrNoRows`。
+- 并发：保持默认的 READ COMMITTED，不加应用层的锁。网络请求（取目录源、拉取弹幕）都在事务之外，拿到结果才开写入事务；写入事务的第一句锁住要写的父行（例如创建绑定时 `LockEpisode` 以 `FOR KEY SHARE` 锁住集，查不到就返回"这一集已被删除"的 404），不靠捕获外键错误；拉取前的查重只为省一次请求，并发重复以唯一约束为准。
+- 批量写入用数组参数加 `unnest` 一条语句写完（如 `InsertDanmaku`，`ON CONFLICT DO NOTHING` 按主键去重，`:execrows` 返回实际插入的条数）；`bindings.danmaku_count` 这类计数在同一个事务里按插入的条数维护，读取时不 COUNT。列名 `offset` 是保留字，SQL 里要加引号。
 
 **错误处理与统一响应**（贯穿两端的核心约定）：
 - 所有接口返回 `{code, message, data}`，同时保留 REST 语义的 HTTP 状态码；分页 `data = {list, total, page, pageSize}`（`response.NewPage`）。
@@ -71,8 +73,9 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 **handler 参数绑定**：请求结构体用 `param`/`query`/`json` tag，并实现 `Validate() error`（可在其中 trim、填默认值），通过泛型 `bind[xxxRequest](c)` 一次完成绑定 + 校验；校验失败用 `invalidParam("提示语")`。路由统一在 `internal/server/router.go` 的 `/api` 分组下注册。
 
 **测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。要自己创建连接池时用 `dbtest.Config(t)`，它建好库、登记删库，只返回连接配置。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求；要换掉托管的前端文件时用 `newServer(..., fstest.MapFS{...})`。
-- service 测试只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`），不 mock `repository.Store`。涉及后台 goroutine、定时器的测试（`SyncService.Run`）放在 `testing/synctest` 的气泡里，用 `synctest.Wait` 等后台停下、用假时间推进定时器，不靠 sleep；这时连接池要在气泡里用 `dbtest.Config(t)` 新建、在气泡里关闭（pgx 连接内部的 channel 不能跨气泡使用），写法见 `internal/service/helpers_test.go`（`syncTest` 在每个用例结束时检查不变量：images 表里没有不被任何剧引用的图片）。注意气泡里的定时器和 `context.WithTimeout` 都用假时间，阻塞在数据库 I/O 上时假时间不前进、超时不会触发：数据库卡住时测试会一直挂到 `go test -timeout`。
+- service 测试只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`、`source.Adapter`），不 mock `repository.Store`。并发用例让假适配器停在 channel 上（例如 `binding_test.go` 的 `fakeAdapter` 在 `started` 上报到、等 `release` 放行），期间直接执行 SQL（删除集等），再放行；绑定测试由 `newBindingService` 在每个用例结束时检查不变量：每个绑定的 `danmaku_count` 等于它实际的弹幕条数。涉及后台 goroutine、定时器的测试（`SyncService.Run`）放在 `testing/synctest` 的气泡里，用 `synctest.Wait` 等后台停下、用假时间推进定时器，不靠 sleep；这时连接池要在气泡里用 `dbtest.Config(t)` 新建、在气泡里关闭（pgx 连接内部的 channel 不能跨气泡使用），写法见 `internal/service/helpers_test.go`（`syncTest` 在每个用例结束时检查不变量：images 表里没有不被任何剧引用的图片）。注意气泡里的定时器和 `context.WithTimeout` 都用假时间，阻塞在数据库 I/O 上时假时间不前进、超时不会触发：数据库卡住时测试会一直挂到 `go test -timeout`。
 - 外部系统适配器的测试用 `httptest` 回放 `testdata/` 里的真实样本，不联网；加 `-update` 时从 `e2e/` 环境重新抓取（例如 `go test ./internal/catalog/jellyfin -run TestListSamples -update`，需要先按 `e2e/README.md` 搭好环境；`-update` 只作用于负责录制的那个用例，其他用例始终只回放）。Jellyfin 的 JSON 样本按"路径 + ParentId"命名，海报样本按条目 Id 存成原始图片 `image-<Id>.jpg`/`.png`，回放时 Content-Type 按内容识别。
+- B 站适配器（`internal/source/bilibili`）平时同样只回放 `testdata/` 里脱敏后的样本。live 模式请求真实的 B 站，默认关闭，CI 不请求：`go test ./internal/source/bilibili -run TestLive -args -live` 只验证；再加 `-update` 时先清空 `testdata/`，把响应脱敏后写进去（原始响应不落盘，限流、接口异常这类出错的响应不录制）。在改动 B 站适配器之后和里程碑验收时各跑一遍，全部用例约十次请求，靠适配器自己的令牌桶限速；固定的公开视频列表、脱敏规则见 `live_test.go` 开头，列表里的视频状态变了就换一个再重新录制。
 
 **配置**：`internal/config` 基于 viper。新增配置项必须在 `setDefaults` 里登记默认值，否则环境变量覆盖不生效（viper `AutomaticEnv` 只认已知 key）；同时更新 `config.example.yaml`。
 
@@ -89,7 +92,7 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 ## 前端架构
 
-- **API 层**：`src/api/request.ts` 的 `request<T>()` 基于 axios（`baseURL: '/api'`），自动解包统一响应返回 `data`；非 0 业务码、HTTP 错误、网络错误、非统一结构响应都转换为 `ApiError(message, code, status)`（网络错误 `status=0`、`code=CODE_FAIL`）。每个后端模块对应 `src/api/<module>.ts`，类型手写并与后端 camelCase JSON 对齐。
+- **API 层**：`src/api/request.ts` 的 `request<T>()` 基于 axios（`baseURL: '/api'`，默认 15 秒超时），自动解包统一响应返回 `data`；非 0 业务码、HTTP 错误、网络错误、非统一结构响应都转换为 `ApiError(message, code, status)`（网络错误 `status=0`、`code=CODE_FAIL`）。每个后端模块对应 `src/api/<module>.ts`，类型手写并与后端 camelCase JSON 对齐。服务端要等较久的请求在 API 模块里单独放宽 `timeout`（如 `bindings.ts` 的创建绑定：后端当场拉取，最长约 25 秒），界面上用 `useElapsed`（`src/hooks/use-elapsed.ts`）显示已用秒数。
 - **状态管理**：服务端数据一律用 TanStack Query（`useQuery` 查询；`useMutation` 成功后 `invalidateQueries` 刷新）。全局 `QueryClient`（`src/lib/query-client.ts`）设置 `retry: false`，失败直接展示 `ApiError.message`。跨组件共享的客户端状态用 Zustand，放在 `src/stores/`（按需创建）；局部状态用 `useState`。
   - 查询键与查询 hook 放在 `src/hooks/use-<资源>.ts`，API 模块只放请求函数和类型（测试自动 mock `@/api/*` 时不会把 hook 和查询键一起替换掉）。查询键：列表 `['<资源>']`、详情 `['<资源>', id]`，例如 `use-series.ts` 的 `seriesKeys`；让列表的键失效会连同已加载的详情一起刷新。
   - 同步状态由根布局调用一次 `useLatestSyncRun`（`src/hooks/use-sync-runs.ts`）统一轮询：只在最近一次同步为 running 时每秒轮询它的详情，详情顺带替换同步列表里的这一条，结束后让剧列表和剧详情（`seriesKeys.list` 前缀）失效；其他组件读同一份缓存，不要另开轮询。

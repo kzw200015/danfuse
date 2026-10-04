@@ -68,6 +68,21 @@ export function formatDuration(seconds: number | null) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }
 
+/** 一组集的绑定统计：已绑定的集数（至少有一个绑定）、失效的绑定数 */
+export function bindingStats(episodes: Episode[]) {
+  return {
+    bound: episodes.filter((e) => e.bindings.length > 0).length,
+    dead: episodes.flatMap((e) => e.bindings).filter((b) => b.status === 'dead').length,
+  }
+}
+
+/** 弹幕源比本集长多少秒，负数表示短；本集没有时长、或相差不到 3 秒时为 null，不必标出 */
+export function durationMismatch(source: number, episode: number | null) {
+  if (episode === null) return null
+  const diff = source - episode
+  return Math.abs(diff) >= 3 ? diff : null
+}
+
 /** 目录页的地址：/catalog[/剧[/季[/集]]] */
 export function catalogPath(...ids: number[]) {
   return ['/catalog', ...ids].join('/')

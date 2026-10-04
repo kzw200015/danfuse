@@ -15,20 +15,24 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/handler"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/service"
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// catalogServer 起完整的 Echo，目录接口连到 pool。
+// catalogServer 起完整的 Echo，目录与绑定接口连到 pool，源适配器只注册了 fakeAdapter。
 func catalogServer(pool *pgxpool.Pool) *Server {
-	svc := service.NewCatalogService(repository.NewStore(pool))
-	return New(config.Server{}, slog.New(slog.DiscardHandler), &handler.Handlers{
-		Catalog: handler.NewCatalogHandler(svc),
+	store := repository.NewStore(pool)
+	sources := source.NewRegistry(fakeAdapter{})
+	logger := slog.New(slog.DiscardHandler)
+	return New(config.Server{}, logger, &handler.Handlers{
+		Catalog: handler.NewCatalogHandler(service.NewCatalogService(store, sources)),
+		Binding: handler.NewBindingHandler(service.NewBindingService(store, sources, logger)),
 	})
 }
 
 // posterPNG 种子目录里星海旅人的海报（图片 1）。
 var posterPNG = []byte("\x89PNG\r\n\x1a\n星海旅人的海报")
 
-// seedCatalog 写入一个小目录。每个测试的库都从模板新建，ID 从 1 开始，按插入顺序分配（注释里标出）。
+// seedCatalog 写入一个小目录和几个绑定。每个测试的库都从模板新建，ID 从 1 开始，按插入顺序分配（注释里标出）。
 // 季和集故意不按编号顺序插入，用来检查接口按编号排序，而不是按 ID。
 func seedCatalog(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
@@ -51,6 +55,15 @@ func seedCatalog(t *testing.T, pool *pgxpool.Pool) {
 			(1, 1, '启程', 1420), -- 集 2
 			(2, 1, NULL, NULL),   -- 集 3
 			(4, 1, NULL, 5400);   -- 集 4
+		-- 集 1 有两个绑定（一个失效），集 3 的绑定失效，集 2 没有绑定
+		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", status, danmaku_count) VALUES
+			(1, 'fake', '{"name": "a"}', '弹幕源 a', 1440, 1.5, 'active', 2), -- 绑定 1
+			(1, 'fake', '{"name": "b"}', '弹幕源 b', 1380, 0, 'dead', 0),     -- 绑定 2
+			(3, 'fake', '{"name": "c"}', '弹幕源 c', 600, 0, 'dead', 0),      -- 绑定 3
+			(4, 'fake', '{"name": "d"}', '弹幕源 d', 5400, -2, 'active', 0);  -- 绑定 4
+		INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES
+			(1, 1, 0, 1, 0, '前排'),
+			(1, 2, 1500, 1, 16777215, '来了');
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -70,11 +83,14 @@ func TestListSeries(t *testing.T) {
 	_, _, data := call(t, srv, http.MethodGet, "/api/series", http.StatusOK)
 	assertJSON(t, data, `[
 		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019,
-		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3},
+		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3,
+		 "boundEpisodeCount": 2, "bindingCount": 3, "deadBindingCount": 2},
 		{"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020,
-		 "posterImageId": null, "seasonCount": 1, "episodeCount": 1},
+		 "posterImageId": null, "seasonCount": 1, "episodeCount": 1,
+		 "boundEpisodeCount": 1, "bindingCount": 1, "deadBindingCount": 0},
 		{"id": 3, "type": "tv", "title": "空无一季", "originalTitle": null, "year": null,
-		 "posterImageId": null, "seasonCount": 0, "episodeCount": 0}
+		 "posterImageId": null, "seasonCount": 0, "episodeCount": 0,
+		 "boundEpisodeCount": 0, "bindingCount": 0, "deadBindingCount": 0}
 	]`)
 }
 
@@ -88,16 +104,25 @@ func TestGetSeries(t *testing.T) {
 		target string
 		want   string
 	}{
-		// 季按季号、集按集号排序；没有集的季、没有季的剧输出空数组
+		// 季按季号、集按集号、绑定按创建顺序排序；没有集的季、没有季的剧、没有绑定的集输出空数组。
+		// 绑定的来源链接和标签由适配器生成，不输出 ref 和 contentVersion
 		{"/api/series/1", `{
 			"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "posterImageId": 1,
 			"seasons": [
 				{"id": 2, "number": 0, "title": null, "episodes": [
-					{"id": 3, "number": 1, "title": null, "duration": null}
+					{"id": 3, "number": 1, "title": null, "duration": null, "bindings": [
+						{"id": 3, "adapter": "fake", "sourceUrl": "https://fake.test/c", "sourceLabel": "假来源 c",
+						 "title": "弹幕源 c", "duration": 600, "offset": 0, "status": "dead", "danmakuCount": 0, "lastFetchedAt": null}
+					]}
 				]},
 				{"id": 1, "number": 1, "title": "第 1 季", "episodes": [
-					{"id": 2, "number": 1, "title": "启程", "duration": 1420},
-					{"id": 1, "number": 2, "title": "归航", "duration": 1440}
+					{"id": 2, "number": 1, "title": "启程", "duration": 1420, "bindings": []},
+					{"id": 1, "number": 2, "title": "归航", "duration": 1440, "bindings": [
+						{"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假来源 a",
+						 "title": "弹幕源 a", "duration": 1440, "offset": 1.5, "status": "active", "danmakuCount": 2, "lastFetchedAt": null},
+						{"id": 2, "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假来源 b",
+						 "title": "弹幕源 b", "duration": 1380, "offset": 0, "status": "dead", "danmakuCount": 0, "lastFetchedAt": null}
+					]}
 				]},
 				{"id": 3, "number": 2, "title": "第 2 季", "episodes": []}
 			]
@@ -106,7 +131,10 @@ func TestGetSeries(t *testing.T) {
 			"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020, "posterImageId": null,
 			"seasons": [
 				{"id": 4, "number": 1, "title": null, "episodes": [
-					{"id": 4, "number": 1, "title": null, "duration": 5400}
+					{"id": 4, "number": 1, "title": null, "duration": 5400, "bindings": [
+						{"id": 4, "adapter": "fake", "sourceUrl": "https://fake.test/d", "sourceLabel": "假来源 d",
+						 "title": "弹幕源 d", "duration": 5400, "offset": -2, "status": "active", "danmakuCount": 0, "lastFetchedAt": null}
+					]}
 				]}
 			]
 		}`},

@@ -36,8 +36,11 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	}
 	healthHandler := handler.NewHealthHandler(pool)
 	sqlStore := repository.NewStore(pool)
-	catalogService := service.NewCatalogService(sqlStore)
+	registry := newSourceRegistry()
+	catalogService := service.NewCatalogService(sqlStore, registry)
 	catalogHandler := handler.NewCatalogHandler(catalogService)
+	bindingService := service.NewBindingService(sqlStore, registry, slogLogger)
+	bindingHandler := handler.NewBindingHandler(bindingService)
 	catalogSource := configConfig.CatalogSource
 	source := newCatalogSource(catalogSource)
 	sync := configConfig.Sync
@@ -47,6 +50,7 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	handlers := &handler.Handlers{
 		Health:   healthHandler,
 		Catalog:  catalogHandler,
+		Binding:  bindingHandler,
 		Sync:     syncHandler,
 		Settings: settingsHandler,
 	}

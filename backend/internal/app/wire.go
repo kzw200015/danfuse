@@ -27,6 +27,7 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		repository.NewStore,
 		wire.Bind(new(repository.Store), new(*repository.SQLStore)),
 		newCatalogSource,
+		newSourceRegistry,
 		service.ProviderSet,
 		handler.ProviderSet,
 		server.New,

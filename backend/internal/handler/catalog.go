@@ -18,7 +18,7 @@ func NewCatalogHandler(svc *service.CatalogService) *CatalogHandler {
 }
 
 // ListSeries GET /api/series
-// 全部剧，不分页，每项带海报的图片 ID、季数、集数。
+// 全部剧，不分页，每项带海报的图片 ID、季数、集数与绑定统计。
 func (h *CatalogHandler) ListSeries(c *echo.Context) error {
 	series, err := h.svc.ListSeries(c.Request().Context())
 	if err != nil {
@@ -39,7 +39,7 @@ func (r *seriesRequest) Validate() error {
 }
 
 // GetSeries GET /api/series/:id
-// 一部剧的完整子树：季 → 集。
+// 一部剧的完整子树：季 → 集 → 绑定。
 func (h *CatalogHandler) GetSeries(c *echo.Context) error {
 	req, err := bind[seriesRequest](c)
 	if err != nil {

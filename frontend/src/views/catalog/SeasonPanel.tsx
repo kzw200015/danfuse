@@ -1,9 +1,10 @@
 import type { Season, SeriesDetail } from '@/api/series'
 
-import { seasonName } from './catalog'
+import { bindingStats, seasonName } from './catalog'
 
 /** 右栏：选中整季、没选集时的季面板 */
 export default function SeasonPanel({ series, season }: { series: SeriesDetail; season: Season }) {
+  const stats = bindingStats(season.episodes)
   return (
     <div className="mx-auto grid max-w-3xl gap-4 p-5">
       <div>
@@ -13,7 +14,9 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
           {season.title && <span className="ml-2 font-normal">{season.title}</span>}
         </h2>
         <div className="text-xs text-muted-foreground">
-          {season.episodes.length} 集 · 季 ID {season.id}
+          {season.episodes.length} 集 · 已绑定 {stats.bound} 集
+          {stats.dead > 0 && <span className="text-destructive"> · {stats.dead} 个失效绑定</span>} ·
+          季 ID {season.id}
         </div>
       </div>
     </div>

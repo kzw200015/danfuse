@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
 
-import type { SeriesDetail } from '@/api/series'
+import type { Episode, SeriesDetail } from '@/api/series'
+import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -102,6 +103,7 @@ export default function SeriesColumn({
                         <span className="text-xs text-muted-foreground tabular-nums">
                           {formatDuration(e.duration)}
                         </span>
+                        <BindingCount episode={e} />
                       </Link>
                     </li>
                   )
@@ -112,5 +114,24 @@ export default function SeriesColumn({
         </>
       )}
     </section>
+  )
+}
+
+/** 集列表里一集的绑定数，有失效的绑定时标红；没有绑定时留空 */
+function BindingCount({ episode }: { episode: Episode }) {
+  const total = episode.bindings.length
+  const dead = episode.bindings.filter((b) => b.status === 'dead').length
+  return (
+    <span className="flex w-6 shrink-0 justify-end">
+      {total > 0 && (
+        <Badge
+          variant={dead > 0 ? 'destructive' : 'secondary'}
+          className="h-4 px-1.5 text-[10px] tabular-nums"
+          title={dead > 0 ? `${total} 个绑定，${dead} 个失效` : `${total} 个绑定`}
+        >
+          {total}
+        </Badge>
+      )}
+    </span>
   )
 }
