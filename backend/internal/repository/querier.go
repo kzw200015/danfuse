@@ -12,10 +12,17 @@ type Querier interface {
 	CreateSyncRun(ctx context.Context, trigger string) (int64, error)
 	// 只保留最近 keep 次：新同步开始时先删到剩 19 次，再插入这一次。
 	DeleteOldSyncRuns(ctx context.Context, keep int32) error
+	GetSeries(ctx context.Context, id int64) (Series, error)
 	GetSyncRun(ctx context.Context, id int64) (SyncRun, error)
 	// 把残留的 running（进程崩溃或被杀）改为 interrupted，结束时间未知，保持为空。
 	// 只能在持有同步锁时调用：这时不会有正在进行的同步。
 	InterruptRunningSyncRuns(ctx context.Context) (int64, error)
+	// 一部剧的全部集，按集号排序。
+	ListEpisodesBySeries(ctx context.Context, seriesID int64) ([]Episode, error)
+	// 只选剧详情用到的列，不取搜索列。
+	ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]ListSeasonsBySeriesRow, error)
+	// 剧列表：全部剧连同季数、集数，一条 SQL 聚合。没有季、集的剧计为 0。
+	ListSeries(ctx context.Context) ([]ListSeriesRow, error)
 	// 列表不带警告正文。
 	ListSyncRuns(ctx context.Context, limit int32) ([]ListSyncRunsRow, error)
 	// 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。

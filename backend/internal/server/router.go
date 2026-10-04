@@ -11,6 +11,9 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 
 	api.GET("/health", h.Health.Check)
 
+	api.GET("/series", h.Catalog.ListSeries)
+	api.GET("/series/:id", h.Catalog.GetSeries)
+
 	api.POST("/sync-runs", h.Sync.Trigger)
 	api.GET("/sync-runs", h.Sync.List)
 	api.GET("/sync-runs/:id", h.Sync.Get)

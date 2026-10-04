@@ -11,14 +11,16 @@ import (
 
 var ProviderSet = wire.NewSet(
 	NewHealthHandler,
+	NewCatalogHandler,
 	NewSyncHandler,
 	wire.Struct(new(Handlers), "*"),
 )
 
 // Handlers 汇总所有 handler，供路由注册使用。
 type Handlers struct {
-	Health *HealthHandler
-	Sync   *SyncHandler
+	Health  *HealthHandler
+	Catalog *CatalogHandler
+	Sync    *SyncHandler
 }
 
 // validatable 约束请求类型：*T 必须实现 Validate，遇到第一个不合法的参数即返回错误。

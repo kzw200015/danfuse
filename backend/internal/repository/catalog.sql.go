@@ -9,6 +9,148 @@ import (
 	"context"
 )
 
+const getSeries = `-- name: GetSeries :one
+SELECT id, type, title, original_title, year, created_at, updated_at
+FROM series
+WHERE id = $1
+`
+
+func (q *Queries) GetSeries(ctx context.Context, id int64) (Series, error) {
+	row := q.db.QueryRow(ctx, getSeries, id)
+	var i Series
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Title,
+		&i.OriginalTitle,
+		&i.Year,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listEpisodesBySeries = `-- name: ListEpisodesBySeries :many
+SELECT e.id, e.season_id, e.number, e.title, e.duration, e.created_at, e.updated_at
+FROM episodes e
+JOIN seasons se ON se.id = e.season_id
+WHERE se.series_id = $1
+ORDER BY e.number
+`
+
+// 一部剧的全部集，按集号排序。
+func (q *Queries) ListEpisodesBySeries(ctx context.Context, seriesID int64) ([]Episode, error) {
+	rows, err := q.db.Query(ctx, listEpisodesBySeries, seriesID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Episode{}
+	for rows.Next() {
+		var i Episode
+		if err := rows.Scan(
+			&i.ID,
+			&i.SeasonID,
+			&i.Number,
+			&i.Title,
+			&i.Duration,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSeasonsBySeries = `-- name: ListSeasonsBySeries :many
+SELECT id, number, title
+FROM seasons
+WHERE series_id = $1
+ORDER BY number
+`
+
+type ListSeasonsBySeriesRow struct {
+	ID     int64   `json:"id"`
+	Number int32   `json:"number"`
+	Title  *string `json:"title"`
+}
+
+// 只选剧详情用到的列，不取搜索列。
+func (q *Queries) ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]ListSeasonsBySeriesRow, error) {
+	rows, err := q.db.Query(ctx, listSeasonsBySeries, seriesID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSeasonsBySeriesRow{}
+	for rows.Next() {
+		var i ListSeasonsBySeriesRow
+		if err := rows.Scan(&i.ID, &i.Number, &i.Title); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSeries = `-- name: ListSeries :many
+SELECT s.id, s.type, s.title, s.original_title, s.year,
+       count(DISTINCT se.id)::int AS season_count,
+       count(e.id)::int           AS episode_count
+FROM series s
+LEFT JOIN seasons se ON se.series_id = s.id
+LEFT JOIN episodes e ON e.season_id = se.id
+GROUP BY s.id
+ORDER BY s.id
+`
+
+type ListSeriesRow struct {
+	ID            int64   `json:"id"`
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	OriginalTitle *string `json:"originalTitle"`
+	Year          *int32  `json:"year"`
+	SeasonCount   int32   `json:"seasonCount"`
+	EpisodeCount  int32   `json:"episodeCount"`
+}
+
+// 剧列表：全部剧连同季数、集数，一条 SQL 聚合。没有季、集的剧计为 0。
+func (q *Queries) ListSeries(ctx context.Context) ([]ListSeriesRow, error) {
+	rows, err := q.db.Query(ctx, listSeries)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSeriesRow{}
+	for rows.Next() {
+		var i ListSeriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Title,
+			&i.OriginalTitle,
+			&i.Year,
+			&i.SeasonCount,
+			&i.EpisodeCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertEpisode = `-- name: UpsertEpisode :one
 INSERT INTO episodes (season_id, number, title, duration)
 VALUES ($1, $2, $3, $4)

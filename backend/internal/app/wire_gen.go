@@ -36,14 +36,17 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	}
 	healthHandler := handler.NewHealthHandler(pool)
 	sqlStore := repository.NewStore(pool)
+	catalogService := service.NewCatalogService(sqlStore)
+	catalogHandler := handler.NewCatalogHandler(catalogService)
 	catalogSource := configConfig.CatalogSource
 	source := newCatalogSource(catalogSource)
 	sync := configConfig.Sync
 	syncService := service.NewSyncService(sqlStore, pool, source, sync, slogLogger)
 	syncHandler := handler.NewSyncHandler(syncService)
 	handlers := &handler.Handlers{
-		Health: healthHandler,
-		Sync:   syncHandler,
+		Health:  healthHandler,
+		Catalog: catalogHandler,
+		Sync:    syncHandler,
 	}
 	serverServer := server.New(configServer, slogLogger, handlers)
 	app := New(serverServer, syncService)

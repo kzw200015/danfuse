@@ -17,3 +17,6 @@ window.matchMedia = (query: string) => ({
   removeListener: () => {},
   dispatchEvent: () => false,
 })
+
+// jsdom 没有实现 scrollIntoView，目录页的列表会把选中行滚进可见区域；测试里不需要滚动
+Element.prototype.scrollIntoView = () => {}

@@ -1,12 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
 import { routes } from '@/router/routes'
 
+vi.mock('@/api/series', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/series')>()
+  return { ...actual, listSeries: vi.fn<typeof actual.listSeries>().mockResolvedValue([]) }
+})
+
 function renderAt(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
-  render(<RouterProvider router={router} />)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
   return router
 }
 
