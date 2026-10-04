@@ -40,7 +40,7 @@ func (e *Error) Unwrap() []error {
 	return errs
 }
 
-// StatusCode 实现 echo.HTTPStatusCoder，使中间件（如请求日志）能识别出正确的 HTTP 状态码。
+// StatusCode 实现 echo.HTTPStatusCoder，使 echo 的中间件能识别出正确的 HTTP 状态码。
 func (e *Error) StatusCode() int { return e.HTTPStatus }
 
 // WithMessage 派生一个替换了提示信息的错误，保留原有的底层原因。

@@ -11,9 +11,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/logger"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/server"
-	"github.com/kzw200015/danfuse/backend/internal/service"
 )
 
 // Init 组装整个应用：解析配置 → 初始化日志 → 连接数据库并自动迁移 → 构造各层组件。
@@ -24,9 +22,6 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		wire.FieldsOf(new(*config.Config), "Server", "Log", "Database"),
 		logger.New,
 		database.NewPool,
-		repository.NewStore,
-		wire.Bind(new(repository.Store), new(*repository.SQLStore)),
-		service.ProviderSet,
 		handler.ProviderSet,
 		server.New,
 		New,

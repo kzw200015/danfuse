@@ -2,8 +2,6 @@
 
 基于 Go 与 React 的前后端分离项目脚手架，提供分层清晰的后端骨架、类型安全的数据访问、统一的接口响应与错误码，以及配套的现代化前端工程。
 
-内置健康检查与用户管理两个示例，覆盖从数据库迁移到前端页面的完整链路，可作为新项目的起点。
-
 ## 特性
 
 **后端**
@@ -12,7 +10,7 @@
 - 用 sqlc 从 SQL 生成类型安全的查询代码，通过 pgx 访问 PostgreSQL，并封装事务
 - 迁移文件打包进二进制，服务启动时自动执行；多实例同时启动时只有一个实例执行迁移
 - 统一响应结构与业务错误码，由全局错误处理器统一输出，未知错误不向客户端暴露细节
-- 结构化日志、带 Request ID 的请求日志、优雅退出
+- 结构化日志（服务端错误带 Request ID 与完整错误链）、优雅退出
 - YAML 配置文件，所有配置项均可被环境变量覆盖
 
 **前端**
@@ -56,7 +54,7 @@ cp configs/config.example.yaml configs/config.yaml
 make run
 ```
 
-服务默认监听 `:8080`，启动时会自动创建表结构。
+服务默认监听 `:8080`，启动时会自动执行数据库迁移。
 
 ### 3. 启动前端
 
@@ -70,7 +68,7 @@ pnpm dev
 
 ## 配置
 
-后端配置位于 `backend/configs/config.yaml`，完整配置项及说明见 [`config.example.yaml`](backend/configs/config.example.yaml)。
+后端配置位于 `backend/configs/config.yaml`，只有传入 `-config` 时才读取（`make run` 会传入），否则只用默认值和环境变量。完整配置项及说明见 [`config.example.yaml`](backend/configs/config.example.yaml)。
 
 所有配置项都可以用 `DANFUSE_` 前缀的环境变量覆盖，层级之间用下划线连接：
 
@@ -122,7 +120,7 @@ cd frontend && pnpm build
 | `make generate` | 重新生成 sqlc 与 wire 代码 |
 | `make migration name=<name>` | 新建数据库迁移文件 |
 | `make lint` / `make fmt` | 代码检查 / 格式化 |
-| `go test ./...` | 运行测试 |
+| `go test ./...` | 运行测试（数据库测试需要 Docker，`go test -short ./...` 跳过它们） |
 
 | 前端（`frontend/`） | 说明 |
 | --- | --- |

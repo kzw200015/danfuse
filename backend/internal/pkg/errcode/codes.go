@@ -13,15 +13,13 @@ const (
 // 通用错误：业务码均为 CodeFail，只有 HTTP 状态码与提示信息不同。
 var (
 	ErrBadRequest         = New(http.StatusBadRequest, CodeFail, "请求参数错误")
+	ErrNotFound           = New(http.StatusNotFound, CodeFail, "资源不存在")
+	ErrConflict           = New(http.StatusConflict, CodeFail, "操作冲突")
+	ErrUnprocessable      = New(http.StatusUnprocessableEntity, CodeFail, "无法处理")
+	ErrBadGateway         = New(http.StatusBadGateway, CodeFail, "上游服务异常")
 	ErrInternal           = New(http.StatusInternalServerError, CodeFail, "服务器内部错误")
 	ErrServiceUnavailable = New(http.StatusServiceUnavailable, CodeFail, "服务暂不可用")
 )
 
-// 业务错误：只为前端需要分支处理（跳转、特殊交互等）的场景定义专门的业务码。
-// 业务码全局唯一，按模块分段，每个模块占 1000 个号段。
-
-// 用户模块 10001 ~ 10999
-var (
-	ErrUserNotFound    = New(http.StatusNotFound, 10001, "用户不存在")
-	ErrUserEmailExists = New(http.StatusConflict, 10002, "邮箱已被使用")
-)
+// 业务错误：只为前端需要分支处理（跳转、特殊交互等）的场景定义专门的业务码，并同步到前端 src/api/errcode.ts。
+// 业务码全局唯一，按模块分段，每个模块占 1000 个号段。目前没有业务码。

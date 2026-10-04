@@ -27,7 +27,6 @@ func New(cfg config.Server, logger *slog.Logger, h *handler.Handlers) *Server {
 
 	e.Use(
 		middleware.RequestID(),
-		requestLogger(logger),
 		middleware.Recover(),
 	)
 

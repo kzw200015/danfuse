@@ -15,11 +15,12 @@ make build                       # 编译到 bin/server
 make generate                    # = make sqlc + make wire
 make migration name=create_xxx   # 用与 go.mod 同版本的 goose CLI 新建 db/migrations 下的迁移
 make lint / make fmt             # golangci-lint v2 检查 / 格式化（gofumpt + goimports）
-go test ./...                    # Makefile 没有 test 目标
+go test ./...                    # Makefile 没有 test 目标；数据库测试需要 Docker，没有 Docker 时直接失败
+go test -short ./...             # 跳过数据库测试
 go test ./internal/<pkg> -run <TestName>   # 跑单个测试
 ```
 
-需要可连接的 PostgreSQL；任何配置项可用 `DANFUSE_` 前缀的环境变量覆盖（层级用 `_` 连接，如 `DANFUSE_DATABASE_DSN`）。
+需要可连接的 PostgreSQL；任何配置项可用 `DANFUSE_` 前缀的环境变量覆盖（层级用 `_` 连接，如 `DANFUSE_DATABASE_DSN`）。`-config` 默认为空：不传时只用默认值和环境变量，不读配置文件（`make run` 显式传入 `configs/config.yaml`）。
 
 ### frontend（`cd frontend`，pnpm，版本由 `packageManager` 固定）
 
@@ -47,11 +48,14 @@ pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/compon
 
 **错误处理与统一响应**（贯穿两端的核心约定）：
 - 所有接口返回 `{code, message, data}`，同时保留 REST 语义的 HTTP 状态码；分页 `data = {list, total, page, pageSize}`（`response.NewPage`）。
-- handler/service 出错直接 `return errcode.ErrXxx`，按需 `.WithMessage()` 改写提示、`.Wrap(err)` 附带底层原因（只进日志）。`server/middleware.go` 的全局 `errorHandler` 统一转换：`*errcode.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。
-- `code`：`0` 成功；`1`（`CodeFail`）通用失败，前端直接提示 message；其他为业务码，**仅在前端需要分支处理时才定义**，按模块分段（用户模块 `10001~10999`），定义在 `internal/pkg/errcode/codes.go`，并必须同步到前端 `src/api/errcode.ts`。
+- handler/service 出错直接 `return errcode.ErrXxx`（通用错误有 `ErrBadRequest`、`ErrNotFound`、`ErrConflict`、`ErrUnprocessable`、`ErrBadGateway`、`ErrInternal`、`ErrServiceUnavailable`），按需 `.WithMessage()` 改写提示、`.Wrap(err)` 附带底层原因（只进日志）。`server/middleware.go` 的全局 `errorHandler` 统一转换：`*errcode.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。
+- 日志：没有请求日志中间件，5xx 由 errorHandler 记录：按 error 级别记 `request_id`（取自 `X-Request-Id` 响应头）、方法、路由（注册时的路径模式，不含实际 URL）和完整的错误链，字段由 `logger.ServerError` 统一输出；4xx 不记录。自己写 5xx 响应、不经过 errorHandler 的 handler 也调用它。
+- `code`：`0` 成功；`1`（`CodeFail`）通用失败，前端直接提示 message；其他为业务码，**仅在前端需要分支处理时才定义**，按模块分段（每个模块 1000 个号段），定义在 `internal/pkg/errcode/codes.go`，并必须同步到前端 `src/api/errcode.ts`。目前没有业务码。
 - service 中非业务错误用 `fmt.Errorf("...: %w", err)` 包装返回，会被当作 500。
 
 **handler 参数绑定**：请求结构体用 `param`/`query`/`json` tag，并实现 `Validate() error`（可在其中 trim、填默认值），通过泛型 `bind[xxxRequest](c)` 一次完成绑定 + 校验；校验失败用 `invalidParam("提示语")`。路由统一在 `internal/server/router.go` 的 `/api` 分组下注册。
+
+**测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求。
 
 **配置**：`internal/config` 基于 viper。新增配置项必须在 `setDefaults` 里登记默认值，否则环境变量覆盖不生效（viper `AutomaticEnv` 只认已知 key）；同时更新 `config.example.yaml`。
 
@@ -70,9 +74,9 @@ pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/compon
 
 - **API 层**：`src/api/request.ts` 的 `request<T>()` 基于 axios（`baseURL: '/api'`），自动解包统一响应返回 `data`；非 0 业务码、HTTP 错误、网络错误、非统一结构响应都转换为 `ApiError(message, code, status)`（网络错误 `status=0`、`code=CODE_FAIL`）。每个后端模块对应 `src/api/<module>.ts`，类型手写并与后端 camelCase JSON 对齐。
 - **状态管理**：服务端数据一律用 TanStack Query（`useQuery` 查询；`useMutation` 成功后 `invalidateQueries` 刷新）。全局 `QueryClient`（`src/lib/query-client.ts`）设置 `retry: false`，失败直接展示 `ApiError.message`。跨组件共享的客户端状态用 Zustand，放在 `src/stores/`（按需创建）；局部状态用 `useState`。
-- **路由**：React Router data mode（从 `react-router` 导入，不是 `react-router-dom`），`src/router/index.ts` 中页面用 `lazy` 动态导入 `src/views/*`；`App.tsx` 是根布局（导航 + `<Outlet />` + `Toaster`）。
+- **路由**：React Router data mode（从 `react-router` 导入，不是 `react-router-dom`），路由表在 `src/router/routes.ts`（页面用 `lazy` 动态导入 `src/views/*`），`src/router/index.ts` 据此创建 browser router；`/` 重定向到 `/catalog`。`App.tsx` 是根布局：顶栏（`Danfuse`、"目录 / 同步"导航、右上角设置弹出层）+ 占满剩余高度的 `<Outlet />` + `Toaster`。
 - **UI**：shadcn/ui（style `base-nova`，底层是 Base UI 而非 Radix），组件通过 CLI 添加到 `src/components/ui/`；路径别名 `@/*` → `src/*`（Vite 通过 `resolve.tsconfigPaths` 读取 tsconfig）。
-- **测试**：测试文件放在各目录的 `__tests__/` 下，命名 `*.spec.ts(x)`；jsdom 环境，未开启 globals，需从 `vitest` 显式 import。测试文件被 `tsconfig.app.json` 排除，由 `tsconfig.vitest.json` 单独做类型检查。组件测试用 `vi.mock` 模拟 `@/api/*` 模块，并为每个用例新建 `QueryClient`；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应。
+- **测试**：测试文件放在各目录的 `__tests__/` 下，命名 `*.spec.ts(x)`；jsdom 环境，未开启 globals，需从 `vitest` 显式 import。测试文件被 `tsconfig.app.json` 排除，由 `tsconfig.vitest.json` 单独做类型检查。组件测试用 `vi.mock` 模拟 `@/api/*` 模块，并为每个用例新建 `QueryClient`；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应；涉及路由的测试用 `createMemoryRouter(routes)`。jsdom 缺少的 `matchMedia` 在 `vitest.setup.ts` 里补上。
 
 ## 提交约定
 

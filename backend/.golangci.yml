@@ -14,6 +14,7 @@ linters:
     - modernize
     - nilerr
     - noctx
+    - nolintlint # 也报出不再需要的 nolint 指令（allow-unused 默认为 false）
     - revive
     - sqlclosecheck
     - unconvert

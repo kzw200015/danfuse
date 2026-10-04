@@ -4,15 +4,6 @@
 
 package repository
 
-import (
-	"context"
-)
-
-type Querier interface {
-	CountUsers(ctx context.Context) (int64, error)
-	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
-	GetUser(ctx context.Context, id int64) (User, error)
-	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
-}
+type Querier interface{}
 
 var _ Querier = (*Queries)(nil)
