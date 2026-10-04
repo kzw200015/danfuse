@@ -16,7 +16,7 @@ make generate                    # = make sqlc + make wire
 make migration name=create_xxx   # 用与 go.mod 同版本的 goose CLI 新建 db/migrations 下的迁移
 make lint / make fmt             # golangci-lint v2 检查 / 格式化（gofumpt + goimports）
 go test ./...                    # Makefile 没有 test 目标
-go test ./internal/pkg/errcode -run TestIs   # 跑单个测试
+go test ./internal/<pkg> -run <TestName>   # 跑单个测试
 ```
 
 需要可连接的 PostgreSQL；任何配置项可用 `DANFUSE_` 前缀的环境变量覆盖（层级用 `_` 连接，如 `DANFUSE_DATABASE_DSN`）。
@@ -27,7 +27,7 @@ go test ./internal/pkg/errcode -run TestIs   # 跑单个测试
 pnpm dev                         # /api 代理到 http://localhost:8080，可在 .env.local 用 API_PROXY_TARGET 覆盖
 pnpm build                       # tsc -b 类型检查 + vite build
 pnpm test:unit --run             # Vitest（不加 --run 为监听模式）
-pnpm test:unit --run src/api/__tests__/request.spec.ts   # 跑单个文件；用 -t "<用例名>" 过滤用例
+pnpm test:unit --run <path/to/xxx.spec.ts>   # 跑单个文件；用 -t "<用例名>" 过滤用例
 pnpm lint / pnpm lint:fix        # oxlint
 pnpm format / pnpm format:check  # oxfmt（无分号、单引号）
 pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/components/ui
