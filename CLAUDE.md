@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-前后端分离的基础框架：`backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind v4）。两端各自独立构建，命令需在对应目录下执行。
+前后端分离的基础框架：`backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind v4）。两端各自构建，命令需在对应目录下执行；前端的构建产物由后端 embed 托管，发布时只有一个二进制（见"前端托管"）。
 
 ## 常用命令
 
@@ -26,13 +26,22 @@ go test ./internal/<pkg> -run <TestName>   # 跑单个测试
 
 ```sh
 pnpm dev                         # /api 代理到 http://localhost:8080，可在 .env.local 用 API_PROXY_TARGET 覆盖
-pnpm build                       # tsc -b 类型检查 + vite build
+pnpm build                       # tsc -b 类型检查 + vite build，产物直接输出到 backend/web/static/dist
 pnpm test:unit --run             # Vitest（不加 --run 为监听模式）
 pnpm test:unit --run <path/to/xxx.spec.ts>   # 跑单个文件；用 -t "<用例名>" 过滤用例
 pnpm lint / pnpm lint:fix        # oxlint
 pnpm format / pnpm format:check  # oxfmt（无分号、单引号）
 pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/components/ui
 ```
+
+### 镜像（仓库根目录）
+
+```sh
+docker build -t danfuse .        # 多阶段 Dockerfile：Node 构建前端 → Go 编译 → distroless 运行镜像（nonroot，不传 -config）
+docker compose up -d             # compose.yaml 是部署示例（danfuse + postgres:18），敏感值放旁边的 .env
+```
+
+`e2e/compose.yaml` 里的 danfuse 也用这份 Dockerfile 从本地源码构建，用法见 `e2e/README.md`。
 
 ## 后端架构
 
@@ -53,9 +62,11 @@ pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/compon
 - `code`：`0` 成功；`1`（`CodeFail`）通用失败，前端直接提示 message；其他为业务码，**仅在前端需要分支处理时才定义**，按模块分段（每个模块 1000 个号段），定义在 `internal/pkg/errcode/codes.go`，并必须同步到前端 `src/api/errcode.ts`。目前没有业务码。
 - service 中非业务错误用 `fmt.Errorf("...: %w", err)` 包装返回，会被当作 500。
 
+**前端托管**：前端由后端 embed 托管，管理界面与 `/api` 同源。`pnpm build` 直接输出到 `backend/web/static/dist`（不进 git），`backend/web/embed.go` 把它内嵌进二进制；没构建时内嵌的是提交进仓库的占位页 `static/placeholder/`，`go build`、`make run` 照常可用，管理界面只显示"前端未构建"。`server/frontend.go` 用 Echo 的 `middleware.StaticWithConfig`（`HTML5: true`）：文件存在就返回，路由和文件都没命中时回退到 `index.html`，直接刷新前端路由也能打开；`Skipper` 跳过 `/api/`、`/dandanplay/`，这两个前缀下没命中的路由仍按原来的方式返回 404（新增后端路由前缀时加进 `backendPrefixes`）。缓存头：`/assets/*` 长期缓存加 immutable，不存在的直接 404、不回退；其余 `no-cache`。开发时照旧用 `pnpm dev`，Vite 把 `/api` 代理到后端。
+
 **handler 参数绑定**：请求结构体用 `param`/`query`/`json` tag，并实现 `Validate() error`（可在其中 trim、填默认值），通过泛型 `bind[xxxRequest](c)` 一次完成绑定 + 校验；校验失败用 `invalidParam("提示语")`。路由统一在 `internal/server/router.go` 的 `/api` 分组下注册。
 
-**测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求。
+**测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求；要换掉托管的前端文件时用 `newServer(..., fstest.MapFS{...})`。
 
 **配置**：`internal/config` 基于 viper。新增配置项必须在 `setDefaults` 里登记默认值，否则环境变量覆盖不生效（viper `AutomaticEnv` 只认已知 key）；同时更新 `config.example.yaml`。
 

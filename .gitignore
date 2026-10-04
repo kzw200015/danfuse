@@ -6,3 +6,6 @@
 
 # Agent skills 本地 issue
 .scratch/
+
+# compose.yaml 引用的敏感配置
+.env

@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
+	"github.com/kzw200015/danfuse/backend/web"
 )
 
 type Server struct {
@@ -20,6 +22,11 @@ type Server struct {
 }
 
 func New(cfg config.Server, logger *slog.Logger, h *handler.Handlers) *Server {
+	return newServer(cfg, logger, h, web.FS())
+}
+
+// newServer 组装 Echo，ui 是要托管的前端文件，测试里换成假的文件系统。
+func newServer(cfg config.Server, logger *slog.Logger, h *handler.Handlers, ui fs.FS) *Server {
 	e := echo.NewWithConfig(echo.Config{
 		Logger:           logger,
 		HTTPErrorHandler: errorHandler,
@@ -28,6 +35,7 @@ func New(cfg config.Server, logger *slog.Logger, h *handler.Handlers) *Server {
 	e.Use(
 		middleware.RequestID(),
 		middleware.Recover(),
+		frontend(ui),
 	)
 
 	registerRoutes(e, h)

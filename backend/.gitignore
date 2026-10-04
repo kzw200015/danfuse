@@ -1,3 +1,5 @@
 /bin/
 .env
 /configs/config.yaml
+# 前端构建产物（frontend 的 pnpm build 输出到这里，由 web/embed.go 内嵌）
+/web/static/dist/

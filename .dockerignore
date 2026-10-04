@@ -1,0 +1,13 @@
+# 构建镜像只需要 backend/ 与 frontend/ 的源码，其余一律排除
+*
+!backend
+!frontend
+
+# 本地的依赖、构建产物和配置（含敏感值的 .env 不能进入构建上下文）
+**/node_modules
+**/.env*
+**/.DS_Store
+backend/bin
+backend/configs/config.yaml
+backend/web/static/dist
+frontend/dist
