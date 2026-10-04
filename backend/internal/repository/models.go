@@ -18,6 +18,14 @@ type Episode struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type Image struct {
+	ID          int64     `json:"id"`
+	ContentType string    `json:"contentType"`
+	Data        []byte    `json:"data"`
+	Sha256      []byte    `json:"sha256"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 type Season struct {
 	ID        int64     `json:"id"`
 	SeriesID  int64     `json:"seriesId"`
@@ -35,6 +43,7 @@ type Series struct {
 	Year          *int32    `json:"year"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
+	PosterImageID *int64    `json:"posterImageId"`
 }
 
 type SyncRun struct {

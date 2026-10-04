@@ -47,7 +47,7 @@ export default function SeriesList({ selectedId }: { selectedId?: number }) {
                       selected && 'bg-muted',
                     )}
                   >
-                    <Poster className="w-8 rounded-sm" />
+                    <Poster imageId={s.posterImageId} className="w-8 rounded-sm" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{s.title}</div>
                       <div className="text-xs text-muted-foreground">

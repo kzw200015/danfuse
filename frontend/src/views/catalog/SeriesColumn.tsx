@@ -26,7 +26,7 @@ export default function SeriesColumn({
   return (
     <section className="flex min-h-0 flex-col border-r">
       <div className="flex gap-3 border-b p-3">
-        <Poster className="w-16" />
+        <Poster imageId={series.posterImageId} className="w-16" />
         <div className="min-w-0 flex-1">
           <h2 className="font-semibold">{series.title}</h2>
           {series.originalTitle && (

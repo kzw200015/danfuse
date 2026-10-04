@@ -48,11 +48,18 @@ type Item struct {
 
 // Series 适配交给核心的一部剧，与表结构一一对应。电影由适配合成为第 1 季第 1 集。
 // 同一个自然键可以出现多次（例如同一集的两个版本），核心按顺序 upsert，后写的覆盖先写的。
+//
+// 海报有三种状态，决定核心怎么处理，属于数据，不放进 Item.Warnings：
+//   - Poster 不为 nil：有图，与现有海报的 sha256 不同时换图；
+//   - Poster 与 PosterErr 都为 nil：目录源里没有图，清空这部剧的海报；
+//   - PosterErr 不为 nil：下载失败，保留现有海报并记警告。
 type Series struct {
 	Type          SeriesType
 	Title         string
 	OriginalTitle string // 空串存为 null
 	Year          *int
+	Poster        *Image
+	PosterErr     error
 	Seasons       []Season
 }
 
@@ -66,6 +73,12 @@ type Episode struct {
 	Number   int
 	Title    string // 空串存为 null
 	Duration *int   // 秒，取不到时为 nil
+}
+
+// Image 一张图片：原始字节，以及目录源给的 content-type。
+type Image struct {
+	ContentType string
+	Data        []byte
 }
 
 // Validate 核心的防御性校验：类型有效、标题非空、至少一季、每季至少一集、编号 ≥ 0、

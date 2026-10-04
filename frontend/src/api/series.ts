@@ -9,6 +9,8 @@ export interface SeriesSummary {
   title: string
   originalTitle: string | null
   year: number | null
+  /** 海报的图片 ID，没有海报时为 null；图片地址见 ./images.ts 的 imageUrl */
+  posterImageId: number | null
   seasonCount: number
   episodeCount: number
 }
@@ -37,6 +39,8 @@ export interface SeriesDetail {
   title: string
   originalTitle: string | null
   year: number | null
+  /** 海报的图片 ID，没有海报时为 null */
+  posterImageId: number | null
   /** 按季号排序 */
   seasons: Season[]
 }

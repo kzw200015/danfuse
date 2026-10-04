@@ -140,6 +140,95 @@ func TestSyncDuplicateKeysLastWins(t *testing.T) {
 	})
 }
 
+func TestSyncPoster(t *testing.T) {
+	t.Parallel()
+	image := func(contentType, data string) *catalog.Image {
+		return &catalog.Image{ContentType: contentType, Data: []byte(data)}
+	}
+	text := func(img *catalog.Image) string { // 与 readPoster 的 text 同样格式
+		if img == nil {
+			return ""
+		}
+		return img.ContentType + "|" + string(img.Data)
+	}
+	errDownload := errors.New("GET /Items/x/Images/Primary: 500 Internal Server Error")
+	tests := []struct {
+		name         string
+		before       *catalog.Image // 第一次同步时目录源给的海报
+		poster       *catalog.Image // 第二次同步时目录源给的海报，与 posterErr 都为 nil 表示没有图
+		posterErr    error
+		wantText     string // 第二次同步后剧的海报："content-type|内容"，没有海报时为空
+		wantSameID   bool   // 图片 ID 与第一次同步后相同
+		wantWarnings []string
+	}{
+		{
+			name:       "没变：不写新图",
+			before:     image("image/png", "海报"),
+			poster:     image("image/png", "海报"),
+			wantText:   "image/png|海报",
+			wantSameID: true,
+		},
+		{
+			name:     "变了：换图并删除旧图", // content-type 不变，只有内容变了：按 sha256 比较
+			before:   image("image/png", "旧海报"),
+			poster:   image("image/png", "新海报"),
+			wantText: "image/png|新海报",
+		},
+		{
+			name:     "原来没有海报：写入新图",
+			poster:   image("image/png", "海报"),
+			wantText: "image/png|海报",
+		},
+		{
+			name:   "没有图：清空海报并删除旧图",
+			before: image("image/png", "海报"),
+		},
+		{
+			name:         "下载失败：保留旧图并记警告",
+			before:       image("image/png", "海报"),
+			posterErr:    errDownload,
+			wantText:     "image/png|海报",
+			wantSameID:   true,
+			wantWarnings: []string{"甲：下载海报失败：GET /Items/x/Images/Primary: 500 Internal Server Error"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+				series := tv("甲", nil, season(1, "", episode(1, "", 30)))
+				series.Poster = tt.before
+				src := &fakeSource{items: []catalog.Item{item(series)}}
+				svc := newTestService(t, pool, src)
+				syncOnce(t, svc)
+				before := readPoster(t, pool, "甲")
+				if before.text != text(tt.before) {
+					t.Fatalf("第一次同步后海报 = %q, want %q", before.text, text(tt.before))
+				}
+
+				series = tv("甲", nil, season(1, "", episode(1, "", 30)))
+				series.Poster, series.PosterErr = tt.poster, tt.posterErr
+				src.items = []catalog.Item{item(series)}
+				run := syncOnce(t, svc)
+
+				if run.Status != statusSucceeded {
+					t.Errorf("海报只影响这部剧，同步应成功，实际 %s：%v", run.Status, run.Error)
+				}
+				after := readPoster(t, pool, "甲")
+				if after.text != tt.wantText {
+					t.Errorf("海报 = %q, want %q", after.text, tt.wantText)
+				}
+				if sameID := after.id == before.id; sameID != tt.wantSameID {
+					t.Errorf("图片 ID %d → %d，want 相同 = %v", before.id, after.id, tt.wantSameID)
+				}
+				if !slices.Equal(run.Warnings, tt.wantWarnings) {
+					t.Errorf("警告 = %q, want %q", run.Warnings, tt.wantWarnings)
+				}
+			})
+		})
+	}
+}
+
 func TestSyncSkipsInvalidSeries(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {

@@ -25,6 +25,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 // syncTest 在 synctest 气泡里运行 f，f 拿到一个新库的连接池。
 // 气泡里的时间是假的，synctest.Wait 等到后台的同步结束、Run 回到等待状态，测试不靠 sleep 等时序。
 // 连接池在气泡里创建、在气泡里关闭：pgx 连接内部的 channel 不能跨气泡使用。
+// f 结束时检查不变量：images 表里没有不被任何剧引用的图片。
 func syncTest(t *testing.T, f func(t *testing.T, pool *pgxpool.Pool)) {
 	t.Helper()
 	cfg := dbtest.Config(t)
@@ -35,7 +36,24 @@ func syncTest(t *testing.T, f func(t *testing.T, pool *pgxpool.Pool)) {
 		}
 		t.Cleanup(pool.Close)
 		f(t, pool)
+		assertNoOrphanImages(t, pool)
 	})
+}
+
+// assertNoOrphanImages 检查不变量：任何时候 images 表里都没有不被任何剧引用的图片。
+func assertNoOrphanImages(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	var orphans []int64
+	err := pool.QueryRow(t.Context(), `
+		SELECT coalesce(array_agg(id ORDER BY id), '{}')
+		FROM images i
+		WHERE NOT EXISTS (SELECT 1 FROM series s WHERE s.poster_image_id = i.id)`).Scan(&orphans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orphans) > 0 {
+		t.Errorf("images 里有不被任何剧引用的图片：%v", orphans)
+	}
 }
 
 // newTestService 构造不开定时同步的 SyncService 并在后台运行 Run。src 为 nil 表示未配置目录源。
@@ -213,6 +231,27 @@ func texts(rows []catalogRow) []string {
 		result[i] = r.text
 	}
 	return result
+}
+
+// poster 一部剧的海报：图片 ID（没有海报时为 0），以及 "content-type|内容"（没有海报时为空）。
+type poster struct {
+	id   int64
+	text string
+}
+
+// readPoster 读出剧名为 title 的那部剧（目录里只有一部同名的剧）的海报。
+func readPoster(t *testing.T, pool *pgxpool.Pool, title string) poster {
+	t.Helper()
+	var p poster
+	err := pool.QueryRow(t.Context(), `
+		SELECT coalesce(i.id, 0), coalesce(i.content_type || '|' || convert_from(i.data, 'UTF8'), '')
+		FROM series s
+		LEFT JOIN images i ON i.id = s.poster_image_id
+		WHERE s.title = $1`, title).Scan(&p.id, &p.text)
+	if err != nil {
+		t.Fatalf("读出「%s」的海报：%v", title, err)
+	}
+	return p
 }
 
 // runCounts 同步记录的状态、进度与新增数，例如 "succeeded 2/2 新增剧 2 季 3 集 4"，便于整体比较。

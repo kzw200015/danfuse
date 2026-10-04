@@ -10,10 +10,16 @@ import (
 
 type Querier interface {
 	CreateSyncRun(ctx context.Context, trigger string) (int64, error)
+	DeleteImage(ctx context.Context, id int64) error
 	// 只保留最近 keep 次：新同步开始时先删到剩 19 次，再插入这一次。
 	DeleteOldSyncRuns(ctx context.Context, keep int32) error
+	// 图片接口用：原始字节与 content-type。
+	GetImage(ctx context.Context, id int64) (GetImageRow, error)
+	// 同步时与目录源的新图比较，不取图片本身。
+	GetImageSHA256(ctx context.Context, id int64) ([]byte, error)
 	GetSeries(ctx context.Context, id int64) (Series, error)
 	GetSyncRun(ctx context.Context, id int64) (SyncRun, error)
+	InsertImage(ctx context.Context, arg InsertImageParams) (int64, error)
 	// 把残留的 running（进程崩溃或被杀）改为 interrupted，结束时间未知，保持为空。
 	// 只能在持有同步锁时调用：这时不会有正在进行的同步。
 	InterruptRunningSyncRuns(ctx context.Context) (int64, error)
@@ -25,6 +31,8 @@ type Querier interface {
 	ListSeries(ctx context.Context) ([]ListSeriesRow, error)
 	// 列表不带警告正文。
 	ListSyncRuns(ctx context.Context, limit int32) ([]ListSyncRunsRow, error)
+	// 剧指向新的海报，没有图时为 null。
+	SetSeriesPoster(ctx context.Context, arg SetSeriesPosterParams) error
 	// 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。
 	UpdateSyncRun(ctx context.Context, arg UpdateSyncRunParams) error
 	// 按自然键 (season_id, number) 写入一集，规则同 UpsertSeries。
@@ -33,6 +41,7 @@ type Querier interface {
 	UpsertSeason(ctx context.Context, arg UpsertSeasonParams) (UpsertSeasonRow, error)
 	// 按自然键 (type, title, year) 写入一部剧：匹配上就用目录源的数据覆盖键以外的字段，匹配不上就新增。
 	// created 表示这一行是这次新增的：新插入的行 xmax 为 0，ON CONFLICT DO UPDATE 更新过的行不为 0。
+	// 海报由同步核心随后按 sha256 处理，这里带回剧现在的海报。
 	UpsertSeries(ctx context.Context, arg UpsertSeriesParams) (UpsertSeriesRow, error)
 }
 

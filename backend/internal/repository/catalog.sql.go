@@ -10,7 +10,7 @@ import (
 )
 
 const getSeries = `-- name: GetSeries :one
-SELECT id, type, title, original_title, year, created_at, updated_at
+SELECT id, type, title, original_title, year, created_at, updated_at, poster_image_id
 FROM series
 WHERE id = $1
 `
@@ -26,6 +26,7 @@ func (q *Queries) GetSeries(ctx context.Context, id int64) (Series, error) {
 		&i.Year,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PosterImageID,
 	)
 	return i, err
 }
@@ -102,7 +103,7 @@ func (q *Queries) ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]Li
 }
 
 const listSeries = `-- name: ListSeries :many
-SELECT s.id, s.type, s.title, s.original_title, s.year,
+SELECT s.id, s.type, s.title, s.original_title, s.year, s.poster_image_id,
        count(DISTINCT se.id)::int AS season_count,
        count(e.id)::int           AS episode_count
 FROM series s
@@ -118,6 +119,7 @@ type ListSeriesRow struct {
 	Title         string  `json:"title"`
 	OriginalTitle *string `json:"originalTitle"`
 	Year          *int32  `json:"year"`
+	PosterImageID *int64  `json:"posterImageId"`
 	SeasonCount   int32   `json:"seasonCount"`
 	EpisodeCount  int32   `json:"episodeCount"`
 }
@@ -138,6 +140,7 @@ func (q *Queries) ListSeries(ctx context.Context) ([]ListSeriesRow, error) {
 			&i.Title,
 			&i.OriginalTitle,
 			&i.Year,
+			&i.PosterImageID,
 			&i.SeasonCount,
 			&i.EpisodeCount,
 		); err != nil {
@@ -149,6 +152,23 @@ func (q *Queries) ListSeries(ctx context.Context) ([]ListSeriesRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setSeriesPoster = `-- name: SetSeriesPoster :exec
+UPDATE series
+SET poster_image_id = $2
+WHERE id = $1
+`
+
+type SetSeriesPosterParams struct {
+	ID            int64  `json:"id"`
+	PosterImageID *int64 `json:"posterImageId"`
+}
+
+// 剧指向新的海报，没有图时为 null。
+func (q *Queries) SetSeriesPoster(ctx context.Context, arg SetSeriesPosterParams) error {
+	_, err := q.db.Exec(ctx, setSeriesPoster, arg.ID, arg.PosterImageID)
+	return err
 }
 
 const upsertEpisode = `-- name: UpsertEpisode :one
@@ -220,7 +240,7 @@ VALUES ($1, $2, $3, $4)
 ON CONFLICT (type, title, year) DO UPDATE
 SET original_title = excluded.original_title,
     updated_at     = now()
-RETURNING id, (xmax = 0)::boolean AS created
+RETURNING id, (xmax = 0)::boolean AS created, poster_image_id
 `
 
 type UpsertSeriesParams struct {
@@ -231,12 +251,14 @@ type UpsertSeriesParams struct {
 }
 
 type UpsertSeriesRow struct {
-	ID      int64 `json:"id"`
-	Created bool  `json:"created"`
+	ID            int64  `json:"id"`
+	Created       bool   `json:"created"`
+	PosterImageID *int64 `json:"posterImageId"`
 }
 
 // 按自然键 (type, title, year) 写入一部剧：匹配上就用目录源的数据覆盖键以外的字段，匹配不上就新增。
 // created 表示这一行是这次新增的：新插入的行 xmax 为 0，ON CONFLICT DO UPDATE 更新过的行不为 0。
+// 海报由同步核心随后按 sha256 处理，这里带回剧现在的海报。
 func (q *Queries) UpsertSeries(ctx context.Context, arg UpsertSeriesParams) (UpsertSeriesRow, error) {
 	row := q.db.QueryRow(ctx, upsertSeries,
 		arg.Type,
@@ -245,6 +267,6 @@ func (q *Queries) UpsertSeries(ctx context.Context, arg UpsertSeriesParams) (Ups
 		arg.Year,
 	)
 	var i UpsertSeriesRow
-	err := row.Scan(&i.ID, &i.Created)
+	err := row.Scan(&i.ID, &i.Created, &i.PosterImageID)
 	return i, err
 }

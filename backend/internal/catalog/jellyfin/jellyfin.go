@@ -36,7 +36,7 @@ func New(cfg config.Jellyfin) *Source {
 // List 见 catalog.Source。
 //  1. GET /Library/VirtualFolders，按名字找配置的媒体库；找不到或类型不对的放进 Warnings，全部不可用则失败；
 //  2. 媒体库按名称排序，逐个列出剧和电影，各自按 Id 排序，得到 Total；
-//  3. Items 逐部取季和集，见 items。
+//  3. Items 逐部取季和集、下载海报，见 items。
 func (s *Source) List(ctx context.Context) (catalog.Listing, error) {
 	folders, err := s.client.virtualFolders(ctx)
 	if err != nil {
@@ -80,8 +80,9 @@ func pickLibraries(names []string, folders []virtualFolder) (libraries []virtual
 	return libraries, skipped
 }
 
-// items Listing.Items 的实现：列出的剧和电影已经带着名称、年份，不用再请求一次；
-// 电影自带时长，不用取季和集。只有剧在调用方要下一项时才发一个请求。
+// items Listing.Items 的实现：列出的剧和电影已经带着名称、年份和图片 tag，不用再请求一次；
+// 电影自带时长，不用取季和集。请求都在调用方要下一项时才发：剧取季和集，有 Primary 图的再下载海报。
+// 海报下载失败只放进这部剧的 PosterErr，不结束迭代；整部跳过的剧不下载海报。
 func (s *Source) items(ctx context.Context, listed []item) iter.Seq2[catalog.Item, error] {
 	return func(yield func(catalog.Item, error) bool) {
 		for _, it := range listed {
@@ -95,6 +96,9 @@ func (s *Source) items(ctx context.Context, listed []item) iter.Seq2[catalog.Ite
 					return
 				}
 				result = mapSeries(it, children)
+			}
+			if result.Series != nil && it.ImageTags["Primary"] != "" {
+				result.Series.Poster, result.Series.PosterErr = s.client.primaryImage(ctx, it.ID)
 			}
 			if !yield(result, nil) {
 				return

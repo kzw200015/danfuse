@@ -60,6 +60,7 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 **错误处理与统一响应**（贯穿两端的核心约定）：
 - 所有接口返回 `{code, message, data}`，同时保留 REST 语义的 HTTP 状态码；分页 `data = {list, total, page, pageSize}`（`response.NewPage`）。
+  - 例外：图片接口 `GET /api/images/:id` 成功时直接返回原始字节和存下的 content-type（`c.Blob`），加 `Cache-Control: public, max-age=31536000, immutable`（海报换了会换新的图片 ID）；出错时照常 return error，由 errorHandler 输出统一结构。前端用 `src/api/images.ts` 的 `imageUrl(id)` 交给 `<img>` 加载，不经过 `request()`。
 - handler/service 出错直接 `return errcode.ErrXxx`（通用错误有 `ErrBadRequest`、`ErrNotFound`、`ErrConflict`、`ErrUnprocessable`、`ErrBadGateway`、`ErrInternal`、`ErrServiceUnavailable`），按需 `.WithMessage()` 改写提示、`.Wrap(err)` 附带底层原因（只进日志）。`server/middleware.go` 的全局 `errorHandler` 统一转换：`*errcode.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。
 - 日志：没有请求日志中间件，5xx 由 errorHandler 记录：按 error 级别记 `request_id`（取自 `X-Request-Id` 响应头）、方法、路由（注册时的路径模式，不含实际 URL）和完整的错误链，字段由 `logger.ServerError` 统一输出；4xx 不记录。自己写 5xx 响应、不经过 errorHandler 的 handler 也调用它。
 - `code`：`0` 成功；`1`（`CodeFail`）通用失败，前端直接提示 message；其他为业务码，**仅在前端需要分支处理时才定义**，按模块分段（每个模块 1000 个号段），定义在 `internal/pkg/errcode/codes.go`，并必须同步到前端 `src/api/errcode.ts`。目前没有业务码。
@@ -70,8 +71,8 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 **handler 参数绑定**：请求结构体用 `param`/`query`/`json` tag，并实现 `Validate() error`（可在其中 trim、填默认值），通过泛型 `bind[xxxRequest](c)` 一次完成绑定 + 校验；校验失败用 `invalidParam("提示语")`。路由统一在 `internal/server/router.go` 的 `/api` 分组下注册。
 
 **测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。要自己创建连接池时用 `dbtest.Config(t)`，它建好库、登记删库，只返回连接配置。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求；要换掉托管的前端文件时用 `newServer(..., fstest.MapFS{...})`。
-- service 测试只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`），不 mock `repository.Store`。涉及后台 goroutine、定时器的测试（`SyncService.Run`）放在 `testing/synctest` 的气泡里，用 `synctest.Wait` 等后台停下、用假时间推进定时器，不靠 sleep；这时连接池要在气泡里用 `dbtest.Config(t)` 新建、在气泡里关闭（pgx 连接内部的 channel 不能跨气泡使用），写法见 `internal/service/helpers_test.go`。注意气泡里的定时器和 `context.WithTimeout` 都用假时间，阻塞在数据库 I/O 上时假时间不前进、超时不会触发：数据库卡住时测试会一直挂到 `go test -timeout`。
-- 外部系统适配器的测试用 `httptest` 回放 `testdata/` 里的真实样本，不联网；加 `-update` 时从 `e2e/` 环境重新抓取（例如 `go test ./internal/catalog/jellyfin -run TestListSamples -update`，需要先按 `e2e/README.md` 搭好环境；`-update` 只作用于负责录制的那个用例，其他用例始终只回放）。
+- service 测试只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`），不 mock `repository.Store`。涉及后台 goroutine、定时器的测试（`SyncService.Run`）放在 `testing/synctest` 的气泡里，用 `synctest.Wait` 等后台停下、用假时间推进定时器，不靠 sleep；这时连接池要在气泡里用 `dbtest.Config(t)` 新建、在气泡里关闭（pgx 连接内部的 channel 不能跨气泡使用），写法见 `internal/service/helpers_test.go`（`syncTest` 在每个用例结束时检查不变量：images 表里没有不被任何剧引用的图片）。注意气泡里的定时器和 `context.WithTimeout` 都用假时间，阻塞在数据库 I/O 上时假时间不前进、超时不会触发：数据库卡住时测试会一直挂到 `go test -timeout`。
+- 外部系统适配器的测试用 `httptest` 回放 `testdata/` 里的真实样本，不联网；加 `-update` 时从 `e2e/` 环境重新抓取（例如 `go test ./internal/catalog/jellyfin -run TestListSamples -update`，需要先按 `e2e/README.md` 搭好环境；`-update` 只作用于负责录制的那个用例，其他用例始终只回放）。Jellyfin 的 JSON 样本按"路径 + ParentId"命名，海报样本按条目 Id 存成原始图片 `image-<Id>.jpg`/`.png`，回放时 Content-Type 按内容识别。
 
 **配置**：`internal/config` 基于 viper。新增配置项必须在 `setDefaults` 里登记默认值，否则环境变量覆盖不生效（viper `AutomaticEnv` 只认已知 key）；同时更新 `config.example.yaml`。
 

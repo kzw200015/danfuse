@@ -13,6 +13,7 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 
 	api.GET("/series", h.Catalog.ListSeries)
 	api.GET("/series/:id", h.Catalog.GetSeries)
+	api.GET("/images/:id", h.Catalog.GetImage)
 
 	api.POST("/sync-runs", h.Sync.Trigger)
 	api.GET("/sync-runs", h.Sync.List)

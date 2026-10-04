@@ -31,7 +31,7 @@ var versions = []struct{ name, envPrefix string }{
 
 const testAPIKey = "test-api-key"
 
-// fakeJellyfin 假的 Jellyfin：检查收到的每个请求都符合适配的约定，按请求对应的样本名返回 JSON，并记下请求顺序。
+// fakeJellyfin 假的 Jellyfin：检查收到的每个请求都符合适配的约定，按请求对应的样本名返回 JSON 或图片，并记下请求顺序。
 type fakeJellyfin struct {
 	t       *testing.T
 	url     string
@@ -43,8 +43,9 @@ type fakeJellyfin struct {
 	failOn   string   // 请求的样本名等于它时返回 500，模拟请求失败
 }
 
-// respondFunc 按样本名给出响应体，找不到时返回 nil。
-type respondFunc func(name string, r *http.Request) []byte
+// respondFunc 按样本名给出响应体和 Content-Type，找不到时 body 返回 nil。
+// contentType 为空时按样本给出：JSON 样本为 JSON，图片样本由 http.DetectContentType 按内容识别（回放的样本没有记下响应头）。
+type respondFunc func(name string, r *http.Request) (body []byte, contentType string)
 
 func startFake(t *testing.T, apiKey string, respond respondFunc) *fakeJellyfin {
 	t.Helper()
@@ -67,46 +68,69 @@ func (f *fakeJellyfin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `"boom"`, http.StatusInternalServerError)
 		return
 	}
-	body := f.respond(name, r)
+	body, contentType := f.respond(name, r)
 	if body == nil {
 		f.t.Errorf("没有请求 %s 对应的样本 %s", r.URL, name)
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	switch {
+	case contentType != "":
+	case strings.HasSuffix(name, ".json"):
+		contentType = "application/json; charset=utf-8"
+	default:
+		contentType = http.DetectContentType(body)
+	}
+	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write(body)
 }
 
 // newFake 回放 samples（样本名 → 响应体）的假 Jellyfin，用于构造 e2e 环境里没有的情形。
+// Content-Type 按样本给出，见 respondFunc。
 func newFake(t *testing.T, samples map[string]string) *fakeJellyfin {
 	t.Helper()
-	return startFake(t, testAPIKey, func(name string, _ *http.Request) []byte {
+	return startFake(t, testAPIKey, func(name string, _ *http.Request) ([]byte, string) {
 		if body, ok := samples[name]; ok {
-			return []byte(body)
+			return []byte(body), ""
 		}
-		return nil
+		return nil, ""
 	})
 }
 
-// replayFake 回放 testdata/<version>/ 里抓取的样本。
+// replayFake 回放 testdata/<version>/ 里抓取的样本，Content-Type 按样本给出，见 respondFunc。
 func replayFake(t *testing.T, version string) *fakeJellyfin {
 	t.Helper()
 	dir := filepath.Join("testdata", version)
-	return startFake(t, testAPIKey, func(name string, _ *http.Request) []byte {
-		body, err := os.ReadFile(filepath.Join(dir, name))
+	return startFake(t, testAPIKey, func(name string, _ *http.Request) ([]byte, string) {
+		body, err := os.ReadFile(samplePath(dir, name))
 		if err != nil {
-			return nil
+			return nil, ""
 		}
-		return body
+		return body, ""
 	})
 }
 
-// recordFake 把请求转发给 e2e 环境里这个版本的 Jellyfin，并把响应写进 testdata/<version>/。
+// imageExts 录制时图片样本按 Content-Type 取的扩展名，方便直接打开查看。
+var imageExts = map[string]string{"image/jpeg": ".jpg", "image/png": ".png"}
+
+// samplePath 样本名对应的文件：JSON 样本就是样本名本身；图片样本的文件名是样本名加上扩展名（见 imageExts）。
+func samplePath(dir, name string) string {
+	if strings.HasSuffix(name, ".json") {
+		return filepath.Join(dir, name)
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, name+".*"))
+	if len(matches) != 1 {
+		return filepath.Join(dir, name)
+	}
+	return matches[0]
+}
+
+// recordFake 把请求转发给 e2e 环境里这个版本的 Jellyfin，并把响应写进 testdata/<version>/；Content-Type 沿用 Jellyfin 的响应头。
 // 先确认实例可用，再清空这个版本的样本目录，不再发出的请求不会留下过时的文件。
 func recordFake(t *testing.T, version string) *fakeJellyfin {
 	t.Helper()
 	baseURL, apiKey := e2eInstance(t, version)
-	if _, err := fetch(t.Context(), baseURL+"/Library/VirtualFolders", http.Header{"Authorization": {authorization(apiKey)}}); err != nil {
+	if _, _, err := fetch(t.Context(), baseURL+"/Library/VirtualFolders", http.Header{"Authorization": {authorization(apiKey)}}); err != nil {
 		t.Fatalf("e2e 环境的 Jellyfin %s 不可用：%v", version, err)
 	}
 	dir := filepath.Join("testdata", version)
@@ -117,21 +141,30 @@ func recordFake(t *testing.T, version string) *fakeJellyfin {
 		t.Fatal(err)
 	}
 
-	return startFake(t, apiKey, func(name string, r *http.Request) []byte {
-		body, err := fetch(r.Context(), baseURL+r.URL.RequestURI(), r.Header)
+	return startFake(t, apiKey, func(name string, r *http.Request) ([]byte, string) {
+		body, contentType, err := fetch(r.Context(), baseURL+r.URL.RequestURI(), r.Header)
 		if err != nil {
 			t.Errorf("转发 %s 到 Jellyfin %s：%v", r.URL, version, err)
-			return nil
+			return nil, ""
 		}
-		sample, err := readable(body)
-		if err != nil {
-			t.Errorf("Jellyfin %s 的响应不是 JSON：%v", version, err)
-			return nil
+		sample, file := body, name
+		if strings.HasSuffix(name, ".json") {
+			if sample, err = readable(body); err != nil {
+				t.Errorf("Jellyfin %s 的响应不是 JSON：%v", version, err)
+				return nil, ""
+			}
+		} else {
+			ext, ok := imageExts[contentType]
+			if !ok {
+				t.Errorf("Jellyfin %s 返回的图片格式 %q 没有对应的扩展名", version, contentType)
+				return nil, ""
+			}
+			file += ext
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), sample, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, file), sample, 0o644); err != nil {
 			t.Error(err)
 		}
-		return sample
+		return sample, contentType
 	})
 }
 
@@ -154,12 +187,12 @@ func readable(body []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// fetch 向 e2e 环境的 Jellyfin 发 GET，只带上 header 里的鉴权和 Accept 请求头；
+// fetch 向 e2e 环境的 Jellyfin 发 GET，只带上 header 里的鉴权和 Accept 请求头，返回响应体和 Content-Type；
 // Accept-Encoding 交给 Transport，响应才会自动解压。
-func fetch(ctx context.Context, target string, header http.Header) ([]byte, error) {
+func fetch(ctx context.Context, target string, header http.Header) (body []byte, contentType string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	for _, h := range []string{"Authorization", "Accept"} {
 		if v := header.Get(h); v != "" {
@@ -168,13 +201,14 @@ func fetch(ctx context.Context, target string, header http.Header) ([]byte, erro
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status %s", resp.Status)
+		return nil, "", fmt.Errorf("status %s", resp.Status)
 	}
-	return io.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
+	return body, resp.Header.Get("Content-Type"), err
 }
 
 // e2eInstance 从 e2e/.env 读出某个版本的 Jellyfin 地址和 API key。
@@ -201,21 +235,34 @@ func e2eInstance(t *testing.T, version string) (baseURL, apiKey string) {
 	return baseURL, apiKey
 }
 
-// sampleName 请求对应的样本文件名：每个请求由路径和 ParentId 唯一确定。
+// sampleName 请求对应的样本名：每个请求由路径和 ParentId（海报为条目 Id）唯一确定。
 func sampleName(r *http.Request) string {
 	switch r.URL.Path {
 	case "/Library/VirtualFolders":
 		return "virtual-folders.json"
 	case "/Items":
 		return "items-" + r.URL.Query().Get("ParentId") + ".json"
-	default:
-		return r.URL.Path
 	}
+	if id, ok := posterItemID(r.URL.Path); ok {
+		return "image-" + id
+	}
+	return r.URL.Path
+}
+
+// posterItemID 从海报的请求路径 /Items/{Id}/Images/Primary 里取出条目 Id。
+func posterItemID(path string) (string, bool) {
+	rest, ok := strings.CutPrefix(path, "/Items/")
+	if !ok {
+		return "", false
+	}
+	id, ok := strings.CutSuffix(rest, "/Images/Primary")
+	return id, ok && id != "" && !strings.Contains(id, "/")
 }
 
 func authorization(apiKey string) string { return `MediaBrowser Token="` + apiKey + `"` }
 
-// checkRequest 检查适配发出的请求：鉴权只用请求头；不带 userId、不分页；显式递归；每一步的参数与 spec 一致。
+// checkRequest 检查适配发出的请求：鉴权只用请求头；不带 userId、不分页；显式递归；每一步的参数与 spec 一致；
+// 不声明接受 WebP（否则 Jellyfin 会把海报都转成 WebP）。
 func checkRequest(t *testing.T, r *http.Request, apiKey string) {
 	t.Helper()
 	if r.Method != http.MethodGet {
@@ -251,7 +298,11 @@ func checkRequest(t *testing.T, r *http.Request, apiKey string) {
 			t.Errorf("/Items 的参数 = %s, want %s", query.Encode(), want.Encode())
 		}
 	default:
-		t.Errorf("不应请求 %s", r.URL.Path)
+		if _, ok := posterItemID(r.URL.Path); !ok {
+			t.Errorf("不应请求 %s", r.URL.Path)
+		} else if want := (url.Values{"maxWidth": {"400"}}); query.Encode() != want.Encode() {
+			t.Errorf("%s 的参数 = %s, want %s", r.URL.Path, query.Encode(), want.Encode())
+		}
 	}
 }
 

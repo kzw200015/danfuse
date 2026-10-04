@@ -1,22 +1,36 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, ImageOffIcon } from 'lucide-react'
 import { Link } from 'react-router'
 
+import { imageUrl } from '@/api/images'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-/** 剧的海报。目前没有海报数据，显示占位图 */
-export function Poster({ className }: { className?: string }) {
+/**
+ * 剧的海报。没有海报时显示占位图；图片加载失败时也显示占位图（例如同步换了海报、剧列表还没刷新时旧图已被删除）。
+ * 旁边总有剧名，图片只作装饰，alt 为空。
+ */
+export function Poster({ imageId, className }: { imageId: number | null; className?: string }) {
+  const [failedId, setFailedId] = useState<number | null>(null)
+  const base = 'aspect-[2/3] shrink-0 rounded-md bg-muted'
+  if (imageId === null || imageId === failedId) {
+    return (
+      <div
+        className={cn(base, 'flex items-center justify-center text-muted-foreground', className)}
+        title="没有海报"
+      >
+        <ImageOffIcon className="size-1/3" />
+      </div>
+    )
+  }
   return (
-    <div
-      className={cn(
-        'flex aspect-[2/3] shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground',
-        className,
-      )}
-      title="没有海报"
-    >
-      <ImageOffIcon className="size-1/3" />
-    </div>
+    <img
+      src={imageUrl(imageId)}
+      alt=""
+      loading="lazy"
+      onError={() => setFailedId(imageId)}
+      className={cn(base, 'object-cover', className)}
+    />
   )
 }
 

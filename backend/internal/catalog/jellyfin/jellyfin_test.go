@@ -2,11 +2,14 @@ package jellyfin
 
 import (
 	"cmp"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"iter"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -25,6 +28,7 @@ const (
 	seriesFogHarbor   = "c311548d3a5ebeef512b28ff37a80d62" // 雾港谜案 (2021)
 	seriesStarSea2023 = "e4892d8fc0b94beff829b05e504b6929" // 星海旅人 (2023)
 	seriesStoneLane   = "fa5a9a8128b338dfb62899e69beb66dd" // 青石巷日常 (2022)
+	movieLighthouse   = "2028c556be6ed0b7cb33571dfdc33b24" // 长夜灯塔 (2020)
 )
 
 func ep(number int, title string, duration int) catalog.Episode {
@@ -49,9 +53,40 @@ func assertItems(t *testing.T, got, want []catalog.Item) {
 	if reflect.DeepEqual(got, want) {
 		return
 	}
-	g, _ := json.MarshalIndent(got, "", "  ")
-	w, _ := json.MarshalIndent(want, "", "  ")
+	g, _ := json.MarshalIndent(summarize(got), "", "  ")
+	w, _ := json.MarshalIndent(summarize(want), "", "  ")
 	t.Errorf("Items 不符\n got: %s\nwant: %s", g, w)
+}
+
+// summarize 失败输出用的摘要：海报换成 content-type、字节数和 sha256 前 8 位，PosterErr 换成错误文本，
+// 免得几百 KB 的 base64 淹没差异、错误被编码成 {}。外层同名的字段在 JSON 里盖过内嵌结构体的字段。
+func summarize(items []catalog.Item) any {
+	type series struct {
+		*catalog.Series
+		Poster    string
+		PosterErr string
+	}
+	type item struct {
+		catalog.Item
+		Series *series
+	}
+	result := make([]item, len(items))
+	for i, it := range items {
+		result[i] = item{Item: it}
+		if it.Series == nil {
+			continue
+		}
+		s := &series{Series: it.Series}
+		if p := it.Series.Poster; p != nil {
+			sum := sha256.Sum256(p.Data)
+			s.Poster = fmt.Sprintf("%s，%d 字节，sha256 %x", p.ContentType, len(p.Data), sum[:4])
+		}
+		if err := it.Series.PosterErr; err != nil {
+			s.PosterErr = err.Error()
+		}
+		result[i].Series = s
+	}
+	return result
 }
 
 // wantSamples 测试媒体库按规则应落成的目录（工单 19 的期望目录表）。两个版本的差别：
@@ -60,8 +95,17 @@ func assertItems(t *testing.T, got, want []catalog.Item) {
 //   - 文件名带季号、没有对应季文件夹时 Jellyfin 补建的季：10.11 叫"第 2 季"，12.1 叫"Season 2"。
 //
 // 12.1 里两部"星海旅人"被按剧名合并，按剧查询会互相带出对方的季和集，只保留 SeriesId 匹配的才能得到下面的结果。
-func wantSamples(version string) []catalog.Item {
+// 海报：文件夹自带海报的三部（星海旅人 2019 的 JPEG、雾港谜案的 PNG、长夜灯塔的 JPEG）保持原格式，内容是抓取的样本。
+func wantSamples(t *testing.T, version string) []catalog.Item {
+	t.Helper()
 	v1011 := version == "10.11"
+	poster := func(itemID, contentType string) *catalog.Image {
+		data, err := os.ReadFile(samplePath(filepath.Join("testdata", version), "image-"+itemID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &catalog.Image{ContentType: contentType, Data: data}
+	}
 	name := func(title string, year int) string {
 		if v1011 {
 			return fmt.Sprintf("%s (%d)", title, year)
@@ -85,27 +129,30 @@ func wantSamples(version string) []catalog.Item {
 		fogHarborS2 = "第 2 季"
 	}
 
+	starSea2019 := tv("星海旅人", 2019,
+		catalog.Season{Number: 0, Title: "Specials", Episodes: []catalog.Episode{ep(1, "星海旅人 S00E01", 20)}},
+		catalog.Season{Number: 1, Title: "第 1 季", Episodes: starSeaS1},
+		catalog.Season{Number: 2, Title: "第 2 季", Episodes: []catalog.Episode{ep(1, "星海旅人 S02E01", 30), ep(2, "星海旅人 S02E02", 30)}},
+	)
+	starSea2019.Poster = poster(seriesStarSea2019, "image/jpeg")
+	fogHarbor := tv("雾港谜案", 2021,
+		catalog.Season{Number: 2, Title: fogHarborS2, Episodes: []catalog.Episode{ep(1, "雾港谜案 S02E01", 30), ep(2, "雾港谜案 S02E02", 30)}},
+	)
+	fogHarbor.Poster = poster(seriesFogHarbor, "image/png")
+
 	return []catalog.Item{
 		{
 			Name: "长夜灯塔 (2020)",
 			Series: &catalog.Series{
 				Type: catalog.TypeMovie, Title: "长夜灯塔 (2020)", Year: new(2020),
+				Poster:  poster(movieLighthouse, "image/jpeg"),
 				Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{ep(1, "", 45)}}},
 			},
 		},
+		{Name: name("星海旅人", 2019), Series: starSea2019},
 		{
-			Name: name("星海旅人", 2019),
-			Series: tv("星海旅人", 2019,
-				catalog.Season{Number: 0, Title: "Specials", Episodes: []catalog.Episode{ep(1, "星海旅人 S00E01", 20)}},
-				catalog.Season{Number: 1, Title: "第 1 季", Episodes: starSeaS1},
-				catalog.Season{Number: 2, Title: "第 2 季", Episodes: []catalog.Episode{ep(1, "星海旅人 S02E01", 30), ep(2, "星海旅人 S02E02", 30)}},
-			),
-		},
-		{
-			Name: name("雾港谜案", 2021),
-			Series: tv("雾港谜案", 2021,
-				catalog.Season{Number: 2, Title: fogHarborS2, Episodes: []catalog.Episode{ep(1, "雾港谜案 S02E01", 30), ep(2, "雾港谜案 S02E02", 30)}},
-			),
+			Name:   name("雾港谜案", 2021),
+			Series: fogHarbor,
 			// `第1季` 文件夹解析不出季号，里面文件名不带季号的集没有 ParentIndexNumber
 			Warnings: []string{
 				"集「雾港谜案」（第1季，第 2 集）没有季号，已跳过",
@@ -149,7 +196,8 @@ func TestListSamples(t *testing.T) {
 			if !slices.Equal(listing.Warnings, wantWarnings) {
 				t.Errorf("Warnings = %q, want %q", listing.Warnings, wantWarnings)
 			}
-			assertItems(t, collect(t, listing.Items), wantSamples(v.name))
+			got := collect(t, listing.Items) // 录制时取完才有海报的样本文件
+			assertItems(t, got, wantSamples(t, v.name))
 		})
 	}
 }
@@ -167,17 +215,21 @@ func TestItemsRequestsOnDemand(t *testing.T) {
 		t.Fatalf("List 之后的请求 = %q, want %q", got, listed)
 	}
 
-	// 每要一项才取这一部剧的季和集；电影不用再请求
+	// 每要一项才取这一部剧的季和集、下载海报；电影不用取季和集，没有 Primary 图的不下载海报
 	next, stop := iter.Pull2(listing.Items)
 	defer stop()
 	want := listed
-	for _, id := range []string{"", seriesStarSea2019, seriesFogHarbor, seriesStarSea2023, seriesStoneLane} {
+	for _, requests := range [][]string{
+		{"image-" + movieLighthouse},
+		{"items-" + seriesStarSea2019 + ".json", "image-" + seriesStarSea2019},
+		{"items-" + seriesFogHarbor + ".json", "image-" + seriesFogHarbor},
+		{"items-" + seriesStarSea2023 + ".json"},
+		{"items-" + seriesStoneLane + ".json"},
+	} {
 		if _, err, ok := next(); !ok || err != nil {
 			t.Fatalf("next() = (%v, %v)", err, ok)
 		}
-		if id != "" {
-			want = append(want, "items-"+id+".json")
-		}
+		want = append(want, requests...)
 		if got := fake.requested(); !slices.Equal(got, want) {
 			t.Fatalf("请求 = %q, want %q", got, want)
 		}
@@ -198,7 +250,10 @@ func TestItemsStopsOnBreak(t *testing.T) {
 		break
 	}
 
-	want := []string{"virtual-folders.json", "items-" + libShows + ".json", "items-" + seriesStarSea2019 + ".json"}
+	want := []string{
+		"virtual-folders.json", "items-" + libShows + ".json",
+		"items-" + seriesStarSea2019 + ".json", "image-" + seriesStarSea2019,
+	}
 	if got := fake.requested(); !slices.Equal(got, want) {
 		t.Errorf("break 之后不应再请求，请求 = %q, want %q", got, want)
 	}
@@ -228,8 +283,8 @@ func TestItemsEndsAfterError(t *testing.T) {
 	if len(got) != 2 || got[0] != "星海旅人" || !strings.HasPrefix(got[1], "error: 取「雾港谜案」的季和集失败") {
 		t.Errorf("产出 = %q, want 第一部剧、然后是错误", got)
 	}
-	if n := len(fake.requested()); n != 4 {
-		t.Errorf("出错后不应再请求，共请求 %d 次，want 4", n)
+	if n := len(fake.requested()); n != 5 {
+		t.Errorf("出错后不应再请求，共请求 %d 次，want 5", n)
 	}
 }
 
@@ -507,5 +562,127 @@ func TestMapMovie(t *testing.T) {
 	})
 	if n := len(fake.requested()); n != 2 {
 		t.Errorf("电影不用取季和集，共请求 %d 次，want 2", n)
+	}
+}
+
+// TestPoster 海报的三种状态。媒体库"番剧"里有两部剧：s1 按用例构造，s2 总有海报，用来确认 s1 的海报出问题时只影响它自己。
+func TestPoster(t *testing.T) {
+	const folders = `[{"Name":"番剧","ItemId":"lib","CollectionType":"tvshows"}]`
+	const png = "\x89PNG\r\n\x1a\n海报" // 假的 PNG：不指定 Content-Type 时假 Jellyfin 按内容识别为 image/png
+	const validChildren = `{"Items":[{"Id":"%[1]s-e1","Type":"Episode","SeriesId":%[1]q,"Name":"第1集","ParentIndexNumber":1,"IndexNumber":1}]}`
+	pngImage := &catalog.Image{ContentType: "image/png", Data: []byte(png)}
+
+	tests := []struct {
+		name        string
+		imageTags   string // s1 的 ImageTags
+		children    string // s1 的季和集，为空时是一个有效的集
+		image       string // s1 海报请求的响应体，为空时不应请求
+		contentType string // s1 海报响应的 Content-Type
+		failImage   bool   // s1 的海报请求返回 500
+		wantSkipped bool   // s1 整部跳过
+		wantPoster  *catalog.Image
+		wantErr     string // PosterErr 的文本
+	}{
+		{
+			name:        "有图：Content-Type 取响应头，不按内容识别",
+			imageTags:   `{"Primary":"tag"}`,
+			image:       png,
+			contentType: "image/jpeg",
+			wantPoster:  &catalog.Image{ContentType: "image/jpeg", Data: []byte(png)},
+		},
+		{
+			name:      "没有 Primary 图：不下载，Poster 与 PosterErr 都为 nil",
+			imageTags: `{"Thumb":"tag"}`,
+		},
+		{
+			name:      "下载失败：状态码不是 200",
+			imageTags: `{"Primary":"tag"}`,
+			failImage: true,
+			wantErr:   "GET /Items/s1/Images/Primary: 500 Internal Server Error",
+		},
+		{
+			name:        "下载失败：响应不是图片",
+			imageTags:   `{"Primary":"tag"}`,
+			image:       "<html><body>请登录</body></html>",
+			contentType: "text/html; charset=utf-8",
+			wantErr:     "GET /Items/s1/Images/Primary: 响应不是图片（Content-Type: text/html; charset=utf-8）",
+		},
+		{
+			name:        "下载失败：不接受 SVG",
+			imageTags:   `{"Primary":"tag"}`,
+			image:       `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`,
+			contentType: "image/svg+xml",
+			wantErr:     "GET /Items/s1/Images/Primary: 不接受 SVG 格式的海报",
+		},
+		{
+			name:        "整部跳过的剧不下载海报",
+			imageTags:   `{"Primary":"tag"}`,
+			children:    `{"Items":[{"Id":"s1-e1","Type":"Episode","SeriesId":"s1","Name":"第1集","IndexNumber":1}]}`,
+			wantSkipped: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			samples := map[string]string{
+				"virtual-folders.json": folders,
+				"items-lib.json": `{"Items":[
+					{"Id":"s1","Type":"Series","Name":"甲","ImageTags":` + tt.imageTags + `},
+					{"Id":"s2","Type":"Series","Name":"乙","ImageTags":{"Primary":"tag"}}
+				]}`,
+				"items-s1.json": cmp.Or(tt.children, fmt.Sprintf(validChildren, "s1")),
+				"items-s2.json": fmt.Sprintf(validChildren, "s2"),
+				"image-s2":      png,
+			}
+			fake := startFake(t, testAPIKey, func(name string, _ *http.Request) ([]byte, string) {
+				if name == "image-s1" && tt.image != "" {
+					return []byte(tt.image), tt.contentType
+				}
+				if body, ok := samples[name]; ok {
+					return []byte(body), ""
+				}
+				return nil, ""
+			})
+			if tt.failImage {
+				fake.failRequest("image-s1")
+			}
+
+			listing, err := fake.source("番剧").List(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			items := collect(t, listing.Items)
+
+			if len(items) != 2 {
+				t.Fatalf("产出 %d 项, want 2", len(items))
+			}
+			switch s1 := items[0].Series; {
+			case tt.wantSkipped:
+				if s1 != nil {
+					t.Errorf("s1 应整部跳过，实际 %+v", s1)
+				}
+			case s1 == nil:
+				t.Fatalf("s1 被跳过：%q", items[0].Warnings)
+			default:
+				if !reflect.DeepEqual(s1.Poster, tt.wantPoster) {
+					t.Errorf("Poster = %+v, want %+v", s1.Poster, tt.wantPoster)
+				}
+				var gotErr string
+				if s1.PosterErr != nil {
+					gotErr = s1.PosterErr.Error()
+				}
+				if gotErr != tt.wantErr {
+					t.Errorf("PosterErr = %q, want %q", gotErr, tt.wantErr)
+				}
+				if len(items[0].Warnings) != 0 {
+					t.Errorf("海报的状态不放进 Warnings，实际 %q", items[0].Warnings)
+				}
+			}
+			if s2 := items[1].Series; s2 == nil || !reflect.DeepEqual(s2.Poster, pngImage) || s2.PosterErr != nil {
+				t.Errorf("s1 的海报不应影响 s2：%+v", s2)
+			}
+			if requested := slices.Contains(fake.requested(), "image-s1"); requested != (tt.image != "" || tt.failImage) {
+				t.Errorf("请求了 s1 的海报：%v", requested)
+			}
+		})
 	}
 }

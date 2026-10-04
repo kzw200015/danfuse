@@ -19,6 +19,7 @@ function summary(id: number, title: string, originalTitle: string | null, year: 
     title,
     originalTitle,
     year,
+    posterImageId: null,
     seasonCount: 1,
     episodeCount: 1,
   } satisfies SeriesSummary
@@ -89,6 +90,7 @@ describe('resolveSelection', () => {
     title: '星海旅人',
     originalTitle: null,
     year: 2019,
+    posterImageId: null,
     seasons: [season(10, 0, [100]), season(11, 1, [110, 111])],
   }
   const movie: SeriesDetail = {

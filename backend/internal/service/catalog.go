@@ -11,7 +11,10 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 )
 
-var errSeriesNotFound = errcode.ErrNotFound.WithMessage("剧不存在")
+var (
+	errSeriesNotFound = errcode.ErrNotFound.WithMessage("剧不存在")
+	errImageNotFound  = errcode.ErrNotFound.WithMessage("图片不存在")
+)
 
 // CatalogService 管理界面浏览目录。
 type CatalogService struct {
@@ -22,7 +25,7 @@ func NewCatalogService(store repository.Store) *CatalogService {
 	return &CatalogService{store: store}
 }
 
-// ListSeries 全部剧连同季数、集数，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
+// ListSeries 全部剧连同海报的图片 ID、季数、集数，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
 func (s *CatalogService) ListSeries(ctx context.Context) ([]repository.ListSeriesRow, error) {
 	series, err := s.store.ListSeries(ctx)
 	if err != nil {
@@ -38,6 +41,7 @@ type SeriesDetail struct {
 	Title         string         `json:"title"`
 	OriginalTitle *string        `json:"originalTitle"`
 	Year          *int32         `json:"year"`
+	PosterImageID *int64         `json:"posterImageId"` // 没有海报时为 null
 	Seasons       []SeasonDetail `json:"seasons"`
 }
 
@@ -80,6 +84,7 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 		Title:         series.Title,
 		OriginalTitle: series.OriginalTitle,
 		Year:          series.Year,
+		PosterImageID: series.PosterImageID,
 		Seasons:       make([]SeasonDetail, len(seasons)),
 	}
 	seasonIndex := make(map[int64]int, len(seasons)) // 季 ID → 在 detail.Seasons 里的下标
@@ -100,4 +105,16 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 		})
 	}
 	return detail, nil
+}
+
+// GetImage 一张图片的原始字节与 content-type；不存在时返回 404。
+func (s *CatalogService) GetImage(ctx context.Context, id int64) (repository.GetImageRow, error) {
+	img, err := s.store.GetImage(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repository.GetImageRow{}, errImageNotFound
+		}
+		return repository.GetImageRow{}, fmt.Errorf("get image %d: %w", id, err)
+	}
+	return img, nil
 }

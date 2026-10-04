@@ -19,6 +19,7 @@ const tv: SeriesDetail = {
   title: '星海旅人',
   originalTitle: 'Star Voyager',
   year: 2019,
+  posterImageId: 5,
   seasons: [
     {
       id: 10,
@@ -44,6 +45,7 @@ const movie: SeriesDetail = {
   title: '长夜灯塔',
   originalTitle: null,
   year: 2020,
+  posterImageId: null,
   seasons: [
     {
       id: 20,
@@ -125,6 +127,27 @@ describe('CatalogView', () => {
     expect(screen.getByText('时长 1:30:00 · 集 ID 200')).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '季' })).not.toBeInTheDocument()
     expect(screen.queryByTitle('查看整季')).not.toBeInTheDocument()
+  })
+
+  it('有海报时显示图片，没有海报或加载失败时显示占位图', async () => {
+    renderRoutes('/catalog/1')
+    expect(await screen.findByRole('heading', { name: '星海旅人' })).toBeInTheDocument()
+
+    // 左栏这一行和中栏各一张；电影没有海报
+    const posters = screen.getAllByRole('presentation')
+    expect(posters).toHaveLength(2)
+    for (const img of posters) {
+      expect(img).toHaveAttribute('src', '/api/images/5')
+    }
+    const list = within(screen.getByRole('complementary'))
+    expect(
+      within(list.getByRole('link', { name: /长夜灯塔/ })).getByTitle('没有海报'),
+    ).toBeVisible()
+
+    fireEvent.error(posters[1]!)
+
+    expect(screen.getAllByRole('presentation')).toHaveLength(1)
+    expect(screen.getAllByTitle('没有海报')).toHaveLength(2)
   })
 
   it('筛选剧列表', async () => {
