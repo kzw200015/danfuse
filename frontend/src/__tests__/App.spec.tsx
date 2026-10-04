@@ -1,18 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 
+import { listSeries } from '@/api/series'
 import { getSettings } from '@/api/settings'
 import { getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
 import { renderRoutes, syncRun } from './utils'
 
-vi.mock('@/api/series', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/api/series')>()
-  return { ...actual, listSeries: vi.fn<typeof actual.listSeries>().mockResolvedValue([]) }
-})
+vi.mock('@/api/series')
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
 
 beforeEach(() => {
+  vi.mocked(listSeries).mockResolvedValue([])
   vi.mocked(getSettings).mockResolvedValue({ catalogSource: null, syncInterval: 0 })
   vi.mocked(listSyncRuns).mockResolvedValue([])
 })
@@ -34,9 +33,11 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('link', { name: '同步' }))
 
     // 页面是懒加载的，加载完成后导航才生效
-    await waitFor(() => expect(router.state.location.pathname).toBe('/sync'))
-    expect(screen.getByRole('link', { name: '同步' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('link', { name: '目录' })).not.toHaveAttribute('aria-current')
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/sync')
+      expect(screen.getByRole('link', { name: '同步' })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('link', { name: '目录' })).not.toHaveAttribute('aria-current')
+    })
   })
 })
 

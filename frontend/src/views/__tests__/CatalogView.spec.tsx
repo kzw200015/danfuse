@@ -1,20 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createMemoryRouter, RouterProvider } from 'react-router'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 
+import { renderRoutes } from '@/__tests__/utils'
 import { ApiError } from '@/api/request'
-import { getSeries, listSeries, seriesKeys, type SeriesDetail } from '@/api/series'
-import { routes } from '@/router/routes'
+import { getSeries, listSeries, type SeriesDetail } from '@/api/series'
+import { getSettings } from '@/api/settings'
+import { listSyncRuns } from '@/api/sync'
+import { seriesKeys } from '@/hooks/use-series'
 
-vi.mock('@/api/series', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/api/series')>()
-  return {
-    ...actual,
-    listSeries: vi.fn<typeof actual.listSeries>(),
-    getSeries: vi.fn<typeof actual.getSeries>(),
-  }
-})
+vi.mock('@/api/series')
+// 根布局会取同步列表和设置
+vi.mock('@/api/settings')
+vi.mock('@/api/sync')
 
 const tv: SeriesDetail = {
   id: 1,
@@ -58,6 +55,8 @@ const movie: SeriesDetail = {
 }
 
 beforeEach(() => {
+  vi.mocked(getSettings).mockResolvedValue({ catalogSource: null, syncInterval: 0 })
+  vi.mocked(listSyncRuns).mockResolvedValue([])
   const all = [tv, movie]
   vi.mocked(listSeries).mockResolvedValue(
     all.map(({ seasons, ...s }) => ({
@@ -73,22 +72,11 @@ beforeEach(() => {
   })
 })
 
-function renderAt(path: string) {
-  const router = createMemoryRouter(routes, { initialEntries: [path] })
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  )
-  return { router, queryClient }
-}
-
 const seasonNav = () => within(screen.getByRole('navigation', { name: '季' }))
 
 describe('CatalogView', () => {
   it('剧：默认选中第 1 季，右栏显示季面板', async () => {
-    renderAt('/catalog/1')
+    renderRoutes('/catalog/1')
 
     expect(await screen.findByRole('heading', { name: '星海旅人' })).toBeInTheDocument()
     expect(screen.getByText('Star Voyager')).toBeInTheDocument()
@@ -107,7 +95,7 @@ describe('CatalogView', () => {
   })
 
   it('点集打开集面板，点季标题行回到季面板', async () => {
-    const { router } = renderAt('/catalog/1/10')
+    const { router } = renderRoutes('/catalog/1/10')
 
     expect(await screen.findByRole('heading', { name: '第 0 季（特别篇）' })).toBeInTheDocument()
     expect(seasonNav().getByRole('link', { name: '特别篇' })).toHaveAttribute(
@@ -131,7 +119,7 @@ describe('CatalogView', () => {
   })
 
   it('电影：不显示季切换和集列表，右栏直接显示正片', async () => {
-    renderAt('/catalog/2')
+    renderRoutes('/catalog/2')
 
     expect(await screen.findByRole('heading', { name: '正片' })).toBeInTheDocument()
     expect(screen.getByText('时长 1:30:00 · 集 ID 200')).toBeInTheDocument()
@@ -140,7 +128,7 @@ describe('CatalogView', () => {
   })
 
   it('筛选剧列表', async () => {
-    renderAt('/catalog')
+    renderRoutes('/catalog')
     const list = within(await screen.findByRole('complementary'))
     expect(await list.findByText('2 部')).toBeInTheDocument()
 
@@ -161,14 +149,14 @@ describe('CatalogView', () => {
     // 电影在界面上没有季，返回这部电影
     ['/catalog/2/20/999', '找不到这一集', '返回长夜灯塔', '/catalog/2'],
   ])('%s 不存在时提示并返回上一级', async (path, text, back, backTo) => {
-    renderAt(path)
+    renderRoutes(path)
 
     expect(await screen.findByText(new RegExp(text))).toBeInTheDocument()
     expect(screen.getByRole('link', { name: back })).toHaveAttribute('href', backTo)
   })
 
   it('已加载的剧重新加载时不存在了，显示找不到', async () => {
-    const { queryClient } = renderAt('/catalog/1')
+    const { queryClient } = renderRoutes('/catalog/1')
     expect(await screen.findByRole('heading', { name: '星海旅人' })).toBeInTheDocument()
 
     vi.mocked(getSeries).mockRejectedValue(new ApiError('剧不存在', 1, 404))

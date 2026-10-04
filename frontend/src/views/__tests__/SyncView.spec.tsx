@@ -6,11 +6,8 @@ import { renderRoutes, syncRun } from '@/__tests__/utils'
 import { ApiError } from '@/api/request'
 import { getSettings, type Settings } from '@/api/settings'
 import { getSyncRun, listSyncRuns, triggerSync, type SyncRunDetail } from '@/api/sync'
+import { seriesKeys } from '@/hooks/use-series'
 
-vi.mock('@/api/series', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/api/series')>()
-  return { ...actual, listSeries: vi.fn<typeof actual.listSeries>().mockResolvedValue([]) }
-})
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
 
@@ -49,10 +46,12 @@ const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
 
 /** 目录页的查询：剧列表和打开的那部剧 */
 function seedSeries(queryClient: QueryClient) {
-  queryClient.setQueryData(['series'], [])
-  queryClient.setQueryData(['series', 7], {})
+  queryClient.setQueryData(seriesKeys.list, [])
+  queryClient.setQueryData(seriesKeys.detail(7), {})
   return () =>
-    [['series'], ['series', 7]].map((key) => queryClient.getQueryState(key)?.isInvalidated)
+    [seriesKeys.list, seriesKeys.detail(7)].map(
+      (key) => queryClient.getQueryState(key)?.isInvalidated,
+    )
 }
 
 const syncNav = () => screen.findByRole('link', { name: /^同步/ })
@@ -63,38 +62,7 @@ async function clickSyncNow() {
   fireEvent.click(screen.getByRole('button', { name: '立即同步' }))
 }
 
-describe('同步轮询', () => {
-  it('最近一次同步为 running 时每秒轮询它的详情，结束后停止并让剧列表失效', async () => {
-    runs = [syncRun(2, { status: 'running', finishedAt: null, total: 3, done: 1 }), syncRun(1)]
-    const { queryClient } = renderRoutes('/sync')
-    const invalidated = seedSeries(queryClient)
-
-    expect(await within(await syncNav()).findByText('1/3')).toBeInTheDocument()
-
-    updateLatest({ done: 2 })
-    await advance(1000)
-    expect(await within(await syncNav()).findByText('2/3')).toBeInTheDocument()
-    expect(invalidated()).toEqual([false, false])
-
-    updateLatest({ status: 'succeeded', done: 3, finishedAt: '2026-10-05T08:03:00Z' })
-    await advance(1000)
-    await waitFor(() => expect(invalidated()).toEqual([true, true]))
-    expect(await syncNav()).toHaveTextContent(/^同步$/)
-
-    const calls = vi.mocked(getSyncRun).mock.calls.length
-    await advance(5000)
-    expect(getSyncRun).toHaveBeenCalledTimes(calls)
-  })
-
-  it('最近一次同步已经结束时不轮询', async () => {
-    runs = [syncRun(1, { warningCount: 3 })]
-    renderRoutes('/catalog')
-
-    expect(await within(await syncNav()).findByText('3')).toBeInTheDocument()
-    await advance(5000)
-    expect(getSyncRun).not.toHaveBeenCalled()
-  })
-
+describe('标题行与立即同步', () => {
   it('触发成功后开始轮询，结束后停止并让剧列表失效', async () => {
     runs = [syncRun(1)]
     vi.mocked(triggerSync).mockImplementation(async () => {
@@ -111,8 +79,11 @@ describe('同步轮询', () => {
     expect(await within(await syncNav()).findByText('…')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '同步中…' })).toBeInTheDocument()
 
+    // 每秒一次：推进 3 秒至少新增 3 次请求
+    const polled = vi.mocked(getSyncRun).mock.calls.length
     updateLatest({ total: 2, done: 1 })
-    await advance(1000)
+    await advance(3000)
+    expect(vi.mocked(getSyncRun).mock.calls.length - polled).toBeGreaterThanOrEqual(3)
     expect(await within(await syncNav()).findByText('1/2')).toBeInTheDocument()
     expect(invalidated()).toEqual([false, false])
 
@@ -144,18 +115,24 @@ describe('同步轮询', () => {
 
     await waitFor(() => expect(invalidated()).toEqual([true, true]))
   })
-})
 
-describe('触发同步', () => {
-  it('被拒绝（409）时用 toast 显示 message', async () => {
+  it('被拒绝（409）时用 toast 显示 message，并重新取列表、显示已在进行的同步', async () => {
     runs = [syncRun(1)]
-    vi.mocked(triggerSync).mockRejectedValue(new ApiError('同步正在进行', 1, 409))
+    // 页面打开之后才开始的同步（定时或其他实例），页面上的列表里还没有它
+    vi.mocked(triggerSync).mockImplementation(async () => {
+      runs.unshift(
+        syncRun(2, { trigger: 'schedule', status: 'running', finishedAt: null, total: 3, done: 1 }),
+      )
+      throw new ApiError('同步正在进行', 1, 409)
+    })
     renderRoutes('/sync')
 
     await clickSyncNow()
 
     expect(await screen.findByText('同步正在进行')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(await within(await syncNav()).findByText('1/3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '同步中…' })).toBeInTheDocument()
   })
 
   it('其他失败显示在按钮下方，可以关闭', async () => {

@@ -2,14 +2,12 @@ import { useEffect, useRef } from 'react'
 import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getSyncRun, listSyncRuns, type SyncRun } from '@/api/sync'
+import { seriesKeys } from '@/hooks/use-series'
 
 export const syncRunKeys = {
   list: ['sync-runs'] as const,
   detail: (id: number) => ['sync-runs', id] as const,
 }
-
-/** 目录页的查询键前缀：剧列表 ['series']、剧详情 ['series', id]，同步结束后一起失效 */
-const seriesKey = ['series']
 
 /** 同步进行中轮询详情的间隔 */
 const pollInterval = 1000
@@ -64,7 +62,8 @@ export function useLatestSyncRun() {
       handled.current = latest?.status === 'running' ? latest.id - 1 : (latest?.id ?? 0)
     } else if (latest && latest.status !== 'running' && latest.id > handled.current) {
       handled.current = latest.id
-      void queryClient.invalidateQueries({ queryKey: seriesKey })
+      // 剧详情的键以剧列表的键为前缀，一起失效
+      void queryClient.invalidateQueries({ queryKey: seriesKeys.list })
     }
   }, [runs, latest, queryClient])
 

@@ -1,10 +1,12 @@
 /**
  * 把秒数写成"1 小时 30 分钟"，与配置里时长的写法（24h、1h30m）对应，不折算成天；不足 1 秒的部分保留小数。
+ * 按整数毫秒拆分，免得 90.3 % 60 这类浮点取余写出 30.299999999999997。
  */
 export function formatSeconds(seconds: number) {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
+  const ms = Math.round(seconds * 1000)
+  const h = Math.floor(ms / 3_600_000)
+  const m = Math.floor((ms % 3_600_000) / 60_000)
+  const s = (ms % 60_000) / 1000
   const parts = [h > 0 && `${h} 小时`, m > 0 && `${m} 分钟`, s > 0 && `${s} 秒`]
   return parts.filter(Boolean).join(' ') || '0 秒'
 }

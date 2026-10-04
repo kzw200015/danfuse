@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { SearchIcon } from 'lucide-react'
 import { Link } from 'react-router'
 
-import { listSeries, seriesKeys } from '@/api/series'
 import { Input } from '@/components/ui/input'
+import { useSeriesList } from '@/hooks/use-series'
 import { cn } from '@/lib/utils'
 
 import { catalogPath, filterSeries, seriesMeta } from './catalog'
@@ -13,7 +12,7 @@ import { Hint, Poster, scrollIntoView } from './shared'
 /** 左栏：剧列表，按剧名或原名筛选、按标题排序 */
 export default function SeriesList({ selectedId }: { selectedId?: number }) {
   const [keyword, setKeyword] = useState('')
-  const { data, error } = useQuery({ queryKey: seriesKeys.list, queryFn: listSeries })
+  const { data, error } = useSeriesList()
   const list = data ? filterSeries(data, keyword) : []
 
   return (

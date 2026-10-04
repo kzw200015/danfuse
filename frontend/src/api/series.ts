@@ -41,15 +41,6 @@ export interface SeriesDetail {
   seasons: Season[]
 }
 
-/**
- * 查询键：剧列表 ['series']，剧详情 ['series', id]。
- * 剧详情以剧列表的键为前缀，让 ['series'] 失效会连同已加载的剧详情一起刷新。
- */
-export const seriesKeys = {
-  list: ['series'] as const,
-  detail: (id: number) => ['series', id] as const,
-}
-
 /** 全部剧，不分页 */
 export function listSeries() {
   return request<SeriesSummary[]>({ url: '/series' })

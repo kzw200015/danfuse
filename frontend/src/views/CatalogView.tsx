@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router'
 
 import { ApiError } from '@/api/request'
-import { getSeries, seriesKeys, type SeriesDetail } from '@/api/series'
+import type { SeriesDetail } from '@/api/series'
+import { useSeries } from '@/hooks/use-series'
 
 import {
   catalogPath,
@@ -54,10 +54,7 @@ function SelectedSeries({
   seasonId?: string
   episodeId?: string
 }) {
-  const { data: series, error } = useQuery({
-    queryKey: seriesKeys.detail(id),
-    queryFn: () => getSeries(id),
-  })
+  const { data: series, error } = useSeries(id)
 
   if (error instanceof ApiError && error.status === 404) {
     return (

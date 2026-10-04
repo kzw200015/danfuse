@@ -26,6 +26,14 @@ func TestSettings(t *testing.T) {
 			`{"catalogSource":null,"syncInterval":0}`,
 		},
 		{
+			"kind 为空时不读 Jellyfin 的设置块",
+			config.CatalogSource{Jellyfin: config.Jellyfin{
+				URL: "http://192.168.1.10:8096", APIKey: apiKey, Libraries: []string{"番剧"},
+			}},
+			config.Sync{},
+			`{"catalogSource":null,"syncInterval":0}`,
+		},
+		{
 			"Jellyfin",
 			config.CatalogSource{Kind: config.KindJellyfin, Jellyfin: config.Jellyfin{
 				URL: "http://192.168.1.10:8096/jellyfin", APIKey: apiKey, Libraries: []string{"番剧", "电影"},

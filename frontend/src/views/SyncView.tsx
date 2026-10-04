@@ -70,7 +70,11 @@ function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
       return queryClient.invalidateQueries({ queryKey: syncRunKeys.list, exact: true })
     },
     onError: (error) => {
-      if (isRejected(error)) toast.error(error.message)
+      if (!isRejected(error)) return
+      toast.error(error.message)
+      // "同步正在进行"可能是页面打开之后才开始的同步（定时或其他实例），列表里还没有它；
+      // 重新取列表，顶栏和同步页才能显示它的进度
+      return queryClient.invalidateQueries({ queryKey: syncRunKeys.list, exact: true })
     },
   })
   const running = latest?.status === 'running'
