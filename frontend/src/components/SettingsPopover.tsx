@@ -1,4 +1,6 @@
-import { SettingsIcon } from 'lucide-react'
+import { useState } from 'react'
+import { CopyIcon, SettingsIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
 import type { Settings } from '@/api/settings'
 import { ErrorNote } from '@/components/ErrorNote'
@@ -12,7 +14,9 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
 import { useSettings } from '@/hooks/use-settings'
+import { pluginUrl } from '@/lib/plugin-url'
 import { formatSeconds } from '@/lib/time'
 
 /** 目录源种类的显示名 */
@@ -25,7 +29,7 @@ export default function SettingsPopover() {
       <PopoverTrigger render={<Button variant="ghost" size="icon-sm" title="设置" />}>
         <SettingsIcon />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-96">
+      <PopoverContent align="end" className="w-[28rem] gap-3">
         <PopoverHeader>
           <PopoverTitle>设置</PopoverTitle>
           <PopoverDescription>来自配置，只读；修改后重启服务生效</PopoverDescription>
@@ -41,10 +45,56 @@ function SettingsContent() {
   if (error) return <ErrorNote>{error.message}</ErrorNote>
   if (!data) return <p className="text-xs text-muted-foreground">加载中…</p>
   return (
-    <section className="grid gap-1.5">
-      <h3 className="text-sm font-medium">目录源</h3>
-      <CatalogSourceSettings settings={data} />
-    </section>
+    <>
+      <section className="grid gap-1.5">
+        <h3 className="text-sm font-medium">插件地址</h3>
+        <PluginUrl token={data.dandanplayToken} />
+      </section>
+      <Separator />
+      <section className="grid gap-1.5">
+        <h3 className="text-sm font-medium">目录源</h3>
+        <CatalogSourceSettings settings={data} />
+      </section>
+    </>
+  )
+}
+
+/** 填进 jellyfin-danmaku 插件的地址，按当前打开管理界面的地址拼出 */
+function PluginUrl({ token }: { token: string | null }) {
+  const url = pluginUrl(location.origin, token)
+  const [copyFailed, setCopyFailed] = useState(false)
+
+  async function copy() {
+    setCopyFailed(false)
+    try {
+      // 剪贴板只在 https 或 localhost 页面可用，通过 http 访问内网地址时 navigator.clipboard 不存在
+      await navigator.clipboard.writeText(url)
+      toast.success('已复制插件地址')
+    } catch {
+      setCopyFailed(true)
+    }
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs select-all">
+          {url}
+        </code>
+        <Button size="sm" variant="outline" onClick={copy}>
+          <CopyIcon />
+          复制
+        </Button>
+      </div>
+      {copyFailed && (
+        <ErrorNote onClose={() => setCopyFailed(false)}>
+          浏览器不允许这个页面写剪贴板，请点一下地址选中后手动复制
+        </ErrorNote>
+      )}
+      <p className="text-xs text-muted-foreground">
+        插件会在后面拼 /api/v2。通过反向代理访问时，把前半段换成反代的地址。
+      </p>
+    </div>
   )
 }
 

@@ -56,7 +56,7 @@ FROM series
 WHERE id = $1;
 
 -- name: ListSeasonsBySeries :many
--- 只选剧详情用到的列，不取搜索列。
+-- 剧详情、同步重算搜索列用：只选这几列，不取搜索列本身。
 SELECT id, number, title
 FROM seasons
 WHERE series_id = $1

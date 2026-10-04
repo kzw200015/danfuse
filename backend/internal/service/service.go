@@ -8,4 +8,5 @@ var ProviderSet = wire.NewSet(
 	NewCatalogService,
 	NewBindingService,
 	NewSyncService,
+	NewLocalProvider,
 )

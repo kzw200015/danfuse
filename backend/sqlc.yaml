@@ -27,3 +27,6 @@ sql:
             go_type:
               type: string
               slice: true
+          # 搜索列是 Go 生成的 tsvector 文本（catalog.SearchVector）
+          - column: seasons.search_vector
+            go_type: string

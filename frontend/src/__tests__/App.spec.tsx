@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import { listSeries } from '@/api/series'
@@ -12,7 +12,11 @@ vi.mock('@/api/sync')
 
 beforeEach(() => {
   vi.mocked(listSeries).mockResolvedValue([])
-  vi.mocked(getSettings).mockResolvedValue({ catalogSource: null, syncInterval: 0 })
+  vi.mocked(getSettings).mockResolvedValue({
+    dandanplayToken: null,
+    catalogSource: null,
+    syncInterval: 0,
+  })
   vi.mocked(listSyncRuns).mockResolvedValue([])
 })
 
@@ -86,6 +90,7 @@ async function openSettings() {
 describe('设置弹出层', () => {
   it('只读显示目录源的配置，API key 只显示已配置', async () => {
     vi.mocked(getSettings).mockResolvedValue({
+      dandanplayToken: null,
       catalogSource: {
         kind: 'jellyfin',
         url: 'http://192.168.1.10:8096',
@@ -112,5 +117,38 @@ describe('设置弹出层', () => {
     const dialog = await openSettings()
 
     expect(await within(dialog).findByText('未配置目录源')).toBeInTheDocument()
+  })
+
+  it('插件地址按当前页面的地址拼出，可以复制', async () => {
+    vi.mocked(getSettings).mockResolvedValue({
+      dandanplayToken: 's3cret',
+      catalogSource: null,
+      syncInterval: 0,
+    })
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    onTestFinished(() => {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    })
+    renderRoutes('/catalog')
+
+    const dialog = await openSettings()
+    const url = `${location.origin}/dandanplay/s3cret`
+    expect(await within(dialog).findByText(url)).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '复制' }))
+    expect(await screen.findByText('已复制插件地址')).toBeInTheDocument()
+    expect(writeText).toHaveBeenCalledWith(url)
+  })
+
+  it('浏览器不允许写剪贴板时提示手动复制', async () => {
+    // 与通过 http 访问内网地址时一样，jsdom 没有 navigator.clipboard
+    renderRoutes('/catalog')
+
+    const dialog = await openSettings()
+    expect(await within(dialog).findByText(`${location.origin}/dandanplay`)).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '复制' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('手动复制')
   })
 })

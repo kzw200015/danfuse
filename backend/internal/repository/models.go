@@ -54,12 +54,13 @@ type Image struct {
 }
 
 type Season struct {
-	ID        int64     `json:"id"`
-	SeriesID  int64     `json:"seriesId"`
-	Number    int32     `json:"number"`
-	Title     *string   `json:"title"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID           int64     `json:"id"`
+	SeriesID     int64     `json:"seriesId"`
+	Number       int32     `json:"number"`
+	Title        *string   `json:"title"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	SearchVector string    `json:"searchVector"`
 }
 
 type Series struct {

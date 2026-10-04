@@ -40,7 +40,7 @@ func TestErrorHandlerLogsServerErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var logs bytes.Buffer
-			srv := New(config.Server{}, slog.New(slog.NewJSONHandler(&logs, nil)), &handler.Handlers{Health: handler.NewHealthHandler(nil)})
+			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.NewJSONHandler(&logs, nil)), &handler.Handlers{Health: handler.NewHealthHandler(nil)}, nil)
 			srv.echo.GET("/items/:id", tt.handler)
 
 			rec := serve(t, srv, http.MethodGet, tt.target)

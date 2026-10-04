@@ -12,6 +12,7 @@ vi.mock('@/api/settings')
 vi.mock('@/api/sync')
 
 const jellyfin: Settings = {
+  dandanplayToken: null,
   catalogSource: { kind: 'jellyfin', url: 'http://192.168.1.10:8096', libraries: ['番剧'] },
   syncInterval: 86400,
 }
@@ -147,7 +148,11 @@ describe('标题行与立即同步', () => {
   })
 
   it('未配置目录源时提示，"立即同步"禁用', async () => {
-    vi.mocked(getSettings).mockResolvedValue({ catalogSource: null, syncInterval: 0 })
+    vi.mocked(getSettings).mockResolvedValue({
+      dandanplayToken: null,
+      catalogSource: null,
+      syncInterval: 0,
+    })
     renderRoutes('/sync')
 
     expect(await screen.findByText('未配置目录源')).toBeInTheDocument()

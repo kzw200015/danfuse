@@ -88,7 +88,11 @@ let all: SeriesDetail[]
 
 beforeEach(() => {
   all = structuredClone([tv, movie])
-  vi.mocked(getSettings).mockResolvedValue({ catalogSource: null, syncInterval: 0 })
+  vi.mocked(getSettings).mockResolvedValue({
+    dandanplayToken: null,
+    catalogSource: null,
+    syncInterval: 0,
+  })
   vi.mocked(listSyncRuns).mockResolvedValue([])
   vi.mocked(listSeries).mockImplementation(async () =>
     all.map(({ seasons, ...s }) => {

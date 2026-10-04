@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net/http"
 
@@ -44,4 +45,17 @@ func toAppError(err error) *errcode.Error {
 		return errcode.New(status, errcode.CodeFail, http.StatusText(status))
 	}
 	return errcode.ErrInternal
+}
+
+// checkToken 弹弹 API 路径里的 token 不对时按路由不存在处理（404，交给全局 errorHandler）。
+// 常数时间比较，不从响应时间泄露 token。
+func checkToken(token string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if subtle.ConstantTimeCompare([]byte(c.Param("token")), []byte(token)) != 1 {
+				return echo.ErrNotFound
+			}
+			return next(c)
+		}
+	}
 }

@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig(({ mode }) => {
   // 后端地址可在 .env.local 中通过 API_PROXY_TARGET 覆盖
   const env = loadEnv(mode, process.cwd(), '')
+  const target = env.API_PROXY_TARGET || 'http://localhost:8080'
 
   return {
     plugins: [react(), tailwindcss()],
@@ -16,7 +17,9 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         // 开发环境把 /api 转发到后端，避免跨域
-        '/api': env.API_PROXY_TARGET || 'http://localhost:8080',
+        '/api': target,
+        // 设置弹出层按当前页面的地址拼插件地址，开发时也要能用
+        '/dandanplay': target,
       },
     },
     build: {

@@ -20,6 +20,10 @@ linters:
     - unconvert
     - unparam
     - whitespace
+  settings:
+    misspell:
+      ignore-rules:
+        - relateds # 弹弹play 协议的字段名
   exclusions:
     # sqlc / wire 生成的代码带有 "Code generated ... DO NOT EDIT." 头，自动跳过
     generated: lax

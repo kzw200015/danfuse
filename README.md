@@ -64,7 +64,7 @@ pnpm install
 pnpm dev
 ```
 
-访问 <http://localhost:5173>。开发服务器会把 `/api` 请求代理到 `http://localhost:8080`。
+访问 <http://localhost:5173>。开发服务器会把 `/api`、`/dandanplay` 请求代理到 `http://localhost:8080`。
 
 ## 配置
 

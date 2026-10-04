@@ -8,6 +8,7 @@ import (
 	"github.com/google/wire"
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/dandan"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/logger"
@@ -21,7 +22,7 @@ import (
 func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	panic(wire.Build(
 		config.Load,
-		wire.FieldsOf(new(*config.Config), "Server", "Log", "Database", "CatalogSource", "Sync"),
+		wire.FieldsOf(new(*config.Config), "Server", "Log", "Database", "Dandanplay", "CatalogSource", "Sync"),
 		logger.New,
 		database.NewPool,
 		repository.NewStore,
@@ -29,7 +30,9 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		newCatalogSource,
 		newSourceRegistry,
 		service.ProviderSet,
+		newProvider,
 		handler.ProviderSet,
+		dandan.NewHandler,
 		server.New,
 		New,
 	))

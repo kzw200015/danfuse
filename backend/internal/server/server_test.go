@@ -38,7 +38,7 @@ func TestHealth(t *testing.T) {
 			if tt.dbDown {
 				pool.Close()
 			}
-			srv := New(config.Server{}, slog.New(slog.DiscardHandler), &handler.Handlers{Health: handler.NewHealthHandler(pool)})
+			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &handler.Handlers{Health: handler.NewHealthHandler(pool)}, nil)
 
 			rec := serve(t, srv, http.MethodGet, "/api/health")
 

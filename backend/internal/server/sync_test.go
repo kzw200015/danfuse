@@ -68,10 +68,10 @@ func syncServer(t *testing.T, cfg *pgxpool.Config, src catalog.Source) *Server {
 	t.Cleanup(func() { cancel(); <-done }) // 在关闭连接池之前
 	synctest.Wait()
 
-	return New(config.Server{}, logger, &handler.Handlers{
+	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{
 		Health: handler.NewHealthHandler(pool),
 		Sync:   handler.NewSyncHandler(svc),
-	})
+	}, nil)
 }
 
 // call 发一个请求，检查状态码，返回解出的统一响应。

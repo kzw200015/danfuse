@@ -36,7 +36,9 @@ type Querier interface {
 	ListBindingsBySeries(ctx context.Context, seriesID int64) ([]Binding, error)
 	// 一部剧的全部集，按集号排序。
 	ListEpisodesBySeries(ctx context.Context, seriesID int64) ([]Episode, error)
-	// 只选剧详情用到的列，不取搜索列。
+	// 搜索结果里各季的全部集，按季、集号排序。
+	ListEpisodesOfSeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesOfSeasonsRow, error)
+	// 剧详情、同步重算搜索列用：只选这几列，不取搜索列本身。
 	ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]ListSeasonsBySeriesRow, error)
 	// 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。
 	// 一集有多个绑定时连接出多行，所以季数、集数、已绑定集数都按 DISTINCT 计。
@@ -49,6 +51,12 @@ type Querier interface {
 	// 一次拉取写入弹幕之后更新绑定：新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
 	// 标题、时长用这次拉取的值覆盖；拉取成功即为 active。只更新拉取相关的列，不覆盖 offset。
 	RecordFetch(ctx context.Context, arg RecordFetchParams) (Binding, error)
+	// 目录搜索，query 是 Go 拼好的 tsquery 文本（fulltext.Query）。排序全在这里：
+	// ts_rank 降序（权重数组按 {D, C, B, A} 的顺序：A、B、C 为 1.0、0.67、0.33，D 不用）→ 剧名短的在前
+	// → 年份降序，无年份最后 → 剧 id → 季号，特别篇最后。调用方多取一条，用来判断后面还有没有。
+	SearchSeasons(ctx context.Context, arg SearchSeasonsParams) ([]SearchSeasonsRow, error)
+	// 搜索列是 Go 生成的 tsvector 文本（catalog.SearchVector），直接转换，不经过 PostgreSQL 的分词器。
+	SetSeasonSearchVector(ctx context.Context, arg SetSeasonSearchVectorParams) error
 	// 剧指向新的海报，没有图时为 null。
 	SetSeriesPoster(ctx context.Context, arg SetSeriesPosterParams) error
 	// 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。

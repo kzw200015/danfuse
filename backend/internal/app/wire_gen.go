@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/dandan"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/logger"
@@ -27,6 +28,7 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		return nil, nil, err
 	}
 	configServer := configConfig.Server
+	dandanplay := configConfig.Dandanplay
 	log := configConfig.Log
 	slogLogger := logger.New(log)
 	configDatabase := configConfig.Database
@@ -46,7 +48,7 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	sync := configConfig.Sync
 	syncService := service.NewSyncService(sqlStore, pool, source, sync, slogLogger)
 	syncHandler := handler.NewSyncHandler(syncService)
-	settingsHandler := handler.NewSettingsHandler(catalogSource, sync)
+	settingsHandler := handler.NewSettingsHandler(dandanplay, catalogSource, sync)
 	handlers := &handler.Handlers{
 		Health:   healthHandler,
 		Catalog:  catalogHandler,
@@ -54,7 +56,10 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		Sync:     syncHandler,
 		Settings: settingsHandler,
 	}
-	serverServer := server.New(configServer, slogLogger, handlers)
+	localProvider := service.NewLocalProvider(sqlStore)
+	provider := newProvider(localProvider)
+	dandanHandler := dandan.NewHandler(provider)
+	serverServer := server.New(configServer, dandanplay, slogLogger, handlers, dandanHandler)
 	app := New(serverServer, syncService)
 	return app, func() {
 		cleanup()

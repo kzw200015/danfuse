@@ -29,3 +29,9 @@ type Danmaku struct {
 	Text     string
 	SourceID int64 // 平台原始弹幕 ID，非 0；在同一平台（或所有无平台的来源）内唯一
 }
+
+// Item 一集合并后输出的一条弹幕：TimeMs 已校正到本地视频的时间轴，带上所在的平台。
+type Item struct {
+	Danmaku
+	Platform Platform
+}

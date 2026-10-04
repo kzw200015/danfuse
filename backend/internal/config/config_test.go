@@ -60,6 +60,21 @@ func TestLoadDefaultsWithoutCatalogSource(t *testing.T) {
 	}
 }
 
+func TestLoadDandanplayToken(t *testing.T) {
+	for _, token := range []string{"", "Abc-1.2_3~", "..."} {
+		t.Run(token, func(t *testing.T) {
+			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", "DANDANPLAY_TOKEN": token})
+			cfg, err := Load("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Dandanplay.Token != token {
+				t.Errorf("token = %q, want %q", cfg.Dandanplay.Token, token)
+			}
+		})
+	}
+}
+
 func TestLoadAcceptsMaxConns(t *testing.T) {
 	for _, maxConns := range []string{"0", "2"} { // 0 表示用 pgx 的默认值
 		t.Run(maxConns, func(t *testing.T) {
@@ -102,6 +117,13 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"interval 为负", with(jellyfin, "SYNC_INTERVAL", "-1h"), "sync.interval"},
 		{"interval > 0 但没有目录源", map[string]string{"SYNC_INTERVAL": "1h"}, "sync.interval"},
 		{"max_conns 为 1", map[string]string{"DATABASE_MAX_CONNS": "1"}, "database.max_conns"},
+		{"token 含斜杠", map[string]string{"DANDANPLAY_TOKEN": "a/b"}, "dandanplay.token"},
+		{"token 含空格", map[string]string{"DANDANPLAY_TOKEN": "a b"}, "dandanplay.token"},
+		{"token 含百分号编码", map[string]string{"DANDANPLAY_TOKEN": "a%20b"}, "dandanplay.token"},
+		{"token 含问号", map[string]string{"DANDANPLAY_TOKEN": "a?b"}, "dandanplay.token"},
+		{"token 含中文", map[string]string{"DANDANPLAY_TOKEN": "令牌"}, "dandanplay.token"},
+		{"token 为 .", map[string]string{"DANDANPLAY_TOKEN": "."}, "dandanplay.token"},
+		{"token 为 ..", map[string]string{"DANDANPLAY_TOKEN": ".."}, "dandanplay.token"},
 		{"max_conns 为负", map[string]string{"DATABASE_MAX_CONNS": "-1"}, "database.max_conns"},
 	}
 	for _, tt := range tests {

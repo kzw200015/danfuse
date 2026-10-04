@@ -81,7 +81,7 @@ type ListSeasonsBySeriesRow struct {
 	Title  *string `json:"title"`
 }
 
-// 只选剧详情用到的列，不取搜索列。
+// 剧详情、同步重算搜索列用：只选这几列，不取搜索列本身。
 func (q *Queries) ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]ListSeasonsBySeriesRow, error) {
 	rows, err := q.db.Query(ctx, listSeasonsBySeries, seriesID)
 	if err != nil {

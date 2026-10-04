@@ -4,6 +4,8 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
 	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/provider"
+	"github.com/kzw200015/danfuse/backend/internal/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/source/bilibili"
 )
@@ -23,4 +25,9 @@ func newCatalogSource(cfg config.CatalogSource) catalog.Source {
 // B 站适配器里有全局令牌桶，整个进程只构造这一个。
 func newSourceRegistry() *source.Registry {
 	return source.NewRegistry(bilibili.New())
+}
+
+// newProvider 弹弹 API 用的 Provider：聚合层，现在只注册了本地 Provider。
+func newProvider(local *service.LocalProvider) provider.Provider {
+	return provider.NewAggregator(local)
 }

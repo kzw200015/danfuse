@@ -23,10 +23,10 @@ func catalogServer(pool *pgxpool.Pool) *Server {
 	store := repository.NewStore(pool)
 	sources := source.NewRegistry(fakeAdapter{})
 	logger := slog.New(slog.DiscardHandler)
-	return New(config.Server{}, logger, &handler.Handlers{
+	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{
 		Catalog: handler.NewCatalogHandler(service.NewCatalogService(store, sources)),
 		Binding: handler.NewBindingHandler(service.NewBindingService(store, sources, logger)),
-	})
+	}, nil)
 }
 
 // posterPNG 种子目录里星海旅人的海报（图片 1）。

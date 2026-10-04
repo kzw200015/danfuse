@@ -9,16 +9,20 @@ import (
 
 // SettingsHandler 只读的配置。没有业务逻辑，直接读配置，不设 service。
 type SettingsHandler struct {
-	source config.CatalogSource
-	sync   config.Sync
+	dandanplay config.Dandanplay
+	source     config.CatalogSource
+	sync       config.Sync
 }
 
-func NewSettingsHandler(source config.CatalogSource, sync config.Sync) *SettingsHandler {
-	return &SettingsHandler{source: source, sync: sync}
+func NewSettingsHandler(dandanplay config.Dandanplay, source config.CatalogSource, sync config.Sync) *SettingsHandler {
+	return &SettingsHandler{dandanplay: dandanplay, source: source, sync: sync}
 }
 
 type settingsResponse struct {
-	CatalogSource *catalogSourceSettings `json:"catalogSource"` // nil 表示未配置目录源
+	// DandanplayToken 弹弹 API 的 token，nil 表示没有设置。管理界面用它拼出插件地址；
+	// 管理 API 只在内网访问，所以可以返回 token。
+	DandanplayToken *string                `json:"dandanplayToken"`
+	CatalogSource   *catalogSourceSettings `json:"catalogSource"` // nil 表示未配置目录源
 	// SyncInterval 定时同步的间隔，单位秒，0 表示关闭。
 	// 与管理 API 里其他时长（集的时长、绑定的偏移）一样用秒，前端不用解析 Go 的 Duration 写法。
 	SyncInterval float64 `json:"syncInterval"`
@@ -34,6 +38,9 @@ type catalogSourceSettings struct {
 // Get GET /api/settings
 func (h *SettingsHandler) Get(c *echo.Context) error {
 	resp := settingsResponse{SyncInterval: h.sync.Interval.Seconds()}
+	if h.dandanplay.Token != "" {
+		resp.DandanplayToken = &h.dandanplay.Token
+	}
 	// 只读取选中那一种的设置块；kind 为空表示未配置目录源（config 已校验，只能为空或 jellyfin）
 	if h.source.Kind == config.KindJellyfin {
 		jf := h.source.Jellyfin

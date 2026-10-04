@@ -327,7 +327,7 @@ func (s *SyncService) syncItem(ctx context.Context, run *syncRun, item catalog.I
 type createdCounts struct{ series, seasons, episodes int32 }
 
 // writeSeries 同步核心，每部剧一个事务：按自然键依次 upsert 剧、季、集，键以外的字段用目录源的数据覆盖，
-// 最后按 sha256 处理海报（下载失败的保留旧海报）。同一个自然键出现多次时后写的覆盖先写的。
+// 重算这部剧所有季的搜索列，最后按 sha256 处理海报（下载失败的保留旧海报）。同一个自然键出现多次时后写的覆盖先写的。
 // 返回这个事务里新增的剧、季、集数量。
 // 网络请求都在事务之外：适配在交出这部剧之前已经取完了它的季和集、下载完了海报。
 func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (createdCounts, error) {
@@ -375,6 +375,9 @@ func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (c
 			}
 		}
 
+		if err := writeSearchVectors(ctx, q, seriesRow.ID, series); err != nil {
+			return err
+		}
 		if series.PosterErr == nil { // 下载失败时保留旧海报，警告由 syncItem 记
 			if err := writePoster(ctx, q, seriesRow.ID, seriesRow.PosterImageID, series.Poster); err != nil {
 				return err
@@ -386,6 +389,22 @@ func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (c
 		return createdCounts{}, err
 	}
 	return created, nil
+}
+
+// writeSearchVectors 重算一部剧所有季的搜索列，在这部剧的事务里调用。包括这次目录源没有给出的季：
+// 剧名、原名是每一季搜索列的一部分，原名变了每一季都要重算。
+func writeSearchVectors(ctx context.Context, q repository.Querier, seriesID int64, series catalog.Series) error {
+	seasons, err := q.ListSeasonsBySeries(ctx, seriesID)
+	if err != nil {
+		return fmt.Errorf("list seasons: %w", err)
+	}
+	for _, se := range seasons {
+		vector := catalog.SearchVector(series.Type, series.Title, series.OriginalTitle, int(se.Number), emptyIfNull(se.Title))
+		if err := q.SetSeasonSearchVector(ctx, repository.SetSeasonSearchVectorParams{ID: se.ID, SearchVector: vector}); err != nil {
+			return fmt.Errorf("set search vector of season %d: %w", se.Number, err)
+		}
+	}
+	return nil
 }
 
 // writePoster 按 sha256 处理一部剧的海报，在这部剧的事务里调用（upsert 已锁住剧这一行）。
@@ -474,6 +493,14 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// emptyIfNull null 读作空串。
+func emptyIfNull(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func int32Ptr(v *int) *int32 {

@@ -21,6 +21,10 @@ database:
   max_conn_lifetime: 1h
   max_conn_idle_time: 30m
 
+# 弹弹 API：jellyfin-danmaku 插件里填的地址是 http(s)://<host>[:<port>]/dandanplay[/<token>]，插件会在后面拼 /api/v2。
+dandanplay:
+  token: "" # 可选；设置后弹弹 API 挂在 /dandanplay/<token>/api/v2，只能含字母、数字和 - . _ ~
+
 # 目录源：同一时间只有一个，用 kind 选择种类，只读取选中那一种的设置块。
 # 启动时不连接目录源，媒体库是否存在、类型对不对在每次同步时检查。
 catalog_source:

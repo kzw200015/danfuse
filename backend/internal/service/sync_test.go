@@ -140,6 +140,35 @@ func TestSyncDuplicateKeysLastWins(t *testing.T) {
 	})
 }
 
+func TestSyncRecomputesSearchVectors(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeSource{}
+		svc := newTestService(t, pool, src)
+		starSea := tv("星海旅人", new(2019), season(1, "", episode(1, "", 1440)), season(2, "归航篇", episode(1, "", 1440)))
+		starSea.OriginalTitle = "Star Voyager"
+		src.items = []catalog.Item{item(starSea)}
+		syncOnce(t, svc)
+
+		// 原名变了，这次目录源只给出第 1 季：第 2 季的搜索列也要按新原名重算
+		starSea = tv("星海旅人", new(2019), season(1, "", episode(1, "", 1440)))
+		starSea.OriginalTitle = "Star Traveler"
+		src.items = []catalog.Item{item(starSea)}
+		syncOnce(t, svc)
+
+		bothSeasons := []string{"星海旅人 · 剧集 2019 · 1 · 1", "星海旅人 第2季 · 剧集 2019 · 2 · 1"}
+		for keyword, want := range map[string][]string{
+			"Star Traveler": bothSeasons,
+			"Star Voyager":  nil,
+			"归航":            {"星海旅人 第2季 · 剧集 2019 · 2 · 1"}, // 这次没有给出的季保留原来的季标题
+		} {
+			if got, _ := searchSeasons(t, pool, keyword, 50); !slices.Equal(got, want) {
+				t.Errorf("Search(%q) = %q, want %q", keyword, got, want)
+			}
+		}
+	})
+}
+
 func TestSyncPoster(t *testing.T) {
 	t.Parallel()
 	image := func(contentType, data string) *catalog.Image {

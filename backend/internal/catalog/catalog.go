@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+
+	"github.com/kzw200015/danfuse/backend/internal/fulltext"
 )
 
 // SeriesType 剧的类型，与 series.type 列的取值一致。
@@ -113,4 +115,36 @@ func (s Series) Validate() error {
 		}
 	}
 	return nil
+}
+
+// SeasonLabel 季号标签：剧集的每一季都有，第 0 季为"特别篇"，其余为"第N季"（包括第 1 季）；电影没有。
+// 它是搜索列 A 档的一部分（"剧名2"切出的"2"因此命中第 2 季），也用来拼季的名称。
+func SeasonLabel(t SeriesType, number int) string {
+	switch {
+	case t == TypeMovie:
+		return ""
+	case number == 0:
+		return "特别篇"
+	default:
+		return fmt.Sprintf("第%d季", number)
+	}
+}
+
+// SeasonName 季对外的名称（弹弹play 的 animeTitle）：第 1 季和电影为"剧名"，第 N 季为"剧名 第N季"，
+// 第 0 季为"剧名 特别篇"，都不带年份。它由搜索列里的词组成，拿它搜索能找回这一季。
+func SeasonName(t SeriesType, seriesTitle string, number int) string {
+	if t == TypeMovie || number == 1 {
+		return seriesTitle
+	}
+	return seriesTitle + " " + SeasonLabel(t, number)
+}
+
+// SearchVector 一季的搜索列（tsvector 文本）：A 档为剧名和季号标签，B 档为原名，C 档为目录源给的季标题。
+// 同步写入季、重算搜索列的迁移都用它；改动它的组成时，要新增一个重算搜索列的 Go 迁移（见 db/migrations）。
+func SearchVector(t SeriesType, seriesTitle, originalTitle string, number int, seasonTitle string) string {
+	return fulltext.Vector(
+		fulltext.Field{Weight: fulltext.WeightA, Text: seriesTitle + " " + SeasonLabel(t, number)},
+		fulltext.Field{Weight: fulltext.WeightB, Text: originalTitle},
+		fulltext.Field{Weight: fulltext.WeightC, Text: seasonTitle},
+	)
 }

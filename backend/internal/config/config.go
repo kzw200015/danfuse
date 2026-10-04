@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ type Config struct {
 	Server        Server        `mapstructure:"server"`
 	Log           Log           `mapstructure:"log"`
 	Database      Database      `mapstructure:"database"`
+	Dandanplay    Dandanplay    `mapstructure:"dandanplay"`
 	CatalogSource CatalogSource `mapstructure:"catalog_source"`
 	Sync          Sync          `mapstructure:"sync"`
 }
@@ -42,6 +44,13 @@ type Database struct {
 	MaxConnIdleTime time.Duration `mapstructure:"max_conn_idle_time"`
 }
 
+// Dandanplay 弹弹 API。
+type Dandanplay struct {
+	// Token 可选；设置后弹弹 API 挂在 /dandanplay/<token>/api/v2，否则为 /dandanplay/api/v2。
+	// 只能用 URL 路径里不需要转义的字符，不写日志。
+	Token string `mapstructure:"token"`
+}
+
 // CatalogSource 目录源。同一时间只有一个，用 Kind 选择种类，只读取选中那一种的设置块。
 type CatalogSource struct {
 	Kind     string   `mapstructure:"kind"` // 为空表示不启用同步；目前只支持 jellyfin
@@ -60,6 +69,9 @@ type Jellyfin struct {
 type Sync struct {
 	Interval time.Duration `mapstructure:"interval"` // 定时同步的间隔，0 表示关闭
 }
+
+// tokenPattern dandanplay.token 允许的字符：RFC 3986 的 unreserved，放在 URL 路径里不需要转义。
+var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]*$`)
 
 // Load 读取配置。path 为空时仅使用默认值和环境变量。
 func Load(path string) (*Config, error) {
@@ -105,6 +117,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.max_conn_lifetime", time.Hour)
 	v.SetDefault("database.max_conn_idle_time", 30*time.Minute)
 
+	v.SetDefault("dandanplay.token", "")
+
 	v.SetDefault("catalog_source.kind", "")
 	v.SetDefault("catalog_source.jellyfin.url", "")
 	v.SetDefault("catalog_source.jellyfin.api_key", "")
@@ -133,6 +147,11 @@ func (c *Config) validate() error {
 	// 同步用一个专用连接持有同步锁直到结束，写目录还要再取连接；只有 1 个连接时同步会一直等自己
 	if c.Database.MaxConns != 0 && c.Database.MaxConns < 2 {
 		return errors.New("config: database.max_conns must be 0 (default) or at least 2: a running sync holds one connection for its lock")
+	}
+
+	// "." 和 ".." 在路径里表示当前目录、上级目录，会被浏览器和反向代理改写
+	if t := c.Dandanplay.Token; !tokenPattern.MatchString(t) || t == "." || t == ".." {
+		return errors.New("config: dandanplay.token may only contain letters, digits, '-', '.', '_' and '~', and must not be '.' or '..'")
 	}
 
 	switch c.CatalogSource.Kind {
