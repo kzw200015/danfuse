@@ -1,9 +1,9 @@
-import { useEffect, useState, type SubmitEvent } from 'react'
+import { useState, type SubmitEvent } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useShallow } from 'zustand/react/shallow'
 
 import { ApiError } from '@/api/request'
-import type { CreateUserPayload } from '@/api/user'
+import { createUser, listUsers, type CreateUserPayload } from '@/api/user'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { selectTotalPages, useUserStore } from '@/stores/user'
+import { cn } from '@/lib/utils'
+
+const PAGE_SIZE = 10
 
 const emptyForm: CreateUserPayload = { name: '', email: '' }
 
@@ -29,54 +31,35 @@ function formatTime(value: string) {
 }
 
 export default function UsersView() {
-  const { users, total, page, loading, fetchUsers, addUser } = useUserStore(
-    useShallow((s) => ({
-      users: s.users,
-      total: s.total,
-      page: s.page,
-      loading: s.loading,
-      fetchUsers: s.fetchUsers,
-      addUser: s.addUser,
-    })),
-  )
-  const totalPages = useUserStore(selectTotalPages)
-
+  const queryClient = useQueryClient()
+  const [page, setPage] = useState(1)
   const [form, setForm] = useState(emptyForm)
-  const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
-    // 组件卸载后不再提示，避免 StrictMode 下重复执行 effect 时弹出两次
-    let ignore = false
-    fetchUsers(1).catch((err: unknown) => {
-      if (!ignore) {
-        toast.error(errorMessage(err))
-      }
-    })
-    return () => {
-      ignore = true
-    }
-  }, [fetchUsers])
+  const { data, error, isPending, isFetching } = useQuery({
+    queryKey: ['users', { page, pageSize: PAGE_SIZE }],
+    queryFn: () => listUsers({ page, pageSize: PAGE_SIZE }),
+    // 翻页时保留上一页数据，避免表格闪空
+    placeholderData: keepPreviousData,
+  })
+  const users = data?.list ?? []
+  const total = data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
-  async function load(targetPage: number) {
-    try {
-      await fetchUsers(targetPage)
-    } catch (err) {
-      toast.error(errorMessage(err))
-    }
-  }
-
-  async function submit(e: SubmitEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setSubmitting(true)
-    try {
-      const user = await addUser(form)
+  const create = useMutation({
+    mutationFn: createUser,
+    onSuccess: (user) => {
       toast.success(`已创建用户 ${user.name}`)
       setForm(emptyForm)
-    } catch (err) {
-      toast.error(errorMessage(err))
-    } finally {
-      setSubmitting(false)
-    }
+      setPage(1)
+      // 返回 Promise，列表刷新完成前按钮保持禁用
+      return queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  })
+
+  function submit(e: SubmitEvent<HTMLFormElement>) {
+    e.preventDefault()
+    create.mutate(form)
   }
 
   return (
@@ -106,7 +89,7 @@ export default function UsersView() {
                 placeholder="alice@example.com"
               />
             </div>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={create.isPending}>
               创建
             </Button>
           </form>
@@ -139,8 +122,11 @@ export default function UsersView() {
               ))}
               {users.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center">
-                    {loading ? '加载中...' : '暂无数据'}
+                  <TableCell
+                    colSpan={4}
+                    className={cn('h-24 text-center', error && 'text-destructive')}
+                  >
+                    {error ? errorMessage(error) : isPending ? '加载中...' : '暂无数据'}
                   </TableCell>
                 </TableRow>
               )}
@@ -154,16 +140,16 @@ export default function UsersView() {
             <Button
               variant="outline"
               size="sm"
-              disabled={loading || page <= 1}
-              onClick={() => load(page - 1)}
+              disabled={isFetching || page <= 1}
+              onClick={() => setPage(page - 1)}
             >
               上一页
             </Button>
             <Button
               variant="outline"
               size="sm"
-              disabled={loading || page >= totalPages}
-              onClick={() => load(page + 1)}
+              disabled={isFetching || page >= totalPages}
+              onClick={() => setPage(page + 1)}
             >
               下一页
             </Button>

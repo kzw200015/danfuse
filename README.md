@@ -5,7 +5,7 @@
 | 端 | 技术栈 |
 | --- | --- |
 | backend | Go · Echo v5 · viper · pgx/v5 + PostgreSQL · sqlc · goose（启动时自动迁移）· wire · golangci-lint v2 |
-| frontend | React 19 · TypeScript · Vite · React Router · Zustand · shadcn/ui（Base UI · Tailwind CSS v4）· axios · Vitest + Testing Library · oxlint · oxfmt |
+| frontend | React 19 · TypeScript · Vite · React Router · TanStack Query · Zustand · shadcn/ui（Base UI · Tailwind CSS v4）· axios · Vitest + Testing Library · oxlint · oxfmt |
 
 ## 目录结构
 
@@ -36,12 +36,13 @@ frontend/
 ├── src/
 │   ├── api/               # request.ts 封装统一响应；按模块划分接口
 │   ├── components/ui/     # shadcn/ui 组件（通过 CLI 添加）
-│   ├── stores/            # Zustand
+│   ├── lib/               # 工具函数、QueryClient
+│   ├── stores/            # Zustand（按需创建）
 │   ├── router/            # React Router（data mode），App.tsx 为根布局
 │   └── views/
 ├── components.json        # shadcn/ui 配置
-├── .oxlintrc.json
-└── .oxfmtrc.json
+├── .oxlintrc.jsonc
+└── .oxfmtrc.jsonc
 ```
 
 ## 快速开始
@@ -90,6 +91,12 @@ pnpm dev        # /api 代理到 http://localhost:8080
 | `pnpm lint` / `pnpm lint:fix` | oxlint |
 | `pnpm format` / `pnpm format:check` | oxfmt |
 | `pnpm dlx shadcn@latest add <component>` | 添加 shadcn/ui 组件 |
+
+状态管理约定：
+
+- 接口数据（服务端状态）用 TanStack Query：`useQuery` 查询，`useMutation` 提交后通过 `invalidateQueries` 刷新相关查询；
+  查询失败默认不重试，直接展示 `ApiError.message`。
+- 跨组件共享的客户端状态（登录信息、界面偏好等）用 Zustand，放在 `src/stores/`；只在局部使用的状态用 `useState`。
 
 ## 统一响应
 
