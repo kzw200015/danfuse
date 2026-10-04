@@ -1,52 +1,123 @@
 package bilibili
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// videoHosts 投稿链接的域名。
-var videoHosts = []string{"www.bilibili.com", "bilibili.com", "m.bilibili.com"}
+var (
+	linkHosts      = []string{"www.bilibili.com", "bilibili.com", "m.bilibili.com"}
+	shortLinkHosts = []string{"b23.tv", "bili2233.cn"} // 只对这两个域名跟随跳转
+)
 
-// parseLink 只做字符串解析，不联网：投稿链接 video/BV…、video/av…（可带 ?p=N，从 1 开始，缺省为 1），
-// 以及裸的 BV、av 号（同样可带 ?p=）。不认识时返回 false。
-func parseLink(link string) (ref, bool) {
+// linkIDs 长链接里 ID 所在的路径，以及这个位置上可以出现的 ID 前缀。
+var linkIDs = map[string][]string{
+	"/video/":         {"BV", "av"},
+	"/bangumi/play/":  {"ep", "ss"},
+	"/bangumi/media/": {"md"},
+}
+
+// bareIDs 裸 ID 可以是的前缀。
+var bareIDs = []string{"BV", "av", "ep", "ss", "md"}
+
+// toURL 把用户贴的文本解析成 URL；没写协议的链接（例如 www.bilibili.com/video/BV…、b23.tv/…）补上 https://。
+// 裸 ID（例如 BV…?p=2）没有协议和域名，原样留在 Path 和查询串里。
+func toURL(link string) (*url.URL, bool) {
 	link = strings.TrimSpace(link)
 	u, err := url.Parse(link)
 	if err == nil && u.Scheme == "" && strings.Contains(u.Path, "/") {
-		u, err = url.Parse("https://" + link) // 没写协议的链接，例如 www.bilibili.com/video/BV…
+		u, err = url.Parse("https://" + link)
+	}
+	return u, err == nil
+}
+
+// shortLink u 是 b23.tv、bili2233.cn 的短链时，返回请求它用的地址：只留域名和路径，查询串对短链没有意义。
+func shortLink(u *url.URL) (string, bool) {
+	host := strings.ToLower(u.Hostname())
+	if (u.Scheme != "https" && u.Scheme != "http") || !slices.Contains(shortLinkHosts, host) || strings.Trim(u.Path, "/") == "" {
+		return "", false
+	}
+	return "https://" + host + u.EscapedPath(), true
+}
+
+// parseShortLink 请求一次短链，只读 Location，按跳转到的长链接解析；不跟随第二次跳转。
+func (a *Adapter) parseShortLink(ctx context.Context, short string) (source.Ref, error) {
+	var target *url.URL
+	err := a.client.retry(ctx, func() (err error) {
+		target, err = a.client.location(ctx, short)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	v, err := parseURL(target)
+	if errors.Is(err, source.ErrUnrecognized) {
+		// 是 B 站的短链，只是指向直播间、个人空间这类绑定不了的页面
+		return nil, &source.Error{Kind: source.InvalidLink, Message: "短链指向的不是投稿或番剧单集", Err: fmt.Errorf("%s 跳转到 %s", short, target)}
 	}
 	if err != nil {
-		return ref{}, false
+		return nil, err
+	}
+	return json.Marshal(v)
+}
+
+// parseURL 只做字符串解析，不联网：
+//   - 投稿 video/BV…、video/av…，可带 ?p=N（从 1 开始，缺省为 1）；
+//   - 番剧单集 bangumi/play/ep…；
+//   - 裸的 BV、av 号（同样可带 ?p=）和 ep 号。
+//
+// 整季 bangumi/play/ss…、作品页 bangumi/media/md… 和裸的 ss、md 号定位不到单集，返回 InvalidLink；
+// 其他的返回 source.ErrUnrecognized。
+func parseURL(u *url.URL) (ref, error) {
+	var id string
+	var prefixes []string // 这个位置上可以出现的 ID 前缀
+	switch {
+	case u.Scheme == "" && u.Host == "":
+		id, prefixes = u.Path, bareIDs
+	case (u.Scheme == "https" || u.Scheme == "http") && slices.Contains(linkHosts, strings.ToLower(u.Hostname())):
+		for path, p := range linkIDs {
+			if rest, ok := strings.CutPrefix(u.Path, path); ok {
+				id, prefixes = strings.TrimSuffix(rest, "/"), p
+			}
+		}
+	}
+	if !slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(id, p) }) {
+		return ref{}, source.ErrUnrecognized
 	}
 
-	var id string
-	switch {
-	case u.Scheme == "" && u.Host == "": // 裸 ID
-		id = u.Path
-	case (u.Scheme == "https" || u.Scheme == "http") && slices.Contains(videoHosts, strings.ToLower(u.Hostname())):
-		rest, ok := strings.CutPrefix(u.Path, "/video/")
+	switch prefix, digits := id[:2], id[2:]; prefix {
+	case "ep":
+		ep, ok := positiveInt(digits)
 		if !ok {
-			return ref{}, false
+			return ref{}, source.ErrUnrecognized
 		}
-		id = strings.TrimSuffix(rest, "/")
-	default:
-		return ref{}, false
+		return ref{Kind: kindEpisode, EpID: ep}, nil
+	case "ss", "md":
+		if _, ok := positiveInt(digits); !ok {
+			return ref{}, source.ErrUnrecognized
+		}
+		return ref{}, &source.Error{Kind: source.InvalidLink, Message: "请打开具体某一集再复制链接", Err: fmt.Errorf("%s 是整季或作品页", id)}
 	}
 
 	aid, ok := parseVideoID(id)
 	if !ok {
-		return ref{}, false
+		return ref{}, source.ErrUnrecognized
 	}
 	page := int64(1)
 	if p, ok := u.Query()["p"]; ok {
 		if page, ok = positiveInt(p[0]); !ok {
-			return ref{}, false
+			return ref{}, source.ErrUnrecognized
 		}
 	}
-	return ref{Kind: kindVideo, Aid: aid, Page: int(page)}, true
+	return ref{Kind: kindVideo, Aid: aid, Page: int(page)}, nil
 }
 
 // parseVideoID 把 av 号或 BV 号换算成 aid。

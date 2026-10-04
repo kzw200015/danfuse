@@ -137,3 +137,32 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadBilibiliSessdata(t *testing.T) {
+	const sessdata = "1a2b3c4d%2C1790000000%2Cabcde*a1" // 浏览器里看到的样子：逗号编码成了 %2C
+	for _, raw := range []string{"", sessdata, " " + sessdata + "\n"} {
+		t.Run(raw, func(t *testing.T) {
+			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", "BILIBILI_SESSDATA": raw})
+			cfg, err := Load("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := strings.TrimSpace(raw); cfg.Bilibili.Sessdata != want {
+				t.Errorf("sessdata = %q, want %q", cfg.Bilibili.Sessdata, want)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsInvalidSessdata 含有 Cookie 值不允许的字符时拒绝启动，错误信息里不带 SESSDATA 的值。
+func TestLoadRejectsInvalidSessdata(t *testing.T) {
+	for _, sessdata := range []string{"abc,1790000000", "abc def", "abc;def", `"abc"`, `abc\def`, "令牌"} {
+		t.Run(sessdata, func(t *testing.T) {
+			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", "BILIBILI_SESSDATA": sessdata})
+			_, err := Load("")
+			if err == nil || !strings.Contains(err.Error(), "bilibili.sessdata") || strings.Contains(err.Error(), sessdata) {
+				t.Errorf("err = %v, want 提到 bilibili.sessdata 且不含它的值", err)
+			}
+		})
+	}
+}

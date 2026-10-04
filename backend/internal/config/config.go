@@ -22,6 +22,7 @@ type Config struct {
 	Dandanplay    Dandanplay    `mapstructure:"dandanplay"`
 	CatalogSource CatalogSource `mapstructure:"catalog_source"`
 	Sync          Sync          `mapstructure:"sync"`
+	Bilibili      Bilibili      `mapstructure:"bilibili"`
 }
 
 type Server struct {
@@ -68,6 +69,13 @@ type Jellyfin struct {
 
 type Sync struct {
 	Interval time.Duration `mapstructure:"interval"` // 定时同步的间隔，0 表示关闭
+}
+
+// Bilibili B 站源适配器。
+type Bilibili struct {
+	// Sessdata 可选的 B 站登录凭据（浏览器 Cookie 里 SESSDATA 的值），只作为 Cookie 发给 B 站，不写日志、不入库。
+	// 未配置时以未登录的身份拉取，弹幕可能不全。
+	Sessdata string `mapstructure:"sessdata"`
 }
 
 // tokenPattern dandanplay.token 允许的字符：RFC 3986 的 unreserved，放在 URL 路径里不需要转义。
@@ -125,10 +133,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("catalog_source.jellyfin.libraries", []string{})
 
 	v.SetDefault("sync.interval", time.Duration(0))
+
+	v.SetDefault("bilibili.sessdata", "")
 }
 
-// normalize 规整配置值：url 去掉末尾的 /；媒体库名去掉首尾空白，丢弃空项（例如环境变量末尾多了逗号）。
+// normalize 规整配置值：url 去掉末尾的 /；媒体库名去掉首尾空白，丢弃空项（例如环境变量末尾多了逗号）；SESSDATA 去掉首尾空白。
 func (c *Config) normalize() {
+	c.Bilibili.Sessdata = strings.TrimSpace(c.Bilibili.Sessdata)
 	jf := &c.CatalogSource.Jellyfin
 	jf.URL = strings.TrimRight(strings.TrimSpace(jf.URL), "/")
 	libraries := make([]string, 0, len(jf.Libraries))
@@ -180,5 +191,15 @@ func (c *Config) validate() error {
 	if c.Sync.Interval > 0 && c.CatalogSource.Kind == "" {
 		return errors.New("config: sync.interval requires catalog_source.kind")
 	}
+	// 原样作为 Cookie 的值发送：只能是浏览器里看到的那一串（逗号编码成了 %2C）。
+	// 含有 Cookie 值不允许的字符时 net/http 会加引号或丢掉这些字符，登录态悄悄失效，不如启动时就报错
+	if strings.ContainsFunc(c.Bilibili.Sessdata, func(r rune) bool { return !isCookieOctet(r) }) {
+		return errors.New("config: bilibili.sessdata must be the cookie value as shown in the browser (no spaces, commas, semicolons, quotes or backslashes)")
+	}
 	return nil
+}
+
+// isCookieOctet RFC 6265 允许出现在 Cookie 值里的字符：可见的 ASCII 字符，除去 " , ; \。
+func isCookieOctet(r rune) bool {
+	return r > ' ' && r < 0x7f && r != '"' && r != ',' && r != ';' && r != '\\'
 }

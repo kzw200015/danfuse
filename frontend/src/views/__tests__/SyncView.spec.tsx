@@ -15,6 +15,7 @@ const jellyfin: Settings = {
   dandanplayToken: null,
   catalogSource: { kind: 'jellyfin', url: 'http://192.168.1.10:8096', libraries: ['番剧'] },
   syncInterval: 86400,
+  bilibiliSessdataConfigured: false,
 }
 
 /** 服务端的同步记录（新的在前），mock 的接口按它返回；用例改它来推进同步 */
@@ -152,6 +153,7 @@ describe('标题行与立即同步', () => {
       dandanplayToken: null,
       catalogSource: null,
       syncInterval: 0,
+      bilibiliSessdataConfigured: false,
     })
     renderRoutes('/sync')
 

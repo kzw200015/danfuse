@@ -98,6 +98,7 @@ beforeEach(() => {
     dandanplayToken: null,
     catalogSource: null,
     syncInterval: 0,
+    bilibiliSessdataConfigured: false,
   })
   vi.mocked(listSyncRuns).mockResolvedValue([])
   vi.mocked(listSeries).mockImplementation(async () =>

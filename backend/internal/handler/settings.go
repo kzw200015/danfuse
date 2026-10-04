@@ -12,10 +12,11 @@ type SettingsHandler struct {
 	dandanplay config.Dandanplay
 	source     config.CatalogSource
 	sync       config.Sync
+	bilibili   config.Bilibili
 }
 
-func NewSettingsHandler(dandanplay config.Dandanplay, source config.CatalogSource, sync config.Sync) *SettingsHandler {
-	return &SettingsHandler{dandanplay: dandanplay, source: source, sync: sync}
+func NewSettingsHandler(dandanplay config.Dandanplay, source config.CatalogSource, sync config.Sync, bilibili config.Bilibili) *SettingsHandler {
+	return &SettingsHandler{dandanplay: dandanplay, source: source, sync: sync, bilibili: bilibili}
 }
 
 type settingsResponse struct {
@@ -26,6 +27,8 @@ type settingsResponse struct {
 	// SyncInterval 定时同步的间隔，单位秒，0 表示关闭。
 	// 与管理 API 里其他时长（集的时长、绑定的偏移）一样用秒，前端不用解析 Go 的 Duration 写法。
 	SyncInterval float64 `json:"syncInterval"`
+	// BilibiliSessdataConfigured 是否配置了 B 站的 SESSDATA。只给出是否配置，不返回值：它就是账号的登录凭据。
+	BilibiliSessdataConfigured bool `json:"bilibiliSessdataConfigured"`
 }
 
 // catalogSourceSettings 目录源的配置，不含 API key。
@@ -37,7 +40,10 @@ type catalogSourceSettings struct {
 
 // Get GET /api/settings
 func (h *SettingsHandler) Get(c *echo.Context) error {
-	resp := settingsResponse{SyncInterval: h.sync.Interval.Seconds()}
+	resp := settingsResponse{
+		SyncInterval:               h.sync.Interval.Seconds(),
+		BilibiliSessdataConfigured: h.bilibili.Sessdata != "",
+	}
 	if h.dandanplay.Token != "" {
 		resp.DandanplayToken = &h.dandanplay.Token
 	}

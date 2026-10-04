@@ -29,17 +29,20 @@ import (
 // Fetch 返回 sources 里这个名字的结果，没有这个名字时返回 NotFound；err 不为 nil 时一律返回 err。
 // started 不为 nil 时，Fetch 开始时先在 started 上报到，再等 release 关闭，用来在拉取期间插入别的操作。
 // hang 为 true 时，Fetch 一直等到 ctx 结束，像上游一直不响应。
+// parseDelay 让 ParseLink 先耗时这么久、parseHang 让它一直等到 ctx 结束，像跟随短链时上游响应慢、一直不响应。
 type fakeAdapter struct {
-	sources map[string]source.Fetched
-	err     error
-	started chan struct{}
-	release chan struct{}
-	hang    bool
-	fetches atomic.Int32 // Fetch 被调用的次数
+	sources    map[string]source.Fetched
+	err        error
+	started    chan struct{}
+	release    chan struct{}
+	hang       bool
+	parseDelay time.Duration
+	parseHang  bool
+	fetches    atomic.Int32 // Fetch 被调用的次数
 }
 
-// errNoDeadline hang 的 Fetch 收到的 ctx 没有截止时间：拉取的总时限没有生效。立即返回，免得测试一直挂着。
-var errNoDeadline = errors.New("Fetch 的 ctx 没有截止时间")
+// errNoDeadline 一直等待的 Fetch、ParseLink 收到的 ctx 没有截止时间：总时限没有生效。立即返回，免得测试一直挂着。
+var errNoDeadline = errors.New("ctx 没有截止时间")
 
 type fakeRef struct {
 	Name string `json:"name"`
@@ -56,7 +59,21 @@ func (a *fakeAdapter) Describe(ref source.Ref) (source.Display, error) {
 	return source.Display{URL: "https://fake.test/" + r.Name, Label: "假来源 " + r.Name}, nil
 }
 
-func (a *fakeAdapter) ParseLink(_ context.Context, link string) (source.Ref, error) {
+func (a *fakeAdapter) ParseLink(ctx context.Context, link string) (source.Ref, error) {
+	if a.parseHang || a.parseDelay > 0 {
+		if _, ok := ctx.Deadline(); !ok {
+			return nil, errNoDeadline
+		}
+		var delay <-chan time.Time // parseHang 时为 nil，一直等到 ctx 结束
+		if !a.parseHang {
+			delay = time.After(a.parseDelay)
+		}
+		select {
+		case <-delay:
+		case <-ctx.Done():
+			return nil, &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: ctx.Err()}
+		}
+	}
 	for _, prefix := range []string{"fake/", "alias/"} {
 		if name, ok := strings.CutPrefix(link, prefix); ok {
 			return json.Marshal(fakeRef{Name: name})
@@ -388,6 +405,37 @@ func TestCreateBindingTimeout(t *testing.T) {
 		}
 		assertNothingWritten(t, pool)
 	})
+}
+
+// TestCreateBindingParseTimeout 解析链接（例如跟随短链）也要联网：解析与拉取共用总时限 fetchTimeout，从解析开始计时，
+// 两者加起来超过时限时按 Upstream 返回 502，库里什么都不留。在 synctest 气泡里用假时间。
+func TestCreateBindingParseTimeout(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		adapter *fakeAdapter
+	}{
+		{"解析链接一直不返回", &fakeAdapter{parseHang: true}},
+		{"解析链接用了 20 秒，拉取一直不响应：25 秒时失败，不是 45 秒", &fakeAdapter{parseDelay: 20 * time.Second, hang: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+				seedEpisodes(t, pool)
+				svc := NewBindingService(repository.NewStore(pool), source.NewRegistry(tt.adapter), testLogger(t))
+
+				start := time.Now()
+				_, err := svc.Create(t.Context(), 1, "fake/s1")
+
+				assertAppError(t, err, http.StatusBadGateway, "B 站接口异常")
+				if elapsed := time.Since(start); elapsed != fetchTimeout {
+					t.Errorf("%v 后才失败，want 总时限 %v", elapsed, fetchTimeout)
+				}
+				assertNothingWritten(t, pool)
+			})
+		})
+	}
 }
 
 // TestCreateBindingEpisodeDeleted 拉取期间这一集被删除：404"这一集已被删除"，库里不留绑定和弹幕。

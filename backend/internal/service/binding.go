@@ -15,7 +15,8 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// fetchTimeout 一次拉取的总时限：server.write_timeout 是 30 秒，留出写库和响应的时间。超时由适配器按 Upstream 返回。
+// fetchTimeout 一次拉取的总时限，创建绑定时也包括解析链接（跟随短链也要联网）：
+// server.write_timeout 是 30 秒，留出写库和响应的时间。超时由适配器按 Upstream 返回。
 const fetchTimeout = 25 * time.Second
 
 var (
@@ -56,7 +57,10 @@ type BindingView struct {
 // Create 贴链接创建绑定：解析链接 → 确认这一集存在（404）→ 查重（409）→ 拉取 → 写入。拉取失败就不创建。
 // 拉取期间这一集被删除时返回 404"这一集已被删除"；同时两次给同一集贴同一个弹幕源时，后提交的撞上唯一约束返回 409。
 func (s *BindingService) Create(ctx context.Context, episodeID int64, link string) (BindingView, error) {
-	adapter, ref, err := s.sources.ParseLink(ctx, link)
+	// 解析短链也要联网：解析链接与拉取共用 fetchTimeout，从解析开始计时；查库和写入事务仍用 ctx
+	netCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+	adapter, ref, err := s.sources.ParseLink(netCtx, link)
 	if err != nil {
 		return BindingView{}, sourceError(err)
 	}
@@ -75,7 +79,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 		return BindingView{}, errBindingExists
 	}
 
-	fetched, err := fetch(ctx, adapter, ref)
+	fetched, err := fetch(netCtx, adapter, ref)
 	if err != nil {
 		return BindingView{}, sourceError(err)
 	}

@@ -16,6 +16,7 @@ beforeEach(() => {
     dandanplayToken: null,
     catalogSource: null,
     syncInterval: 0,
+    bilibiliSessdataConfigured: false,
   })
   vi.mocked(listSyncRuns).mockResolvedValue([])
 })
@@ -97,6 +98,7 @@ describe('设置弹出层', () => {
         libraries: ['番剧', '电影'],
       },
       syncInterval: 86400,
+      bilibiliSessdataConfigured: false,
     })
     renderRoutes('/catalog')
 
@@ -124,6 +126,7 @@ describe('设置弹出层', () => {
       dandanplayToken: 's3cret',
       catalogSource: null,
       syncInterval: 0,
+      bilibiliSessdataConfigured: false,
     })
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
@@ -150,5 +153,22 @@ describe('设置弹出层', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: '复制' }))
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('手动复制')
+  })
+
+  it.each([
+    { configured: true, want: '已配置' },
+    { configured: false, want: '未配置，以未登录的身份拉取，弹幕可能不全' },
+  ])('B 站 SESSDATA 只显示是否已配置：$want', async ({ configured, want }) => {
+    vi.mocked(getSettings).mockResolvedValue({
+      dandanplayToken: null,
+      catalogSource: null,
+      syncInterval: 0,
+      bilibiliSessdataConfigured: configured,
+    })
+    renderRoutes('/catalog')
+
+    const dialog = await openSettings()
+
+    expect((await within(dialog).findByText('SESSDATA')).nextElementSibling).toHaveTextContent(want)
   })
 })

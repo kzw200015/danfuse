@@ -39,7 +39,7 @@ export default function AddBindingForm({ episodeId }: { episodeId: number }) {
       <div className="flex gap-2">
         <Input
           aria-label="弹幕源链接"
-          placeholder="粘贴 B 站投稿链接，或 BV / av 号（可带 ?p=）"
+          placeholder="粘贴 B 站投稿、番剧单集链接或 b23.tv 短链，或 BV / av / ep 号"
           value={link}
           disabled={create.isPending}
           onChange={(e) => setLink(e.target.value)}

@@ -49,7 +49,7 @@ type Fetched struct {
 	Title    string // 弹幕源的标题，例如 B 站投稿为"视频标题 / 分 P 标题"
 	Duration int    // 弹幕源视频的时长，秒
 	Danmaku  []danmaku.Danmaku
-	// LogAttrs 适配器自己的统计（例如 protobuf 条数），由调用方连同新增条数记一条 info 日志。
+	// LogAttrs 适配器自己的统计（例如 B 站的 protobuf 条数、XML 条数和两者的交集），由调用方连同新增条数记一条 info 日志。
 	LogAttrs []slog.Attr
 }
 

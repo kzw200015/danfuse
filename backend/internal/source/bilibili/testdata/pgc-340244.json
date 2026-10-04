@@ -1,0 +1,128 @@
+{
+  "code": 0,
+  "message": "success",
+  "result": {
+    "season_id": 34424,
+    "title": "攀岩少女！",
+    "episodes": [
+      {
+        "id": 341504,
+        "cid": 240142895,
+        "title": "1",
+        "long_title": "岩石谜题",
+        "show_title": "第1话 岩石谜题",
+        "duration": 1421000
+      },
+      {
+        "id": 341505,
+        "cid": 243877587,
+        "title": "2",
+        "long_title": "相信自己",
+        "show_title": "第2话 相信自己",
+        "duration": 1421000
+      },
+      {
+        "id": 341506,
+        "cid": 245812245,
+        "title": "3",
+        "long_title": "猿憾岩",
+        "show_title": "第3话 猿憾岩",
+        "duration": 1421000
+      },
+      {
+        "id": 341507,
+        "cid": 249016732,
+        "title": "4",
+        "long_title": "攀岩强者",
+        "show_title": "第4话 攀岩强者",
+        "duration": 1421000
+      },
+      {
+        "id": 341508,
+        "cid": 252726336,
+        "title": "5",
+        "long_title": "勤奋与天赋",
+        "show_title": "第5话 勤奋与天赋",
+        "duration": 1421000
+      },
+      {
+        "id": 341509,
+        "cid": 252737113,
+        "title": "6",
+        "long_title": "难以置信的力量",
+        "show_title": "第6话 难以置信的力量",
+        "duration": 1421000
+      },
+      {
+        "id": 341510,
+        "cid": 255723018,
+        "title": "7",
+        "long_title": "不配为攀岩者",
+        "show_title": "第7话 不配为攀岩者",
+        "duration": 1421000
+      },
+      {
+        "id": 341511,
+        "cid": 258157669,
+        "title": "8",
+        "long_title": "溢出悔恨的泪水",
+        "show_title": "第8话 溢出悔恨的泪水",
+        "duration": 1421000
+      },
+      {
+        "id": 341512,
+        "cid": 260587349,
+        "title": "9",
+        "long_title": "攀岩公主",
+        "show_title": "第9话 攀岩公主",
+        "duration": 1421000
+      },
+      {
+        "id": 341513,
+        "cid": 263146995,
+        "title": "10",
+        "long_title": "再出发！",
+        "show_title": "第10话 再出发！",
+        "duration": 1421000
+      },
+      {
+        "id": 341514,
+        "cid": 265655897,
+        "title": "11",
+        "long_title": "15秒高墙",
+        "show_title": "第11话 15秒高墙",
+        "duration": 1421000
+      },
+      {
+        "id": 341515,
+        "cid": 268464622,
+        "title": "12",
+        "long_title": "通往全一之路",
+        "show_title": "第12话 通往全一之路",
+        "duration": 1421000
+      }
+    ],
+    "section": [
+      {
+        "episodes": [
+          {
+            "id": 340244,
+            "cid": 238468641,
+            "title": "先导PV",
+            "long_title": "",
+            "show_title": "先导PV",
+            "duration": 52000
+          },
+          {
+            "id": 340245,
+            "cid": 238468651,
+            "title": "正式PV",
+            "long_title": "",
+            "show_title": "正式PV",
+            "duration": 132000
+          }
+        ]
+      }
+    ]
+  }
+}

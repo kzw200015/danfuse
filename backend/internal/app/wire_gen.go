@@ -38,7 +38,8 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	}
 	healthHandler := handler.NewHealthHandler(pool)
 	sqlStore := repository.NewStore(pool)
-	registry := newSourceRegistry()
+	bilibili := configConfig.Bilibili
+	registry := newSourceRegistry(bilibili)
 	catalogService := service.NewCatalogService(sqlStore, registry)
 	catalogHandler := handler.NewCatalogHandler(catalogService)
 	bindingService := service.NewBindingService(sqlStore, registry, slogLogger)
@@ -48,7 +49,7 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	sync := configConfig.Sync
 	syncService := service.NewSyncService(sqlStore, pool, source, sync, slogLogger)
 	syncHandler := handler.NewSyncHandler(syncService)
-	settingsHandler := handler.NewSettingsHandler(dandanplay, catalogSource, sync)
+	settingsHandler := handler.NewSettingsHandler(dandanplay, catalogSource, sync, bilibili)
 	handlers := &handler.Handlers{
 		Health:   healthHandler,
 		Catalog:  catalogHandler,

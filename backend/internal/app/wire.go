@@ -22,7 +22,7 @@ import (
 func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	panic(wire.Build(
 		config.Load,
-		wire.FieldsOf(new(*config.Config), "Server", "Log", "Database", "Dandanplay", "CatalogSource", "Sync"),
+		wire.FieldsOf(new(*config.Config), "Server", "Log", "Database", "Dandanplay", "CatalogSource", "Sync", "Bilibili"),
 		logger.New,
 		database.NewPool,
 		repository.NewStore,

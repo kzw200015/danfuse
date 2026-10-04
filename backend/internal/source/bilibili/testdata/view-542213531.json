@@ -1,0 +1,22 @@
+{
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "title": "【10月】攀岩少女 PV",
+    "pages": [
+      {
+        "page": 1,
+        "cid": 238468641,
+        "part": "攀岩少女先导PV.encoded",
+        "duration": 52
+      },
+      {
+        "page": 2,
+        "cid": 238468651,
+        "part": "攀岩少女正式PV.encoded",
+        "duration": 132
+      }
+    ],
+    "redirect_url": "https://www.bilibili.com/bangumi/play/ep340244"
+  }
+}

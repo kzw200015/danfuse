@@ -55,6 +55,18 @@ function SettingsContent() {
         <h3 className="text-sm font-medium">目录源</h3>
         <CatalogSourceSettings settings={data} />
       </section>
+      <Separator />
+      <section className="grid gap-1.5">
+        <h3 className="text-sm font-medium">B 站</h3>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+          <dt className="text-muted-foreground">SESSDATA</dt>
+          <dd>
+            {data.bilibiliSessdataConfigured
+              ? '已配置'
+              : '未配置，以未登录的身份拉取，弹幕可能不全'}
+          </dd>
+        </dl>
+      </section>
     </>
   )
 }

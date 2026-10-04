@@ -15,6 +15,8 @@ export interface Settings {
   catalogSource: CatalogSourceSettings | null
   /** 定时同步的间隔，单位秒，0 表示关闭 */
   syncInterval: number
+  /** 是否配置了 B 站的 SESSDATA；不返回它的值 */
+  bilibiliSessdataConfigured: boolean
 }
 
 export function getSettings() {

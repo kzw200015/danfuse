@@ -23,8 +23,8 @@ func newCatalogSource(cfg config.CatalogSource) catalog.Source {
 
 // newSourceRegistry 注册所有源适配器，业务代码只依赖 source 包的接口。
 // B 站适配器里有全局令牌桶，整个进程只构造这一个。
-func newSourceRegistry() *source.Registry {
-	return source.NewRegistry(bilibili.New())
+func newSourceRegistry(cfg config.Bilibili) *source.Registry {
+	return source.NewRegistry(bilibili.New(cfg))
 }
 
 // newProvider 弹弹 API 用的 Provider：聚合层，现在只注册了本地 Provider。
