@@ -1,0 +1,19 @@
+# 所有配置项都可以用环境变量覆盖：前缀 DANFUSE_，层级用下划线连接。
+# 例如 DANFUSE_DATABASE_DSN 覆盖 database.dsn，DANFUSE_SERVER_ADDR 覆盖 server.addr。
+
+server:
+  addr: ":8080"
+  graceful_timeout: 10s
+  read_timeout: 30s
+  write_timeout: 30s
+
+log:
+  level: debug # debug | info | warn | error
+  format: text # text | json
+
+database:
+  dsn: "postgres://postgres:postgres@localhost:5432/danfuse?sslmode=disable"
+  max_conns: 10
+  min_conns: 1
+  max_conn_lifetime: 1h
+  max_conn_idle_time: 30m

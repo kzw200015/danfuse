@@ -1,0 +1,37 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - misspell
+    - modernize
+    - nilerr
+    - noctx
+    - revive
+    - sqlclosecheck
+    - unconvert
+    - unparam
+    - whitespace
+  exclusions:
+    # sqlc / wire 生成的代码带有 "Code generated ... DO NOT EDIT." 头，自动跳过
+    generated: lax
+    presets:
+      - comments # 不强制为导出标识符、包写注释
+      - common-false-positives
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/kzw200015/danfuse
