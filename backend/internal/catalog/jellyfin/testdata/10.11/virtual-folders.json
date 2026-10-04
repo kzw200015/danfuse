@@ -1,0 +1,312 @@
+[
+  {
+    "CollectionType": "tvshows",
+    "ItemId": "28e774baf8f2fd279e7d58da9890a7d2",
+    "LibraryOptions": {
+      "AllowEmbeddedSubtitles": "AllowAll",
+      "AutomaticRefreshIntervalDays": 0,
+      "AutomaticallyAddToCollection": false,
+      "CustomTagDelimiters": [
+        "/",
+        "|",
+        ";",
+        "\\"
+      ],
+      "DelimiterWhitelist": [],
+      "DisabledLocalMetadataReaders": [
+        "Nfo"
+      ],
+      "DisabledLyricFetchers": [],
+      "DisabledMediaSegmentProviders": [],
+      "DisabledSubtitleFetchers": [],
+      "EnableAutomaticSeriesGrouping": true,
+      "EnableChapterImageExtraction": false,
+      "EnableEmbeddedEpisodeInfos": false,
+      "EnableEmbeddedExtrasTitles": false,
+      "EnableEmbeddedTitles": false,
+      "EnableInternetProviders": false,
+      "EnableLUFSScan": false,
+      "EnablePhotos": false,
+      "EnableRealtimeMonitor": false,
+      "EnableTrickplayImageExtraction": false,
+      "Enabled": true,
+      "ExtractChapterImagesDuringLibraryScan": false,
+      "ExtractTrickplayImagesDuringLibraryScan": false,
+      "LyricFetcherOrder": [],
+      "MediaSegmentProviderOrder": [],
+      "MetadataCountryCode": "CN",
+      "MetadataSavers": [],
+      "PathInfos": [
+        {
+          "Path": "/media/番剧"
+        }
+      ],
+      "PreferNonstandardArtistsTag": false,
+      "PreferredMetadataLanguage": "zh",
+      "RequirePerfectSubtitleMatch": true,
+      "SaveLocalMetadata": false,
+      "SaveLyricsWithMedia": false,
+      "SaveSubtitlesWithMedia": true,
+      "SaveTrickplayWithMedia": false,
+      "SeasonZeroDisplayName": "Specials",
+      "SkipSubtitlesIfAudioTrackMatches": true,
+      "SkipSubtitlesIfEmbeddedSubtitlesPresent": false,
+      "SubtitleFetcherOrder": [],
+      "TypeOptions": [
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Series"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Season"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Episode"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Movie"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Video"
+        }
+      ],
+      "UseCustomTagDelimiters": false
+    },
+    "Locations": [
+      "/media/番剧"
+    ],
+    "Name": "番剧",
+    "PrimaryImageItemId": "28e774baf8f2fd279e7d58da9890a7d2",
+    "RefreshStatus": "Idle"
+  },
+  {
+    "CollectionType": "movies",
+    "ItemId": "3227ce1e069754c594af25ea66d69fc7",
+    "LibraryOptions": {
+      "AllowEmbeddedSubtitles": "AllowAll",
+      "AutomaticRefreshIntervalDays": 0,
+      "AutomaticallyAddToCollection": false,
+      "CustomTagDelimiters": [
+        "/",
+        "|",
+        ";",
+        "\\"
+      ],
+      "DelimiterWhitelist": [],
+      "DisabledLocalMetadataReaders": [
+        "Nfo"
+      ],
+      "DisabledLyricFetchers": [],
+      "DisabledMediaSegmentProviders": [],
+      "DisabledSubtitleFetchers": [],
+      "EnableAutomaticSeriesGrouping": true,
+      "EnableChapterImageExtraction": false,
+      "EnableEmbeddedEpisodeInfos": false,
+      "EnableEmbeddedExtrasTitles": false,
+      "EnableEmbeddedTitles": false,
+      "EnableInternetProviders": false,
+      "EnableLUFSScan": false,
+      "EnablePhotos": false,
+      "EnableRealtimeMonitor": false,
+      "EnableTrickplayImageExtraction": false,
+      "Enabled": true,
+      "ExtractChapterImagesDuringLibraryScan": false,
+      "ExtractTrickplayImagesDuringLibraryScan": false,
+      "LyricFetcherOrder": [],
+      "MediaSegmentProviderOrder": [],
+      "MetadataCountryCode": "CN",
+      "MetadataSavers": [],
+      "PathInfos": [
+        {
+          "Path": "/media/电影"
+        }
+      ],
+      "PreferNonstandardArtistsTag": false,
+      "PreferredMetadataLanguage": "zh",
+      "RequirePerfectSubtitleMatch": true,
+      "SaveLocalMetadata": false,
+      "SaveLyricsWithMedia": false,
+      "SaveSubtitlesWithMedia": true,
+      "SaveTrickplayWithMedia": false,
+      "SeasonZeroDisplayName": "Specials",
+      "SkipSubtitlesIfAudioTrackMatches": true,
+      "SkipSubtitlesIfEmbeddedSubtitlesPresent": false,
+      "SubtitleFetcherOrder": [],
+      "TypeOptions": [
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Series"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Season"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Episode"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Movie"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Video"
+        }
+      ],
+      "UseCustomTagDelimiters": false
+    },
+    "Locations": [
+      "/media/电影"
+    ],
+    "Name": "电影",
+    "PrimaryImageItemId": "3227ce1e069754c594af25ea66d69fc7",
+    "RefreshStatus": "Idle"
+  },
+  {
+    "ItemId": "12c75549db55001f711613d2fddbb9e2",
+    "LibraryOptions": {
+      "AllowEmbeddedSubtitles": "AllowAll",
+      "AutomaticRefreshIntervalDays": 0,
+      "AutomaticallyAddToCollection": false,
+      "CustomTagDelimiters": [
+        "/",
+        "|",
+        ";",
+        "\\"
+      ],
+      "DelimiterWhitelist": [],
+      "DisabledLocalMetadataReaders": [
+        "Nfo"
+      ],
+      "DisabledLyricFetchers": [],
+      "DisabledMediaSegmentProviders": [],
+      "DisabledSubtitleFetchers": [],
+      "EnableAutomaticSeriesGrouping": true,
+      "EnableChapterImageExtraction": false,
+      "EnableEmbeddedEpisodeInfos": false,
+      "EnableEmbeddedExtrasTitles": false,
+      "EnableEmbeddedTitles": false,
+      "EnableInternetProviders": false,
+      "EnableLUFSScan": false,
+      "EnablePhotos": false,
+      "EnableRealtimeMonitor": false,
+      "EnableTrickplayImageExtraction": false,
+      "Enabled": true,
+      "ExtractChapterImagesDuringLibraryScan": false,
+      "ExtractTrickplayImagesDuringLibraryScan": false,
+      "LyricFetcherOrder": [],
+      "MediaSegmentProviderOrder": [],
+      "MetadataCountryCode": "CN",
+      "MetadataSavers": [],
+      "PathInfos": [
+        {
+          "Path": "/media/其他"
+        }
+      ],
+      "PreferNonstandardArtistsTag": false,
+      "PreferredMetadataLanguage": "zh",
+      "RequirePerfectSubtitleMatch": true,
+      "SaveLocalMetadata": false,
+      "SaveLyricsWithMedia": false,
+      "SaveSubtitlesWithMedia": true,
+      "SaveTrickplayWithMedia": false,
+      "SeasonZeroDisplayName": "Specials",
+      "SkipSubtitlesIfAudioTrackMatches": true,
+      "SkipSubtitlesIfEmbeddedSubtitlesPresent": false,
+      "SubtitleFetcherOrder": [],
+      "TypeOptions": [
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Series"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Season"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Episode"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Movie"
+        },
+        {
+          "ImageFetcherOrder": [],
+          "ImageFetchers": [],
+          "ImageOptions": [],
+          "MetadataFetcherOrder": [],
+          "MetadataFetchers": [],
+          "Type": "Video"
+        }
+      ],
+      "UseCustomTagDelimiters": false
+    },
+    "Locations": [
+      "/media/其他"
+    ],
+    "Name": "其他",
+    "RefreshStatus": "Idle"
+  }
+]

@@ -4,8 +4,7 @@ package db
 
 import "embed"
 
-// Migrations 内嵌整个 migrations 目录。all: 前缀连同 .gitkeep 一起内嵌，目录里还没有迁移时也能编译；
-// goose 只读取其中以版本号开头的 .sql、.go 文件。
+// Migrations 内嵌整个 migrations 目录，goose 只读取其中以版本号开头的 .sql、.go 文件。
 //
-//go:embed all:migrations
+//go:embed migrations
 var Migrations embed.FS

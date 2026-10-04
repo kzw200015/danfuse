@@ -45,6 +45,11 @@ func Created(c *echo.Context, data any) error {
 	return c.JSON(http.StatusCreated, Response{Code: errcode.CodeOK, Message: "ok", Data: data})
 }
 
+// Accepted 返回 202 成功响应：请求已受理，在后台处理。
+func Accepted(c *echo.Context, data any) error {
+	return c.JSON(http.StatusAccepted, Response{Code: errcode.CodeOK, Message: "ok", Data: data})
+}
+
 // Fail 返回错误响应。handler 中一般直接 return 错误，由全局错误处理器调用本函数。
 func Fail(c *echo.Context, e *errcode.Error) error {
 	return c.JSON(e.HTTPStatus, Response{Code: e.Code, Message: e.Message})

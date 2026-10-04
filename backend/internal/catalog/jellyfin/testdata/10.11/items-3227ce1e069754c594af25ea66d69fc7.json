@@ -1,0 +1,29 @@
+{
+  "Items": [
+    {
+      "BackdropImageTags": [],
+      "ChannelId": null,
+      "Container": "mkv",
+      "Id": "2028c556be6ed0b7cb33571dfdc33b24",
+      "ImageBlurHashes": {
+        "Primary": {
+          "cf7079373c46349fb1090093cf972d47": "drKUsByXx0?W%2R=Oro?jFmPrpMTxunfrsj0oLidS_WF"
+        }
+      },
+      "ImageTags": {
+        "Primary": "cf7079373c46349fb1090093cf972d47"
+      },
+      "IsFolder": false,
+      "LocationType": "FileSystem",
+      "MediaType": "Video",
+      "Name": "长夜灯塔 (2020)",
+      "ProductionYear": 2020,
+      "RunTimeTicks": 450210000,
+      "ServerId": "c2864eca44d049ff9bdea4fc26a44859",
+      "Type": "Movie",
+      "VideoType": "VideoFile"
+    }
+  ],
+  "StartIndex": 0,
+  "TotalRecordCount": 1
+}

@@ -37,12 +37,15 @@ pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/compon
 ## 后端架构
 
 **分层与依赖方向**：`handler` → `service` → `repository.Store` → PostgreSQL。所有组件由 wire 在 `internal/app/wire.go` 组装，`wire_gen.go` 是生成文件。新增/修改构造函数后需加入对应包的 `ProviderSet`（handler 还要加进 `Handlers` 结构体），再执行 `make wire`。
+- 凡是读写数据库的业务都在 `service`（例如同步核心在 `SyncService`）。
+- 领域包（包名取自 `GLOSSARY.md`，如 `catalog`）只放接口、类型、纯计算与外部适配，不访问数据库；外部系统的适配器放在领域包的子包里（如 `catalog/jellyfin` 实现 `catalog.Source`）。
+- 适配器由 `app` 装配（`internal/app/providers.go`，例如按配置的 `kind` 选目录源，未配置时为 nil），只有 `app` 引用适配器子包；业务代码只依赖领域包的接口。
 
-**启动流程**：`app.Init` 在依赖构造阶段完成 配置加载 → 日志 → 连接池 + 自动迁移（`database.NewPool`），`App.Run` 只负责运行 HTTP 服务。迁移文件通过 `db/embed.go` embed 进二进制，用 PG advisory lock 保证多实例只有一个执行迁移。
+**启动流程**：`app.Init` 在依赖构造阶段完成 配置加载 → 日志 → 连接池 + 自动迁移（`database.NewPool`），不连接外部系统；`App.Run` 用 errgroup 同时运行 HTTP 服务与后台同步（`SyncService.Run`），HTTP 服务出错（例如端口被占用）时同步也随之退出；Run 等进行中的同步写完最终状态才返回，之后 wire 的 cleanup 才关闭连接池。迁移文件通过 `db/embed.go` embed 进二进制，用 PG advisory lock 保证多实例只有一个执行迁移；应用自己的 advisory lock 键集中登记在 `internal/database/lock.go`（`TryAdvisoryLock` 用专用连接持锁），与迁移锁的键不同。
 
 **生成代码，勿手改**：`internal/repository/` 下除 `store.go` 外均为 sqlc 生成；`internal/app/wire_gen.go` 为 wire 生成。
 - sqlc 直接把 `db/migrations`（goose 迁移文件）当作 schema 读取，所以改表结构 = 新增迁移，再 `make sqlc`。
-- sqlc 配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`。
+- sqlc 配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`；个别 jsonb 列在 `sqlc.yaml` 里覆盖为具体的 Go 类型（如 `sync_runs.warnings` 为 `[]string`）。
 
 **数据库访问**：service 依赖 `repository.Store` 接口（`Querier` + `ExecTx`）。单条查询直接调用，自动提交；多条语句需要原子性时用 `store.ExecTx(ctx, func(q repository.Querier) error {...})`，回调内必须用传入的 `q`。唯一约束冲突用 `database.IsUniqueViolation(err)` 判断，查无记录比较 `pgx.ErrNoRows`。
 
@@ -55,7 +58,9 @@ pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/compon
 
 **handler 参数绑定**：请求结构体用 `param`/`query`/`json` tag，并实现 `Validate() error`（可在其中 trim、填默认值），通过泛型 `bind[xxxRequest](c)` 一次完成绑定 + 校验；校验失败用 `invalidParam("提示语")`。路由统一在 `internal/server/router.go` 的 `/api` 分组下注册。
 
-**测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求。
+**测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。要自己创建连接池时用 `dbtest.Config(t)`，它建好库、登记删库，只返回连接配置。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求。
+- service 测试只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`），不 mock `repository.Store`。涉及后台 goroutine、定时器的测试（`SyncService.Run`）放在 `testing/synctest` 的气泡里，用 `synctest.Wait` 等后台停下、用假时间推进定时器，不靠 sleep；这时连接池要在气泡里用 `dbtest.Config(t)` 新建、在气泡里关闭（pgx 连接内部的 channel 不能跨气泡使用），写法见 `internal/service/helpers_test.go`。注意气泡里的定时器和 `context.WithTimeout` 都用假时间，阻塞在数据库 I/O 上时假时间不前进、超时不会触发：数据库卡住时测试会一直挂到 `go test -timeout`。
+- 外部系统适配器的测试用 `httptest` 回放 `testdata/` 里的真实样本，不联网；加 `-update` 时从 `e2e/` 环境重新抓取（例如 `go test ./internal/catalog/jellyfin -run TestListSamples -update`，需要先按 `e2e/README.md` 搭好环境；`-update` 只作用于负责录制的那个用例，其他用例始终只回放）。
 
 **配置**：`internal/config` 基于 viper。新增配置项必须在 `setDefaults` 里登记默认值，否则环境变量覆盖不生效（viper `AutomaticEnv` 只认已知 key）；同时更新 `config.example.yaml`。
 
@@ -65,7 +70,7 @@ pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/compon
 
 1. `make migration name=create_xxx`，编写建表 SQL（`-- +goose Up` / `-- +goose Down`）
 2. 在 `db/queries/xxx.sql` 写查询，`make sqlc`
-3. `internal/service` 写 service（依赖 `repository.Store`），加入 `service.ProviderSet`
+3. `internal/service` 写 service（依赖 `repository.Store`，以及领域包的接口），加入 `service.ProviderSet`；要对接外部系统时，接口与交换类型放在领域包，适配器放在它的子包，在 `internal/app/providers.go` 里装配
 4. `internal/handler` 写 handler，加入 `handler.ProviderSet` 与 `Handlers`
 5. `internal/server/router.go` 注册路由
 6. `make wire`；如有需要前端分支处理的错误，在 `codes.go` 与 `src/api/errcode.ts` 同步新增业务码

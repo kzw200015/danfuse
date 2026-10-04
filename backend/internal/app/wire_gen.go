@@ -12,7 +12,9 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/logger"
+	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/server"
+	"github.com/kzw200015/danfuse/backend/internal/service"
 )
 
 // Injectors from wire.go:
@@ -33,11 +35,18 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		return nil, nil, err
 	}
 	healthHandler := handler.NewHealthHandler(pool)
+	sqlStore := repository.NewStore(pool)
+	catalogSource := configConfig.CatalogSource
+	source := newCatalogSource(catalogSource)
+	sync := configConfig.Sync
+	syncService := service.NewSyncService(sqlStore, pool, source, sync, slogLogger)
+	syncHandler := handler.NewSyncHandler(syncService)
 	handlers := &handler.Handlers{
 		Health: healthHandler,
+		Sync:   syncHandler,
 	}
 	serverServer := server.New(configServer, slogLogger, handlers)
-	app := New(serverServer)
+	app := New(serverServer, syncService)
 	return app, func() {
 		cleanup()
 	}, nil

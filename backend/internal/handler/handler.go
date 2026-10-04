@@ -11,18 +11,18 @@ import (
 
 var ProviderSet = wire.NewSet(
 	NewHealthHandler,
+	NewSyncHandler,
 	wire.Struct(new(Handlers), "*"),
 )
 
 // Handlers 汇总所有 handler，供路由注册使用。
 type Handlers struct {
 	Health *HealthHandler
+	Sync   *SyncHandler
 }
 
 // validatable 约束请求类型：*T 必须实现 Validate，遇到第一个不合法的参数即返回错误。
 // Validate 中也可以规整参数，例如去除首尾空格、为未传的参数填默认值。
-//
-//nolint:unused // 还没有带参数的接口；第一个用到 bind 的 handler 加入后，去掉本文件的三处 nolint
 type validatable[T any] interface {
 	*T
 	Validate() error
@@ -31,8 +31,6 @@ type validatable[T any] interface {
 // bind 绑定请求参数（路径、查询、请求体）并校验，返回绑定好的请求：
 //
 //	req, err := bind[getSeriesRequest](c)
-//
-//nolint:unused // 见 validatable
 func bind[T any, P validatable[T]](c *echo.Context) (*T, error) {
 	var req T
 	if err := c.Bind(&req); err != nil {
@@ -45,8 +43,6 @@ func bind[T any, P validatable[T]](c *echo.Context) (*T, error) {
 }
 
 // invalidParam 构造参数校验失败的错误，message 会直接展示给用户。
-//
-//nolint:unused // 见 validatable
 func invalidParam(message string) error {
 	return errcode.ErrBadRequest.WithMessage(message)
 }

@@ -10,6 +10,8 @@
 //		...
 //	}
 //
+// 要自己创建连接池时（例如在 testing/synctest 的气泡里）用 dbtest.Config(t) 取得新库的连接配置。
+//
 // 需要 Docker。go test -short 跳过数据库测试；不加 -short 而 Docker 不可用时直接失败。
 package dbtest
 
@@ -107,9 +109,9 @@ func setup(ctx context.Context, ctr *postgres.PostgresContainer) error {
 	return nil
 }
 
-// Pool 从模板复制出一个新库，返回连到它的连接池；测试结束时关闭连接池并删掉这个库。
-// -short 时跳过当前测试。
-func Pool(t testing.TB) *pgxpool.Pool {
+// Config 从模板复制出一个新库，返回连到它的连接配置；测试结束时删掉这个库（连接池要在那之前关闭）。
+// 需要自己控制连接池在哪里创建、关闭时用它，例如 testing/synctest 的气泡里。-short 时跳过当前测试。
+func Config(t testing.TB) *pgxpool.Config {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("数据库测试，-short 时跳过")
@@ -131,9 +133,17 @@ func Pool(t testing.TB) *pgxpool.Pool {
 
 	cfg := base.Copy()
 	cfg.ConnConfig.Database = name
+	return cfg
+}
+
+// Pool 从模板复制出一个新库，返回连到它的连接池；测试结束时关闭连接池并删掉这个库。
+// -short 时跳过当前测试。
+func Pool(t testing.TB) *pgxpool.Pool {
+	t.Helper()
+	cfg := Config(t)
 	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
 	if err != nil {
-		t.Fatalf("dbtest: connect database %s: %v", name, err)
+		t.Fatalf("dbtest: connect database %s: %v", cfg.ConnConfig.Database, err)
 	}
 	t.Cleanup(pool.Close)
 	return pool

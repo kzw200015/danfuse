@@ -22,3 +22,8 @@ sql:
             go_type:
               type: time.Time
               pointer: true
+          # 警告是字符串数组，pgx 按 JSON 编解码
+          - column: sync_runs.warnings
+            go_type:
+              type: string
+              slice: true

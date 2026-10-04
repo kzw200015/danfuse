@@ -16,7 +16,19 @@ log:
 
 database:
   dsn: "postgres://postgres:postgres@localhost:5432/danfuse?sslmode=disable"
-  max_conns: 10
+  max_conns: 10 # 0 表示用 pgx 的默认值；否则至少为 2：同步要用一个连接一直持有同步锁
   min_conns: 1
   max_conn_lifetime: 1h
   max_conn_idle_time: 30m
+
+# 目录源：同一时间只有一个，用 kind 选择种类，只读取选中那一种的设置块。
+# 启动时不连接目录源，媒体库是否存在、类型对不对在每次同步时检查。
+catalog_source:
+  kind: "" # 为空表示不启用同步；目前只支持 jellyfin
+  jellyfin:
+    url: "" # 例如 http://192.168.1.10:8096，可带子路径；末尾的 / 会被去掉
+    api_key: "" # 只作为请求头发送，不写日志
+    libraries: [] # 要同步的媒体库名，必填；环境变量里用逗号分隔，例如 DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
+
+sync:
+  interval: 0 # 定时同步的间隔，例如 24h；0 表示关闭。启动时不立即同步
