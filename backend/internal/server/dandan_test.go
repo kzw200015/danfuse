@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,45 +36,18 @@ import (
 // jellyfinOrigin 插件运行在 Jellyfin Web 的页面里，对 danfuse 的请求都是跨域的。
 const jellyfinOrigin = "https://jellyfin.example.com"
 
-// listSource 假目录源：依次产出 items。
-type listSource []catalog.Item
-
-func (s listSource) List(context.Context) (catalog.Listing, error) {
-	return catalog.Listing{Total: len(s), Items: func(yield func(catalog.Item, error) bool) {
-		for _, item := range s {
-			if !yield(item, nil) {
-				return
-			}
-		}
-	}}, nil
-}
-
 // syncCatalog 用一次真实的同步把 items 写进 cfg 指向的库，搜索列由同步核心算出。
 // 同步在 synctest 气泡里进行，连接池在气泡里创建和关闭。
 func syncCatalog(t *testing.T, cfg *pgxpool.Config, items ...catalog.Item) {
 	t.Helper()
 	synctest.Test(t, func(t *testing.T) {
-		pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer pool.Close()
-		svc := service.NewSyncService(repository.NewStore(pool), pool, listSource(items), config.Sync{}, slog.New(slog.DiscardHandler))
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			svc.Run(ctx)
-		}()
-		defer func() { cancel(); <-done }() // 在关闭连接池之前
-
-		synctest.Wait()
-		id, err := svc.Trigger(ctx)
+		svc, _ := startSync(t, cfg, &fakeSource{items: items})
+		id, err := svc.Trigger(t.Context())
 		if err != nil {
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		if run, err := svc.GetRun(ctx, id); err != nil || run.Status != "succeeded" {
+		if run, err := svc.GetRun(t.Context(), id); err != nil || run.Status != "succeeded" {
 			t.Fatalf("同步没有成功：%+v, %v", run, err)
 		}
 	})
@@ -402,7 +374,7 @@ func newCommentServer(t *testing.T) *Server {
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", status, danmaku_count) VALUES
 			(1, 'bilibili', '{"kind": "video", "aid": 1, "page": 1}', '星海旅人 / 第 1 话', 1420, 0, 'active', 4), -- 绑定 1
 			(1, 'bilibili', '{"kind": "episode", "epId": 2}', '星海旅人 启程', 1422, 10, 'dead', 3),          -- 绑定 2：失效，弹幕延后 10 秒
-			(1, 'fake', '{"name": "local"}', '没有平台的来源', 1420, 0, 'active', 1);                          -- 绑定 3
+			(1, 'fake', '{"name": "local"}', '没有平台的弹幕源', 1420, 0, 'active', 1);                        -- 绑定 3
 		INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES
 			(1, 1983745621937266688, 0, 1, 16777215, '前排'),
 			(1, 102, 61000, 6, 15138834, '逆向'),

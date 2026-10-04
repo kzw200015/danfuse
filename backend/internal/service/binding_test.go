@@ -56,7 +56,7 @@ func (a *fakeAdapter) Describe(ref source.Ref) (source.Display, error) {
 	if err := json.Unmarshal(ref, &r); err != nil {
 		return source.Display{}, err
 	}
-	return source.Display{URL: "https://fake.test/" + r.Name, Label: "假来源 " + r.Name}, nil
+	return source.Display{URL: "https://fake.test/" + r.Name, Label: "假弹幕源 " + r.Name}, nil
 }
 
 func (a *fakeAdapter) ParseLink(ctx context.Context, link string) (source.Ref, error) {
@@ -133,12 +133,12 @@ var video = source.Fetched{
 }
 
 // newBindingService 新库里写入两集（seedEpisodes），构造只注册了 adapter 的 BindingService。
-// 测试结束时检查不变量：每个绑定的 danmaku_count 等于它实际的弹幕条数。
+// 测试结束时检查不变量（assertInvariants）。
 func newBindingService(t *testing.T, adapter *fakeAdapter, logger *slog.Logger) (*BindingService, *pgxpool.Pool) {
 	t.Helper()
 	pool := dbtest.Pool(t)
 	seedEpisodes(t, pool)
-	t.Cleanup(func() { assertDanmakuCounts(t, pool) }) // 在关闭连接池之前
+	t.Cleanup(func() { assertInvariants(t, pool) }) // 在关闭连接池之前
 	return NewBindingService(repository.NewStore(pool), source.NewRegistry(adapter), logger), pool
 }
 
@@ -161,32 +161,6 @@ func waitFetching(t *testing.T, adapter *fakeAdapter, errc <-chan error) {
 	case <-adapter.started:
 	case err := <-errc:
 		t.Fatalf("拉取之前就返回了：%v", err)
-	}
-}
-
-// assertDanmakuCounts 检查不变量：每个绑定的 danmaku_count 等于它实际的弹幕条数。
-func assertDanmakuCounts(t *testing.T, pool *pgxpool.Pool) {
-	t.Helper()
-	// 在 t.Cleanup 里调用时 t.Context() 已经取消
-	rows, err := pool.Query(context.Background(), `
-		SELECT b.id, b.danmaku_count, count(d.source_id)
-		FROM bindings b
-		LEFT JOIN danmaku d ON d.binding_id = b.id
-		GROUP BY b.id
-		HAVING b.danmaku_count <> count(d.source_id)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mismatches, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) ([3]int64, error) {
-		var m [3]int64
-		err := row.Scan(&m[0], &m[1], &m[2])
-		return m, err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range mismatches {
-		t.Errorf("绑定 %d 的 danmaku_count 为 %d，实际有 %d 条弹幕", m[0], m[1], m[2])
 	}
 }
 
@@ -278,7 +252,7 @@ func TestCreateBinding(t *testing.T) {
 				ID:           1,
 				Adapter:      "fake",
 				SourceURL:    "https://fake.test/s1",
-				SourceLabel:  "假来源 s1",
+				SourceLabel:  "假弹幕源 s1",
 				Title:        tt.fetched.Title,
 				Duration:     int32(tt.fetched.Duration),
 				Status:       "active",
@@ -375,7 +349,7 @@ func TestCreateBindingDuplicate(t *testing.T) {
 		t.Fatalf("第一次 Create: %v", err)
 	}
 	_, err := svc.Create(t.Context(), 1, "alias/s1")
-	assertAppError(t, err, http.StatusConflict, "这一集已经绑定过这个来源")
+	assertAppError(t, err, http.StatusConflict, "这一集已经绑定过这个弹幕源")
 	if n := adapter.fetches.Load(); n != 1 {
 		t.Errorf("拉取了 %d 次，want 1：重复的不拉取", n)
 	}
@@ -486,7 +460,7 @@ func TestCreateBindingConcurrently(t *testing.T) {
 	if errs[0] != nil {
 		t.Errorf("两次都失败：%v；%v", errs[0], errs[1])
 	}
-	assertAppError(t, errs[1], http.StatusConflict, "这一集已经绑定过这个来源")
+	assertAppError(t, errs[1], http.StatusConflict, "这一集已经绑定过这个弹幕源")
 	if n := queryInt(t, pool, `SELECT count(*) FROM bindings`); n != 1 {
 		t.Errorf("库里有 %d 个绑定，want 1", n)
 	}
@@ -586,7 +560,7 @@ func TestRefetch(t *testing.T) {
 				ID:           id,
 				Adapter:      "fake",
 				SourceURL:    "https://fake.test/s1",
-				SourceLabel:  "假来源 s1",
+				SourceLabel:  "假弹幕源 s1",
 				Title:        step.fetched.Title,
 				Duration:     int32(step.fetched.Duration),
 				Offset:       1.5,

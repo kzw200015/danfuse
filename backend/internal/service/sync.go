@@ -40,8 +40,8 @@ const (
 )
 
 var (
-	ErrSyncRunning     = errcode.ErrConflict.WithMessage("同步正在进行")
-	ErrNoCatalogSource = errcode.ErrConflict.WithMessage("未配置目录源")
+	errSyncRunning     = errcode.ErrConflict.WithMessage("同步正在进行")
+	errNoCatalogSource = errcode.ErrConflict.WithMessage("未配置目录源")
 	errSyncRunNotFound = errcode.ErrNotFound.WithMessage("同步记录不存在")
 	errShuttingDown    = errcode.ErrServiceUnavailable.WithMessage("服务正在关闭")
 )
@@ -101,7 +101,7 @@ func (s *SyncService) Run(ctx context.Context) {
 			return
 		case <-tick:
 			switch _, err := s.start(ctx, triggerSchedule); {
-			case errors.Is(err, ErrSyncRunning):
+			case errors.Is(err, errSyncRunning):
 				s.logger.Info("sync already running, scheduled sync skipped")
 			case err != nil:
 				s.logger.Error("start scheduled sync failed", "error", err)
@@ -114,11 +114,11 @@ func (s *SyncService) Run(ctx context.Context) {
 }
 
 // Trigger 手动触发一次同步，同步开始后立即返回它的 ID，同步在后台进行。
-// 未配置目录源返回 ErrNoCatalogSource；已有同步在跑（包括其他实例）返回 ErrSyncRunning；
+// 未配置目录源返回 errNoCatalogSource；已有同步在跑（包括其他实例）返回 errSyncRunning；
 // Run 已经返回（服务正在关闭）时返回 503，不拖住优雅关闭。
 func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 	if s.source == nil {
-		return 0, ErrNoCatalogSource
+		return 0, errNoCatalogSource
 	}
 	reply := make(chan triggerResult, 1)
 	select {
@@ -190,7 +190,7 @@ func (s *SyncService) start(ctx context.Context, trigger string) (int64, error) 
 		return 0, fmt.Errorf("acquire sync lock: %w", err)
 	}
 	if !ok {
-		return 0, ErrSyncRunning
+		return 0, errSyncRunning
 	}
 
 	runID, err := s.createRun(ctx, trigger)

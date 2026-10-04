@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"maps"
@@ -17,103 +16,41 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
-	"github.com/kzw200015/danfuse/backend/internal/service"
 )
 
-// gatedSource 假目录源：每产出一部剧之前等 gate 放行一次。
-type gatedSource struct {
-	items []catalog.Item
-	gate  chan struct{}
-}
-
-func (s *gatedSource) List(ctx context.Context) (catalog.Listing, error) {
-	return catalog.Listing{
-		Total:    len(s.items),
-		Warnings: []string{"找不到媒体库「动画」，已跳过"},
-		Items: func(yield func(catalog.Item, error) bool) {
-			for _, item := range s.items {
-				select {
-				case <-s.gate:
-				case <-ctx.Done():
-					yield(catalog.Item{}, ctx.Err())
-					return
-				}
-				if !yield(item, nil) {
-					return
-				}
-			}
-		},
-	}, nil
-}
-
-// syncServer 在 synctest 气泡里起 SyncService（后台运行 Run）和完整的 Echo。src 为 nil 表示未配置目录源。
-// 连接池在气泡里创建、在气泡里关闭；synctest.Wait 等到后台的同步停下来。
+// syncServer 在 synctest 气泡里起 SyncService（startSync）和完整的 Echo。src 为 nil 表示未配置目录源。
 func syncServer(t *testing.T, cfg *pgxpool.Config, src catalog.Source) *Server {
 	t.Helper()
-	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-
-	logger := slog.New(slog.DiscardHandler)
-	svc := service.NewSyncService(repository.NewStore(pool), pool, src, config.Sync{}, logger)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		svc.Run(ctx)
-	}()
-	t.Cleanup(func() { cancel(); <-done }) // 在关闭连接池之前
-	synctest.Wait()
-
-	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{
+	svc, pool := startSync(t, cfg, src)
+	return New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &handler.Handlers{
 		Health: handler.NewHealthHandler(pool),
 		Sync:   handler.NewSyncHandler(svc),
 	}, nil)
-}
-
-// call 发一个请求，检查状态码，返回解出的统一响应。
-func call(t *testing.T, srv *Server, method, target string, wantStatus int) (code int, message string, data json.RawMessage) {
-	t.Helper()
-	rec := serve(t, srv, method, target)
-	if rec.Code != wantStatus {
-		t.Fatalf("%s %s: status = %d, want %d, body %s", method, target, rec.Code, wantStatus, rec.Body)
-	}
-	var resp struct {
-		Code    int             `json:"code"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("%s %s: 不是统一响应：%s", method, target, rec.Body)
-	}
-	return resp.Code, resp.Message, resp.Data
 }
 
 func TestSyncRunsAPI(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		src := &gatedSource{
+		src := &fakeSource{
 			items: []catalog.Item{
 				{Name: "甲", Series: &catalog.Series{Type: catalog.TypeTV, Title: "甲", Seasons: []catalog.Season{
 					{Number: 1, Episodes: []catalog.Episode{{Number: 1}, {Number: 2}}},
 				}}},
 				{Name: "乙", Warnings: []string{"没有有效的集，整部跳过"}},
 			},
-			gate: make(chan struct{}),
+			warnings: []string{"找不到媒体库「动画」，已跳过"},
+			gate:     make(chan struct{}),
 		}
 		srv := syncServer(t, cfg, src)
 
 		// 触发立即返回 202 和同步 ID，同步在后台进行
-		if _, _, data := call(t, srv, http.MethodPost, "/api/sync-runs", http.StatusAccepted); string(data) != `{"id":1}` {
+		if _, _, data := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusAccepted); string(data) != `{"id":1}` {
 			t.Errorf("触发返回 %s, want {\"id\":1}", data)
 		}
 		synctest.Wait()
 
-		code, message, _ := call(t, srv, http.MethodPost, "/api/sync-runs", http.StatusConflict)
+		code, message, _ := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusConflict)
 		if code != 1 || message != "同步正在进行" {
 			t.Errorf("同步进行中再触发：code=%d message=%q", code, message)
 		}
@@ -126,7 +63,7 @@ func TestSyncRunsAPI(t *testing.T) {
 				Total  *int   `json:"total"`
 				Done   int    `json:"done"`
 			}
-			_, _, data := call(t, srv, http.MethodGet, "/api/sync-runs/1", http.StatusOK)
+			_, _, data := call(t, srv, http.MethodGet, "/api/sync-runs/1", "", http.StatusOK)
 			if err := json.Unmarshal(data, &run); err != nil {
 				t.Fatal(err)
 			}
@@ -143,7 +80,7 @@ func TestSyncRunsAPI(t *testing.T) {
 		}
 
 		// 详情含警告，列表不含
-		_, _, data := call(t, srv, http.MethodGet, "/api/sync-runs/1", http.StatusOK)
+		_, _, data := call(t, srv, http.MethodGet, "/api/sync-runs/1", "", http.StatusOK)
 		detail := decodeObject(t, data)
 		wantFields := []string{
 			"createdEpisodes", "createdSeasons", "createdSeries", "done", "error", "finishedAt", "id",
@@ -162,7 +99,7 @@ func TestSyncRunsAPI(t *testing.T) {
 			}
 		}
 
-		_, _, data = call(t, srv, http.MethodGet, "/api/sync-runs", http.StatusOK)
+		_, _, data = call(t, srv, http.MethodGet, "/api/sync-runs", "", http.StatusOK)
 		var list []map[string]json.RawMessage
 		if err := json.Unmarshal(data, &list); err != nil {
 			t.Fatal(err)
@@ -181,7 +118,7 @@ func TestSyncRunsAPI(t *testing.T) {
 			{"/api/sync-runs/0", http.StatusBadRequest, "同步记录 ID 不合法"},
 			{"/api/sync-runs/abc", http.StatusBadRequest, "请求参数错误"},
 		} {
-			if code, message, _ := call(t, srv, http.MethodGet, tt.target, tt.wantStatus); code != 1 || message != tt.wantMessage {
+			if code, message, _ := call(t, srv, http.MethodGet, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
 				t.Errorf("GET %s: code=%d message=%q, want %q", tt.target, code, message, tt.wantMessage)
 			}
 		}
@@ -194,11 +131,11 @@ func TestTriggerSyncWithoutCatalogSource(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		srv := syncServer(t, cfg, nil)
 
-		code, message, _ := call(t, srv, http.MethodPost, "/api/sync-runs", http.StatusConflict)
+		code, message, _ := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusConflict)
 		if code != 1 || message != "未配置目录源" {
 			t.Errorf("code=%d message=%q, want 未配置目录源", code, message)
 		}
-		if _, _, data := call(t, srv, http.MethodGet, "/api/sync-runs", http.StatusOK); string(data) != "[]" {
+		if _, _, data := call(t, srv, http.MethodGet, "/api/sync-runs", "", http.StatusOK); string(data) != "[]" {
 			t.Errorf("没有同步记录时列表 = %s, want []", data)
 		}
 	})

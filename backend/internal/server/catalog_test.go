@@ -75,12 +75,12 @@ func TestListSeries(t *testing.T) {
 	pool := dbtest.Pool(t)
 	srv := catalogServer(pool)
 
-	if _, _, data := call(t, srv, http.MethodGet, "/api/series", http.StatusOK); string(data) != "[]" {
+	if _, _, data := call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK); string(data) != "[]" {
 		t.Errorf("目录为空时 = %s, want []", data)
 	}
 
 	seedCatalog(t, pool)
-	_, _, data := call(t, srv, http.MethodGet, "/api/series", http.StatusOK)
+	_, _, data := call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK)
 	assertJSON(t, data, `[
 		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019,
 		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3,
@@ -105,22 +105,22 @@ func TestGetSeries(t *testing.T) {
 		want   string
 	}{
 		// 季按季号、集按集号、绑定按创建顺序排序；没有集的季、没有季的剧、没有绑定的集输出空数组。
-		// 绑定的来源链接和标签由适配器生成，不输出 ref 和 contentVersion
+		// 绑定的弹幕源链接和标签由适配器生成，不输出 ref 和 contentVersion
 		{"/api/series/1", `{
 			"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "posterImageId": 1,
 			"seasons": [
 				{"id": 2, "number": 0, "title": null, "episodes": [
 					{"id": 3, "number": 1, "title": null, "duration": null, "bindings": [
-						{"id": 3, "adapter": "fake", "sourceUrl": "https://fake.test/c", "sourceLabel": "假来源 c",
+						{"id": 3, "adapter": "fake", "sourceUrl": "https://fake.test/c", "sourceLabel": "假弹幕源 c",
 						 "title": "弹幕源 c", "duration": 600, "offset": 0, "status": "dead", "danmakuCount": 0, "lastFetchedAt": null}
 					]}
 				]},
 				{"id": 1, "number": 1, "title": "第 1 季", "episodes": [
 					{"id": 2, "number": 1, "title": "启程", "duration": 1420, "bindings": []},
 					{"id": 1, "number": 2, "title": "归航", "duration": 1440, "bindings": [
-						{"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假来源 a",
+						{"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
 						 "title": "弹幕源 a", "duration": 1440, "offset": 1.5, "status": "active", "danmakuCount": 2, "lastFetchedAt": null},
-						{"id": 2, "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假来源 b",
+						{"id": 2, "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假弹幕源 b",
 						 "title": "弹幕源 b", "duration": 1380, "offset": 0, "status": "dead", "danmakuCount": 0, "lastFetchedAt": null}
 					]}
 				]},
@@ -132,7 +132,7 @@ func TestGetSeries(t *testing.T) {
 			"seasons": [
 				{"id": 4, "number": 1, "title": null, "episodes": [
 					{"id": 4, "number": 1, "title": null, "duration": 5400, "bindings": [
-						{"id": 4, "adapter": "fake", "sourceUrl": "https://fake.test/d", "sourceLabel": "假来源 d",
+						{"id": 4, "adapter": "fake", "sourceUrl": "https://fake.test/d", "sourceLabel": "假弹幕源 d",
 						 "title": "弹幕源 d", "duration": 5400, "offset": -2, "status": "active", "danmakuCount": 0, "lastFetchedAt": null}
 					]}
 				]}
@@ -144,7 +144,7 @@ func TestGetSeries(t *testing.T) {
 		}`},
 	}
 	for _, tt := range tests {
-		_, _, data := call(t, srv, http.MethodGet, tt.target, http.StatusOK)
+		_, _, data := call(t, srv, http.MethodGet, tt.target, "", http.StatusOK)
 		assertJSON(t, data, tt.want)
 	}
 
@@ -157,7 +157,7 @@ func TestGetSeries(t *testing.T) {
 		{"/api/series/0", http.StatusBadRequest, "剧 ID 不合法"},
 		{"/api/series/abc", http.StatusBadRequest, "请求参数错误"},
 	} {
-		if code, message, _ := call(t, srv, http.MethodGet, tt.target, tt.wantStatus); code != 1 || message != tt.wantMessage {
+		if code, message, _ := call(t, srv, http.MethodGet, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
 			t.Errorf("GET %s: code=%d message=%q, want %q", tt.target, code, message, tt.wantMessage)
 		}
 	}
@@ -170,7 +170,7 @@ func TestGetImage(t *testing.T) {
 	seedCatalog(t, pool)
 	srv := catalogServer(pool)
 
-	rec := serve(t, srv, http.MethodGet, "/api/images/1")
+	rec := serve(t, srv, http.MethodGet, "/api/images/1", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200, body %s", rec.Code, rec.Body)
 	}
@@ -193,10 +193,10 @@ func TestGetImage(t *testing.T) {
 		{"/api/images/0", http.StatusBadRequest, "图片 ID 不合法"},
 		{"/api/images/abc", http.StatusBadRequest, "请求参数错误"},
 	} {
-		if code, message, _ := call(t, srv, http.MethodGet, tt.target, tt.wantStatus); code != 1 || message != tt.wantMessage {
+		if code, message, _ := call(t, srv, http.MethodGet, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
 			t.Errorf("GET %s: code=%d message=%q, want %q", tt.target, code, message, tt.wantMessage)
 		}
-		if got := serve(t, srv, http.MethodGet, tt.target).Header().Get("Cache-Control"); got != "" {
+		if got := serve(t, srv, http.MethodGet, tt.target, "").Header().Get("Cache-Control"); got != "" {
 			t.Errorf("GET %s: 出错时不应缓存，Cache-Control = %q", tt.target, got)
 		}
 	}
@@ -211,7 +211,7 @@ func TestDeleteCatalog(t *testing.T) {
 
 	// 集 1 在季 1 里，季 1 在剧 1 里：由下往上删
 	for _, target := range []string{"/api/episodes/1", "/api/seasons/1", "/api/series/1"} {
-		if code, _, data := call(t, srv, http.MethodDelete, target, http.StatusOK); code != 0 || string(data) != "null" {
+		if code, _, data := call(t, srv, http.MethodDelete, target, "", http.StatusOK); code != 0 || string(data) != "null" {
 			t.Errorf("DELETE %s: code=%d data=%s, want 0 null", target, code, data)
 		}
 	}
@@ -230,12 +230,12 @@ func TestDeleteCatalog(t *testing.T) {
 		{http.MethodDelete, "/api/episodes/0", http.StatusBadRequest, "集 ID 不合法"},
 		{http.MethodDelete, "/api/seasons/abc", http.StatusBadRequest, "请求参数错误"},
 	} {
-		if code, message, _ := call(t, srv, tt.method, tt.target, tt.wantStatus); code != 1 || message != tt.wantMessage {
+		if code, message, _ := call(t, srv, tt.method, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
 			t.Errorf("%s %s: code=%d message=%q, want %q", tt.method, tt.target, code, message, tt.wantMessage)
 		}
 	}
 	// 别的剧不受影响
-	call(t, srv, http.MethodGet, "/api/series/2", http.StatusOK)
+	call(t, srv, http.MethodGet, "/api/series/2", "", http.StatusOK)
 }
 
 // assertJSON 按语义比较 JSON：字段名与值都要一致，不管字段顺序与空白。

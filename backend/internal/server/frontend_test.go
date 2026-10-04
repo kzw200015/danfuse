@@ -54,7 +54,7 @@ func TestFrontend(t *testing.T) {
 			srv := newServer(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &handler.Handlers{}, nil, files)
 			srv.echo.GET("/api/items", func(c *echo.Context) error { return response.OK(c, nil) })
 
-			rec := serve(t, srv, http.MethodGet, tt.target)
+			rec := serve(t, srv, http.MethodGet, tt.target, "")
 
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)

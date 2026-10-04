@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 
 import { getSyncRun, listSyncRuns, type SyncRun } from '@/api/sync'
-import { seriesKeys } from '@/hooks/use-series'
+import { useReloadSeries } from '@/hooks/use-series'
 
 export const syncRunKeys = {
   list: ['sync-runs'] as const,
@@ -43,7 +43,7 @@ export function useSyncRun(id: number | undefined) {
  * 只在根布局调用一次，同步页读同一份查询缓存，不另外轮询；没有同步在跑时不轮询。
  */
 export function useLatestSyncRun() {
-  const queryClient = useQueryClient()
+  const reloadSeries = useReloadSeries()
   const { data: runs } = useSyncRuns()
   const latest = runs?.[0]
 
@@ -62,10 +62,9 @@ export function useLatestSyncRun() {
       handled.current = latest?.status === 'running' ? latest.id - 1 : (latest?.id ?? 0)
     } else if (latest && latest.status !== 'running' && latest.id > handled.current) {
       handled.current = latest.id
-      // 剧详情的键以剧列表的键为前缀，一起失效
-      void queryClient.invalidateQueries({ queryKey: seriesKeys.list })
+      void reloadSeries()
     }
-  }, [runs, latest, queryClient])
+  }, [runs, latest, reloadSeries])
 
   return latest
 }

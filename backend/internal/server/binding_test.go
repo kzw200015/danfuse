@@ -6,12 +6,9 @@ import (
 	"errors"
 	"maps"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
@@ -32,7 +29,7 @@ func (fakeAdapter) Platform() danmaku.Platform { return danmaku.PlatformNone }
 func (fakeAdapter) Describe(ref source.Ref) (source.Display, error) {
 	var r fakeRef
 	err := json.Unmarshal(ref, &r)
-	return source.Display{URL: "https://fake.test/" + r.Name, Label: "假来源 " + r.Name}, err
+	return source.Display{URL: "https://fake.test/" + r.Name, Label: "假弹幕源 " + r.Name}, err
 }
 
 func (fakeAdapter) ParseLink(_ context.Context, link string) (source.Ref, error) {
@@ -60,27 +57,6 @@ func (fakeAdapter) Fetch(_ context.Context, ref source.Ref) (source.Fetched, err
 	}}, nil
 }
 
-// sendJSON 发一个带 JSON 请求体的请求，检查状态码，返回解出的统一响应。
-func sendJSON(t *testing.T, srv *Server, method, target, body string, wantStatus int) (code int, message string, data json.RawMessage) {
-	t.Helper()
-	req := httptest.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	rec := httptest.NewRecorder()
-	srv.echo.ServeHTTP(rec, req)
-	if rec.Code != wantStatus {
-		t.Fatalf("%s %s %s: status = %d, want %d, body %s", method, target, body, rec.Code, wantStatus, rec.Body)
-	}
-	var resp struct {
-		Code    int             `json:"code"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("%s %s: 不是统一响应：%s", method, target, rec.Body)
-	}
-	return resp.Code, resp.Message, resp.Data
-}
-
 func TestCreateBinding(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
@@ -88,7 +64,7 @@ func TestCreateBinding(t *testing.T) {
 	srv := catalogServer(pool)
 
 	// 201 和绑定：不含 ref 和 contentVersion
-	_, _, data := sendJSON(t, srv, http.MethodPost, "/api/episodes/2/bindings", `{"url": " fake/x "}`, http.StatusCreated)
+	_, _, data := call(t, srv, http.MethodPost, "/api/episodes/2/bindings", `{"url": " fake/x "}`, http.StatusCreated)
 	binding := decodeObject(t, data)
 	wantFields := []string{
 		"adapter", "danmakuCount", "duration", "id", "lastFetchedAt", "offset",
@@ -102,12 +78,12 @@ func TestCreateBinding(t *testing.T) {
 	}
 	delete(binding, "lastFetchedAt")
 	assertJSON(t, json.RawMessage(jsonString(binding)), `{
-		"id": 5, "adapter": "fake", "sourceUrl": "https://fake.test/x", "sourceLabel": "假来源 x",
+		"id": 5, "adapter": "fake", "sourceUrl": "https://fake.test/x", "sourceLabel": "假弹幕源 x",
 		"title": "弹幕源 x", "duration": 1418, "offset": 0, "status": "active", "danmakuCount": 2
 	}`)
 
 	// 剧列表随之更新
-	_, _, data = call(t, srv, http.MethodGet, "/api/series", http.StatusOK)
+	_, _, data = call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK)
 	var list []map[string]json.RawMessage
 	if err := json.Unmarshal(data, &list); err != nil {
 		t.Fatal(err)
@@ -122,7 +98,7 @@ func TestCreateBinding(t *testing.T) {
 		wantStatus  int
 		wantMessage string
 	}{
-		{"/api/episodes/2/bindings", `{"url": "fake/x"}`, http.StatusConflict, "这一集已经绑定过这个来源"},
+		{"/api/episodes/2/bindings", `{"url": "fake/x"}`, http.StatusConflict, "这一集已经绑定过这个弹幕源"},
 		{"/api/episodes/2/bindings", `{"url": "https://example.com/v/1"}`, http.StatusBadRequest, "无法识别的链接"},
 		{"/api/episodes/2/bindings", `{"url": "  "}`, http.StatusBadRequest, "请粘贴弹幕源的链接"},
 		{"/api/episodes/2/bindings", `{"url": `, http.StatusBadRequest, "请求参数错误"},
@@ -131,7 +107,7 @@ func TestCreateBinding(t *testing.T) {
 		{"/api/episodes/2/bindings", `{"url": "fake/gone"}`, http.StatusUnprocessableEntity, "视频不存在、已删除或不可见"},
 		{"/api/episodes/2/bindings", `{"url": "fake/down"}`, http.StatusBadGateway, "B 站接口异常"},
 	} {
-		if code, message, _ := sendJSON(t, srv, http.MethodPost, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
+		if code, message, _ := call(t, srv, http.MethodPost, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
 			t.Errorf("POST %s %s: code=%d message=%q, want %q", tt.target, tt.body, code, message, tt.wantMessage)
 		}
 	}
@@ -157,17 +133,17 @@ func TestRefetchBinding(t *testing.T) {
 	}{
 		// 绑定 1 已有原始 ID 为 1、2 的两条弹幕：没有新弹幕；偏移不变。没传 clear 时为重新拉取
 		{"/api/bindings/1/refetch", `{"clear": false}`, `{"added": 0, "binding": {
-			"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假来源 a",
+			"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
 			"title": "弹幕源 a", "duration": 1418, "offset": 1.5, "status": "active", "danmakuCount": 2}}`},
 		{"/api/bindings/1/refetch", `{}`, `{"added": 0, "binding": {
-			"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假来源 a",
+			"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
 			"title": "弹幕源 a", "duration": 1418, "offset": 1.5, "status": "active", "danmakuCount": 2}}`},
 		// 失效的绑定 2 清空后重新拉取：新增条数为总条数，恢复正常
 		{"/api/bindings/2/refetch", `{"clear": true}`, `{"added": 2, "binding": {
-			"id": 2, "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假来源 b",
+			"id": 2, "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假弹幕源 b",
 			"title": "弹幕源 b", "duration": 1418, "offset": 0, "status": "active", "danmakuCount": 2}}`},
 	} {
-		_, _, data := sendJSON(t, srv, http.MethodPost, tt.target, tt.body, http.StatusOK)
+		_, _, data := call(t, srv, http.MethodPost, tt.target, tt.body, http.StatusOK)
 		result := decodeObject(t, data)
 		binding := decodeObject(t, result["binding"])
 		if string(binding["lastFetchedAt"]) == "null" {
@@ -190,7 +166,7 @@ func TestRefetchBinding(t *testing.T) {
 		{"/api/bindings/0/refetch", `{}`, http.StatusBadRequest, "绑定 ID 不合法"},
 		{"/api/bindings/1/refetch", `{"clear": "yes"}`, http.StatusBadRequest, "请求参数错误"},
 	} {
-		if code, message, _ := sendJSON(t, srv, http.MethodPost, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
+		if code, message, _ := call(t, srv, http.MethodPost, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
 			t.Errorf("POST %s %s: code=%d message=%q, want %q", tt.target, tt.body, code, message, tt.wantMessage)
 		}
 	}
@@ -210,14 +186,14 @@ func TestUpdateBinding(t *testing.T) {
 	seedCatalog(t, pool)
 	srv := catalogServer(pool)
 
-	_, _, data := sendJSON(t, srv, http.MethodPatch, "/api/bindings/1", `{"offset": -12.5}`, http.StatusOK)
+	_, _, data := call(t, srv, http.MethodPatch, "/api/bindings/1", `{"offset": -12.5}`, http.StatusOK)
 	assertJSON(t, data, `{
-		"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假来源 a",
+		"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
 		"title": "弹幕源 a", "duration": 1440, "offset": -12.5, "status": "active", "danmakuCount": 2, "lastFetchedAt": null
 	}`)
 	// 上下限本身是合法的
 	for _, offset := range []string{"86400", "-86400"} {
-		_, _, data := sendJSON(t, srv, http.MethodPatch, "/api/bindings/1", `{"offset": `+offset+`}`, http.StatusOK)
+		_, _, data := call(t, srv, http.MethodPatch, "/api/bindings/1", `{"offset": `+offset+`}`, http.StatusOK)
 		if got := string(decodeObject(t, data)["offset"]); got != offset {
 			t.Errorf("offset = %s, want %s", got, offset)
 		}
@@ -239,7 +215,7 @@ func TestUpdateBinding(t *testing.T) {
 		{"/api/bindings/0", `{"offset": 1}`, http.StatusBadRequest, "绑定 ID 不合法"},
 		{"/api/bindings/99", `{"offset": 1}`, http.StatusNotFound, "绑定不存在"},
 	} {
-		if code, message, _ := sendJSON(t, srv, http.MethodPatch, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
+		if code, message, _ := call(t, srv, http.MethodPatch, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
 			t.Errorf("PATCH %s %s: code=%d message=%q, want %q", tt.target, tt.body, code, message, tt.wantMessage)
 		}
 	}
@@ -251,7 +227,7 @@ func TestDeleteBinding(t *testing.T) {
 	seedCatalog(t, pool)
 	srv := catalogServer(pool)
 
-	if code, _, data := call(t, srv, http.MethodDelete, "/api/bindings/1", http.StatusOK); code != 0 || string(data) != "null" {
+	if code, _, data := call(t, srv, http.MethodDelete, "/api/bindings/1", "", http.StatusOK); code != 0 || string(data) != "null" {
 		t.Errorf("code=%d data=%s, want 0 null", code, data)
 	}
 	// 它的弹幕一起删除
@@ -272,7 +248,7 @@ func TestDeleteBinding(t *testing.T) {
 		{"/api/bindings/0", http.StatusBadRequest, "绑定 ID 不合法"},
 		{"/api/bindings/abc", http.StatusBadRequest, "请求参数错误"},
 	} {
-		if code, message, _ := call(t, srv, http.MethodDelete, tt.target, tt.wantStatus); code != 1 || message != tt.wantMessage {
+		if code, message, _ := call(t, srv, http.MethodDelete, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
 			t.Errorf("DELETE %s: code=%d message=%q, want %q", tt.target, code, message, tt.wantMessage)
 		}
 	}

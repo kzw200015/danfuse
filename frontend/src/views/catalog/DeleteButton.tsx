@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { Loader2Icon, Trash2Icon } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -8,7 +8,7 @@ import type { Episode, Season, SeriesDetail } from '@/api/series'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
-import { seriesKeys } from '@/hooks/use-series'
+import { useReloadSeries } from '@/hooks/use-series'
 import { cn } from '@/lib/utils'
 
 import { deletionImpact } from './catalog'
@@ -37,10 +37,8 @@ export default function DeleteButton({
   backTo: string
   className?: string
 }) {
-  const queryClient = useQueryClient()
   const navigate = useNavigate()
-  // 剧详情的键以剧列表的键为前缀，一起刷新
-  const reload = () => queryClient.invalidateQueries({ queryKey: seriesKeys.list })
+  const reload = useReloadSeries()
   // useMutation 上的回调在按钮卸载之后（删除期间切到了别处）也会执行，提示和重新加载放在这里。
   // 不等重新加载完：mutate 上的回调（退回上一级）要等这里返回才执行，跳转应先于重新加载
   const del = useMutation({

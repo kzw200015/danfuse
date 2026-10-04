@@ -6,6 +6,7 @@ package source
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 
@@ -20,9 +21,9 @@ type Ref []byte
 type Adapter interface {
 	// ID 存入 bindings.adapter，一经发布不能再改。
 	ID() string
-	// Platform 弹幕所在的平台；没有平台的来源返回 danmaku.PlatformNone。
+	// Platform 弹幕所在的平台；没有平台的弹幕源返回 danmaku.PlatformNone。
 	Platform() danmaku.Platform
-	// Describe 由 ref 生成展示用的来源链接和标签，纯计算，不联网。
+	// Describe 由 ref 生成展示用的弹幕源链接和标签，纯计算，不联网。
 	Describe(ref Ref) (Display, error)
 	// Fetch 按 ref 重新解析出当前的弹幕源（例如 B 站每次重新取 cid），取标题、时长和全部弹幕。
 	// 全有或全无：任何一个请求最终失败，整次返回 *Error，不返回部分弹幕。
@@ -38,7 +39,7 @@ type Linker interface {
 	ParseLink(ctx context.Context, link string) (Ref, error)
 }
 
-// Display 绑定在管理界面上的来源展示。
+// Display 弹幕源在管理界面上的展示：链接和标签。
 type Display struct {
 	URL   string // 例如 https://www.bilibili.com/video/BV1xx411c7XX?p=2
 	Label string // 例如"B 站投稿 BV1xx411c7XX P2"
@@ -95,13 +96,13 @@ func NewRegistry(adapters ...Adapter) *Registry {
 	return &Registry{adapters: adapters}
 }
 
-// Get 按 bindings.adapter 取适配器。
-func (r *Registry) Get(id string) (Adapter, bool) {
+// Get 按 bindings.adapter 取适配器；没有注册这个 ID 时返回错误，调用方按服务器内部错误处理。
+func (r *Registry) Get(id string) (Adapter, error) {
 	i := slices.IndexFunc(r.adapters, func(a Adapter) bool { return a.ID() == id })
 	if i < 0 {
-		return nil, false
+		return nil, fmt.Errorf("source: unknown adapter %q", id)
 	}
-	return r.adapters[i], true
+	return r.adapters[i], nil
 }
 
 // ParseLink 依次交给实现了 Linker 的适配器，返回第一个认识这个链接的适配器和规范化的 ref。

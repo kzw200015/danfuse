@@ -44,7 +44,7 @@ func episodeTitle(e provider.Episode) string {
 }
 
 // userPrefixes p 里用户字段的平台前缀，插件靠它按来源过滤（[BiliBili] 归为 B 站）。前缀是协议对平台的叫法，
-// 所以放在弹弹 API 一侧；没有平台的来源不加前缀，插件把它归为"弹弹"。
+// 所以放在弹弹 API 一侧；没有平台的弹幕源不加前缀，插件把它归为"弹弹"。
 var userPrefixes = map[danmaku.Platform]string{
 	danmaku.PlatformBilibili: "[BiliBili]",
 }

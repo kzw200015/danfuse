@@ -182,7 +182,7 @@ func (c *Config) validate() error {
 			return errors.New("config: catalog_source.jellyfin.libraries is required")
 		}
 	default:
-		return fmt.Errorf("config: unsupported catalog_source.kind %q (want empty or %q)", c.CatalogSource.Kind, KindJellyfin)
+		return fmt.Errorf("config: catalog_source.kind must be empty or %q", KindJellyfin)
 	}
 
 	if c.Sync.Interval < 0 {

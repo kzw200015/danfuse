@@ -45,12 +45,12 @@ func TestRegistryGet(t *testing.T) {
 	r := NewRegistry(plain, linker)
 
 	for _, want := range []Adapter{plain, linker} {
-		if got, ok := r.Get(want.ID()); !ok || got != want {
-			t.Errorf("Get(%q) = (%v, %v), want (%v, true)", want.ID(), got, ok, want)
+		if got, err := r.Get(want.ID()); err != nil || got != want {
+			t.Errorf("Get(%q) = (%v, %v), want (%v, nil)", want.ID(), got, err, want)
 		}
 	}
-	if got, ok := r.Get("other"); ok || got != nil {
-		t.Errorf("Get(未注册的 ID) = (%v, %v), want (nil, false)", got, ok)
+	if got, err := r.Get("other"); err == nil || !strings.Contains(err.Error(), `"other"`) || got != nil {
+		t.Errorf("Get(未注册的 ID) = (%v, %v), want (nil, 指出 other 的错误)", got, err)
 	}
 }
 

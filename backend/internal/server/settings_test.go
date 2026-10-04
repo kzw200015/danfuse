@@ -76,7 +76,7 @@ func TestSettings(t *testing.T) {
 				Settings: handler.NewSettingsHandler(tt.dandanplay, tt.source, tt.sync, tt.bilibili),
 			}, nil)
 
-			rec := serve(t, srv, http.MethodGet, "/api/settings")
+			rec := serve(t, srv, http.MethodGet, "/api/settings", "")
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200, body %s", rec.Code, rec.Body)

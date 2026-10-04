@@ -9,14 +9,14 @@ import (
 	"context"
 )
 
-const listEpisodesOfSeasons = `-- name: ListEpisodesOfSeasons :many
+const listEpisodesBySeasons = `-- name: ListEpisodesBySeasons :many
 SELECT id, season_id, number, title
 FROM episodes
 WHERE season_id = ANY ($1::bigint[])
 ORDER BY season_id, number
 `
 
-type ListEpisodesOfSeasonsRow struct {
+type ListEpisodesBySeasonsRow struct {
 	ID       int64   `json:"id"`
 	SeasonID int64   `json:"seasonId"`
 	Number   int32   `json:"number"`
@@ -24,15 +24,15 @@ type ListEpisodesOfSeasonsRow struct {
 }
 
 // 搜索结果里各季的全部集，按季、集号排序。
-func (q *Queries) ListEpisodesOfSeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesOfSeasonsRow, error) {
-	rows, err := q.db.Query(ctx, listEpisodesOfSeasons, seasonIds)
+func (q *Queries) ListEpisodesBySeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesBySeasonsRow, error) {
+	rows, err := q.db.Query(ctx, listEpisodesBySeasons, seasonIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListEpisodesOfSeasonsRow{}
+	items := []ListEpisodesBySeasonsRow{}
 	for rows.Next() {
-		var i ListEpisodesOfSeasonsRow
+		var i ListEpisodesBySeasonsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.SeasonID,

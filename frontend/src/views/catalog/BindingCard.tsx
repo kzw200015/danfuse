@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { ExternalLinkIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useElapsed } from '@/hooks/use-elapsed'
-import { seriesKeys } from '@/hooks/use-series'
+import { useReloadSeries } from '@/hooks/use-series'
 import { formatAgo, formatDateTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
@@ -20,7 +20,7 @@ import { durationMismatch, formatDuration, MAX_OFFSET, parseOffset } from './cat
 const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间的秒数，小数最多三位`
 
 /**
- * 一个绑定的卡片：状态、弹幕源标题（链接到来源）、来源标签、弹幕条数、上次拉取时间、与本集时长的对比；
+ * 一个绑定的卡片：状态、弹幕源标题（链接到原页面）、来源标签、弹幕条数、上次拉取时间、与本集时长的对比；
  * 偏移输入框，重新拉取、清空后重新拉取、删除。
  * 操作成功用 toast；失败的提示显示在卡片下方，保留到下次操作或手动关闭。
  */
@@ -32,12 +32,11 @@ export default function BindingCard({
   /** 本集的时长，秒 */
   episodeDuration: number | null
 }) {
-  const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const clearError = () => setError(null)
   const showError = (e: Error) => setError(e.message)
-  // 剧详情的键以剧列表的键为前缀，一起刷新：卡片显示最新的绑定，各处的绑定统计随之更新
-  const reload = () => queryClient.invalidateQueries({ queryKey: seriesKeys.list })
+  // 卡片显示最新的绑定
+  const reload = useReloadSeries()
 
   const refetch = useMutation({
     mutationFn: (clear: boolean) => refetchBinding(binding.id, clear),

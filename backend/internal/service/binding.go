@@ -21,7 +21,7 @@ const fetchTimeout = 25 * time.Second
 
 var (
 	errEpisodeDeleted  = errcode.ErrNotFound.WithMessage("这一集已被删除")
-	errBindingExists   = errcode.ErrConflict.WithMessage("这一集已经绑定过这个来源")
+	errBindingExists   = errcode.ErrConflict.WithMessage("这一集已经绑定过这个弹幕源")
 	errBindingNotFound = errcode.ErrNotFound.WithMessage("绑定不存在")
 	errBindingDeleted  = errcode.ErrNotFound.WithMessage("绑定已被删除")
 )
@@ -133,9 +133,9 @@ func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (B
 		}
 		return BindingView{}, 0, fmt.Errorf("get binding %d: %w", id, err)
 	}
-	adapter, ok := s.sources.Get(b.Adapter)
-	if !ok {
-		return BindingView{}, 0, fmt.Errorf("binding %d: unknown adapter %q", id, b.Adapter)
+	adapter, err := s.sources.Get(b.Adapter)
+	if err != nil {
+		return BindingView{}, 0, fmt.Errorf("binding %d: %w", id, err)
 	}
 
 	fetched, err := fetch(ctx, adapter, b.Ref)
@@ -277,11 +277,11 @@ func (s *BindingService) logFetched(ctx context.Context, b repository.Binding, f
 	s.logger.LogAttrs(ctx, slog.LevelInfo, "danmaku fetched", attrs...)
 }
 
-// bindingView 绑定的 JSON，来源链接和标签交给它的适配器生成。
+// bindingView 绑定的 JSON，弹幕源的链接和标签交给它的适配器生成。
 func bindingView(sources *source.Registry, b repository.Binding) (BindingView, error) {
-	adapter, ok := sources.Get(b.Adapter)
-	if !ok {
-		return BindingView{}, fmt.Errorf("binding %d: unknown adapter %q", b.ID, b.Adapter)
+	adapter, err := sources.Get(b.Adapter)
+	if err != nil {
+		return BindingView{}, fmt.Errorf("binding %d: %w", b.ID, err)
 	}
 	d, err := adapter.Describe(b.Ref)
 	if err != nil {

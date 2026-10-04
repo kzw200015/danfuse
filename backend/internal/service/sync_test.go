@@ -90,7 +90,13 @@ func TestSyncMatchesNaturalKeys(t *testing.T) {
 			}
 		}
 
-		// 年份或标题变化：新增一部剧，旧剧保留
+		// 年份或标题变化：新增一部剧，旧剧连同绑定保留。给旧剧的那一集（集 1）绑定一个弹幕源
+		_, err := pool.Exec(t.Context(), `
+			INSERT INTO bindings (episode_id, adapter, ref, title, duration, danmaku_count) VALUES (1, 'fake', '{"name": "a"}', 'a', 101, 2);
+			INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES (1, 1, 0, 1, 0, '前排'), (1, 2, 1500, 1, 0, '来了');`)
+		if err != nil {
+			t.Fatal(err)
+		}
 		src.items = []catalog.Item{
 			item(tv("星海旅人", new(2020), season(1, "第 1 季", episode(1, "新标题", 101)))),
 			item(tv("改了名", nil, season(1, "", episode(1, "第1集", 30)))),
@@ -105,6 +111,15 @@ func TestSyncMatchesNaturalKeys(t *testing.T) {
 		)
 		if got := texts(readCatalog(t, pool)); !slices.Equal(got, wantTexts) {
 			t.Errorf("目录 = %q\nwant %q", got, wantTexts)
+		}
+		wantContents := []string{
+			"星海旅人 S1E1 绑定 1 弹幕 2", // 旧剧
+			"无年份 S1E1 绑定 0 弹幕 0",
+			"星海旅人 S1E1 绑定 0 弹幕 0", // 新增的剧
+			"改了名 S1E1 绑定 0 弹幕 0",
+		}
+		if got := readContents(t, pool); !slices.Equal(got, wantContents) {
+			t.Errorf("各集的绑定 = %q\nwant %q", got, wantContents)
 		}
 	})
 }
@@ -468,8 +483,8 @@ func TestTriggerRejected(t *testing.T) {
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 			svc := newTestService(t, pool, nil)
 
-			if _, err := svc.Trigger(t.Context()); !errors.Is(err, ErrNoCatalogSource) {
-				t.Errorf("Trigger() error = %v, want ErrNoCatalogSource", err)
+			if _, err := svc.Trigger(t.Context()); !errors.Is(err, errNoCatalogSource) {
+				t.Errorf("Trigger() error = %v, want errNoCatalogSource", err)
 			}
 		})
 	})
@@ -485,8 +500,8 @@ func TestTriggerRejected(t *testing.T) {
 			}
 			synctest.Wait()
 
-			if _, err := svc.Trigger(t.Context()); !errors.Is(err, ErrSyncRunning) {
-				t.Errorf("Trigger() error = %v, want ErrSyncRunning", err)
+			if _, err := svc.Trigger(t.Context()); !errors.Is(err, errSyncRunning) {
+				t.Errorf("Trigger() error = %v, want errSyncRunning", err)
 			}
 
 			src.gate <- struct{}{}
@@ -517,8 +532,8 @@ func TestTriggerRejected(t *testing.T) {
 			svc := newTestService(t, pool, &fakeSource{})
 			unlock := holdSyncLock(t, pool)
 
-			if _, err := svc.Trigger(t.Context()); !errors.Is(err, ErrSyncRunning) {
-				t.Errorf("Trigger() error = %v, want ErrSyncRunning", err)
+			if _, err := svc.Trigger(t.Context()); !errors.Is(err, errSyncRunning) {
+				t.Errorf("Trigger() error = %v, want errSyncRunning", err)
 			}
 
 			unlock()

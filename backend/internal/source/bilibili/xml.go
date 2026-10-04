@@ -83,7 +83,7 @@ func decodeXMLElem(p, text string) (danmaku.Danmaku, bool) {
 }
 
 // mergeXML 把 XML 的弹幕并入 protobuf 的：按原始 ID 去重，两边都有的保留 protobuf 那条，XML 独有的接在后面。
-// overlap 为 XML 里与 protobuf 重复的条数，即两者的交集。同一来源内部的重复留给写入时的 ON CONFLICT DO NOTHING。
+// overlap 为 XML 里与 protobuf 重复的条数，即两者的交集。同一弹幕源内部的重复留给写入时的 ON CONFLICT DO NOTHING。
 func mergeXML(proto, xml []danmaku.Danmaku) (merged []danmaku.Danmaku, overlap int) {
 	inProto := make(map[int64]bool, len(proto))
 	for _, d := range proto {

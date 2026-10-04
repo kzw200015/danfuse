@@ -53,10 +53,10 @@ type Querier interface {
 	// 一个绑定的 snapshot 弹幕，时间未校正。合并时重新排序，这里不排。
 	// 一条 SELECT 读完：清空后重新拉取在一个事务里完成，读到的要么全旧、要么全新。
 	ListDanmakuByBinding(ctx context.Context, bindingID int64) ([]ListDanmakuByBindingRow, error)
+	// 搜索结果里各季的全部集，按季、集号排序。
+	ListEpisodesBySeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesBySeasonsRow, error)
 	// 一部剧的全部集，按集号排序。
 	ListEpisodesBySeries(ctx context.Context, seriesID int64) ([]Episode, error)
-	// 搜索结果里各季的全部集，按季、集号排序。
-	ListEpisodesOfSeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesOfSeasonsRow, error)
 	// 剧详情、同步重算搜索列用：只选这几列，不取搜索列本身。
 	ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]ListSeasonsBySeriesRow, error)
 	// 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。

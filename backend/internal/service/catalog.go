@@ -26,7 +26,7 @@ var (
 // 按自然键找不到它，会用新 ID 重新建出来，绑定不会恢复。
 type CatalogService struct {
 	store   repository.Store
-	sources *source.Registry // 剧详情里绑定的来源链接和标签由适配器生成
+	sources *source.Registry // 剧详情里绑定的弹幕源链接和标签由适配器生成
 }
 
 func NewCatalogService(store repository.Store, sources *source.Registry) *CatalogService {

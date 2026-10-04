@@ -45,7 +45,7 @@ func (p *LocalProvider) Search(ctx context.Context, q provider.SearchQuery) (pro
 	for i, r := range rows {
 		ids[i] = r.ID
 	}
-	episodes, err := p.store.ListEpisodesOfSeasons(ctx, ids)
+	episodes, err := p.store.ListEpisodesBySeasons(ctx, ids)
 	if err != nil {
 		return provider.SearchResult{}, fmt.Errorf("list episodes of seasons: %w", err)
 	}
@@ -79,9 +79,9 @@ func (p *LocalProvider) Comments(ctx context.Context, episodeID int64) ([]danmak
 	}
 	tracks := make([]danmaku.Track, len(bindings))
 	for i, b := range bindings {
-		adapter, ok := p.sources.Get(b.Adapter)
-		if !ok {
-			return nil, fmt.Errorf("binding %d: unknown adapter %q", b.ID, b.Adapter)
+		adapter, err := p.sources.Get(b.Adapter)
+		if err != nil {
+			return nil, fmt.Errorf("binding %d: %w", b.ID, err)
 		}
 		items, err := p.bindingDanmaku(ctx, b)
 		if err != nil {

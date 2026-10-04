@@ -43,7 +43,7 @@ func TestErrorHandlerLogsServerErrors(t *testing.T) {
 			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.NewJSONHandler(&logs, nil)), &handler.Handlers{Health: handler.NewHealthHandler(nil)}, nil)
 			srv.echo.GET("/items/:id", tt.handler)
 
-			rec := serve(t, srv, http.MethodGet, tt.target)
+			rec := serve(t, srv, http.MethodGet, tt.target, "")
 
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)

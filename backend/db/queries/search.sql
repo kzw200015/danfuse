@@ -20,7 +20,7 @@ ORDER BY ts_rank('{0.1, 0.33, 0.67, 1.0}'::real[], se.search_vector, sqlc.arg(qu
          se.number
 LIMIT sqlc.arg(max_rows);
 
--- name: ListEpisodesOfSeasons :many
+-- name: ListEpisodesBySeasons :many
 -- 搜索结果里各季的全部集，按季、集号排序。
 SELECT id, season_id, number, title
 FROM episodes

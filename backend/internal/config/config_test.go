@@ -104,7 +104,6 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		env     map[string]string
 		wantErr string
 	}{
-		{"kind 不支持", map[string]string{"CATALOG_SOURCE_KIND": "plex"}, "catalog_source.kind"},
 		{"缺 url", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_URL", ""), "jellyfin.url"},
 		{"url 不是 http(s)", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_URL", "ftp://jellyfin"), "jellyfin.url"},
 		{"url 没有主机", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_URL", "http://"), "jellyfin.url"},
@@ -133,6 +132,19 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 			_, err := Load("")
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("err = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsUnsupportedKind kind 不支持时拒绝启动，错误信息列出允许的取值，不带配置的值。
+func TestLoadRejectsUnsupportedKind(t *testing.T) {
+	for _, kind := range []string{"plex", "Jellyfin"} {
+		t.Run(kind, func(t *testing.T) {
+			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", "CATALOG_SOURCE_KIND": kind})
+			_, err := Load("")
+			if err == nil || !strings.Contains(err.Error(), `catalog_source.kind must be empty or "jellyfin"`) || strings.Contains(err.Error(), kind) {
+				t.Errorf("err = %v, want 列出允许的取值且不含配置的值", err)
 			}
 		})
 	}

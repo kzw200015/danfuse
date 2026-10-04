@@ -192,9 +192,9 @@ func TestLocalComments(t *testing.T) {
 	t.Parallel()
 	p := newCommentsProvider(t, `
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", scale, status, danmaku_count) VALUES
-			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420, 0, 1, 'active', 3),             -- 绑定 1
-			(1, 'bilibili', '{"epId": 2}', 'B 站番剧', 1422, 10, 1, 'dead', 3),             -- 绑定 2：失效
-			(1, 'fake', '{"name": "local"}', '没有平台的来源', 2840, -2, 0.5, 'active', 2); -- 绑定 3
+			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420, 0, 1, 'active', 3),               -- 绑定 1
+			(1, 'bilibili', '{"epId": 2}', 'B 站番剧', 1422, 10, 1, 'dead', 3),               -- 绑定 2：失效
+			(1, 'fake', '{"name": "local"}', '没有平台的弹幕源', 2840, -2, 0.5, 'active', 2); -- 绑定 3
 		INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES
 			(1, 101, 1000, 1, 16777215, '前排'),
 			(1, 102, 61000, 6, 15138834, '逆向'),
