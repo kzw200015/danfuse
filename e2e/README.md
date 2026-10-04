@@ -1,12 +1,13 @@
 # 端到端环境
 
-用一个虚构的测试媒体库同时起 Jellyfin 10.11 和 12.1，用来验收 danfuse 的同步、抓取 Jellyfin 的测试样本、手工试用弹幕插件。
+用一个虚构的测试媒体库同时起 Jellyfin 10.11 和 12.1，再加上用本地源码构建的 danfuse，用来验收 danfuse 的同步、抓取 Jellyfin 的测试样本、手工试用弹幕插件。
 
 | 服务 | 镜像 | 宿主机地址 |
 |---|---|---|
 | `jellyfin-10-11` | `jellyfin/jellyfin:10.11.11` | http://localhost:28096 |
 | `jellyfin-12-1` | `jellyfin/jellyfin:12.1.20260915-010956` | http://localhost:28097 |
 | `postgres` | `postgres:18` | `localhost:25432`，用户、密码、库名都是 `danfuse` |
+| `danfuse` | 用仓库根目录的 `Dockerfile` 从本地源码构建 | http://localhost:28080 |
 
 - 10.11 固定到小版本 `10.11.11`。12.x 的版本号只到 `主版本.次版本`，`12.1` 这个标签以后可能指向新的构建，所以固定到带构建时间的 `12.1.20260915-010956`（即 12.1.0，2026-10 时与 `12.1` 是同一个镜像）。
 - 两个 Jellyfin 只读挂载同一个 `media/`。Jellyfin 的配置、缓存和 PostgreSQL 的数据都在 compose 的命名卷里（`danfuse-e2e_*`）。
@@ -18,10 +19,13 @@
 
 ```sh
 cd e2e
-./gen-media.sh           # 生成测试媒体库到 media/
-docker compose up -d
-./init-jellyfin.sh       # 初始化两个 Jellyfin
+./gen-media.sh                                           # 生成测试媒体库到 media/
+docker compose up -d jellyfin-10-11 jellyfin-12-1 postgres
+./init-jellyfin.sh                                       # 初始化两个 Jellyfin
+docker compose up -d --build danfuse                     # 构建并启动 danfuse
 ```
+
+danfuse 要用初始化脚本写进 `.env` 的 API key，所以放在最后启动。
 
 `init-jellyfin.sh` 对两个实例依次：
 
@@ -43,6 +47,26 @@ docker compose up -d
 
 API key 也可以手工查看或新建：用管理员登录 Jellyfin，进入"控制台 → API 密钥"。
 
+### compose 里的 danfuse
+
+容器里通过服务名访问 Jellyfin，默认同步 12.1（`http://jellyfin-12-1:8096`，API key 取 `.env` 里的 `JELLYFIN_12_1_API_KEY`），媒体库为 `番剧,电影,其他`，不开定时同步。改为同步 10.11 时，在 `.env` 末尾加上（compose 读 `.env` 时会展开前面定义的变量，重建环境、key 变了也不用改）：
+
+```sh
+JELLYFIN_URL=http://jellyfin-10-11:8096
+JELLYFIN_API_KEY=${JELLYFIN_10_11_API_KEY}
+```
+
+再执行 `docker compose up -d danfuse`；删掉这两行再执行一次就切回 12.1。两个版本共用同一个数据库，剧名又不同（见下文），切换后目录里会同时有两边的剧。要从空库开始：
+
+```sh
+docker compose stop danfuse
+docker compose exec postgres dropdb -U danfuse danfuse
+docker compose exec postgres createdb -U danfuse danfuse
+docker compose up -d danfuse     # 启动时重新执行迁移
+```
+
+B 站的 SESSDATA 写在 `.env` 的 `BILIBILI_SESSDATA=...`。改了源码之后用 `docker compose up -d --build danfuse` 重新构建。
+
 ### 连接本地运行的 danfuse
 
 在宿主机上运行后端时，可以直接用这里的 PostgreSQL 和 Jellyfin，不需要配置文件。例如同步 12.1，在 `backend/` 目录下：
@@ -59,6 +83,8 @@ go run ./cmd/server
 
 `DANFUSE_CATALOG_SOURCE_*` 这几项配置随 Jellyfin 同步功能一起加入，在那之前设置了也不起作用。`其他` 是混合库，同步时应被跳过并记一条警告。
 
+本地运行的 danfuse 和 compose 里的 danfuse 用的是同一个库，只留一个在跑：`docker compose stop danfuse`。
+
 ## 停止与重建
 
 ```sh
@@ -66,7 +92,9 @@ docker compose stop      # 停止，数据保留；docker compose start 再启�
 docker compose down -v   # 删除容器和全部数据（包括 API key）
 
 # 从头重建
-docker compose down -v && ./gen-media.sh && docker compose up -d && ./init-jellyfin.sh
+docker compose down -v && ./gen-media.sh &&
+  docker compose up -d jellyfin-10-11 jellyfin-12-1 postgres && ./init-jellyfin.sh &&
+  docker compose up -d --build danfuse
 ```
 
 重建后 Jellyfin 的条目 Id 不变，API key、ServerId 和图片的 tag 会变。
@@ -120,6 +148,6 @@ done
 
 **指向 danfuse**
 
-播放任意一集，在"设置 → 弹幕设置"里把自定义 API 填成 danfuse 的插件地址，例如 `http://localhost:8080/dandanplay`（配置了 token 时为 `http://localhost:8080/dandanplay/<token>`，末尾不带 `/`）。插件会在后面拼 `/api/v2`。
+播放任意一集，在"设置 → 弹幕设置"里把自定义 API 填成 danfuse 的插件地址：compose 里的 danfuse 是 `http://localhost:28080/dandanplay`，本地运行的是 `http://localhost:8080/dandanplay`（配置了 token 时在后面加 `/<token>`，末尾不带 `/`）。插件会在后面拼 `/api/v2`。
 
 插件把匹配结果按 Jellyfin 的季存在浏览器的 localStorage 里，永不过期。重建 danfuse 的数据库后，要清掉 Jellyfin 页面的站点数据再试；两个 Jellyfin 端口不同，各自独立。

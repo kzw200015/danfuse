@@ -35,7 +35,7 @@ func TestErrorHandlerLogsServerErrors(t *testing.T) {
 		{"panic", func(*echo.Context) error { panic("boom") }, "/items/42", http.StatusInternalServerError, "boom"},
 		{"4xx 不记录", fail(errcode.ErrNotFound.WithMessage("条目不存在")), "/items/42", http.StatusNotFound, ""},
 		{"参数错误不记录", fail(errcode.ErrBadRequest), "/items/42", http.StatusBadRequest, ""},
-		{"路由不存在不记录", fail(nil), "/missing", http.StatusNotFound, ""},
+		{"路由不存在不记录", fail(nil), "/api/missing", http.StatusNotFound, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

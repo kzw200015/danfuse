@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-前后端分离的基础框架：`backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind v4）。两端各自独立构建，命令需在对应目录下执行。
+前后端分离的基础框架：`backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind v4）。两端各自构建，命令需在对应目录下执行；前端的构建产物由后端 embed 托管，发布时只有一个二进制（见"前端托管"）。
 
 ## 常用命令
 
@@ -26,13 +26,22 @@ go test ./internal/<pkg> -run <TestName>   # 跑单个测试
 
 ```sh
 pnpm dev                         # /api 代理到 http://localhost:8080，可在 .env.local 用 API_PROXY_TARGET 覆盖
-pnpm build                       # tsc -b 类型检查 + vite build
+pnpm build                       # tsc -b 类型检查 + vite build，产物直接输出到 backend/web/static/dist
 pnpm test:unit --run             # Vitest（不加 --run 为监听模式）
 pnpm test:unit --run <path/to/xxx.spec.ts>   # 跑单个文件；用 -t "<用例名>" 过滤用例
 pnpm lint / pnpm lint:fix        # oxlint
 pnpm format / pnpm format:check  # oxfmt（无分号、单引号）
 pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/components/ui
 ```
+
+### 镜像（仓库根目录）
+
+```sh
+docker build -t danfuse .        # 多阶段 Dockerfile：Node 构建前端 → Go 编译 → distroless 运行镜像（nonroot，不传 -config）
+docker compose up -d             # compose.yaml 是部署示例（danfuse + postgres:18），敏感值放旁边的 .env
+```
+
+`compose.yaml` 默认拉 ghcr 上的镜像（CI 首次推送后才存在）；验证本地改动时按它的注释改成 `build: .`，或者用 `e2e/compose.yaml`：那里的 danfuse 也用这份 Dockerfile 从本地源码构建，用法见 `e2e/README.md`。
 
 ## 后端架构
 
@@ -56,9 +65,11 @@ pnpm dlx shadcn@latest add <component>   # 添加 shadcn/ui 组件到 src/compon
 - `code`：`0` 成功；`1`（`CodeFail`）通用失败，前端直接提示 message；其他为业务码，**仅在前端需要分支处理时才定义**，按模块分段（每个模块 1000 个号段），定义在 `internal/pkg/errcode/codes.go`，并必须同步到前端 `src/api/errcode.ts`。目前没有业务码。
 - service 中非业务错误用 `fmt.Errorf("...: %w", err)` 包装返回，会被当作 500。
 
+**前端托管**：前端由后端 embed 托管，管理界面与 `/api` 同源。`pnpm build` 直接输出到 `backend/web/static/dist`（不进 git），`backend/web/embed.go` 把它内嵌进二进制；没构建时内嵌的是提交进仓库的占位页 `static/placeholder/`，`go build`、`make run` 照常可用，管理界面只显示"前端未构建"。`server/frontend.go` 用 Echo 的 `middleware.StaticWithConfig`（`HTML5: true`）：文件存在就返回，路由和文件都没命中时回退到 `index.html`，直接刷新前端路由也能打开；`Skipper` 跳过 `/api/`、`/dandanplay/`，这两个前缀下没命中的路由仍按原来的方式返回 404（新增后端路由前缀时加进 `backendPrefixes`）。缓存头：`/assets/*` 长期缓存加 immutable，不存在的直接 404、不回退；其余 `no-cache`。开发时照旧用 `pnpm dev`，Vite 把 `/api` 代理到后端。
+
 **handler 参数绑定**：请求结构体用 `param`/`query`/`json` tag，并实现 `Validate() error`（可在其中 trim、填默认值），通过泛型 `bind[xxxRequest](c)` 一次完成绑定 + 校验；校验失败用 `invalidParam("提示语")`。路由统一在 `internal/server/router.go` 的 `/api` 分组下注册。
 
-**测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。要自己创建连接池时用 `dbtest.Config(t)`，它建好库、登记删库，只返回连接配置。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求。
+**测试**：数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库（可配合 `repository.NewStore(pool)`），测试之间互不干扰，可以 `t.Parallel()`。`-short` 时 `dbtest.Pool` 跳过当前测试。要自己创建连接池时用 `dbtest.Config(t)`，它建好库、登记删库，只返回连接配置。HTTP 测试在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求；要换掉托管的前端文件时用 `newServer(..., fstest.MapFS{...})`。
 - service 测试只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`），不 mock `repository.Store`。涉及后台 goroutine、定时器的测试（`SyncService.Run`）放在 `testing/synctest` 的气泡里，用 `synctest.Wait` 等后台停下、用假时间推进定时器，不靠 sleep；这时连接池要在气泡里用 `dbtest.Config(t)` 新建、在气泡里关闭（pgx 连接内部的 channel 不能跨气泡使用），写法见 `internal/service/helpers_test.go`。注意气泡里的定时器和 `context.WithTimeout` 都用假时间，阻塞在数据库 I/O 上时假时间不前进、超时不会触发：数据库卡住时测试会一直挂到 `go test -timeout`。
 - 外部系统适配器的测试用 `httptest` 回放 `testdata/` 里的真实样本，不联网；加 `-update` 时从 `e2e/` 环境重新抓取（例如 `go test ./internal/catalog/jellyfin -run TestListSamples -update`，需要先按 `e2e/README.md` 搭好环境；`-update` 只作用于负责录制的那个用例，其他用例始终只回放）。
 

@@ -19,5 +19,14 @@ export default defineConfig(({ mode }) => {
         '/api': env.API_PROXY_TARGET || 'http://localhost:8080',
       },
     },
+    build: {
+      // 产物直接输出到后端，由 backend/web/embed.go 内嵌进二进制
+      outDir: '../backend/web/static/dist',
+      // outDir 在项目目录之外，Vite 默认不清空，需要显式开启，免得旧的带哈希文件越积越多
+      emptyOutDir: true,
+      // 管理界面只在内网使用，页面已按路由懒加载，首屏依赖都在主 chunk；
+      // 拆出 vendor chunk 不减少首屏下载量，所以放宽警告线而不拆分
+      chunkSizeWarningLimit: 600,
+    },
   }
 })

@@ -81,16 +81,21 @@ export DANFUSE_SERVER_ADDR=":9090"
 
 ## 构建与部署
 
-```sh
-# 后端：编译为单个二进制，迁移文件已内置
-cd backend && make build
-./bin/server -config configs/config.yaml
+前端的构建产物 embed 进后端二进制，发布时只有一个产物，管理界面与 `/api` 同源，直接刷新前端路由也能打开。
 
-# 前端：产物输出到 frontend/dist
+```sh
+# Docker 镜像：仓库根目录的多阶段 Dockerfile（Node 构建前端 → Go 编译 → 最小运行镜像）
+docker build -t danfuse .
+
+# 自行编译：先构建前端（产物输出到 backend/web/static/dist），再编译后端；迁移文件同样已内置
 cd frontend && pnpm build
+cd ../backend && make build
+./bin/server -config configs/config.yaml
 ```
 
-后端不托管前端静态文件。部署时用 Nginx 等 Web 服务器托管 `frontend/dist`，把 `/api` 反向代理到后端，并将其余未命中的路径回退到 `index.html`，以支持前端路由。
+没构建前端时后端照常编译运行，访问管理界面只显示"前端未构建"。
+
+根目录的 [`compose.yaml`](compose.yaml) 是部署示例（danfuse + PostgreSQL 18）：按注释修改配置，把 API key 等敏感值写进旁边的 `.env`，再 `docker compose up -d`。容器里不需要配置文件，所有配置都用环境变量。
 
 ## 项目结构
 
@@ -100,13 +105,17 @@ cd frontend && pnpm build
 │   ├── cmd/server/     # 程序入口
 │   ├── configs/        # 配置模板
 │   ├── db/             # 数据库迁移与 SQL 查询
-│   └── internal/       # 应用代码：handler、service、repository、server 等
-└── frontend/
-    └── src/
-        ├── api/        # 接口请求
-        ├── components/ # UI 组件
-        ├── router/     # 路由
-        └── views/      # 页面
+│   ├── internal/       # 应用代码：handler、service、repository、server 等
+│   └── web/            # 内嵌的前端构建产物
+├── frontend/
+│   └── src/
+│       ├── api/        # 接口请求
+│       ├── components/ # UI 组件
+│       ├── router/     # 路由
+│       └── views/      # 页面
+├── e2e/                # 端到端环境（Jellyfin 10.11、12.1，PostgreSQL 18 与 danfuse）
+├── Dockerfile          # 多阶段构建镜像
+└── compose.yaml        # 部署示例
 ```
 
 ## 开发

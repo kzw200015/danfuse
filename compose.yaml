@@ -1,0 +1,54 @@
+# danfuse 部署示例：danfuse + PostgreSQL 18。
+#
+# 1. 按实际情况修改下面 danfuse 的 environment（Jellyfin 地址、媒体库名等）。
+# 2. 在本文件旁边新建 .env，写入敏感值（.env 不要提交进仓库）：
+#      JELLYFIN_API_KEY=<Jellyfin 控制台 → API 密钥 里生成的 key>
+#      BILIBILI_SESSDATA=<可选，B 站登录 Cookie 里的 SESSDATA>
+#      DANDANPLAY_TOKEN=<可选，设置后弹弹 API 挂在 /dandanplay/<token>/api/v2>
+# 3. docker compose up -d，管理界面在 http://<本机地址>:8080
+#
+# 配置项都是 DANFUSE_ 前缀的环境变量，完整列表见 backend/configs/config.example.yaml。
+name: danfuse
+
+services:
+  danfuse:
+    image: ghcr.io/kzw200015/danfuse:latest
+    # 改用本地源码构建：注释掉上面的 image，取消下面一行的注释（路径指向仓库根目录），
+    # 再执行 docker compose up -d --build
+    # build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DANFUSE_DATABASE_DSN: postgres://danfuse:danfuse@postgres:5432/danfuse?sslmode=disable
+      DANFUSE_CATALOG_SOURCE_KIND: jellyfin
+      DANFUSE_CATALOG_SOURCE_JELLYFIN_URL: http://192.168.1.10:8096
+      DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY: ${JELLYFIN_API_KEY}
+      DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES: 番剧,电影 # 要同步的媒体库名，逗号分隔
+      DANFUSE_SYNC_INTERVAL: 24h # 定时同步的间隔，0 表示只手动同步
+      DANFUSE_BILIBILI_SESSDATA: ${BILIBILI_SESSDATA:-}
+      DANFUSE_DANDANPLAY_TOKEN: ${DANDANPLAY_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18
+    # 不映射端口，只有同一个 compose 里的 danfuse 能访问
+    environment:
+      POSTGRES_USER: danfuse
+      POSTGRES_PASSWORD: danfuse
+      POSTGRES_DB: danfuse
+    volumes:
+      # 数据都在这个卷里；PostgreSQL 18 的镜像把数据目录挂载点改成了 /var/lib/postgresql
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      # 走 TCP 检查：首次初始化时临时启动的服务器只监听 unix socket，不带 -h 会提前报告就绪
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U danfuse -d danfuse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
