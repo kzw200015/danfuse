@@ -12,7 +12,7 @@
 ```
 backend/
 ├── cmd/server/            # 程序入口
-├── configs/config.yaml    # 配置文件（可被 DANFUSE_* 环境变量覆盖）
+├── configs/               # config.example.yaml 为配置模板，复制为 config.yaml 使用（已被 git 忽略）
 ├── db/
 │   ├── migrations/        # goose 迁移，embed 进二进制，启动时自动执行
 │   └── queries/           # sqlc 查询
@@ -52,6 +52,7 @@ frontend/
 
 ```sh
 cd backend
+cp configs/config.example.yaml configs/config.yaml
 # 修改 configs/config.yaml 中的 database.dsn，或使用环境变量：
 export DANFUSE_DATABASE_DSN="postgres://user:pass@localhost:5432/danfuse?sslmode=disable"
 make run        # 启动时自动执行 db/migrations 中未应用的迁移，默认监听 :8080
