@@ -1,5 +1,5 @@
 // Package dandan 弹弹 API：jellyfin-danmaku 插件把 danfuse 当作弹弹play 服务器，按弹弹play 协议的语义调用。
-// 这里只做协议参数的转换和响应的格式化（type、typeDescription、"第N话"），搜索与取弹幕交给 provider 的聚合层。
+// 这里只做协议参数的转换和响应的格式化（type、typeDescription、"第N话"、p、cid、平台前缀），搜索与取弹幕交给 provider 的聚合层。
 //
 // 它是统一响应约定的例外：响应按官方 Swagger 的结构输出，不用 response 包。handler 自己把错误转成弹弹play 的
 // 结构返回 500，不交给全局 errorHandler，并按 errorHandler 的字段记一条日志；前缀下路由不匹配的 404、405 仍走全局处理。
@@ -9,6 +9,7 @@ package dandan
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -87,6 +88,41 @@ func (h *Handler) SearchEpisodes(c *echo.Context) error {
 	resp.HasMore = result.HasMore
 	for _, s := range result.Seasons {
 		resp.Animes = append(resp.Animes, toAnime(s))
+	}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// commentResponse 官方的 CommentResponseV2：只有 count 和 comments，不带 ResponseBase。
+type commentResponse struct {
+	Count    int       `json:"count"`
+	Comments []comment `json:"comments"` // 插件读不到这个字段时按出错处理，任何时候都输出 []
+}
+
+// comment 官方的 CommentData。插件只读 p 和 m。
+type comment struct {
+	CID int64  `json:"cid"`
+	P   string `json:"p"`
+	M   string `json:"m"`
+}
+
+// Comment GET comment/:episodeId
+// 这一集所有绑定合并后的全部弹幕原文，按校正后时间升序。withRelated、from、chConvert 忽略。
+// 不存在的 episodeId（包括不是整数的）、没有绑定的集返回空列表。
+func (h *Handler) Comment(c *echo.Context) error {
+	resp := commentResponse{Comments: []comment{}}
+	episodeID, err := strconv.ParseInt(c.Param("episodeId"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusOK, resp)
+	}
+
+	items, err := h.provider.Comments(c.Request().Context(), episodeID)
+	if err != nil {
+		return serverError(c, err, resp) // 官方没有为 comment 定义错误响应，响应体沿用它的 schema
+	}
+	resp.Count = len(items)
+	resp.Comments = make([]comment, len(items))
+	for i, it := range items {
+		resp.Comments[i] = toComment(it)
 	}
 	return c.JSON(http.StatusOK, resp)
 }

@@ -38,8 +38,13 @@ type Querier interface {
 	// 把残留的 running（进程崩溃或被杀）改为 interrupted，结束时间未知，保持为空。
 	// 只能在持有同步锁时调用：这时不会有正在进行的同步。
 	InterruptRunningSyncRuns(ctx context.Context) (int64, error)
+	// 读取一集的弹幕用：这一集的全部绑定（含失效的），按创建顺序排列。集不存在时没有行。
+	ListBindingsByEpisode(ctx context.Context, episodeID int64) ([]Binding, error)
 	// 剧详情用：一部剧所有集的绑定，按创建顺序排列。
 	ListBindingsBySeries(ctx context.Context, seriesID int64) ([]Binding, error)
+	// 一个绑定的 snapshot 弹幕，时间未校正。合并时重新排序，这里不排。
+	// 一条 SELECT 读完：清空后重新拉取在一个事务里完成，读到的要么全旧、要么全新。
+	ListDanmakuByBinding(ctx context.Context, bindingID int64) ([]ListDanmakuByBindingRow, error)
 	// 一部剧的全部集，按集号排序。
 	ListEpisodesBySeries(ctx context.Context, seriesID int64) ([]Episode, error)
 	// 搜索结果里各季的全部集，按季、集号排序。

@@ -3,6 +3,7 @@ package dandan
 import (
 	"fmt"
 
+	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/provider"
 )
 
@@ -40,4 +41,25 @@ func episodeTitle(e provider.Episode) string {
 		return fmt.Sprintf("第%d话", e.Number)
 	}
 	return fmt.Sprintf("第%d话 %s", e.Number, e.Title)
+}
+
+// userPrefixes p 里用户字段的平台前缀，插件靠它按来源过滤（[BiliBili] 归为 B 站）。前缀是协议对平台的叫法，
+// 所以放在弹弹 API 一侧；没有平台的来源不加前缀，插件把它归为"弹弹"。
+var userPrefixes = map[danmaku.Platform]string{
+	danmaku.PlatformBilibili: "[BiliBili]",
+}
+
+// toComment 一条弹幕转成协议里的 comment：cid 由平台与原始 ID 现算；
+// p 为"秒（两位小数）,模式,颜色（十进制）,用户"，用户字段只写平台前缀，后面不跟任何内容。
+// 协议只定义了模式 1、4、5，逆向（6）输出为 1。
+func toComment(it danmaku.Item) comment {
+	mode := it.Mode
+	if mode == danmaku.ModeReverse {
+		mode = danmaku.ModeScroll
+	}
+	return comment{
+		CID: danmaku.CID(it.Platform, it.SourceID),
+		P:   fmt.Sprintf("%.2f,%d,%d,%s", float64(it.TimeMs)/1000, mode, it.Color, userPrefixes[it.Platform]),
+		M:   it.Text,
+	}
 }

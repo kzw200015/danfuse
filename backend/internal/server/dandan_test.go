@@ -5,12 +5,14 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,11 +23,13 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
+	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
 	"github.com/kzw200015/danfuse/backend/internal/provider"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/service"
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 // 插件契约测试：按 jellyfin-danmaku 插件实际的调用方式原样重放请求，按插件的读法断言结果。
@@ -107,12 +111,20 @@ func pluginCatalog() []catalog.Item {
 	return items
 }
 
+// biliAdapter 平台为 B 站的假适配器：读取弹幕只用到适配器的 ID 和平台，调用其他方法会 panic。
+type biliAdapter struct{ source.Adapter }
+
+func (biliAdapter) ID() string                 { return "bilibili" }
+func (biliAdapter) Platform() danmaku.Platform { return danmaku.PlatformBilibili }
+
 // dandanServer 起完整的 Echo，弹弹 API 连到 pool；日志写进 logs（为 nil 时丢弃）。
+// 源适配器注册了 biliAdapter（B 站平台）与 fakeAdapter（没有平台）。
 func dandanServer(pool *pgxpool.Pool, token string, logs io.Writer) *Server {
 	if logs == nil {
 		logs = io.Discard
 	}
-	dh := dandan.NewHandler(provider.NewAggregator(service.NewLocalProvider(repository.NewStore(pool))))
+	local := service.NewLocalProvider(repository.NewStore(pool), source.NewRegistry(biliAdapter{}, fakeAdapter{}))
+	dh := dandan.NewHandler(provider.NewAggregator(local))
 	return New(config.Server{}, config.Dandanplay{Token: token}, slog.New(slog.NewJSONHandler(logs, nil)),
 		&handler.Handlers{Health: handler.NewHealthHandler(pool)}, dh)
 }
@@ -375,6 +387,160 @@ func TestSearchEpisodesHasMore(t *testing.T) {
 	}
 }
 
+// newCommentServer 契约测试用的目录（pluginCatalog）加上星海旅人第 1 集（集 1）的绑定与弹幕，起弹弹 API。
+// 绑定与弹幕在同步之外补写。
+func newCommentServer(t *testing.T) *Server {
+	t.Helper()
+	cfg := dbtest.Config(t)
+	syncCatalog(t, cfg, pluginCatalog()...)
+	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	_, err = pool.Exec(t.Context(), `
+		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", status, danmaku_count) VALUES
+			(1, 'bilibili', '{"kind": "video", "aid": 1, "page": 1}', '星海旅人 / 第 1 话', 1420, 0, 'active', 4), -- 绑定 1
+			(1, 'bilibili', '{"kind": "episode", "epId": 2}', '星海旅人 启程', 1422, 10, 'dead', 3),          -- 绑定 2：失效，弹幕延后 10 秒
+			(1, 'fake', '{"name": "local"}', '没有平台的来源', 1420, 0, 'active', 1);                          -- 绑定 3
+		INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES
+			(1, 1983745621937266688, 0, 1, 16777215, '前排'),
+			(1, 102, 61000, 6, 15138834, '逆向'),
+			(1, 103, 120500, 4, 0, '底部'),
+			(1, 104, 130000, 5, 255, '顶部 &<>"'),
+			(2, 1983745621937266688, 0, 1, 16777215, '前排'), -- 原始 ID 与绑定 1 的那条相同；校正后相差 10 秒，只靠按 ID 去掉
+			(2, 201, 51500, 1, 0, '逆向'),                    -- 校正后 61.5 秒，与绑定 1 的那条相差 0.5 秒，按文本去掉
+			(2, 202, 300000, 1, 16777215, '失效绑定的弹幕'),
+			(3, 1, 5000, 1, 0, '没有平台');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dandanServer(pool, "", nil)
+}
+
+// pluginComment 插件从 comment 的响应里读出的一条弹幕。
+type pluginComment struct {
+	Time   float64 // 秒
+	Mode   int
+	Color  int
+	Source string // 插件按用户名前缀分的来源
+	Text   string
+}
+
+// pluginComments 插件取一集的弹幕（ede.js 的 getComments 与 preProcessDanmaku）：固定带 withRelated=true 和用户设置的
+// chConvert，只读 comments[].p 和 m。p 按逗号拆成时间、模式、颜色、用户四段，时间按浮点数、模式和颜色按整数读出，
+// 用户名前缀决定来源。插件只认模式 1、4、5、6，协议只定义了 1、4、5，出现别的模式时测试失败。
+func pluginComments(t *testing.T, srv *Server, base string, episodeID int64) []pluginComment {
+	t.Helper()
+	target := fmt.Sprintf("%s/api/v2/comment/%d?withRelated=true&chConvert=1", base, episodeID)
+	rec, body := pluginGet(t, srv, target, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: status = %d, body %s", target, rec.Code, body)
+	}
+	var resp struct {
+		Comments []struct {
+			P string `json:"p"`
+			M string `json:"m"`
+		} `json:"comments"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || resp.Comments == nil {
+		t.Fatalf("GET %s: 读不到 comments（插件会显示无弹幕）：%s", target, body)
+	}
+
+	var result []pluginComment
+	for _, c := range resp.Comments {
+		parts := strings.Split(c.P, ",")
+		if len(parts) != 4 {
+			t.Fatalf("p = %q，want 时间、模式、颜色、用户四段", c.P)
+		}
+		seconds, errTime := strconv.ParseFloat(parts[0], 64)
+		mode, errMode := strconv.Atoi(parts[1])
+		color, errColor := strconv.Atoi(parts[2])
+		if err := errors.Join(errTime, errMode, errColor); err != nil {
+			t.Fatalf("p = %q：%v", c.P, err)
+		}
+		if !slices.Contains([]int{1, 4, 5}, mode) {
+			t.Errorf("p = %q：模式 %d，want 只有 1、4、5", c.P, mode)
+		}
+		result = append(result, pluginComment{Time: seconds, Mode: mode, Color: color, Source: pluginSource(parts[3]), Text: c.M})
+	}
+	return result
+}
+
+// pluginSource 插件按用户名前缀分来源：[BiliBili] 是 B 站，[Gamer] 是巴哈，不以 [ 开头的是弹弹，其余是其他。
+func pluginSource(user string) string {
+	switch {
+	case strings.HasPrefix(user, "[BiliBili]"):
+		return "B 站"
+	case strings.HasPrefix(user, "[Gamer]"):
+		return "巴哈"
+	case !strings.HasPrefix(user, "["):
+		return "弹弹"
+	default:
+		return "其他"
+	}
+}
+
+// TestPluginComments 插件自动匹配到一集后取弹幕：所有绑定校正、去重后合并，B 站的弹幕归为 B 站来源，
+// 失效绑定的弹幕照常输出，逆向弹幕输出为滚动。
+func TestPluginComments(t *testing.T) {
+	t.Parallel()
+	srv := newCommentServer(t)
+
+	_, episodeID := pluginMatch(t, srv, "/dandanplay", jellyfinItem{"星海旅人", "ほしうみの旅人", 1, 1})
+	got := pluginComments(t, srv, "/dandanplay", episodeID)
+
+	want := []pluginComment{
+		{0, 1, 0xFFFFFF, "B 站", "前排"},
+		{5, 1, 0, "弹弹", "没有平台"},
+		{61, 1, 0xE70012, "B 站", "逆向"},
+		{120.5, 4, 0, "B 站", "底部"},
+		{130, 5, 0xFF, "B 站", `顶部 &<>"`},
+		{310, 1, 0xFFFFFF, "B 站", "失效绑定的弹幕"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("集 %d 的弹幕 = %+v\nwant %+v", episodeID, got, want)
+	}
+}
+
+func TestCommentResponse(t *testing.T) {
+	t.Parallel()
+	srv := newCommentServer(t)
+
+	// cid 由平台与原始 ID 算出，与 danmaku.CID 的单元测试固定的值一致
+	full := `{"count": 6, "comments": [
+		{"cid": 1881586332506557, "p": "0.00,1,16777215,[BiliBili]", "m": "前排"},
+		{"cid": 494350949496718, "p": "5.00,1,0,", "m": "没有平台"},
+		{"cid": 3479445432466440, "p": "61.00,1,15138834,[BiliBili]", "m": "逆向"},
+		{"cid": 8283615148896597, "p": "120.50,4,0,[BiliBili]", "m": "底部"},
+		{"cid": 1657130281072079, "p": "130.00,5,255,[BiliBili]", "m": "顶部 &<>\""},
+		{"cid": 6135997043884386, "p": "310.00,1,16777215,[BiliBili]", "m": "失效绑定的弹幕"}
+	]}`
+	empty := `{"count": 0, "comments": []}`
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{"插件的请求", "/comment/1?withRelated=true&chConvert=1", full},
+		{"withRelated、from、chConvert 忽略", "/comment/1?withRelated=false&from=5&chConvert=2", full},
+		{"没有参数", "/comment/1", full},
+		{"没有绑定的集", "/comment/2", empty},
+		{"不存在的集", "/comment/999999", empty},
+		{"本地号段以外的 ID", "/comment/10000000000000", empty},
+		{"不是整数的 ID", "/comment/abc", empty},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec, body := pluginGet(t, srv, "/dandanplay/api/v2"+tt.target, nil)
+			if rec.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200", rec.Code)
+			}
+			assertJSON(t, body, tt.want)
+		})
+	}
+}
+
 func TestRelated(t *testing.T) {
 	t.Parallel()
 	srv := newDandanServer(t, "", pluginCatalog()...)
@@ -414,6 +580,7 @@ func TestDandanCORS(t *testing.T) {
 	// 带 Origin 的请求（浏览器的跨域请求都带），响应都带 Access-Control-Allow-Origin，包括出错的
 	for _, target := range []string{
 		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
+		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
 		"/dandanplay/api/v2/related/1",
 		"/dandanplay/api/v2/match",
 	} {
@@ -423,7 +590,11 @@ func TestDandanCORS(t *testing.T) {
 	}
 
 	// 插件设置了 User-Agent 请求头，保留它的浏览器会先发预检
-	for _, target := range []string{"/dandanplay/api/v2/search/episodes?anime=星海旅人", "/dandanplay/api/v2/related/1"} {
+	for _, target := range []string{
+		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
+		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
+		"/dandanplay/api/v2/related/1",
+	} {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, browserURL(target), nil)
 		req.Header.Set("Origin", jellyfinOrigin)
 		req.Header.Set("Access-Control-Request-Method", http.MethodGet)
@@ -462,9 +633,13 @@ func TestDandanCORS(t *testing.T) {
 
 func TestDandanGzip(t *testing.T) {
 	t.Parallel()
-	srv := newDandanServer(t, "", pluginCatalog()...)
+	srv := newCommentServer(t)
 
-	for _, target := range []string{"/dandanplay/api/v2/search/episodes?anime=星海旅人", "/dandanplay/api/v2/related/1"} {
+	for _, target := range []string{
+		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
+		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
+		"/dandanplay/api/v2/related/1",
+	} {
 		rec, body := pluginGet(t, srv, target, nil)
 		if got := rec.Header().Get("Content-Encoding"); got != "gzip" {
 			t.Errorf("GET %s: Content-Encoding = %q, want gzip", target, got)
@@ -502,7 +677,7 @@ func TestDandanToken(t *testing.T) {
 // TestDandanIgnoresAppHeaders 官方的鉴权头（插件默认的 CORS 代理会注入）一律忽略，带与不带响应相同。
 func TestDandanIgnoresAppHeaders(t *testing.T) {
 	t.Parallel()
-	srv := newDandanServer(t, "", pluginCatalog()...)
+	srv := newCommentServer(t)
 	appHeaders := http.Header{
 		"X-AppId":     {"app"},
 		"X-AppSecret": {"secret"},
@@ -510,7 +685,11 @@ func TestDandanIgnoresAppHeaders(t *testing.T) {
 		"X-Signature": {"c2lnbmF0dXJl"},
 	}
 
-	for _, target := range []string{"/dandanplay/api/v2/search/episodes?anime=星海旅人", "/dandanplay/api/v2/related/1"} {
+	for _, target := range []string{
+		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
+		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
+		"/dandanplay/api/v2/related/1",
+	} {
 		plain, plainBody := pluginGet(t, srv, target, nil)
 		withApp, withAppBody := pluginGet(t, srv, target, appHeaders)
 		if withApp.Code != plain.Code || !bytes.Equal(withAppBody, plainBody) {
@@ -519,41 +698,58 @@ func TestDandanIgnoresAppHeaders(t *testing.T) {
 	}
 }
 
-// TestDandanServerError 服务端故障返回 500 和弹弹play 结构的响应体，按全局 errorHandler 的字段记日志；
-// 日志里的路由是注册时的模式，不含 token。
+// TestDandanServerError 服务端故障返回 500 和弹弹play 结构的响应体（各接口按官方 Swagger 的 schema），
+// 按全局 errorHandler 的字段记日志；日志里的路由是注册时的模式，不含 token。
 func TestDandanServerError(t *testing.T) {
 	t.Parallel()
 	const token = "s3cret"
 	pool := dbtest.Pool(t)
 	pool.Close() // 数据库不可用
-	var logs bytes.Buffer
-	srv := dandanServer(pool, token, &logs)
 
-	rec, body := pluginGet(t, srv, "/dandanplay/"+token+"/api/v2/search/episodes?anime=星海旅人", nil)
+	tests := []struct {
+		target    string
+		wantRoute string
+		wantBody  string
+	}{
+		{
+			"/search/episodes?anime=星海旅人", "/dandanplay/:token/api/v2/search/episodes",
+			`{"errorCode": 1, "success": false, "errorMessage": "服务器内部错误", "errorDetail": null, "hasMore": false, "animes": []}`,
+		},
+		// 官方的 CommentResponseV2 只有 count 和 comments，不加 success、errorCode
+		{"/comment/1?withRelated=true&chConvert=1", "/dandanplay/:token/api/v2/comment/:episodeId", `{"count": 0, "comments": []}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.wantRoute, func(t *testing.T) {
+			var logs bytes.Buffer
+			srv := dandanServer(pool, token, &logs)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 500", rec.Code)
-	}
-	assertJSON(t, body, `{"errorCode": 1, "success": false, "errorMessage": "服务器内部错误", "errorDetail": null, "hasMore": false, "animes": []}`)
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
-	}
+			rec, body := pluginGet(t, srv, "/dandanplay/"+token+"/api/v2"+tt.target, nil)
 
-	var entry struct {
-		Level     string `json:"level"`
-		RequestID string `json:"request_id"`
-		Method    string `json:"method"`
-		Route     string `json:"route"`
-		Error     string `json:"error"`
-	}
-	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
-		t.Fatalf("应恰好记录一条日志：%v\n%s", err, logs.String())
-	}
-	if want := rec.Header().Get("X-Request-Id"); entry.Level != "ERROR" || entry.RequestID == "" || entry.RequestID != want ||
-		entry.Method != http.MethodGet || entry.Route != "/dandanplay/:token/api/v2/search/episodes" || entry.Error == "" {
-		t.Errorf("日志 = %+v, want ERROR、request_id %q、GET、路由模式和错误链", entry, want)
-	}
-	if strings.Contains(logs.String(), token) {
-		t.Errorf("日志里出现了 token：%s", logs.String())
+			if rec.Code != http.StatusInternalServerError {
+				t.Errorf("status = %d, want 500", rec.Code)
+			}
+			assertJSON(t, body, tt.wantBody)
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+				t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
+			}
+
+			var entry struct {
+				Level     string `json:"level"`
+				RequestID string `json:"request_id"`
+				Method    string `json:"method"`
+				Route     string `json:"route"`
+				Error     string `json:"error"`
+			}
+			if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+				t.Fatalf("应恰好记录一条日志：%v\n%s", err, logs.String())
+			}
+			if want := rec.Header().Get("X-Request-Id"); entry.Level != "ERROR" || entry.RequestID == "" || entry.RequestID != want ||
+				entry.Method != http.MethodGet || entry.Route != tt.wantRoute || entry.Error == "" {
+				t.Errorf("日志 = %+v, want ERROR、request_id %q、GET、路由模式 %s 和错误链", entry, want, tt.wantRoute)
+			}
+			if strings.Contains(logs.String(), token) {
+				t.Errorf("日志里出现了 token：%s", logs.String())
+			}
+		})
 	}
 }

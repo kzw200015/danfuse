@@ -56,7 +56,7 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		Sync:     syncHandler,
 		Settings: settingsHandler,
 	}
-	localProvider := service.NewLocalProvider(sqlStore)
+	localProvider := service.NewLocalProvider(sqlStore, registry)
 	provider := newProvider(localProvider)
 	dandanHandler := dandan.NewHandler(provider)
 	serverServer := server.New(configServer, dandanplay, slogLogger, handlers, dandanHandler)

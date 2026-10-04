@@ -9,8 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/provider"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 // searchCatalog 搜索测试用的目录。同步的顺序（剧 ID 的顺序）和年份都与期望的排序相反，
@@ -60,7 +63,7 @@ func describe(s provider.Season) string {
 
 func searchSeasons(t *testing.T, pool *pgxpool.Pool, keyword string, maxSeasons int) (seasons []string, hasMore bool) {
 	t.Helper()
-	result, err := NewLocalProvider(repository.NewStore(pool)).Search(t.Context(), provider.SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons})
+	result, err := NewLocalProvider(repository.NewStore(pool), source.NewRegistry()).Search(t.Context(), provider.SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons})
 	if err != nil {
 		t.Fatalf("Search(%q): %v", keyword, err)
 	}
@@ -157,4 +160,89 @@ func TestLocalSearchHasMore(t *testing.T) {
 			}
 		}
 	})
+}
+
+// platformAdapter 只回答 ID 和平台的假适配器：读取弹幕只用到这两项，调用其他方法会 panic。
+type platformAdapter struct {
+	source.Adapter
+	id       string
+	platform danmaku.Platform
+}
+
+func (a platformAdapter) ID() string                 { return a.id }
+func (a platformAdapter) Platform() danmaku.Platform { return a.platform }
+
+// newCommentsProvider 新库里写入两集（seedEpisodes）和 sql 里的绑定与弹幕，构造本地 Provider。
+// 注册的适配器：bilibili 在 B 站平台，fake 没有平台。
+func newCommentsProvider(t *testing.T, sql string) *LocalProvider {
+	t.Helper()
+	pool := dbtest.Pool(t)
+	seedEpisodes(t, pool)
+	if _, err := pool.Exec(t.Context(), sql); err != nil {
+		t.Fatal(err)
+	}
+	sources := source.NewRegistry(
+		platformAdapter{id: "bilibili", platform: danmaku.PlatformBilibili},
+		platformAdapter{id: "fake", platform: danmaku.PlatformNone},
+	)
+	return NewLocalProvider(repository.NewStore(pool), sources)
+}
+
+func TestLocalComments(t *testing.T) {
+	t.Parallel()
+	p := newCommentsProvider(t, `
+		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", scale, status, danmaku_count) VALUES
+			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420, 0, 1, 'active', 3),             -- 绑定 1
+			(1, 'bilibili', '{"epId": 2}', 'B 站番剧', 1422, 10, 1, 'dead', 3),             -- 绑定 2：失效
+			(1, 'fake', '{"name": "local"}', '没有平台的来源', 2840, -2, 0.5, 'active', 2); -- 绑定 3
+		INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES
+			(1, 101, 1000, 1, 16777215, '前排'),
+			(1, 102, 61000, 6, 15138834, '逆向'),
+			(1, 103, 120000, 4, 0, '底部'),
+			(2, 101, 1000, 1, 16777215, '前排'), -- 原始 ID 与绑定 1 的那条相同；校正后相差 10 秒，只靠按 ID 去掉
+			(2, 201, 51500, 1, 0, '逆向'),       -- 校正后 61.5 秒，与绑定 1 的那条相差 0.5 秒，按文本去掉
+			(2, 202, 300000, 5, 255, '失效绑定的弹幕'),
+			(3, 1, 2000, 1, 0, '太早了'),        -- 2 × 0.5 − 2 = −1 秒
+			(3, 2, 10000, 1, 0, '没有平台');`)
+
+	const bili = danmaku.PlatformBilibili
+	tests := []struct {
+		name      string
+		episodeID int64
+		want      []danmaku.Item
+	}{
+		{
+			"多个绑定按 offset 与 scale 校正、跨源去重后按时间合并；失效绑定的弹幕照常输出", 1, []danmaku.Item{
+				{TimeMs: 1000, Mode: danmaku.ModeScroll, Color: 0xFFFFFF, Text: "前排", SourceID: 101, Platform: bili},
+				{TimeMs: 3000, Mode: danmaku.ModeScroll, Text: "没有平台", SourceID: 2, Platform: danmaku.PlatformNone},
+				{TimeMs: 61000, Mode: danmaku.ModeReverse, Color: 0xE70012, Text: "逆向", SourceID: 102, Platform: bili},
+				{TimeMs: 120000, Mode: danmaku.ModeBottom, Text: "底部", SourceID: 103, Platform: bili},
+				{TimeMs: 310000, Mode: danmaku.ModeTop, Color: 0xFF, Text: "失效绑定的弹幕", SourceID: 202, Platform: bili},
+			},
+		},
+		{"没有绑定", 2, nil},
+		{"集不存在", 99, nil},
+	}
+	for _, tt := range tests {
+		got, err := p.Comments(t.Context(), tt.episodeID)
+		if err != nil {
+			t.Fatalf("%s：Comments(%d): %v", tt.name, tt.episodeID, err)
+		}
+		if !slices.Equal(got, tt.want) {
+			t.Errorf("%s：Comments(%d) = %+v\nwant %+v", tt.name, tt.episodeID, got, tt.want)
+		}
+	}
+}
+
+// TestLocalCommentsUnknownAdapter 绑定的适配器没有注册：不知道弹幕在哪个平台，跨源去重和 cid 都无从谈起，按服务器内部错误返回。
+func TestLocalCommentsUnknownAdapter(t *testing.T) {
+	t.Parallel()
+	p := newCommentsProvider(t, `
+		INSERT INTO bindings (episode_id, adapter, ref, title, duration) VALUES
+			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420),
+			(1, 'gone', '{"id": 1}', '没有注册的适配器', 1420);`)
+
+	if got, err := p.Comments(t.Context(), 1); err == nil || !strings.Contains(err.Error(), `"gone"`) {
+		t.Errorf("Comments() = %+v, %v；want 指出没有注册的适配器 gone 的错误", got, err)
+	}
 }

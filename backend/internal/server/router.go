@@ -56,5 +56,6 @@ func registerDandanRoutes(e *echo.Echo, cfg config.Dandanplay, h *dandan.Handler
 
 	g := e.Group(prefix, middlewares...)
 	g.GET("/search/episodes", h.SearchEpisodes)
+	g.GET("/comment/:episodeId", h.Comment)
 	g.GET("/related/:episodeId", h.Related)
 }
