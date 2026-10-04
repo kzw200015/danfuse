@@ -18,6 +18,9 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 
 	api.GET("/series", h.Catalog.ListSeries)
 	api.GET("/series/:id", h.Catalog.GetSeries)
+	api.DELETE("/series/:id", h.Catalog.DeleteSeries)
+	api.DELETE("/seasons/:id", h.Catalog.DeleteSeason)
+	api.DELETE("/episodes/:id", h.Catalog.DeleteEpisode)
 	api.GET("/images/:id", h.Catalog.GetImage)
 
 	api.POST("/episodes/:id/bindings", h.Binding.Create)

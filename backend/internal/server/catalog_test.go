@@ -202,6 +202,42 @@ func TestGetImage(t *testing.T) {
 	}
 }
 
+// TestDeleteCatalog 删除剧、季、集返回 200 和 null；删除剧时它的海报一起删除。级联删除的结果见 service 的测试。
+func TestDeleteCatalog(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.Pool(t)
+	seedCatalog(t, pool)
+	srv := catalogServer(pool)
+
+	// 集 1 在季 1 里，季 1 在剧 1 里：由下往上删
+	for _, target := range []string{"/api/episodes/1", "/api/seasons/1", "/api/series/1"} {
+		if code, _, data := call(t, srv, http.MethodDelete, target, http.StatusOK); code != 0 || string(data) != "null" {
+			t.Errorf("DELETE %s: code=%d data=%s, want 0 null", target, code, data)
+		}
+	}
+	for _, tt := range []struct {
+		method      string
+		target      string
+		wantStatus  int
+		wantMessage string
+	}{
+		{http.MethodGet, "/api/images/1", http.StatusNotFound, "图片不存在"}, // 剧 1 的海报
+		{http.MethodDelete, "/api/series/1", http.StatusNotFound, "剧不存在"},
+		{http.MethodDelete, "/api/seasons/1", http.StatusNotFound, "季不存在"},
+		{http.MethodDelete, "/api/episodes/1", http.StatusNotFound, "集不存在"},
+		{http.MethodDelete, "/api/series/0", http.StatusBadRequest, "剧 ID 不合法"},
+		{http.MethodDelete, "/api/seasons/0", http.StatusBadRequest, "季 ID 不合法"},
+		{http.MethodDelete, "/api/episodes/0", http.StatusBadRequest, "集 ID 不合法"},
+		{http.MethodDelete, "/api/seasons/abc", http.StatusBadRequest, "请求参数错误"},
+	} {
+		if code, message, _ := call(t, srv, tt.method, tt.target, tt.wantStatus); code != 1 || message != tt.wantMessage {
+			t.Errorf("%s %s: code=%d message=%q, want %q", tt.method, tt.target, code, message, tt.wantMessage)
+		}
+	}
+	// 别的剧不受影响
+	call(t, srv, http.MethodGet, "/api/series/2", http.StatusOK)
+}
+
 // assertJSON 按语义比较 JSON：字段名与值都要一致，不管字段顺序与空白。
 func assertJSON(t *testing.T, got json.RawMessage, want string) {
 	t.Helper()

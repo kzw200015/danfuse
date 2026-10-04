@@ -76,6 +76,32 @@ export function bindingStats(episodes: Episode[]) {
   }
 }
 
+/**
+ * 删除剧、季或集的确认框里的一句：随之删除的下级有多少，由已加载的剧详情算出。
+ * 剧写季数和集数（电影在界面上没有季和集，不写），季写集数，都写绑定数和弹幕条数。
+ */
+export function deletionImpact(node: SeriesDetail | Season | Episode) {
+  const parts: string[] = []
+  let episodes: Episode[]
+  if ('seasons' in node) {
+    episodes = node.seasons.flatMap((s) => s.episodes)
+    if (node.type === 'tv') parts.push(`${node.seasons.length} 季`, `${episodes.length} 集`)
+  } else if ('episodes' in node) {
+    episodes = node.episodes
+    parts.push(`${episodes.length} 集`)
+  } else {
+    episodes = [node]
+  }
+  const bindings = episodes.flatMap((e) => e.bindings)
+  const danmaku = bindings.reduce((n, b) => n + b.danmakuCount, 0)
+  parts.push(
+    bindings.length > 0
+      ? `${bindings.length} 个绑定（共 ${danmaku.toLocaleString()} 条弹幕）`
+      : '0 个绑定',
+  )
+  return `将一起删除 ${parts.join('、')}，无法恢复。`
+}
+
 /** 弹幕源比本集长多少秒，负数表示短；本集没有时长、或相差不到 3 秒时为 null，不必标出 */
 export function durationMismatch(source: number, episode: number | null) {
   if (episode === null) return null

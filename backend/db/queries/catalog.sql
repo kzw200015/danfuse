@@ -69,3 +69,21 @@ FROM episodes e
 JOIN seasons se ON se.id = e.season_id
 WHERE se.series_id = $1
 ORDER BY e.number;
+
+-- name: DeleteSeries :one
+-- 删除一部剧，季、集、绑定和弹幕随外键级联删除。带回它的海报 ID，由调用方在同一个事务里删掉这张图（先删剧、再删图）。
+-- 用 RETURNING 取，不先 SELECT：同步正在写这部剧时，删除等它的事务提交，再按最新的一行删除，取到的是同步刚换上的海报。
+-- 剧不存在时没有行。
+DELETE FROM series
+WHERE id = $1
+RETURNING poster_image_id;
+
+-- name: DeleteSeason :execrows
+-- 删除一季，集、绑定和弹幕随外键级联删除。
+DELETE FROM seasons
+WHERE id = $1;
+
+-- name: DeleteEpisode :execrows
+-- 删除一集，绑定和弹幕随外键级联删除。
+DELETE FROM episodes
+WHERE id = $1;

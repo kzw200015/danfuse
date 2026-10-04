@@ -9,6 +9,50 @@ import (
 	"context"
 )
 
+const deleteEpisode = `-- name: DeleteEpisode :execrows
+DELETE FROM episodes
+WHERE id = $1
+`
+
+// 删除一集，绑定和弹幕随外键级联删除。
+func (q *Queries) DeleteEpisode(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEpisode, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteSeason = `-- name: DeleteSeason :execrows
+DELETE FROM seasons
+WHERE id = $1
+`
+
+// 删除一季，集、绑定和弹幕随外键级联删除。
+func (q *Queries) DeleteSeason(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSeason, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteSeries = `-- name: DeleteSeries :one
+DELETE FROM series
+WHERE id = $1
+RETURNING poster_image_id
+`
+
+// 删除一部剧，季、集、绑定和弹幕随外键级联删除。带回它的海报 ID，由调用方在同一个事务里删掉这张图（先删剧、再删图）。
+// 用 RETURNING 取，不先 SELECT：同步正在写这部剧时，删除等它的事务提交，再按最新的一行删除，取到的是同步刚换上的海报。
+// 剧不存在时没有行。
+func (q *Queries) DeleteSeries(ctx context.Context, id int64) (*int64, error) {
+	row := q.db.QueryRow(ctx, deleteSeries, id)
+	var poster_image_id *int64
+	err := row.Scan(&poster_image_id)
+	return poster_image_id, err
+}
+
 const getSeries = `-- name: GetSeries :one
 SELECT id, type, title, original_title, year, created_at, updated_at, poster_image_id
 FROM series

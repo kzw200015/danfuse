@@ -1,6 +1,7 @@
-import type { Season, SeriesDetail } from '@/api/series'
+import { deleteSeason, type Season, type SeriesDetail } from '@/api/series'
 
-import { bindingStats, seasonName } from './catalog'
+import { bindingStats, catalogPath, seasonName } from './catalog'
+import DeleteButton from './DeleteButton'
 
 /** 右栏：选中整季、没选集时的季面板 */
 export default function SeasonPanel({ series, season }: { series: SeriesDetail; season: Season }) {
@@ -19,6 +20,14 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
           季 ID {season.id}
         </div>
       </div>
+      <DeleteButton
+        key={season.id}
+        label="删除这一季"
+        name={seasonName(season)}
+        target={season}
+        remove={() => deleteSeason(season.id)}
+        backTo={catalogPath(series.id)}
+      />
     </div>
   )
 }

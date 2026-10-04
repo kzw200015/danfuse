@@ -10,7 +10,14 @@ import {
   type Binding,
 } from '@/api/bindings'
 import { ApiError } from '@/api/request'
-import { getSeries, listSeries, type SeriesDetail } from '@/api/series'
+import {
+  deleteEpisode,
+  deleteSeason,
+  deleteSeries,
+  getSeries,
+  listSeries,
+  type SeriesDetail,
+} from '@/api/series'
 import { getSettings } from '@/api/settings'
 import { listSyncRuns } from '@/api/sync'
 import { seriesKeys } from '@/hooks/use-series'
@@ -130,6 +137,13 @@ afterEach(() => {
 const seasonNav = () => within(screen.getByRole('navigation', { name: '季' }))
 /** 标题为 title 的绑定卡片 */
 const card = async (title: string) => within(await screen.findByRole('article', { name: title }))
+/** 点删除剧、季或集的按钮，在确认框里确认 */
+async function confirmDelete(button: string) {
+  fireEvent.click(await screen.findByRole('button', { name: button }))
+  fireEvent.click(
+    within(await screen.findByRole('alertdialog')).getByRole('button', { name: '删除' }),
+  )
+}
 
 describe('CatalogView', () => {
   it('剧：默认选中第 1 季，右栏显示季面板', async () => {
@@ -540,4 +554,216 @@ describe('维护绑定', () => {
     expect(await screen.findByRole('heading', { name: '绑定（1）' })).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: '弹幕源 1' })).not.toBeInTheDocument()
   })
+})
+
+describe('删除剧、季、集', () => {
+  beforeEach(() => {
+    // 改动服务端的目录，之后重新加载时就看不到删掉的部分了
+    vi.mocked(deleteSeries).mockImplementation(async (id) => {
+      all = all.filter((s) => s.id !== id)
+      return null
+    })
+    vi.mocked(deleteSeason).mockImplementation(async (id) => {
+      for (const s of all) s.seasons = s.seasons.filter((se) => se.id !== id)
+      return null
+    })
+    vi.mocked(deleteEpisode).mockImplementation(async (id) => {
+      for (const se of all.flatMap((s) => s.seasons)) {
+        se.episodes = se.episodes.filter((e) => e.id !== id)
+      }
+      return null
+    })
+  })
+
+  it.each([
+    {
+      what: '集',
+      path: '/catalog/1/11/110',
+      button: '删除这一集',
+      title: '删除第 1 集？',
+      impact: '将一起删除 2 个绑定（共 1,234 条弹幕），无法恢复。',
+      remove: deleteEpisode,
+      id: 110,
+      done: '已删除第 1 集',
+      backTo: '/catalog/1/11',
+      gone: /启程/, // 集列表里的这一集
+    },
+    {
+      what: '季',
+      path: '/catalog/1/11',
+      button: '删除这一季',
+      title: '删除第 1 季？',
+      impact: '将一起删除 2 集、2 个绑定（共 1,234 条弹幕），无法恢复。',
+      remove: deleteSeason,
+      id: 11,
+      done: '已删除第 1 季',
+      backTo: '/catalog/1',
+      gone: 'S1', // 季切换上的这一季
+    },
+    {
+      what: '剧',
+      path: '/catalog/1/11/110',
+      button: '删除这部剧',
+      title: '删除「星海旅人」？',
+      impact: '将一起删除 2 季、3 集、2 个绑定（共 1,234 条弹幕），无法恢复。',
+      remove: deleteSeries,
+      id: 1,
+      done: '已删除「星海旅人」',
+      backTo: '/catalog',
+      gone: /星海旅人/, // 剧列表里的这部剧
+    },
+  ])(
+    '$button：确认框写明一起删掉多少和重新同步的后果，删除后 URL 退回上一级并重新加载',
+    async ({ path, button, title, impact, remove, id, done, backTo, gone }) => {
+      const { router } = renderRoutes(path)
+
+      fireEvent.click(await screen.findByRole('button', { name: button }))
+
+      const dialog = within(await screen.findByRole('alertdialog'))
+      expect(dialog.getByText(title)).toBeInTheDocument()
+      expect(dialog.getByText(impact)).toBeInTheDocument()
+      expect(
+        dialog.getByText(
+          '如果它在目录源里还在，之后的同步（包括正在进行的这次）会用新 ID 重新建出来，' +
+            '插件里缓存的旧 ID 会失效，需要在插件里重新搜一次。',
+        ),
+      ).toBeInTheDocument()
+      expect(remove).not.toHaveBeenCalled()
+
+      fireEvent.click(dialog.getByRole('button', { name: '删除' }))
+
+      await waitFor(() => expect(remove).toHaveBeenCalledWith(id))
+      expect(await screen.findByText(done)).toBeInTheDocument()
+      await waitFor(() => expect(router.state.location.pathname).toBe(backTo))
+      // 剧列表和剧详情重新加载，删掉的部分不见了
+      await waitFor(() =>
+        expect(screen.queryByRole('link', { name: gone })).not.toBeInTheDocument(),
+      )
+      expect(screen.queryByText(/找不到/)).not.toBeInTheDocument()
+    },
+  )
+
+  it('取消时不删除', async () => {
+    renderRoutes('/catalog/1/11')
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除这一季' }))
+    fireEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: '取消' }),
+    )
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(deleteSeason).not.toHaveBeenCalled()
+  })
+
+  it('电影只能整部删除', async () => {
+    renderRoutes('/catalog/2')
+
+    expect(await screen.findByRole('heading', { name: '正片' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '删除这部剧' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '删除这一集' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '删除这部剧' }))
+    expect(
+      within(await screen.findByRole('alertdialog')).getByText('将一起删除 0 个绑定，无法恢复。'),
+    ).toBeInTheDocument()
+  })
+
+  it('删除失败：提示显示在按钮下方，留在原地', async () => {
+    vi.mocked(deleteEpisode).mockRejectedValue(new ApiError('服务器内部错误', 1, 500))
+    const { router } = renderRoutes('/catalog/1/11/110')
+
+    const button = await screen.findByRole('button', { name: '删除这一集' })
+    fireEvent.click(button)
+    fireEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: '删除' }),
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('服务器内部错误')
+    expect(button.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(router.state.location.pathname).toBe('/catalog/1/11/110')
+
+    // 保留到手动关闭
+    fireEvent.click(within(alert).getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+  })
+
+  it('删除失败的提示不跟到别的集、季、剧上', async () => {
+    for (const remove of [deleteEpisode, deleteSeason, deleteSeries]) {
+      vi.mocked(remove).mockRejectedValue(new ApiError('服务器内部错误', 1, 500))
+    }
+    renderRoutes('/catalog/1/11/110')
+
+    await confirmDelete('删除这一集')
+    expect(await screen.findByRole('alert')).toHaveTextContent('服务器内部错误')
+    fireEvent.click(screen.getByRole('link', { name: /^2/ }))
+    expect(await screen.findByRole('heading', { name: '第 2 集' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('查看整季'))
+    await confirmDelete('删除这一季')
+    expect(await screen.findByRole('alert')).toHaveTextContent('服务器内部错误')
+    fireEvent.click(seasonNav().getByRole('link', { name: '特别篇' }))
+    expect(await screen.findByRole('heading', { name: '第 0 季（特别篇）' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await confirmDelete('删除这部剧')
+    expect(await screen.findByRole('alert')).toHaveTextContent('服务器内部错误')
+    fireEvent.click(
+      within(screen.getByRole('complementary')).getByRole('link', { name: /长夜灯塔/ }),
+    )
+    expect(await screen.findByRole('heading', { name: '正片' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('删除进行中切到了别的集：提示写删掉的那一集，留在新的这一集', async () => {
+    let finish!: () => void
+    vi.mocked(deleteEpisode).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => {
+            all[0]!.seasons[1]!.episodes.shift()
+            resolve(null)
+          }
+        }),
+    )
+    const { router } = renderRoutes('/catalog/1/11/110')
+
+    await confirmDelete('删除这一集')
+    await waitFor(() => expect(deleteEpisode).toHaveBeenCalledWith(110))
+    fireEvent.click(screen.getByRole('link', { name: /^2/ }))
+    expect(await screen.findByRole('heading', { name: '第 2 集' })).toBeInTheDocument()
+
+    act(() => finish())
+
+    expect(await screen.findByText('已删除第 1 集')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: /启程/ })).not.toBeInTheDocument(),
+    )
+    expect(router.state.location.pathname).toBe('/catalog/1/11/111')
+    expect(screen.getByRole('button', { name: '删除这一集' })).toBeEnabled()
+  })
+
+  it.each([
+    ['/catalog/1/11/110', '删除这一集', deleteEpisode, '集不存在', '找不到这一集', '返回第 1 季'],
+    ['/catalog/1/11', '删除这一季', deleteSeason, '季不存在', '找不到这一季', '返回星海旅人'],
+    ['/catalog/1', '删除这部剧', deleteSeries, '剧不存在', '找不到这部剧', '返回目录'],
+  ])(
+    '%s 已经在别处删掉了：返回 404 时重新加载，显示找不到和返回上一级的链接',
+    async (path, button, remove, message, notFound, back) => {
+      // 删除请求到达之前，服务端的目录里已经没有它了
+      const deleteElsewhere = vi.mocked(remove).getMockImplementation()!
+      vi.mocked(remove).mockImplementation(async (id) => {
+        await deleteElsewhere(id)
+        throw new ApiError(message, 1, 404)
+      })
+      const { router } = renderRoutes(path)
+
+      await confirmDelete(button)
+
+      expect(await screen.findByText(new RegExp(notFound))).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: back })).toBeInTheDocument()
+      expect(router.state.location.pathname).toBe(path)
+    },
+  )
 })

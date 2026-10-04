@@ -1,10 +1,11 @@
-import type { Episode, Season, SeriesDetail } from '@/api/series'
+import { deleteEpisode, type Episode, type Season, type SeriesDetail } from '@/api/series'
 
 import AddBindingForm from './AddBindingForm'
 import BindingCard from './BindingCard'
-import { formatDuration, seasonName } from './catalog'
+import { catalogPath, formatDuration, seasonName } from './catalog'
+import DeleteButton from './DeleteButton'
 
-/** 右栏：选中一集时的集面板。电影的唯一一集标题为"正片"，路径里不写季 */
+/** 右栏：选中一集时的集面板。电影的唯一一集标题为"正片"，路径里不写季；电影只能整部删除，没有"删除这一集" */
 export default function EpisodePanel({
   series,
   season,
@@ -45,6 +46,20 @@ export default function EpisodePanel({
           </p>
         )}
       </section>
+
+      {!movie && (
+        <div className="border-t pt-4">
+          {/* 换一集时重新挂载，上一集删除失败的提示、进行中的删除不带过来 */}
+          <DeleteButton
+            key={episode.id}
+            label="删除这一集"
+            name={`第 ${episode.number} 集`}
+            target={episode}
+            remove={() => deleteEpisode(episode.id)}
+            backTo={catalogPath(series.id, season.id)}
+          />
+        </div>
+      )}
     </div>
   )
 }

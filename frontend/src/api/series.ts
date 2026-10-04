@@ -61,3 +61,18 @@ export function listSeries() {
 export function getSeries(id: number) {
   return request<SeriesDetail>({ url: `/series/${id}` })
 }
+
+/** 删除一部剧，它的季、集、绑定、弹幕和海报一起删除 */
+export function deleteSeries(id: number) {
+  return request<null>({ url: `/series/${id}`, method: 'DELETE' })
+}
+
+/** 删除一季，它的集、绑定和弹幕一起删除 */
+export function deleteSeason(id: number) {
+  return request<null>({ url: `/seasons/${id}`, method: 'DELETE' })
+}
+
+/** 删除一集，它的绑定和弹幕一起删除 */
+export function deleteEpisode(id: number) {
+  return request<null>({ url: `/episodes/${id}`, method: 'DELETE' })
+}

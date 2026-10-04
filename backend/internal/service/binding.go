@@ -20,7 +20,6 @@ import (
 const fetchTimeout = 25 * time.Second
 
 var (
-	errEpisodeNotFound = errcode.ErrNotFound.WithMessage("集不存在")
 	errEpisodeDeleted  = errcode.ErrNotFound.WithMessage("这一集已被删除")
 	errBindingExists   = errcode.ErrConflict.WithMessage("这一集已经绑定过这个来源")
 	errBindingNotFound = errcode.ErrNotFound.WithMessage("绑定不存在")

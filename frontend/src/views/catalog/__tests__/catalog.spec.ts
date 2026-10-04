@@ -5,6 +5,7 @@ import type { Episode, Season, SeriesDetail, SeriesSummary } from '@/api/series'
 import {
   bindingStats,
   defaultSeason,
+  deletionImpact,
   durationMismatch,
   filterSeries,
   formatDuration,
@@ -171,6 +172,47 @@ describe('bindingStats', () => {
     ],
   ])('%s', (_, episodes, want) => {
     expect(bindingStats(episodes)).toEqual(want)
+  })
+})
+
+describe('deletionImpact', () => {
+  /** 一集，各绑定的弹幕条数按给出的数 */
+  function episode(id: number, ...danmakuCounts: number[]): Episode {
+    return {
+      ...season(1, 1, [id]).episodes[0]!,
+      bindings: danmakuCounts.map((danmakuCount, i) => ({ id: i, danmakuCount }) as Binding),
+    }
+  }
+  const s1: Season = { ...season(11, 1), episodes: [episode(110, 1234, 0), episode(111)] }
+  const s2: Season = { ...season(12, 2), episodes: [episode(120, 5000)] }
+  const tv: SeriesDetail = {
+    id: 1,
+    type: 'tv',
+    title: '星海旅人',
+    originalTitle: null,
+    year: 2019,
+    posterImageId: null,
+    seasons: [season(10, 0), s1, s2],
+  }
+
+  it.each([
+    [
+      '剧：季数、集数（没有集的季也算）',
+      tv,
+      '将一起删除 3 季、3 集、3 个绑定（共 6,234 条弹幕），无法恢复。',
+    ],
+    [
+      '电影：界面上没有季和集，只写绑定',
+      { ...tv, type: 'movie', seasons: [s2] } satisfies SeriesDetail,
+      '将一起删除 1 个绑定（共 5,000 条弹幕），无法恢复。',
+    ],
+    ['没有季的剧', { ...tv, seasons: [] }, '将一起删除 0 季、0 集、0 个绑定，无法恢复。'],
+    ['季：集数', s1, '将一起删除 2 集、2 个绑定（共 1,234 条弹幕），无法恢复。'],
+    ['没有集的季', season(10, 0), '将一起删除 0 集、0 个绑定，无法恢复。'],
+    ['集', s1.episodes[0]!, '将一起删除 2 个绑定（共 1,234 条弹幕），无法恢复。'],
+    ['没有绑定的集', s1.episodes[1]!, '将一起删除 0 个绑定，无法恢复。'],
+  ])('%s', (_, node, want) => {
+    expect(deletionImpact(node)).toBe(want)
   })
 })
 

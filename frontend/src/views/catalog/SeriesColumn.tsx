@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 
-import type { Episode, SeriesDetail } from '@/api/series'
+import { deleteSeries, type Episode, type SeriesDetail } from '@/api/series'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -13,6 +13,7 @@ import {
   seriesMeta,
   type Selection,
 } from './catalog'
+import DeleteButton from './DeleteButton'
 import { Hint, Poster, scrollIntoView } from './shared'
 
 /** 中栏：选中的剧，以及它的季切换、季标题行和集列表。电影只有一集，不显示季切换和集列表 */
@@ -34,6 +35,15 @@ export default function SeriesColumn({
             <div className="truncate text-xs text-muted-foreground">{series.originalTitle}</div>
           )}
           <div className="text-xs text-muted-foreground">{seriesMeta(series)}</div>
+          <DeleteButton
+            key={series.id}
+            className="mt-1 -ml-2.5"
+            label="删除这部剧"
+            name={`「${series.title}」`}
+            target={series}
+            remove={() => deleteSeries(series.id)}
+            backTo={catalogPath()}
+          />
         </div>
       </div>
 

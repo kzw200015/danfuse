@@ -16,9 +16,17 @@ type Querier interface {
 	DeleteBinding(ctx context.Context, id int64) (int64, error)
 	// 清空后重新拉取：在写入这次结果的同一个事务里，先删掉这个绑定的全部弹幕。
 	DeleteDanmaku(ctx context.Context, bindingID int64) error
+	// 删除一集，绑定和弹幕随外键级联删除。
+	DeleteEpisode(ctx context.Context, id int64) (int64, error)
 	DeleteImage(ctx context.Context, id int64) error
 	// 只保留最近 keep 次：新同步开始时先删到剩 19 次，再插入这一次。
 	DeleteOldSyncRuns(ctx context.Context, keep int32) error
+	// 删除一季，集、绑定和弹幕随外键级联删除。
+	DeleteSeason(ctx context.Context, id int64) (int64, error)
+	// 删除一部剧，季、集、绑定和弹幕随外键级联删除。带回它的海报 ID，由调用方在同一个事务里删掉这张图（先删剧、再删图）。
+	// 用 RETURNING 取，不先 SELECT：同步正在写这部剧时，删除等它的事务提交，再按最新的一行删除，取到的是同步刚换上的海报。
+	// 剧不存在时没有行。
+	DeleteSeries(ctx context.Context, id int64) (*int64, error)
 	// 创建绑定前确认这一集存在，拉取之前就能返回 404。
 	EpisodeExists(ctx context.Context, id int64) (bool, error)
 	// 重新拉取之前取出适配器和 ref。
