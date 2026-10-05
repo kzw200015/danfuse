@@ -21,9 +21,6 @@ const (
 	followRefetchWindow = 14 * 24 * time.Hour // 自动重新拉取的窗口：绑定建出后 14 天
 )
 
-// internalErrorMessage 补建遇到服务器内部错误时记在季绑定、条目上的原因，完整的错误进日志。
-const internalErrorMessage = "服务器内部错误，详见日志"
-
 var (
 	// errSeasonBindingGone 补建期间季绑定被删除：这一轮随即结束，什么都不再写。
 	errSeasonBindingGone = errors.New("season binding deleted")
@@ -355,7 +352,7 @@ func (s *SeasonBindingService) setItemError(ctx context.Context, id int64, ref [
 }
 
 // refetchRecent 追更开着时（不论这一轮由什么触发），按上次拉取时间从早到晚重新拉取这个季绑定建出的、建出不到 14 天、
-// 距上次拉取已满 24 小时的绑定，复用 BindingService.Refetch 的只增不删模式：NotFound 照旧标为失效，限流结束这一轮。
+// 距上次拉取已满 24 小时的绑定，复用 BindingService.refetch 的只增不删模式：NotFound 照旧标为失效，限流结束这一轮。
 // 是否满 24 小时在拉取每个绑定之前按当时的时间判断，前面的绑定拉取期间到期的也接着拉取。
 func (s *SeasonBindingService) refetchRecent(ctx context.Context, r *backfillRound) error {
 	candidates, err := s.store.ListRecentBackfilledBindings(ctx, repository.ListRecentBackfilledBindingsParams{
@@ -375,7 +372,7 @@ func (s *SeasonBindingService) refetchRecent(ctx context.Context, r *backfillRou
 		if !sb.Follow {
 			return nil
 		}
-		_, _, err = s.bindings.Refetch(ctx, c.ID, false)
+		_, _, err = s.bindings.refetch(ctx, c.ID, false)
 		switch srcErr, _ := errors.AsType[*source.Error](err); {
 		case err == nil:
 			r.refetched++

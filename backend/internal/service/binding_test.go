@@ -19,7 +19,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
@@ -202,12 +202,24 @@ func assertNothingWritten(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// assertAppError err 是给定状态码与提示的 *errcode.Error。
+// assertAppError err 是给定状态码与提示的 *apierr.Error。
 func assertAppError(t *testing.T, err error, status int, message string) {
 	t.Helper()
-	appErr, ok := errors.AsType[*errcode.Error](err)
+	appErr, ok := errors.AsType[*apierr.Error](err)
 	if !ok || appErr.HTTPStatus != status || appErr.Message != message {
 		t.Errorf("err = %v, want %d %q", err, status, message)
+	}
+}
+
+// assertSourceCause adapterErr 是 *source.Error 时，err 带着它的底层原因（只进日志），错误文本里提示只出现一次。
+func assertSourceCause(t *testing.T, err, adapterErr error) {
+	t.Helper()
+	srcErr, ok := errors.AsType[*source.Error](adapterErr)
+	if !ok {
+		return
+	}
+	if !errors.Is(err, srcErr.Err) || strings.Count(err.Error(), srcErr.Message) != 1 {
+		t.Errorf("err = %v, want 带着底层原因 %v、提示只出现一次", err, srcErr.Err)
 	}
 }
 
@@ -328,9 +340,7 @@ func TestCreateBindingFailed(t *testing.T) {
 			_, err := svc.Create(t.Context(), tt.episodeID, tt.link)
 
 			assertAppError(t, err, tt.wantStatus, tt.wantMessage)
-			if tt.err != nil && !errors.Is(err, tt.err) {
-				t.Errorf("err = %v, want 带着适配器的错误（底层原因进日志）", err)
-			}
+			assertSourceCause(t, err, tt.err)
 			if n := adapter.fetches.Load(); n != tt.wantFetches {
 				t.Errorf("拉取了 %d 次，want %d", n, tt.wantFetches)
 			}
@@ -642,9 +652,7 @@ func TestRefetchFailed(t *testing.T) {
 				_, _, err := svc.Refetch(t.Context(), tt.id, replace)
 
 				assertAppError(t, err, tt.wantStatus, tt.wantMessage)
-				if tt.err != nil && !errors.Is(err, tt.err) {
-					t.Errorf("err = %v, want 带着适配器的错误（底层原因进日志）", err)
-				}
+				assertSourceCause(t, err, tt.err)
 				if n := adapter.fetches.Load(); n != tt.wantFetches {
 					t.Errorf("拉取了 %d 次，want %d", n, tt.wantFetches)
 				}

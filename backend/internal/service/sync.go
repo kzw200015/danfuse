@@ -14,7 +14,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 )
 
@@ -38,9 +38,9 @@ const (
 )
 
 var (
-	errSyncRunning     = errcode.ErrConflict.WithMessage("同步正在进行")
-	errNoCatalogSource = errcode.ErrConflict.WithMessage("未配置目录源")
-	errSyncRunNotFound = errcode.ErrNotFound.WithMessage("同步记录不存在")
+	errSyncRunning     = apierr.ErrConflict.WithMessage("同步正在进行")
+	errNoCatalogSource = apierr.ErrConflict.WithMessage("未配置目录源")
+	errSyncRunNotFound = apierr.ErrNotFound.WithMessage("同步记录不存在")
 )
 
 // SyncService 同步：触发、定时、互斥、同步核心（按剧写入目录）、同步记录。
@@ -234,7 +234,7 @@ func (s *SyncService) createRun(ctx context.Context, trigger string) (int64, err
 	return runID, nil
 }
 
-// execute 执行一次同步并写入最终状态：目录源或数据库出错记为 failed 并写明原因，已提交的部分保留，不自动重试；
+// execute 执行一次同步并写入最终状态：目录源或数据库出错记为 failed 并写明原因（见 failureReason），已提交的部分保留，不自动重试；
 // ctx 取消（关闭服务、租约丢失）记为 interrupted。最终状态用 context.WithoutCancel 加超时写入，ctx 取消后也能写完。
 func (s *SyncService) execute(ctx context.Context, runID int64) {
 	logger := s.logger.With("sync_run", runID)
@@ -250,8 +250,7 @@ func (s *SyncService) execute(ctx context.Context, runID int64) {
 		status = statusInterrupted
 	default:
 		status = statusFailed
-		msg := err.Error()
-		reason = &msg
+		reason = new(failureReason(err))
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saveResultTimeout)
 	defer cancel()
@@ -274,6 +273,15 @@ func (s *SyncService) execute(ctx context.Context, runID int64) {
 		attrs = append(attrs, "error", err)
 	}
 	logger.Log(ctx, level, "sync finished", attrs...)
+}
+
+// failureReason 同步页上显示的失败原因：目录源的错误用适配写的提示，其他错误（写库失败等）不展示细节。
+// 完整的错误由 execute 记进 "sync finished" 日志。
+func failureReason(err error) string {
+	if catalogErr, ok := errors.AsType[*catalog.Error](err); ok {
+		return catalogErr.Message
+	}
+	return internalErrorMessage
 }
 
 // syncRun 一次同步的进度，对应 sync_runs 的一行。

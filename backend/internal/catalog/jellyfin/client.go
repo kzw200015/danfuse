@@ -110,13 +110,13 @@ func (c *client) primaryImage(ctx context.Context, itemID string) (*catalog.Imag
 	contentType := resp.Header.Get("Content-Type")
 	switch mediaType, _, _ := mime.ParseMediaType(contentType); {
 	case !strings.HasPrefix(mediaType, "image/"):
-		return nil, fmt.Errorf("GET %s: 响应不是图片（Content-Type: %s）", path, contentType)
+		return nil, &catalog.Error{Message: fmt.Sprintf("响应不是图片（Content-Type: %s）", contentType)}
 	case mediaType == "image/svg+xml":
-		return nil, fmt.Errorf("GET %s: 不接受 SVG 格式的海报", path)
+		return nil, &catalog.Error{Message: "不接受 SVG 格式的海报"}
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: read response: %w", path, err)
+		return nil, transportError("读取 Jellyfin 的响应失败", fmt.Errorf("GET %s: read response: %w", path, err))
 	}
 	return &catalog.Image{ContentType: contentType, Data: data}, nil
 }
@@ -132,12 +132,13 @@ func (c *client) getJSON(ctx context.Context, path string, query url.Values, out
 	}
 	defer resp.Body.Close()
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("GET %s: decode response: %w", path, err)
+		return transportError("Jellyfin 的响应无法解析", fmt.Errorf("GET %s: decode response: %w", path, err))
 	}
 	return nil
 }
 
 // get 发一个 GET，accept 为空时不发 Accept 请求头；状态码不是 200 时返回错误，否则由调用方关闭响应体。
+// 错误都是 *catalog.Error：提示说明 Jellyfin 怎么了，底层原因只带路径，不带完整的 URL 与查询串。
 func (c *client) get(ctx context.Context, path string, query url.Values, accept string) (*http.Response, error) {
 	target := c.baseURL + path
 	if len(query) > 0 {
@@ -145,7 +146,7 @@ func (c *client) get(ctx context.Context, path string, query url.Values, accept 
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", path, err)
+		return nil, &catalog.Error{Message: "请求 Jellyfin 失败", Err: fmt.Errorf("GET %s: %w", path, err)}
 	}
 	req.Header.Set("Authorization", `MediaBrowser Token="`+c.apiKey+`"`)
 	if accept != "" {
@@ -154,15 +155,31 @@ func (c *client) get(ctx context.Context, path string, query url.Values, accept 
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		// 失败原因会显示在同步页上：只留路径和底层原因，不带完整的 URL 与查询串
 		if urlErr, ok := errors.AsType[*url.Error](err); ok {
 			err = urlErr.Err
 		}
-		return nil, fmt.Errorf("GET %s: %w", path, err)
+		return nil, transportError("无法连接 Jellyfin", fmt.Errorf("GET %s: %w", path, err))
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("GET %s: %s", path, resp.Status)
+		return nil, &catalog.Error{Message: statusMessage(resp.StatusCode), Err: fmt.Errorf("GET %s: %s", path, resp.Status)}
 	}
 	return resp, nil
+}
+
+// transportError 请求或读取响应时出的错：超时（单个请求的时限，见 listTimeout、posterTimeout）提示"请求 Jellyfin 超时"，
+// 其余用 message。ctx 被取消（关闭服务）时同步记为中断，不显示失败原因。
+func transportError(message string, err error) *catalog.Error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		message = "请求 Jellyfin 超时"
+	}
+	return &catalog.Error{Message: message, Err: err}
+}
+
+// statusMessage 状态码不是 200 时的提示：401、403 多半是 API Key 不对或权限不够，其余带上状态码。
+func statusMessage(status int) string {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return fmt.Sprintf("Jellyfin 拒绝了请求，请检查 API Key（HTTP %d）", status)
+	}
+	return fmt.Sprintf("Jellyfin 返回 HTTP %d", status)
 }

@@ -2,11 +2,13 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -14,7 +16,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 )
 
 func TestErrorHandlerLogsServerErrors(t *testing.T) {
@@ -31,10 +33,10 @@ func TestErrorHandlerLogsServerErrors(t *testing.T) {
 		wantError  string // 日志里错误链应包含的内容，为空表示不记日志
 	}{
 		{"未知错误", fail(fmt.Errorf("list items: %w", cause)), "/items/42", http.StatusInternalServerError, "list items: connection refused"},
-		{"带底层原因的 5xx", fail(errcode.ErrBadGateway.WithMessage("上游超时").Wrap(cause)), "/items/42", http.StatusBadGateway, "上游超时: connection refused"},
+		{"带底层原因的 5xx", fail(apierr.ErrBadGateway.WithMessage("上游超时").Wrap(cause)), "/items/42", http.StatusBadGateway, "上游超时: connection refused"},
 		{"panic", func(*echo.Context) error { panic("boom") }, "/items/42", http.StatusInternalServerError, "boom"},
-		{"4xx 不记录", fail(errcode.ErrNotFound.WithMessage("条目不存在")), "/items/42", http.StatusNotFound, ""},
-		{"参数错误不记录", fail(errcode.ErrBadRequest), "/items/42", http.StatusBadRequest, ""},
+		{"4xx 不记录", fail(apierr.ErrNotFound.WithMessage("条目不存在")), "/items/42", http.StatusNotFound, ""},
+		{"参数错误不记录", fail(apierr.ErrBadRequest), "/items/42", http.StatusBadRequest, ""},
 		{"路由不存在不记录", fail(nil), "/api/missing", http.StatusNotFound, ""},
 	}
 	for _, tt := range tests {
@@ -81,5 +83,32 @@ func TestErrorHandlerLogsServerErrors(t *testing.T) {
 				t.Errorf("error = %q, want containing %q", entry.Error, tt.wantError)
 			}
 		})
+	}
+}
+
+// TestErrorHandlerClientGone 客户端断开（请求的 ctx 已取消）时出的 5xx 不算服务端故障：记 info 级别的 "request canceled"。
+func TestErrorHandlerClientGone(t *testing.T) {
+	var logs bytes.Buffer
+	srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.NewJSONHandler(&logs, nil)), &handler.Handlers{Health: handler.NewHealthHandler(nil)}, nil)
+	srv.echo.GET("/items/:id", func(c *echo.Context) error {
+		return fmt.Errorf("list items: %w", c.Request().Context().Err())
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/items/42", nil)
+
+	srv.echo.ServeHTTP(httptest.NewRecorder(), req)
+
+	var entry struct {
+		Level string `json:"level"`
+		Msg   string `json:"msg"`
+		Route string `json:"route"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatalf("应恰好记录一条日志：%v\n%s", err, logs.String())
+	}
+	if entry.Level != "INFO" || entry.Msg != "request canceled" || entry.Route != "/items/:id" || entry.Error != "list items: context canceled" {
+		t.Errorf("日志 = %s, want INFO request canceled，路由与错误链照常记录", logs.String())
 	}
 }

@@ -8,16 +8,16 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 var (
-	errSeriesNotFound  = errcode.ErrNotFound.WithMessage("剧不存在")
-	errSeasonNotFound  = errcode.ErrNotFound.WithMessage("季不存在")
-	errEpisodeNotFound = errcode.ErrNotFound.WithMessage("集不存在")
-	errImageNotFound   = errcode.ErrNotFound.WithMessage("图片不存在")
+	errSeriesNotFound  = apierr.ErrNotFound.WithMessage("剧不存在")
+	errSeasonNotFound  = apierr.ErrNotFound.WithMessage("季不存在")
+	errEpisodeNotFound = apierr.ErrNotFound.WithMessage("集不存在")
+	errImageNotFound   = apierr.ErrNotFound.WithMessage("图片不存在")
 )
 
 // CatalogService 管理界面浏览目录，以及手动删除剧、季、集。

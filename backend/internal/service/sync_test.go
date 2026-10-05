@@ -15,7 +15,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/provider"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 )
@@ -196,7 +196,7 @@ func TestSyncPoster(t *testing.T) {
 		}
 		return img.ContentType + "|" + string(img.Data)
 	}
-	errDownload := errors.New("GET /Items/x/Images/Primary: 500 Internal Server Error")
+	errDownload := &catalog.Error{Message: "Jellyfin 返回 HTTP 500", Err: errors.New("GET /Items/x/Images/Primary: 500 Internal Server Error")}
 	tests := []struct {
 		name         string
 		before       *catalog.Image // 第一次同步时目录源给的海报
@@ -234,7 +234,7 @@ func TestSyncPoster(t *testing.T) {
 			posterErr:    errDownload,
 			wantText:     "image/png|海报",
 			wantSameID:   true,
-			wantWarnings: []string{"甲：下载海报失败：GET /Items/x/Images/Primary: 500 Internal Server Error"},
+			wantWarnings: []string{"甲：下载海报失败：Jellyfin 返回 HTTP 500"}, // 只有适配写的提示，底层原因进日志
 		},
 	}
 	for _, tt := range tests {
@@ -356,7 +356,7 @@ func TestSyncKeepsLatest20Runs(t *testing.T) {
 		if !slices.Equal(ids, want) {
 			t.Errorf("同步记录 = %v, want %v", ids, want)
 		}
-		if _, err := svc.GetRun(t.Context(), 5); !errors.Is(err, errcode.ErrNotFound) {
+		if _, err := svc.GetRun(t.Context(), 5); !errors.Is(err, apierr.ErrNotFound) {
 			t.Errorf("第 20 次以前的记录应被删掉，GetRun(5) error = %v", err)
 		}
 	})
@@ -379,9 +379,9 @@ func TestSyncFailures(t *testing.T) {
 	}{
 		{
 			name:       "列清单失败",
-			src:        &fakeCatalog{listErr: errors.New("配置的媒体库都不可用：找不到媒体库「番剧」，已跳过")},
+			src:        &fakeCatalog{listErr: &catalog.Error{Message: "配置的媒体库都不可用：找不到媒体库「番剧」"}},
 			wantCounts: "failed -/0 新增剧 0 季 0 集 0",
-			wantError:  "配置的媒体库都不可用：找不到媒体库「番剧」，已跳过",
+			wantError:  "配置的媒体库都不可用：找不到媒体库「番剧」",
 		},
 		{
 			name:       "中途请求失败",
@@ -395,7 +395,7 @@ func TestSyncFailures(t *testing.T) {
 			src:        &fakeCatalog{items: items},
 			setup:      "ALTER TABLE episodes ADD CONSTRAINT short_episode CHECK (duration < 100)",
 			wantCounts: "failed 3/1 新增剧 1 季 1 集 1",
-			wantError:  "写入「乙」失败：",
+			wantError:  "服务器内部错误，详见日志", // 写库的错误不展示细节，完整的错误进日志
 			wantSeries: []string{"甲"},
 		},
 	}
@@ -415,7 +415,7 @@ func TestSyncFailures(t *testing.T) {
 				if got := runCounts(run); got != tt.wantCounts {
 					t.Errorf("%s, want %s", got, tt.wantCounts)
 				}
-				if run.Error == nil || !strings.HasPrefix(*run.Error, tt.wantError) {
+				if run.Error == nil || *run.Error != tt.wantError {
 					t.Errorf("失败原因 = %v, want %q", run.Error, tt.wantError)
 				}
 				if run.FinishedAt == nil {
@@ -517,7 +517,7 @@ func TestTriggerRejected(t *testing.T) {
 			stop() // Run 已返回：不再等它接收触发
 
 			_, err := svc.Trigger(t.Context())
-			if appErr, ok := errors.AsType[*errcode.Error](err); !ok || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Message != "服务正在关闭" {
+			if appErr, ok := errors.AsType[*apierr.Error](err); !ok || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Message != "服务正在关闭" {
 				t.Errorf("Trigger() error = %v, want 503 服务正在关闭", err)
 			}
 		})

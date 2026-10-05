@@ -9,6 +9,7 @@ package jellyfin
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"slices"
@@ -40,11 +41,11 @@ func New(cfg config.Jellyfin) *Source {
 func (s *Source) List(ctx context.Context) (catalog.Listing, error) {
 	folders, err := s.client.virtualFolders(ctx)
 	if err != nil {
-		return catalog.Listing{}, fmt.Errorf("列出媒体库失败：%w", err)
+		return catalog.Listing{}, failed("列出媒体库失败", err)
 	}
 	libraries, skipped := pickLibraries(s.libraries, folders)
 	if len(libraries) == 0 {
-		return catalog.Listing{}, fmt.Errorf("配置的媒体库都不可用：%s", strings.Join(skipped, "；"))
+		return catalog.Listing{}, &catalog.Error{Message: "配置的媒体库都不可用：" + strings.Join(skipped, "；")}
 	}
 	warnings := make([]string, len(skipped))
 	for i, reason := range skipped {
@@ -55,7 +56,7 @@ func (s *Source) List(ctx context.Context) (catalog.Listing, error) {
 	for _, lib := range libraries {
 		items, err := s.client.listItems(ctx, lib.ItemID, typeSeries+","+typeMovie, "OriginalTitle")
 		if err != nil {
-			return catalog.Listing{}, fmt.Errorf("列出媒体库「%s」的剧和电影失败：%w", lib.Name, err)
+			return catalog.Listing{}, failed(fmt.Sprintf("列出媒体库「%s」的剧和电影失败", lib.Name), err)
 		}
 		slices.SortFunc(items, byID)
 		listed = append(listed, items...)
@@ -92,7 +93,7 @@ func (s *Source) items(ctx context.Context, listed []item) iter.Seq2[catalog.Ite
 			} else {
 				children, err := s.client.listItems(ctx, it.ID, typeSeason+","+typeEpisode)
 				if err != nil {
-					yield(catalog.Item{}, fmt.Errorf("取「%s」的季和集失败：%w", displayName(it), err))
+					yield(catalog.Item{}, failed(fmt.Sprintf("取「%s」的季和集失败", displayName(it)), err))
 					return
 				}
 				result = mapSeries(it, children)
@@ -105,6 +106,14 @@ func (s *Source) items(ctx context.Context, listed []item) iter.Seq2[catalog.Ite
 			}
 		}
 	}
+}
+
+// failed 给 client 返回的错误加上在做什么，例如"列出媒体库失败：无法连接 Jellyfin"；底层原因不变。
+func failed(what string, err error) *catalog.Error {
+	if e, ok := errors.AsType[*catalog.Error](err); ok {
+		return &catalog.Error{Message: what + "：" + e.Message, Err: e.Err}
+	}
+	return &catalog.Error{Message: what, Err: err}
 }
 
 // byID 按 Jellyfin Id 排序，处理顺序因此固定：同一个自然键出现多次时，后写的覆盖先写的，每次结果相同。

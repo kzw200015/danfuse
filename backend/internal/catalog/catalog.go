@@ -27,9 +27,26 @@ const (
 // Source 目录源适配。
 type Source interface {
 	// List 列出配置的所有媒体库里要同步的剧，只列清单，不取季和集。
-	// 配置的媒体库都不可用、或请求失败时返回 error，这次同步失败。
+	// 配置的媒体库都不可用、或请求失败时返回 *Error，这次同步失败。
 	List(ctx context.Context) (Listing, error)
 }
+
+// Error 目录源适配返回的错误（List、Items 产出的错误和 Series.PosterErr）。Message 是同步页上显示的提示，
+// 由适配写，因为提示与目录源有关（例如"列出媒体库失败：无法连接 Jellyfin"），带上管理员能自己排查的信息
+// （HTTP 状态码、出错的媒体库或剧）；Err 是底层原因（请求的路径、系统错误等），只进日志。调用方用 errors.AsType 取出。
+type Error struct {
+	Message string
+	Err     error
+}
+
+func (e *Error) Error() string {
+	if e.Err != nil {
+		return e.Message + ": " + e.Err.Error()
+	}
+	return e.Message
+}
+
+func (e *Error) Unwrap() error { return e.Err }
 
 // Listing 一次 List 的结果。
 type Listing struct {
@@ -38,7 +55,7 @@ type Listing struct {
 	// Items 按固定顺序逐部取季和集，每部列出的剧恰好产出一项（被跳过的也算），所以进度一定能走满。
 	//   - 只在调用方要下一项时才发请求，所以每部剧的网络请求都在调用方的事务之外；ctx 沿用 List 的；
 	//   - 调用方 break 时适配器立即停止，不再请求；
-	//   - 请求失败时产出 (Item{}, err) 后结束，这次同步失败。
+	//   - 请求失败时产出 (Item{}, *Error) 后结束，这次同步失败。
 	Items iter.Seq2[Item, error]
 }
 
@@ -55,7 +72,7 @@ type Item struct {
 // 海报有三种状态，决定核心怎么处理，属于数据，不放进 Item.Warnings：
 //   - Poster 不为 nil：有图，与现有海报的 sha256 不同时换图；
 //   - Poster 与 PosterErr 都为 nil：目录源里没有图，清空这部剧的海报；
-//   - PosterErr 不为 nil：下载失败，保留现有海报并记警告。
+//   - PosterErr 不为 nil：下载失败（*Error），保留现有海报并记警告。
 type Series struct {
 	Type          SeriesType
 	Title         string

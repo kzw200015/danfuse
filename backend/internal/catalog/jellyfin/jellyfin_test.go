@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"net/http"
@@ -299,7 +300,7 @@ func TestListFails(t *testing.T) {
 		libraries []string
 		samples   map[string]string
 		failOn    string
-		wantErr   string
+		wantErr   string // *catalog.Error 的提示
 	}{
 		{
 			name:      "配置的媒体库都不可用",
@@ -311,14 +312,14 @@ func TestListFails(t *testing.T) {
 			name:      "列出媒体库失败",
 			libraries: []string{"番剧"},
 			failOn:    "virtual-folders.json",
-			wantErr:   "列出媒体库失败：GET /Library/VirtualFolders: 500 Internal Server Error",
+			wantErr:   "列出媒体库失败：Jellyfin 返回 HTTP 500",
 		},
 		{
 			name:      "列出剧失败",
 			libraries: []string{"番剧"},
 			samples:   map[string]string{"virtual-folders.json": folders},
 			failOn:    "items-lib1.json",
-			wantErr:   "列出媒体库「番剧」的剧和电影失败：GET /Items: 500 Internal Server Error",
+			wantErr:   "列出媒体库「番剧」的剧和电影失败：Jellyfin 返回 HTTP 500",
 		},
 	}
 	for _, tt := range tests {
@@ -327,24 +328,51 @@ func TestListFails(t *testing.T) {
 			fake.failRequest(tt.failOn)
 
 			_, err := fake.source(tt.libraries...).List(t.Context())
-			if err == nil || err.Error() != tt.wantErr {
-				t.Errorf("List() error = %v, want %q", err, tt.wantErr)
+			if got := message(t, err); got != tt.wantErr {
+				t.Errorf("List() 的提示 = %q, want %q", got, tt.wantErr)
 			}
 		})
 	}
 }
 
-// TestListUnreachable 连不上 Jellyfin：失败原因与状态码错误同样格式，只有路径和底层原因，不带 URL 与查询串。
+// TestListUnreachable 连不上 Jellyfin：提示"无法连接 Jellyfin"；底层原因与状态码错误同样格式，只有路径和系统错误，不带 URL 与查询串。
 func TestListUnreachable(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	srv.Close()
 
 	_, err := New(config.Jellyfin{URL: srv.URL, APIKey: testAPIKey, Libraries: []string{"番剧"}}).List(t.Context())
 
-	if err == nil || !strings.HasPrefix(err.Error(), "列出媒体库失败：GET /Library/VirtualFolders: ") ||
-		strings.Contains(err.Error(), srv.URL) {
-		t.Errorf("List() error = %v, want 「列出媒体库失败：GET /Library/VirtualFolders: <原因>」，不带 URL", err)
+	if got, want := message(t, err), "列出媒体库失败：无法连接 Jellyfin"; got != want {
+		t.Errorf("List() 的提示 = %q, want %q", got, want)
 	}
+	if cause := errors.Unwrap(err); cause == nil || !strings.HasPrefix(cause.Error(), "GET /Library/VirtualFolders: ") ||
+		strings.Contains(cause.Error(), srv.URL) {
+		t.Errorf("底层原因 = %v, want 「GET /Library/VirtualFolders: <原因>」，不带 URL", cause)
+	}
+}
+
+// TestListRejected API Key 不对：提示检查 API Key，带上状态码。
+func TestListRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := New(config.Jellyfin{URL: srv.URL, APIKey: "wrong", Libraries: []string{"番剧"}}).List(t.Context())
+
+	if got, want := message(t, err), "列出媒体库失败：Jellyfin 拒绝了请求，请检查 API Key（HTTP 401）"; got != want {
+		t.Errorf("List() 的提示 = %q, want %q", got, want)
+	}
+}
+
+// message 取出 *catalog.Error 的提示；err 不是 *catalog.Error 时测试失败。
+func message(t *testing.T, err error) string {
+	t.Helper()
+	catalogErr, ok := errors.AsType[*catalog.Error](err)
+	if !ok {
+		t.Fatalf("err = %v, want *catalog.Error", err)
+	}
+	return catalogErr.Message
 }
 
 // TestMapping 用构造的响应覆盖 e2e 环境里没有的情形。媒体库"番剧"里只有一部剧 s1，一个用例一个行为。
@@ -581,7 +609,7 @@ func TestPoster(t *testing.T) {
 		failImage   bool   // s1 的海报请求返回 500
 		wantSkipped bool   // s1 整部跳过
 		wantPoster  *catalog.Image
-		wantErr     string // PosterErr 的文本
+		wantErr     string // PosterErr 的提示
 	}{
 		{
 			name:        "有图：Content-Type 取响应头，不按内容识别",
@@ -598,21 +626,21 @@ func TestPoster(t *testing.T) {
 			name:      "下载失败：状态码不是 200",
 			imageTags: `{"Primary":"tag"}`,
 			failImage: true,
-			wantErr:   "GET /Items/s1/Images/Primary: 500 Internal Server Error",
+			wantErr:   "Jellyfin 返回 HTTP 500",
 		},
 		{
 			name:        "下载失败：响应不是图片",
 			imageTags:   `{"Primary":"tag"}`,
 			image:       "<html><body>请登录</body></html>",
 			contentType: "text/html; charset=utf-8",
-			wantErr:     "GET /Items/s1/Images/Primary: 响应不是图片（Content-Type: text/html; charset=utf-8）",
+			wantErr:     "响应不是图片（Content-Type: text/html; charset=utf-8）",
 		},
 		{
 			name:        "下载失败：不接受 SVG",
 			imageTags:   `{"Primary":"tag"}`,
 			image:       `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`,
 			contentType: "image/svg+xml",
-			wantErr:     "GET /Items/s1/Images/Primary: 不接受 SVG 格式的海报",
+			wantErr:     "不接受 SVG 格式的海报",
 		},
 		{
 			name:        "整部跳过的剧不下载海报",
@@ -668,7 +696,7 @@ func TestPoster(t *testing.T) {
 				}
 				var gotErr string
 				if s1.PosterErr != nil {
-					gotErr = s1.PosterErr.Error()
+					gotErr = message(t, s1.PosterErr)
 				}
 				if gotErr != tt.wantErr {
 					t.Errorf("PosterErr = %q, want %q", gotErr, tt.wantErr)

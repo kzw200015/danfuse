@@ -48,7 +48,7 @@ func (s *SyncService) saveProgress(ctx context.Context, run *syncRun) error {
 }
 
 // syncItem 处理一部剧：适配给的警告和校验的警告都加上剧名；Series 为 nil 或校验不通过的整部跳过，否则写入目录。
-// 海报下载失败只记一条警告（旧海报保留），不影响这部剧的其他内容。
+// 海报下载失败只记一条警告（旧海报保留，警告里是适配写的提示，完整的错误记 info 日志），不影响这部剧的其他内容。
 func (s *SyncService) syncItem(ctx context.Context, run *syncRun, item catalog.Item) error {
 	for _, w := range item.Warnings {
 		run.warn(item.Name + "：" + w)
@@ -66,7 +66,8 @@ func (s *SyncService) syncItem(ctx context.Context, run *syncRun, item catalog.I
 		return fmt.Errorf("写入「%s」失败：%w", item.Name, err)
 	}
 	if err := item.Series.PosterErr; err != nil {
-		run.warn(fmt.Sprintf("%s：下载海报失败：%v", item.Name, err))
+		run.warn(fmt.Sprintf("%s：下载海报失败：%s", item.Name, failureReason(err)))
+		s.logger.Info("download poster failed", "sync_run", run.id, "series", item.Name, "error", err)
 	}
 	run.createdSeries += created.series
 	run.createdSeasons += created.seasons

@@ -1,5 +1,7 @@
-// Package errcode 定义业务错误。service 层返回 *Error，由 HTTP 错误处理器统一转换成响应。
-package errcode
+// Package apierr 管理 API 的错误：handler 与 service 返回 *Error，由 HTTP 错误处理器统一转换成 {code, message, data} 响应。
+// 只用于管理 API 的出口，领域包不引用它：外部系统的错误由领域包自己定义（source.Error、catalog.Error），
+// 由 service 按场景转换；弹弹 API 有自己的响应结构，也不用它。
+package apierr
 
 import "fmt"
 

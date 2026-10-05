@@ -1,4 +1,4 @@
-package errcode
+package apierr
 
 import "net/http"
 
@@ -21,5 +21,5 @@ var (
 	ErrServiceUnavailable = New(http.StatusServiceUnavailable, CodeFail, "服务暂不可用")
 )
 
-// 业务错误：只为前端需要分支处理（跳转、特殊交互等）的场景定义专门的业务码，并同步到前端 src/api/errcode.ts。
+// 业务错误：只为前端需要分支处理（跳转、特殊交互等）的场景定义专门的业务码，并同步到前端 src/api/apierr.ts。
 // 业务码全局唯一，按模块分段，每个模块占 1000 个号段。目前没有业务码。

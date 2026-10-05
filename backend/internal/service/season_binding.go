@@ -14,18 +14,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 var (
-	errSeasonDeleted         = errcode.ErrNotFound.WithMessage("这一季已被删除")
-	errSeasonBindingExists   = errcode.ErrConflict.WithMessage("这一季已经绑定过这个合集")
-	errSeasonBindingNotFound = errcode.ErrNotFound.WithMessage("季绑定不存在")
-	errBackfillRunning       = errcode.ErrConflict.WithMessage("正在补建")
-	errKindRequired          = errcode.ErrBadRequest.WithMessage("链接对应多个合集，请选择一个")
-	errKindNotFound          = errcode.ErrBadRequest.WithMessage("链接里没有这种合集，请重新预览")
+	errSeasonDeleted         = apierr.ErrNotFound.WithMessage("这一季已被删除")
+	errSeasonBindingExists   = apierr.ErrConflict.WithMessage("这一季已经绑定过这个合集")
+	errSeasonBindingNotFound = apierr.ErrNotFound.WithMessage("季绑定不存在")
+	errBackfillRunning       = apierr.ErrConflict.WithMessage("正在补建")
+	errKindRequired          = apierr.ErrBadRequest.WithMessage("链接对应多个合集，请选择一个")
+	errKindNotFound          = apierr.ErrBadRequest.WithMessage("链接里没有这种合集，请重新预览")
 )
 
 // SeasonBindingService 季绑定：在季上绑定一个合集，按集号对应为各集补建出普通的绑定；追更时定时补建、自动重新拉取。
@@ -41,7 +41,7 @@ type SeasonBindingService struct {
 	store    repository.Store
 	pool     *pgxpool.Pool // 拿按季绑定的租约
 	sources  *source.Registry
-	bindings *BindingService // 自动重新拉取复用它的 Refetch
+	bindings *BindingService // 自动重新拉取复用它的 refetch
 	logger   *slog.Logger
 
 	triggers chan backfillTrigger // 手动触发：Run 的循环收到后拿租约开始补建，把结果送回
@@ -156,7 +156,7 @@ func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link
 	defer cancel()
 	adapter, candidates, err := s.sources.ParseCollectionLink(netCtx, link)
 	if err != nil {
-		return CollectionPreview{}, sourceError(err)
+		return CollectionPreview{}, sourceAPIError(err)
 	}
 	collector := adapter.(source.Collector) // ParseCollectionLink 只交给实现了 Collector 的适配器
 
@@ -164,7 +164,7 @@ func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link
 	for _, c := range candidates {
 		col, err := collector.ListCollection(netCtx, c.Ref)
 		if err != nil {
-			return CollectionPreview{}, sourceError(err)
+			return CollectionPreview{}, sourceAPIError(err)
 		}
 		d, err := collector.DescribeCollection(c.Ref)
 		if err != nil {
@@ -223,7 +223,7 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 	defer cancel()
 	adapter, candidates, err := s.sources.ParseCollectionLink(netCtx, p.Link)
 	if err != nil {
-		return SeasonBindingDetail{}, sourceError(err)
+		return SeasonBindingDetail{}, sourceAPIError(err)
 	}
 	c, err := chooseCandidate(candidates, p.Kind)
 	if err != nil {
@@ -239,7 +239,7 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 	}
 	col, err := adapter.(source.Collector).ListCollection(netCtx, c.Ref)
 	if err != nil {
-		return SeasonBindingDetail{}, sourceError(err)
+		return SeasonBindingDetail{}, sourceAPIError(err)
 	}
 
 	var id int64

@@ -189,7 +189,7 @@ type fakeCatalog struct {
 	gate     chan struct{} // 不为 nil 时，每产出一项之前等一次放行
 }
 
-var errSourceRequest = errors.New("目录源请求失败")
+var errSourceRequest = &catalog.Error{Message: "目录源请求失败", Err: errors.New("GET /Items: 500 Internal Server Error")}
 
 func (f *fakeCatalog) List(ctx context.Context) (catalog.Listing, error) {
 	if f.listErr != nil {

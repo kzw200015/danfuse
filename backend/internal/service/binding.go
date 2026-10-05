@@ -10,16 +10,16 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 var (
-	errEpisodeDeleted  = errcode.ErrNotFound.WithMessage("这一集已被删除")
-	errBindingExists   = errcode.ErrConflict.WithMessage("这一集已经绑定过这个弹幕源")
-	errBindingNotFound = errcode.ErrNotFound.WithMessage("绑定不存在")
-	errBindingDeleted  = errcode.ErrNotFound.WithMessage("绑定已被删除")
+	errEpisodeDeleted  = apierr.ErrNotFound.WithMessage("这一集已被删除")
+	errBindingExists   = apierr.ErrConflict.WithMessage("这一集已经绑定过这个弹幕源")
+	errBindingNotFound = apierr.ErrNotFound.WithMessage("绑定不存在")
+	errBindingDeleted  = apierr.ErrNotFound.WithMessage("绑定已被删除")
 )
 
 // BindingService 绑定：贴链接创建，拉取弹幕源的全部弹幕落库；重新拉取、改偏移与删除。
@@ -59,7 +59,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 	defer cancel()
 	adapter, ref, err := s.sources.ParseLink(netCtx, link)
 	if err != nil {
-		return BindingView{}, sourceError(err)
+		return BindingView{}, sourceAPIError(err)
 	}
 	switch exists, err := s.store.EpisodeExists(ctx, episodeID); {
 	case err != nil:
@@ -78,7 +78,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 
 	fetched, err := fetch(netCtx, adapter, ref)
 	if err != nil {
-		return BindingView{}, sourceError(err)
+		return BindingView{}, sourceAPIError(err)
 	}
 	fetchedAt := time.Now()
 
@@ -117,14 +117,21 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 	return bindingView(s.sources, binding)
 }
 
-// Refetch 重新拉取一个绑定的全部弹幕，返回更新后的绑定和新增条数。不依赖 HTTP 请求，追更的自动重新拉取（SeasonBindingService.refetchRecent）也复用它。
+// Refetch 重新拉取一个绑定的全部弹幕，返回更新后的绑定和新增条数，见 refetch；适配器的错误转成管理 API 的错误。
+func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (BindingView, int64, error) {
+	view, added, err := s.refetch(ctx, id, replace)
+	return view, added, sourceAPIError(err)
+}
+
+// refetch Refetch 的实现，适配器的错误原样返回（*source.Error）。不依赖 HTTP 请求，
+// 追更的自动重新拉取（SeasonBindingService.refetchRecent）也复用它，按 Kind 决定是否停下这一轮。
 //   - replace 为 false（重新拉取）：只插入新弹幕，从不删除，平台上已经删掉的弹幕继续保留。
 //   - replace 为 true（清空后重新拉取，即管理 API 的 clear）：拉取成功后，在同一个事务里删掉这个绑定的全部弹幕、
 //     写入这次的结果；新增条数为这次的总条数。
 //
 // 拉取失败时什么都不改，只有弹幕源不存在（NotFound）时把绑定标为失效，已保存的弹幕保留；失效的绑定拉取成功后恢复正常。
 // 拉取期间绑定被删除时返回 404"绑定已被删除"，拉取结果丢弃。
-func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (BindingView, int64, error) {
+func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (BindingView, int64, error) {
 	b, err := s.store.GetBinding(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -144,7 +151,7 @@ func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (B
 				return BindingView{}, 0, err
 			}
 		}
-		return BindingView{}, 0, sourceError(err)
+		return BindingView{}, 0, err
 	}
 	fetchedAt := time.Now()
 

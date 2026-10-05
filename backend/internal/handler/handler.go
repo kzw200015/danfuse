@@ -6,7 +6,7 @@ import (
 	"github.com/google/wire"
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 )
 
 var ProviderSet = wire.NewSet(
@@ -42,7 +42,7 @@ type validatable[T any] interface {
 func bind[T any, P validatable[T]](c *echo.Context) (*T, error) {
 	var req T
 	if err := c.Bind(&req); err != nil {
-		return nil, errcode.ErrBadRequest.Wrap(err)
+		return nil, apierr.ErrBadRequest.Wrap(err)
 	}
 	if err := P(&req).Validate(); err != nil {
 		return nil, err
@@ -52,5 +52,5 @@ func bind[T any, P validatable[T]](c *echo.Context) (*T, error) {
 
 // invalidParam 构造参数校验失败的错误，message 会直接展示给用户。
 func invalidParam(message string) error {
-	return errcode.ErrBadRequest.WithMessage(message)
+	return apierr.ErrBadRequest.WithMessage(message)
 }
