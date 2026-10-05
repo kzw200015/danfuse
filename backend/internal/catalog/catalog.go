@@ -118,9 +118,9 @@ func (s Series) Validate() error {
 	return nil
 }
 
-// SeasonLabel 季号标签：剧集的每一季都有，第 0 季为"特别篇"，其余为"第N季"（包括第 1 季）；电影没有。
+// seasonLabel 季号标签：剧集的每一季都有，第 0 季为"特别篇"，其余为"第N季"（包括第 1 季）；电影没有。
 // 用来拼季的名称；ParseName 认得这两种写法，按季号精确过滤。
-func SeasonLabel(t SeriesType, number int) string {
+func seasonLabel(t SeriesType, number int) string {
 	switch {
 	case t == TypeMovie:
 		return ""
@@ -137,7 +137,7 @@ func SeasonName(t SeriesType, seriesTitle string, number int) string {
 	if t == TypeMovie || number == 1 {
 		return seriesTitle
 	}
-	return seriesTitle + " " + SeasonLabel(t, number)
+	return seriesTitle + " " + seasonLabel(t, number)
 }
 
 // SearchVector 一季的搜索列（tsvector 文本）：A 档为剧名和季号，B 档为原名，C 档为目录源给的季标题。

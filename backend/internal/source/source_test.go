@@ -100,7 +100,7 @@ type fakeCollector struct {
 	asked  int
 }
 
-func (c *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]Candidate, error) {
+func (c *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]CollectionCandidate, error) {
 	c.asked++
 	switch {
 	case !strings.HasPrefix(link, c.prefix):
@@ -108,7 +108,7 @@ func (c *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]C
 	case strings.Contains(link, "series"):
 		return nil, &Error{Kind: InvalidLink, Message: "暂不支持系列"}
 	}
-	return []Candidate{{Kind: "list", Ref: CollectionRef(`"` + strings.TrimPrefix(link, c.prefix) + `"`)}}, nil
+	return []CollectionCandidate{{Kind: "list", Ref: CollectionRef(`"` + strings.TrimPrefix(link, c.prefix) + `"`)}}, nil
 }
 
 func (c *fakeCollector) ListCollection(context.Context, CollectionRef) (Collection, error) {

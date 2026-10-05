@@ -3,16 +3,10 @@ import { Link } from 'react-router'
 import { deleteSeries, type Episode, type SeriesDetail } from '@/api/series'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
+import { formatDuration } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
-import {
-  catalogPath,
-  formatDuration,
-  seasonLabel,
-  seasonName,
-  seriesMeta,
-  type Selection,
-} from './catalog'
+import { catalogPath, seasonLabel, seasonName, seriesMeta, type Selection } from './catalog'
 import DeleteButton from './DeleteButton'
 import { Hint, Poster, scrollIntoView } from './shared'
 

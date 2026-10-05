@@ -1,49 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 
-import { renderRoutes } from '@/__tests__/utils'
 import {
-  createBinding,
-  deleteBinding,
-  refetchBinding,
-  updateBindingOffset,
-  type Binding,
-} from '@/api/bindings'
+  binding,
+  card,
+  lighthouse,
+  mockCatalog,
+  mockRootLayout,
+  renderRoutes,
+} from '@/__tests__/utils'
+import { createBinding, deleteBinding, refetchBinding, updateBindingOffset } from '@/api/bindings'
 import { ApiError } from '@/api/request'
 import {
   deleteEpisode,
   deleteSeason,
   deleteSeries,
   getSeries,
-  listSeries,
   type SeriesDetail,
 } from '@/api/series'
-import { getSettings } from '@/api/settings'
-import { getLatestSyncRun } from '@/api/sync'
 import { seriesKeys } from '@/hooks/use-series'
 
 vi.mock('@/api/bindings')
 vi.mock('@/api/series')
-// 根布局会取同步列表和设置
+// 根布局会取最近一次同步和设置
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
-
-function binding(id: number, patch: Partial<Binding> = {}): Binding {
-  return {
-    id,
-    adapter: 'bilibili',
-    sourceUrl: `https://www.bilibili.com/video/BV1xx411c7X${id}`,
-    sourceLabel: `B 站投稿 BV1xx411c7X${id}`,
-    title: `弹幕源 ${id}`,
-    duration: 1420,
-    offset: 0,
-    status: 'active',
-    danmakuCount: 1234,
-    lastFetchedAt: '2026-10-05T08:00:00Z',
-    seasonBindingId: null,
-    ...patch,
-  }
-}
 
 const tv: SeriesDetail = {
   id: 1,
@@ -82,56 +63,13 @@ const tv: SeriesDetail = {
   ],
 }
 
-const movie: SeriesDetail = {
-  id: 2,
-  type: 'movie',
-  title: '长夜灯塔',
-  originalTitle: null,
-  year: 2020,
-  posterImageId: null,
-  seasons: [
-    {
-      id: 20,
-      number: 1,
-      title: null,
-      seasonBindings: [],
-      episodes: [{ id: 200, number: 1, title: null, duration: 5400, bindings: [] }],
-    },
-  ],
-}
-
 /** 服务端的目录，mock 的接口按它返回；用例改它来模拟新建的绑定 */
 let all: SeriesDetail[]
 
 beforeEach(() => {
-  all = structuredClone([tv, movie])
-  vi.mocked(getSettings).mockResolvedValue({
-    dandanplayToken: null,
-    catalogSource: null,
-    syncInterval: 0,
-    bilibiliSessdataConfigured: false,
-  })
-  vi.mocked(getLatestSyncRun).mockResolvedValue(null)
-  vi.mocked(listSeries).mockImplementation(async () =>
-    all.map(({ seasons, ...s }) => {
-      const episodes = seasons.flatMap((se) => se.episodes)
-      const bindings = episodes.flatMap((e) => e.bindings)
-      return {
-        ...s,
-        seasonCount: seasons.length,
-        episodeCount: episodes.length,
-        boundEpisodeCount: episodes.filter((e) => e.bindings.length > 0).length,
-        bindingCount: bindings.length,
-        deadBindingCount: bindings.filter((b) => b.status === 'dead').length,
-        following: seasons.some((se) => se.seasonBindings.some((sb) => sb.follow)),
-      }
-    }),
-  )
-  vi.mocked(getSeries).mockImplementation(async (id) => {
-    const series = all.find((s) => s.id === id)
-    if (!series) throw new ApiError('剧不存在', 1, 404)
-    return structuredClone(series)
-  })
+  all = [structuredClone(tv), lighthouse()]
+  mockRootLayout()
+  mockCatalog(() => all)
 })
 
 afterEach(() => {
@@ -140,8 +78,6 @@ afterEach(() => {
 })
 
 const seasonNav = () => within(screen.getByRole('navigation', { name: '季' }))
-/** 标题为 title 的绑定卡片 */
-const card = async (title: string) => within(await screen.findByRole('article', { name: title }))
 /** 点删除剧、季或集的按钮，在确认框里确认 */
 async function confirmDelete(button: string) {
   fireEvent.click(await screen.findByRole('button', { name: button }))
@@ -287,7 +223,7 @@ describe('绑定', () => {
     )
   })
 
-  it('集面板：每个绑定一张只读卡片', async () => {
+  it('集面板：每个绑定一张卡片', async () => {
     renderRoutes('/catalog/1/11/110')
 
     expect(await screen.findByRole('heading', { name: '绑定（2）' })).toBeInTheDocument()

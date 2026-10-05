@@ -180,8 +180,8 @@ func getRun(t *testing.T, svc *SyncService, id int64) repository.SyncRun {
 	return run
 }
 
-// fakeSource 实现 catalog.Source 的假目录源：List 返回 items 的清单，Items 依次产出 items。
-type fakeSource struct {
+// fakeCatalog 实现 catalog.Source 的假目录源：List 返回 items 的清单，Items 依次产出 items。
+type fakeCatalog struct {
 	warnings []string
 	items    []catalog.Item
 	listErr  error         // List 直接返回这个错误
@@ -191,7 +191,7 @@ type fakeSource struct {
 
 var errSourceRequest = errors.New("目录源请求失败")
 
-func (f *fakeSource) List(ctx context.Context) (catalog.Listing, error) {
+func (f *fakeCatalog) List(ctx context.Context) (catalog.Listing, error) {
 	if f.listErr != nil {
 		return catalog.Listing{}, f.listErr
 	}

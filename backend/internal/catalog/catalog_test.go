@@ -68,8 +68,8 @@ func TestSeasonLabelAndName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SeasonLabel(tt.typ, tt.number); got != tt.wantLabel {
-				t.Errorf("SeasonLabel() = %q, want %q", got, tt.wantLabel)
+			if got := seasonLabel(tt.typ, tt.number); got != tt.wantLabel {
+				t.Errorf("seasonLabel() = %q, want %q", got, tt.wantLabel)
 			}
 			if got := SeasonName(tt.typ, "星海旅人", tt.number); got != tt.wantName {
 				t.Errorf("SeasonName() = %q, want %q", got, tt.wantName)

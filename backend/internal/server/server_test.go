@@ -52,15 +52,15 @@ func call(t *testing.T, srv *Server, method, target, body string, wantStatus int
 	return resp.Code, resp.Message, resp.Data
 }
 
-// fakeSource 实现 catalog.Source 的假目录源：依次产出 items，清单带上 warnings；
+// fakeCatalog 实现 catalog.Source 的假目录源：依次产出 items，清单带上 warnings；
 // gate 不为 nil 时，每产出一部剧之前等它放行一次。
-type fakeSource struct {
+type fakeCatalog struct {
 	items    []catalog.Item
 	warnings []string
 	gate     chan struct{}
 }
 
-func (s *fakeSource) List(ctx context.Context) (catalog.Listing, error) {
+func (s *fakeCatalog) List(ctx context.Context) (catalog.Listing, error) {
 	return catalog.Listing{
 		Total:    len(s.items),
 		Warnings: s.warnings,
@@ -93,6 +93,13 @@ func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*service.
 	t.Cleanup(pool.Close)
 
 	svc := service.NewSyncService(repository.NewStore(pool), pool, src, config.Sync{}, slog.New(slog.DiscardHandler))
+	runInBackground(t, svc)
+	return svc, pool
+}
+
+// runInBackground 在后台运行 svc.Run，等它做完启动时的清理再返回。测试结束时取消 Run 并等它返回。
+func runInBackground(t *testing.T, svc interface{ Run(context.Context) }) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -101,7 +108,6 @@ func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*service.
 	}()
 	t.Cleanup(func() { cancel(); <-done }) // 在关闭连接池之前
 	synctest.Wait()
-	return svc, pool
 }
 
 func TestHealth(t *testing.T) {

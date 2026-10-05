@@ -11,8 +11,8 @@ import {
   previewTargetText,
 } from '../season-binding'
 
-function item(number: number | null, unmatchedReason: string | null = null): PreviewItem {
-  return { label: '条目', note: null, number, unmatchedReason }
+function item(number: number | null, reason: string | null = null): PreviewItem {
+  return { label: '条目', note: null, number, reason }
 }
 
 /** 本季：第 1、2 集，第 2 集已有两个绑定 */
@@ -106,7 +106,8 @@ describe('candidateText', () => {
     sourceUrl: 'https://example.com',
     sourceLabel: '标签',
     finished: false,
-    defaultMapping: { from: 1, to: 1 },
+    mappingFrom: 1,
+    mappingTo: 1,
     items: [item(1), item(2)],
   })
   it.each([

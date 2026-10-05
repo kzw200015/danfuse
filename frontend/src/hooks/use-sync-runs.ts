@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getLatestSyncRun, getSyncRun, listSyncRuns } from '@/api/sync'
 import { useReloadSeries } from '@/hooks/use-series'
@@ -23,13 +23,29 @@ export function useSyncRuns() {
 }
 
 /** 一次同步的详情，含警告；还在运行时轮询，警告随进度增加 */
-export function useSyncRun(id: number | undefined) {
+export function useSyncRun(id: number) {
   return useQuery({
-    queryKey: syncRunKeys.detail(id ?? 0),
-    queryFn: () => getSyncRun(id!),
-    enabled: id !== undefined,
+    queryKey: syncRunKeys.detail(id),
+    queryFn: () => getSyncRun(id),
     refetchInterval: (query) => (query.state.data?.status === 'running' ? pollInterval : false),
   })
+}
+
+/**
+ * 返回一个函数，让同步列表和最近一次同步失效、重新加载。触发同步之后调用：
+ * 返回时这次同步的记录已经建出，立即刷新，不等下一次轮询。
+ * 详情的键以列表的键为前缀，列表只按 exact 失效，不连带已加载的详情（它们自己按状态轮询）
+ */
+export function useReloadSyncRuns() {
+  const queryClient = useQueryClient()
+  return useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: syncRunKeys.list, exact: true }),
+        queryClient.invalidateQueries({ queryKey: syncRunKeys.latest }),
+      ]),
+    [queryClient],
+  )
 }
 
 /**

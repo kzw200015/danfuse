@@ -1,12 +1,11 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { Loader2Icon } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
-import type { Settings } from '@/api/settings'
-import { triggerSync, type SyncRun, type SyncRunDetail, type SyncTrigger } from '@/api/sync'
+import { triggerSync, type SyncRun, type SyncRunDetail } from '@/api/sync'
 import { ErrorNote } from '@/components/ErrorNote'
-import { RunStatusIcon, runProgressText, runStatusText } from '@/components/SyncStatus'
+import { RunStatusIcon } from '@/components/SyncStatus'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -19,19 +18,25 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useSettings } from '@/hooks/use-settings'
-import { syncRunKeys, useSyncRun, useSyncRuns } from '@/hooks/use-sync-runs'
-import { formatAgo, formatDateTime, formatSeconds } from '@/lib/time'
+import { useReloadSyncRuns, useSyncRun, useSyncRuns } from '@/hooks/use-sync-runs'
+import {
+  progressValue,
+  runProgressText,
+  runStatusText,
+  scheduleText,
+  triggerText,
+} from '@/lib/sync'
+import { parseId } from '@/lib/route'
+import { formatAgo, formatDateTime, formatSeconds, secondsBetween } from '@/lib/time'
 import { cn } from '@/lib/utils'
-
-const triggerText: Record<SyncTrigger, string> = { manual: '手动', schedule: '定时' }
 
 export default function SyncView() {
   const [searchParams, setSearchParams] = useSearchParams()
   const runs = useSyncRuns()
   const latest = runs.data?.[0]
-  // ?run=:id 选中某一次同步，没有时看最近一次
+  // ?run=:id 选中某一次同步，没有时看最近一次；不是合法的 ID 时不发请求，与后端 404 一样提示不存在
   const runParam = searchParams.get('run')
-  const selectedId = runParam === null ? latest?.id : Number(runParam)
+  const selectedId = runParam === null ? latest?.id : parseId(runParam)
 
   return (
     <div className="h-full overflow-y-auto">
@@ -45,7 +50,11 @@ export default function SyncView() {
             onSelect={(id) => setSearchParams({ run: String(id) })}
           />
         )}
-        {selectedId !== undefined && <SyncRunPanel id={selectedId} />}
+        {selectedId !== undefined ? (
+          <SyncRunPanel id={selectedId} />
+        ) : (
+          runParam !== null && <ErrorNote>同步记录不存在</ErrorNote>
+        )}
       </div>
     </div>
   )
@@ -53,18 +62,14 @@ export default function SyncView() {
 
 /** 标题行：定时间隔、最近一次同步的开始时间、"立即同步" */
 function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
-  const queryClient = useQueryClient()
+  const reloadSyncRuns = useReloadSyncRuns()
   const { data: settings } = useSettings()
   const unconfigured = settings?.catalogSource === null
   const trigger = useMutation({
     mutationFn: triggerSync,
     onSuccess: ({ id }) => {
       toast.success(`已开始同步 #${id}`)
-      // 返回时这次同步的记录已经建出，立即刷新，不等下一次轮询
-      return Promise.all([
-        queryClient.invalidateQueries({ queryKey: syncRunKeys.list, exact: true }),
-        queryClient.invalidateQueries({ queryKey: syncRunKeys.latest }),
-      ])
+      return reloadSyncRuns()
     },
   })
   const running = latest?.status === 'running'
@@ -92,12 +97,6 @@ function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
       {trigger.error && <ErrorNote onClose={trigger.reset}>{trigger.error.message}</ErrorNote>}
     </div>
   )
-}
-
-function scheduleText(settings: Settings) {
-  if (settings.catalogSource === null) return '未配置目录源'
-  if (settings.syncInterval === 0) return '未开启定时同步'
-  return `每 ${formatSeconds(settings.syncInterval)}自动同步一次`
 }
 
 function SyncRunTable({
@@ -215,17 +214,6 @@ function SyncRunSummary({ run }: { run: SyncRunDetail }) {
       {run.error && <ErrorNote>失败原因：{run.error}</ErrorNote>}
     </div>
   )
-}
-
-/** 进度条的值（百分比）；还在列出媒体库时总数未知，为 null 表示进度不确定 */
-function progressValue(run: SyncRun) {
-  if (run.total === null) return run.status === 'running' ? null : 0
-  if (run.total === 0) return run.status === 'succeeded' ? 100 : 0
-  return (run.done / run.total) * 100
-}
-
-function secondsBetween(from: string, to: string) {
-  return Math.round((Date.parse(to) - Date.parse(from)) / 1000)
 }
 
 /** 警告：后端最多保存 200 条，另记总数 */

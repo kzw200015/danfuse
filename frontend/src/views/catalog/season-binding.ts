@@ -32,7 +32,7 @@ export function previewTarget(
   episodes: Episode[],
 ): PreviewTarget {
   if (item.number === null) {
-    return { kind: 'unmatched', reason: item.unmatchedReason ?? '对不上' }
+    return { kind: 'unmatched', reason: item.reason ?? '对不上' }
   }
   if (item.number < mapping.from) {
     return { kind: 'beforeStart' }

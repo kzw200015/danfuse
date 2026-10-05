@@ -96,18 +96,18 @@ func (f *fakeCollector) Fetch(ctx context.Context, ref source.Ref) (source.Fetch
 	return v, nil
 }
 
-func (f *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]source.Candidate, error) {
-	candidate := func(kind string, r fakeCollectionRef) source.Candidate {
+func (f *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]source.CollectionCandidate, error) {
+	candidate := func(kind string, r fakeCollectionRef) source.CollectionCandidate {
 		b, _ := json.Marshal(r)
-		return source.Candidate{Kind: kind, Ref: b}
+		return source.CollectionCandidate{Kind: kind, Ref: b}
 	}
 	for _, prefix := range []string{"list/", "alias-list/"} {
 		if name, ok := strings.CutPrefix(link, prefix); ok {
-			return []source.Candidate{candidate("list", fakeCollectionRef{List: name})}, nil
+			return []source.CollectionCandidate{candidate("list", fakeCollectionRef{List: name})}, nil
 		}
 	}
 	if name, ok := strings.CutPrefix(link, "both/"); ok {
-		return []source.Candidate{candidate("pages", fakeCollectionRef{Pages: name}), candidate("list", fakeCollectionRef{List: name})}, nil
+		return []source.CollectionCandidate{candidate("pages", fakeCollectionRef{Pages: name}), candidate("list", fakeCollectionRef{List: name})}, nil
 	}
 	if strings.HasPrefix(link, "series/") {
 		return nil, &source.Error{Kind: source.InvalidLink, Message: "暂不支持系列"}
@@ -335,13 +335,13 @@ func TestPreviewSeasonBinding(t *testing.T) {
 		}
 		want := CollectionPreview{Candidates: []PreviewCandidate{{
 			Kind: "list", Title: "Re:0 后半", SourceURL: "https://fake.test/list/re0", SourceLabel: "假合集 re0", Finished: true,
-			DefaultMapping: MappingView{From: 14, To: 1},
+			MappingFrom: 14, MappingTo: 1,
 			Items: []PreviewItem{
 				{Label: "e14", Number: new(14)},
 				{Label: "e15", Number: new(15)},
-				{Label: "sp", UnmatchedReason: new("集号「SP」不是整数")},
-				{Label: "d1", UnmatchedReason: new("集号重复")},
-				{Label: "d2", UnmatchedReason: new("集号重复")},
+				{Label: "sp", Reason: new("集号「SP」不是整数")},
+				{Label: "d1", Reason: new("集号重复")},
+				{Label: "d2", Reason: new("集号重复")},
 				{Label: "e17", Number: new(17), Note: new("共 2 个分 P，只用 P1")},
 			},
 		}}}

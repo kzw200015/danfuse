@@ -84,8 +84,7 @@ func (a *Adapter) resolve(ctx context.Context, link string) (target, error) {
 	}
 	short, ok := shortLink(u)
 	if !ok {
-		t, _ := parseURL(u)
-		return t, nil
+		return parseURL(u), nil
 	}
 	var to *url.URL
 	err := a.client.retry(ctx, func() (err error) {
@@ -95,96 +94,101 @@ func (a *Adapter) resolve(ctx context.Context, link string) (target, error) {
 	if err != nil {
 		return target{}, err
 	}
-	t, _ := parseURL(to)
+	t := parseURL(to)
 	t.short, t.to = short, to.String()
 	return t, nil
 }
 
-// parseURL 只做字符串解析，不联网，认不出时返回 source.ErrUnrecognized：
+// parseURL 只做字符串解析，不联网，认不出时返回 target{}（kind 为空）：
 //   - 投稿 video/BV…、video/av…，可带 ?p=N（从 1 开始，缺省为 1）；番剧单集 bangumi/play/ep…；
 //     番剧的一季 bangumi/play/ss…；作品页 bangumi/media/md…；以及裸的 BV、av（同样可带 ?p=）、ep、ss、md 号；
 //   - 空间里的合集页 space.bilibili.com/{mid}/lists/{sid}?type=season、旧版 …/channel/collectiondetail?sid=；
 //   - 系列页 …/lists/{sid}?type=series、旧版 …/channel/seriesdetail?sid=，系列的播放列表 www.bilibili.com/list/{mid}?sid=；
 //   - 没写 type 的 …/lists/{sid}。
-func parseURL(u *url.URL) (target, error) {
+func parseURL(u *url.URL) target {
 	if u.Scheme == "" && u.Host == "" {
 		return parseID(u.Path, bareIDs, u.Query())
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
-		return target{}, source.ErrUnrecognized
+		return target{}
 	}
 	host := strings.ToLower(u.Hostname())
 	if host == spaceHost {
 		return parseSpaceURL(u)
 	}
 	if !slices.Contains(linkHosts, host) {
-		return target{}, source.ErrUnrecognized
+		return target{}
 	}
 	if mid, ok := strings.CutPrefix(strings.TrimSuffix(u.Path, "/"), "/list/"); ok {
-		if _, ok := positiveInt(mid); ok && isPositive(u.Query().Get("sid")) {
-			return target{kind: targetSeries}, nil
+		if isPositive(mid) && isPositive(u.Query().Get("sid")) {
+			return target{kind: targetSeries}
 		}
-		return target{}, source.ErrUnrecognized
+		return target{}
 	}
 	for path, prefixes := range linkIDs {
 		if rest, ok := strings.CutPrefix(u.Path, path); ok {
 			return parseID(strings.TrimSuffix(rest, "/"), prefixes, u.Query())
 		}
 	}
-	return target{}, source.ErrUnrecognized
+	return target{}
 }
 
-// parseID 解析一个 ID，它在这个位置上只能以 prefixes 之一开头；投稿的分 P 取自查询串的 p。
-func parseID(id string, prefixes []string, query url.Values) (target, error) {
+// parseID 解析一个 ID，它在这个位置上只能以 prefixes 之一开头；投稿的分 P 取自查询串的 p。认不出时返回 target{}。
+func parseID(id string, prefixes []string, query url.Values) target {
 	if !slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(id, p) }) {
-		return target{}, source.ErrUnrecognized
+		return target{}
 	}
 	kinds := map[string]string{"ep": targetEpisode, "ss": targetSeason, "md": targetMedia}
 	if kind, ok := kinds[id[:2]]; ok {
 		n, ok := positiveInt(id[2:])
 		if !ok {
-			return target{}, source.ErrUnrecognized
+			return target{}
 		}
-		return target{kind: kind, id: n}, nil
+		return target{kind: kind, id: n}
 	}
 
 	aid, ok := parseVideoID(id)
 	if !ok {
-		return target{}, source.ErrUnrecognized
+		return target{}
 	}
 	page := int64(1)
 	if p, ok := query["p"]; ok {
 		if page, ok = positiveInt(p[0]); !ok {
-			return target{}, source.ErrUnrecognized
+			return target{}
 		}
 	}
-	return target{kind: targetVideo, id: aid, page: int(page)}, nil
+	return target{kind: targetVideo, id: aid, page: int(page)}
 }
 
-// parseSpaceURL 个人空间里的合集页与系列页，路径以 UP 主的 mid 开头。
-func parseSpaceURL(u *url.URL) (target, error) {
+// parseSpaceURL 个人空间里的合集页与系列页，路径以 UP 主的 mid 开头。认不出时返回 target{}。
+func parseSpaceURL(u *url.URL) target {
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) != 3 || !isPositive(parts[0]) {
-		return target{}, source.ErrUnrecognized
+		return target{}
 	}
-	switch q := u.Query(); {
-	case parts[1] == "lists" && isPositive(parts[2]):
-		sid, _ := positiveInt(parts[2])
+	q := u.Query()
+	switch {
+	case parts[1] == "lists":
+		sid, ok := positiveInt(parts[2])
+		if !ok {
+			return target{}
+		}
 		switch q.Get("type") {
 		case "season":
-			return target{kind: targetUGCSeason, id: sid}, nil
+			return target{kind: targetUGCSeason, id: sid}
 		case "series":
-			return target{kind: targetSeries}, nil
+			return target{kind: targetSeries}
 		case "":
-			return target{kind: targetLists}, nil
+			return target{kind: targetLists}
 		}
-	case parts[1] == "channel" && parts[2] == "collectiondetail" && isPositive(q.Get("sid")):
-		sid, _ := positiveInt(q.Get("sid"))
-		return target{kind: targetUGCSeason, id: sid}, nil
+	case parts[1] == "channel" && parts[2] == "collectiondetail":
+		if sid, ok := positiveInt(q.Get("sid")); ok {
+			return target{kind: targetUGCSeason, id: sid}
+		}
 	case parts[1] == "channel" && parts[2] == "seriesdetail" && isPositive(q.Get("sid")):
-		return target{kind: targetSeries}, nil
+		return target{kind: targetSeries}
 	}
-	return target{}, source.ErrUnrecognized
+	return target{}
 }
 
 // parseVideoID 把 av 号或 BV 号换算成 aid。
@@ -205,6 +209,7 @@ func positiveInt(s string) (int64, bool) {
 	return n, err == nil && n > 0
 }
 
+// isPositive s 是否是 positiveInt 认得的正整数，只看能否解析、不要值时用。
 func isPositive(s string) bool {
 	_, ok := positiveInt(s)
 	return ok

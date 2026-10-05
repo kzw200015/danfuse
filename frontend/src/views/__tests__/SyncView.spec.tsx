@@ -1,22 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import type { QueryClient } from '@tanstack/react-query'
 
-import { advance, mockSyncRuns, renderRoutes, syncRun } from '@/__tests__/utils'
+import {
+  advance,
+  mockSyncRuns,
+  renderRoutes,
+  seedSeries,
+  settings,
+  syncRun,
+} from '@/__tests__/utils'
 import { ApiError } from '@/api/request'
-import { getSettings, type Settings } from '@/api/settings'
+import { getSettings } from '@/api/settings'
 import { getSyncRun, triggerSync } from '@/api/sync'
-import { seriesKeys } from '@/hooks/use-series'
 
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
 
-const jellyfin: Settings = {
-  dandanplayToken: null,
+const jellyfin = settings({
   catalogSource: { kind: 'jellyfin', url: 'http://192.168.1.10:8096', libraries: ['番剧'] },
   syncInterval: 86400,
-  bilibiliSessdataConfigured: false,
-}
+})
 
 let server: ReturnType<typeof mockSyncRuns>
 
@@ -31,16 +34,6 @@ afterEach(() => {
   vi.useRealTimers()
   vi.resetAllMocks()
 })
-
-/** 目录页的查询：剧列表和打开的那部剧 */
-function seedSeries(queryClient: QueryClient) {
-  queryClient.setQueryData(seriesKeys.list, [])
-  queryClient.setQueryData(seriesKeys.detail(7), {})
-  return () =>
-    [seriesKeys.list, seriesKeys.detail(7)].map(
-      (key) => queryClient.getQueryState(key)?.isInvalidated,
-    )
-}
 
 const syncNav = () => screen.findByRole('link', { name: /^同步/ })
 
@@ -155,12 +148,7 @@ describe('标题行与立即同步', () => {
   })
 
   it('未配置目录源时提示，"立即同步"禁用', async () => {
-    vi.mocked(getSettings).mockResolvedValue({
-      dandanplayToken: null,
-      catalogSource: null,
-      syncInterval: 0,
-      bilibiliSessdataConfigured: false,
-    })
+    vi.mocked(getSettings).mockResolvedValue(settings())
     renderRoutes('/sync')
 
     expect(await screen.findByText('未配置目录源')).toBeInTheDocument()
@@ -226,5 +214,14 @@ describe('同步详情', () => {
     renderRoutes('/sync?run=9')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('同步记录不存在')
+  })
+
+  it('?run= 不是合法的 ID 时不发请求，直接显示不存在', async () => {
+    server.runs = [syncRun(1)]
+    renderRoutes('/sync?run=abc')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步记录不存在')
+    expect(await screen.findByRole('cell', { name: '#1' })).toBeInTheDocument()
+    expect(getSyncRun).not.toHaveBeenCalled()
   })
 })

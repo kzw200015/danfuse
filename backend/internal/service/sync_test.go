@@ -23,7 +23,7 @@ import (
 func TestSyncTwiceKeepsIDs(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeSource{items: []catalog.Item{
+		src := &fakeCatalog{items: []catalog.Item{
 			item(tv("星海旅人", new(2019),
 				season(0, "Specials", episode(1, "特别篇", 20)),
 				season(1, "第 1 季", episode(1, "第1集", 1440), catalog.Episode{Number: 2}),
@@ -60,7 +60,7 @@ func TestSyncTwiceKeepsIDs(t *testing.T) {
 func TestSyncMatchesNaturalKeys(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeSource{}
+		src := &fakeCatalog{}
 		svc := newTestService(t, pool, src)
 
 		starSea := tv("星海旅人", new(2019), season(1, "第 1 季", episode(1, "旧标题", 100)))
@@ -129,7 +129,7 @@ func TestSyncDuplicateKeysLastWins(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		// 同一部剧分在两个文件夹、同一集有两个版本、多集文件与单集文件重叠：都按普通 upsert，后写的覆盖先写的
-		src := &fakeSource{items: []catalog.Item{
+		src := &fakeCatalog{items: []catalog.Item{
 			item(tv("星海旅人", new(2019), season(1, "第 1 季", episode(1, "1080p", 34), episode(1, "720p", 33)))),
 			item(tv("星海旅人", new(2019),
 				season(1, "Season 1", episode(2, "S01E01-E02", 50)),
@@ -159,7 +159,7 @@ func TestSyncDuplicateKeysLastWins(t *testing.T) {
 func TestSyncRecomputesSearchVectors(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeSource{}
+		src := &fakeCatalog{}
 		svc := newTestService(t, pool, src)
 		starSea := tv("星海旅人", new(2019), season(1, "", episode(1, "", 1440)), season(2, "归航篇", episode(1, "", 1440)))
 		starSea.OriginalTitle = "Star Voyager"
@@ -172,11 +172,11 @@ func TestSyncRecomputesSearchVectors(t *testing.T) {
 		src.items = []catalog.Item{item(starSea)}
 		syncOnce(t, svc)
 
-		bothSeasons := []string{"星海旅人 · 剧集 2019 · 1 · 1", "星海旅人 第2季 · 剧集 2019 · 2 · 1"}
+		bothSeasons := []string{"星海旅人 · 剧集 2019 · 共 1 集 · 1", "星海旅人 第2季 · 剧集 2019 · 共 1 集 · 1"}
 		for keyword, want := range map[string][]string{
 			"Star Traveler": bothSeasons,
 			"Star Voyager":  nil,
-			"归航":            {"星海旅人 第2季 · 剧集 2019 · 2 · 1"}, // 这次没有给出的季保留原来的季标题
+			"归航":            {"星海旅人 第2季 · 剧集 2019 · 共 1 集 · 1"}, // 这次没有给出的季保留原来的季标题
 		} {
 			if got, _ := searchSeasons(t, pool, provider.SearchQuery{Keyword: keyword, MaxSeasons: 50}); !slices.Equal(got, want) {
 				t.Errorf("Search(%q) = %q, want %q", keyword, got, want)
@@ -243,7 +243,7 @@ func TestSyncPoster(t *testing.T) {
 			syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 				series := tv("甲", nil, season(1, "", episode(1, "", 30)))
 				series.Poster = tt.before
-				src := &fakeSource{items: []catalog.Item{item(series)}}
+				src := &fakeCatalog{items: []catalog.Item{item(series)}}
 				svc := newTestService(t, pool, src)
 				syncOnce(t, svc)
 				before := readPoster(t, pool, "甲")
@@ -277,7 +277,7 @@ func TestSyncPoster(t *testing.T) {
 func TestSyncSkipsInvalidSeries(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeSource{
+		src := &fakeCatalog{
 			warnings: []string{"找不到媒体库「动画」，已跳过"},
 			items: []catalog.Item{
 				{Name: "雾港谜案", Warnings: []string{"集「雾港谜案」（第1季，第 1 集）没有季号，已跳过", "没有有效的集，整部跳过"}},
@@ -319,7 +319,7 @@ func TestSyncKeepsFirst200Warnings(t *testing.T) {
 		for i := range 150 {
 			warnings = append(warnings, fmt.Sprintf("警告 %d", i))
 		}
-		src := &fakeSource{
+		src := &fakeCatalog{
 			warnings: warnings[:50],
 			items:    []catalog.Item{{Name: "甲", Warnings: warnings[50:]}, {Name: "乙", Warnings: warnings[50:]}},
 		}
@@ -339,7 +339,7 @@ func TestSyncKeepsFirst200Warnings(t *testing.T) {
 func TestSyncKeepsLatest20Runs(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		svc := newTestService(t, pool, &fakeSource{})
+		svc := newTestService(t, pool, &fakeCatalog{})
 		for range 25 {
 			syncOnce(t, svc)
 		}
@@ -371,7 +371,7 @@ func TestSyncFailures(t *testing.T) {
 	}
 	tests := []struct {
 		name       string
-		src        *fakeSource
+		src        *fakeCatalog
 		setup      string // 同步前执行的 SQL
 		wantCounts string
 		wantError  string
@@ -379,20 +379,20 @@ func TestSyncFailures(t *testing.T) {
 	}{
 		{
 			name:       "列清单失败",
-			src:        &fakeSource{listErr: errors.New("配置的媒体库都不可用：找不到媒体库「番剧」，已跳过")},
+			src:        &fakeCatalog{listErr: errors.New("配置的媒体库都不可用：找不到媒体库「番剧」，已跳过")},
 			wantCounts: "failed -/0 新增剧 0 季 0 集 0",
 			wantError:  "配置的媒体库都不可用：找不到媒体库「番剧」，已跳过",
 		},
 		{
 			name:       "中途请求失败",
-			src:        &fakeSource{items: items, failAt: 3},
+			src:        &fakeCatalog{items: items, failAt: 3},
 			wantCounts: "failed 3/2 新增剧 2 季 2 集 2",
 			wantError:  "目录源请求失败",
 			wantSeries: []string{"甲", "乙"},
 		},
 		{
 			name:       "数据库出错",
-			src:        &fakeSource{items: items},
+			src:        &fakeCatalog{items: items},
 			setup:      "ALTER TABLE episodes ADD CONSTRAINT short_episode CHECK (duration < 100)",
 			wantCounts: "failed 3/1 新增剧 1 季 1 集 1",
 			wantError:  "写入「乙」失败：",
@@ -436,7 +436,7 @@ func TestSyncFailures(t *testing.T) {
 func TestSyncProgress(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeSource{
+		src := &fakeCatalog{
 			items: []catalog.Item{
 				item(tv("甲", nil, season(1, "", episode(1, "", 30)))),
 				{Name: "乙", Warnings: []string{"没有有效的集，整部跳过"}},
@@ -489,7 +489,7 @@ func TestTriggerRejected(t *testing.T) {
 	t.Run("同步正在进行", func(t *testing.T) {
 		t.Parallel()
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-			src := &fakeSource{items: []catalog.Item{item(tv("甲", nil, season(1, "", episode(1, "", 30))))}, gate: make(chan struct{})}
+			src := &fakeCatalog{items: []catalog.Item{item(tv("甲", nil, season(1, "", episode(1, "", 30))))}, gate: make(chan struct{})}
 			svc := newTestService(t, pool, src)
 			first, err := svc.Trigger(t.Context())
 			if err != nil {
@@ -512,7 +512,7 @@ func TestTriggerRejected(t *testing.T) {
 	t.Run("服务正在关闭", func(t *testing.T) {
 		t.Parallel()
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-			svc := NewSyncService(repository.NewStore(pool), pool, &fakeSource{}, config.Sync{}, testLogger(t))
+			svc := NewSyncService(repository.NewStore(pool), pool, &fakeCatalog{}, config.Sync{}, testLogger(t))
 			stop := runInBackground(t, svc)
 			stop() // Run 已返回：不再等它接收触发
 
@@ -526,7 +526,7 @@ func TestTriggerRejected(t *testing.T) {
 	t.Run("其他实例持有同步锁", func(t *testing.T) {
 		t.Parallel()
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-			svc := newTestService(t, pool, &fakeSource{})
+			svc := newTestService(t, pool, &fakeCatalog{})
 			unlock := holdSyncLock(t, pool)
 
 			if _, err := svc.Trigger(t.Context()); !errors.Is(err, errSyncRunning) {
@@ -544,7 +544,7 @@ func TestTriggerRejected(t *testing.T) {
 func TestScheduledSync(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeSource{items: []catalog.Item{item(tv("甲", nil, season(1, "", episode(1, "", 30))))}, gate: make(chan struct{})}
+		src := &fakeCatalog{items: []catalog.Item{item(tv("甲", nil, season(1, "", episode(1, "", 30))))}, gate: make(chan struct{})}
 		var logs lockedBuffer
 		svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{Interval: time.Hour}, slogTo(&logs))
 		runInBackground(t, svc)
@@ -606,7 +606,7 @@ func TestNoScheduleWithoutSource(t *testing.T) {
 func TestSyncInterruptedOnShutdown(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeSource{
+		src := &fakeCatalog{
 			items: []catalog.Item{
 				item(tv("甲", nil, season(1, "", episode(1, "", 30)))),
 				item(tv("乙", nil, season(1, "", episode(1, "", 30)))),
@@ -652,7 +652,7 @@ func TestStaleRunningRuns(t *testing.T) {
 			stale := insertRun(t, pool, statusRunning)
 			done := insertRun(t, pool, statusSucceeded)
 
-			svc := newTestService(t, pool, &fakeSource{})
+			svc := newTestService(t, pool, &fakeCatalog{})
 
 			if got := getRun(t, svc, stale).Status; got != statusInterrupted {
 				t.Errorf("残留的 running 应改为 interrupted，实际 %s", got)
@@ -670,7 +670,7 @@ func TestStaleRunningRuns(t *testing.T) {
 			unlock := holdSyncLock(t, pool)
 			other := insertRun(t, pool, statusRunning)
 
-			svc := newTestService(t, pool, &fakeSource{})
+			svc := newTestService(t, pool, &fakeCatalog{})
 			if got := getRun(t, svc, other).Status; got != statusRunning {
 				t.Errorf("其他实例正在进行的同步不应被清理，实际 %s", got)
 			}

@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react'
-import { ArrowLeftIcon, ImageOffIcon } from 'lucide-react'
+import { ArrowLeftIcon, ExternalLinkIcon, ImageOffIcon } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { imageUrl } from '@/api/images'
+import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -66,5 +67,33 @@ export function NotFound({
         返回{backLabel}
       </Link>
     </div>
+  )
+}
+
+/** 绑定、季绑定卡片上的状态：失效标红，悬停时由 deadTitle 说明失效的含义 */
+export function StatusBadge({ dead, deadTitle }: { dead: boolean; deadTitle: string }) {
+  return dead ? (
+    <Badge variant="destructive" title={deadTitle}>
+      失效
+    </Badge>
+  ) : (
+    <Badge variant="outline" className="border-emerald-600/30 text-emerald-700">
+      正常
+    </Badge>
+  )
+}
+
+/** 弹幕源、合集的标题，在新标签页打开它在平台上的页面 */
+export function SourceLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 font-medium break-all hover:underline"
+    >
+      {children}
+      <ExternalLinkIcon className="size-3 shrink-0 opacity-50" />
+    </a>
   )
 }

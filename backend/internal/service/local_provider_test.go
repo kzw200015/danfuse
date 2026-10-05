@@ -44,21 +44,18 @@ func searchCatalog() []catalog.Item {
 	}
 }
 
-// describe 把一季写成一行，便于整体比较："名称 · 类别 年份 · 季号 · 集号 集标题, …"。
+// describe 把一季写成一行，便于整体比较："名称 · 类别 年份 · 共 N 集 · 集号 集标题, …"，N 是总集数。
 func describe(s provider.Season) string {
 	kinds := map[provider.SeasonKind]string{provider.KindSeries: "剧集", provider.KindSpecial: "特别篇", provider.KindMovie: "电影"}
-	year, number := "-", "-"
+	year := "-"
 	if s.Year != nil {
 		year = fmt.Sprint(*s.Year)
-	}
-	if s.Number != nil {
-		number = fmt.Sprint(*s.Number)
 	}
 	episodes := make([]string, len(s.Episodes))
 	for i, e := range s.Episodes {
 		episodes[i] = strings.TrimSpace(fmt.Sprintf("%d %s", e.Number, e.Title))
 	}
-	return fmt.Sprintf("%s · %s %s · %s · %s", s.Name, kinds[s.Kind], year, number, strings.Join(episodes, ", "))
+	return fmt.Sprintf("%s · %s %s · 共 %d 集 · %s", s.Name, kinds[s.Kind], year, s.EpisodeCount, strings.Join(episodes, ", "))
 }
 
 func searchSeasons(t *testing.T, pool *pgxpool.Pool, q provider.SearchQuery) (seasons []string, hasMore bool) {
@@ -76,7 +73,7 @@ func searchSeasons(t *testing.T, pool *pgxpool.Pool, q provider.SearchQuery) (se
 func TestLocalSearch(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		syncOnce(t, newTestService(t, pool, &fakeSource{items: searchCatalog()}))
+		syncOnce(t, newTestService(t, pool, &fakeCatalog{items: searchCatalog()}))
 
 		tests := []struct {
 			name    string
@@ -87,39 +84,39 @@ func TestLocalSearch(t *testing.T) {
 				// 剧名完全相同的在前（剧名短）；同名剧按年份降序，无年份最后，同年的按剧 ID；
 				// 同一部剧按季号，特别篇最后
 				"剧名", "星海旅人", []string{
-					"星海旅人 · 剧集 2023 · 1 · 1",
-					"星海旅人 · 电影 2019 · 1 · 1",
-					"星海旅人 · 剧集 2019 · 1 · 1, 2",
-					"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程, 14",
-					"星海旅人 特别篇 · 特别篇 2019 · 0 · 1 番外",
-					"星海旅人 · 剧集 - · 1 · 1",
-					"星海旅人外传 · 剧集 2021 · 1 · 1",
+					"星海旅人 · 剧集 2023 · 共 1 集 · 1",
+					"星海旅人 · 电影 2019 · 共 1 集 · 1",
+					"星海旅人 · 剧集 2019 · 共 2 集 · 1, 2",
+					"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程, 14",
+					"星海旅人 特别篇 · 特别篇 2019 · 共 1 集 · 1 番外",
+					"星海旅人 · 剧集 - · 共 1 集 · 1",
+					"星海旅人外传 · 剧集 2021 · 共 1 集 · 1",
 				},
 			},
 			{"中文标题中间的一段", "海旅", []string{
-				"星海旅人 · 剧集 2023 · 1 · 1",
-				"星海旅人 · 电影 2019 · 1 · 1",
-				"星海旅人 · 剧集 2019 · 1 · 1, 2",
-				"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程, 14",
-				"星海旅人 特别篇 · 特别篇 2019 · 0 · 1 番外",
-				"星海旅人 · 剧集 - · 1 · 1",
-				"星海旅人外传 · 剧集 2021 · 1 · 1",
+				"星海旅人 · 剧集 2023 · 共 1 集 · 1",
+				"星海旅人 · 电影 2019 · 共 1 集 · 1",
+				"星海旅人 · 剧集 2019 · 共 2 集 · 1, 2",
+				"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程, 14",
+				"星海旅人 特别篇 · 特别篇 2019 · 共 1 集 · 1 番外",
+				"星海旅人 · 剧集 - · 共 1 集 · 1",
+				"星海旅人外传 · 剧集 2021 · 共 1 集 · 1",
 			}},
-			{"剧名紧跟季号命中那一季", "星海旅人2", []string{"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程, 14"}},
-			{"自己输出的季名称", "星海旅人 特别篇", []string{"星海旅人 特别篇 · 特别篇 2019 · 0 · 1 番外"}},
-			{"季标题", "归航", []string{"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程, 14"}},
-			{"日文标题中的一段", "君にな", []string{"やがて君になる · 剧集 2018 · 1 · 1"}},
-			{"带长音符的假名与季号", "オーバーロード2", []string{"オーバーロード 第2季 · 剧集 2015 · 2 · 1"}},
+			{"剧名紧跟季号命中那一季", "星海旅人2", []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程, 14"}},
+			{"自己输出的季名称", "星海旅人 特别篇", []string{"星海旅人 特别篇 · 特别篇 2019 · 共 1 集 · 1 番外"}},
+			{"季标题", "归航", []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程, 14"}},
+			{"日文标题中的一段", "君にな", []string{"やがて君になる · 剧集 2018 · 共 1 集 · 1"}},
+			{"带长音符的假名与季号", "オーバーロード2", []string{"オーバーロード 第2季 · 剧集 2015 · 共 1 集 · 1"}},
 			{"日文原名中的一段", "ほしうみ", []string{
-				"星海旅人 · 剧集 2023 · 1 · 1",
-				"星海旅人 · 剧集 2019 · 1 · 1, 2",
-				"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程, 14",
-				"星海旅人 特别篇 · 特别篇 2019 · 0 · 1 番外",
+				"星海旅人 · 剧集 2023 · 共 1 集 · 1",
+				"星海旅人 · 剧集 2019 · 共 2 集 · 1, 2",
+				"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程, 14",
+				"星海旅人 特别篇 · 特别篇 2019 · 共 1 集 · 1 番外",
 			}},
-			{"英文原名，不区分大小写", "night LIGHTHOUSE", []string{"长夜灯塔 · 电影 2020 · 1 · 1"}},
+			{"英文原名，不区分大小写", "night LIGHTHOUSE", []string{"长夜灯塔 · 电影 2020 · 共 1 集 · 1"}},
 			{"剧名命中排在原名命中之前，剧名再长也一样", "night", []string{
-				"Night Watch · 剧集 2010 · 1 · 1",
-				"长夜灯塔 · 电影 2020 · 1 · 1",
+				"Night Watch · 剧集 2010 · 共 1 集 · 1",
+				"长夜灯塔 · 电影 2020 · 共 1 集 · 1",
 			}},
 			{"英文整词匹配，不做前缀", "light", nil},
 			{"所有词都要命中", "星海旅人 灯塔", nil},
@@ -141,7 +138,7 @@ func TestLocalSearchHasMore(t *testing.T) {
 		for i := range seasons {
 			seasons[i] = season(i+1, "", episode(1, "", 1440))
 		}
-		syncOnce(t, newTestService(t, pool, &fakeSource{items: []catalog.Item{item(tv("长篇连载", nil, seasons...))}}))
+		syncOnce(t, newTestService(t, pool, &fakeCatalog{items: []catalog.Item{item(tv("长篇连载", nil, seasons...))}}))
 
 		for _, tt := range []struct {
 			maxSeasons  int
@@ -155,7 +152,7 @@ func TestLocalSearchHasMore(t *testing.T) {
 			if len(got) != tt.wantLen || hasMore != tt.wantHasMore {
 				t.Errorf("最多 %d 季：返回 %d 季，hasMore %v；want %d 季，hasMore %v", tt.maxSeasons, len(got), hasMore, tt.wantLen, tt.wantHasMore)
 			}
-			if len(got) > 0 && got[0] != "长篇连载 · 剧集 - · 1 · 1" {
+			if len(got) > 0 && got[0] != "长篇连载 · 剧集 - · 共 1 集 · 1" {
 				t.Errorf("最多 %d 季：第一季 = %q, want 第 1 季", tt.maxSeasons, got[0])
 			}
 		}
@@ -167,16 +164,16 @@ func TestLocalSearchHasMore(t *testing.T) {
 func TestLocalSearchSeasonEpisode(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		syncOnce(t, newTestService(t, pool, &fakeSource{items: searchCatalog()}))
+		syncOnce(t, newTestService(t, pool, &fakeCatalog{items: searchCatalog()}))
 		episodeOne := []string{
-			"星海旅人 · 剧集 2023 · 1 · 1",
-			"星海旅人 · 电影 2019 · 1 · 1",
-			"星海旅人 · 剧集 2019 · 1 · 1",
-			"星海旅人 特别篇 · 特别篇 2019 · 0 · 1 番外",
-			"星海旅人 · 剧集 - · 1 · 1",
-			"星海旅人外传 · 剧集 2021 · 1 · 1",
+			"星海旅人 · 剧集 2023 · 共 1 集 · 1",
+			"星海旅人 · 电影 2019 · 共 1 集 · 1",
+			"星海旅人 · 剧集 2019 · 共 2 集 · 1",
+			"星海旅人 特别篇 · 特别篇 2019 · 共 1 集 · 1 番外",
+			"星海旅人 · 剧集 - · 共 1 集 · 1",
+			"星海旅人外传 · 剧集 2021 · 共 1 集 · 1",
 		}
-		secondSeason := "星海旅人 第2季 · 剧集 2019 · 2 · 13 启程, 14"
+		secondSeason := "星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程, 14"
 		tests := []struct {
 			name    string
 			q       provider.SearchQuery
@@ -184,21 +181,21 @@ func TestLocalSearchSeasonEpisode(t *testing.T) {
 			hasMore bool
 		}{
 			{"集号参数", provider.SearchQuery{Keyword: "星海旅人", Episode: new(1)}, episodeOne, false},
-			{"截断之前过滤", provider.SearchQuery{Keyword: "星海旅人", Episode: new(13), MaxSeasons: 1}, []string{"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程"}, false},
+			{"截断之前过滤", provider.SearchQuery{Keyword: "星海旅人", Episode: new(13), MaxSeasons: 1}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
 			{"截断之后还有", provider.SearchQuery{Keyword: "星海旅人", Episode: new(1), MaxSeasons: 2}, episodeOne[:2], true},
 			{"没有这一集", provider.SearchQuery{Keyword: "星海旅人", Episode: new(99)}, nil, false},
-			{"关键词里的集号", provider.SearchQuery{Keyword: "星海旅人 第13话"}, []string{"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程"}, false},
+			{"关键词里的集号", provider.SearchQuery{Keyword: "星海旅人 第13话"}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
 			{"集号参数优先", provider.SearchQuery{Keyword: "星海旅人 第13话", Episode: new(1)}, episodeOne, false},
 			{"关键词里的季号", provider.SearchQuery{Keyword: "星海旅人 第2季"}, []string{secondSeason}, false},
-			{"关键词里的季号和集号", provider.SearchQuery{Keyword: "星海旅人 S02E13"}, []string{"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程"}, false},
+			{"关键词里的季号和集号", provider.SearchQuery{Keyword: "星海旅人 S02E13"}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
 			{"这一季没有这一集", provider.SearchQuery{Keyword: "星海旅人 第2季 第1话"}, nil, false},
 			// 电影唯一的一季也是第 1 季
 			{"只写季号", provider.SearchQuery{Keyword: "星海旅人 S01"}, []string{
-				"星海旅人 · 剧集 2023 · 1 · 1",
-				"星海旅人 · 电影 2019 · 1 · 1",
-				"星海旅人 · 剧集 2019 · 1 · 1, 2",
-				"星海旅人 · 剧集 - · 1 · 1",
-				"星海旅人外传 · 剧集 2021 · 1 · 1",
+				"星海旅人 · 剧集 2023 · 共 1 集 · 1",
+				"星海旅人 · 电影 2019 · 共 1 集 · 1",
+				"星海旅人 · 剧集 2019 · 共 2 集 · 1, 2",
+				"星海旅人 · 剧集 - · 共 1 集 · 1",
+				"星海旅人外传 · 剧集 2021 · 共 1 集 · 1",
 			}, false},
 			{"没有标题", provider.SearchQuery{Keyword: "第2季 第13话"}, nil, false},
 		}
@@ -241,7 +238,7 @@ func TestLocalSearchSeasonEpisode(t *testing.T) {
 func TestLocalSeason(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		syncOnce(t, newTestService(t, pool, &fakeSource{items: searchCatalog()}))
+		syncOnce(t, newTestService(t, pool, &fakeCatalog{items: searchCatalog()}))
 		p := NewLocalProvider(repository.NewStore(pool), source.NewRegistry())
 
 		result, err := p.Search(t.Context(), provider.SearchQuery{Keyword: "星海旅人", MaxSeasons: 50})

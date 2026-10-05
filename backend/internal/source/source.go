@@ -34,7 +34,7 @@ type Adapter interface {
 // Linker 可选能力：从用户贴的链接得到 ref。
 type Linker interface {
 	// ParseLink 识别链接并返回规范化的 ref：同一个弹幕源不论链接怎么写，ref 都相同。
-	// 不是本平台的链接返回 ErrUnrecognized；是本平台的但不能绑定（例如整季的链接）返回 Kind 为 InvalidLink 的 *Error。
+	// 不是本平台的链接返回 ErrUnrecognized；是本平台的但不能绑定（例如番剧一季的链接）返回 Kind 为 InvalidLink 的 *Error。
 	// 可能联网，例如跟随短链跳转。
 	ParseLink(ctx context.Context, link string) (Ref, error)
 }

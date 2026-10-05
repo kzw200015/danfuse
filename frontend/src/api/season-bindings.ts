@@ -1,4 +1,4 @@
-import { request } from './request'
+import { request, slowRequestTimeout } from './request'
 
 export type SeasonBindingStatus = 'active' | 'dead'
 
@@ -66,12 +66,13 @@ export interface Mapping {
   to: number
 }
 
-/** 预览的条目；重复的序号已标为对不上 */
+/** 预览的条目，字段与季绑定的条目相同；重复的序号已标为对不上 */
 export interface PreviewItem {
   label: string
   note: string | null
   number: number | null
-  unmatchedReason: string | null
+  /** 对不上的原因 */
+  reason: string | null
 }
 
 /** 链接识别出的一个候选合集 */
@@ -82,7 +83,9 @@ export interface CollectionCandidate {
   sourceUrl: string
   sourceLabel: string
   finished: boolean
-  defaultMapping: Mapping
+  /** 默认的集号对应，字段与季绑定的相同 */
+  mappingFrom: number
+  mappingTo: number
   items: PreviewItem[]
 }
 
@@ -90,19 +93,13 @@ export interface CollectionPreview {
   candidates: CollectionCandidate[]
 }
 
-/**
- * 预览、创建时后端当场请求平台识别链接、列出合集，最长约 25 秒（服务端的写超时是 30 秒）；
- * 默认的 15 秒请求超时不够，放宽到 35 秒，让服务端先给出结果。
- */
-const fetchTimeout = 35_000
-
 /** 预览一季要绑定的合集，不保存任何东西 */
 export function previewSeasonBinding(seasonId: number, link: string) {
   return request<CollectionPreview>({
     url: `/seasons/${seasonId}/season-bindings/preview`,
     method: 'POST',
     data: { link },
-    timeout: fetchTimeout,
+    timeout: slowRequestTimeout,
   })
 }
 
@@ -120,7 +117,7 @@ export function createSeasonBinding(seasonId: number, data: CreateSeasonBinding)
     url: `/seasons/${seasonId}/season-bindings`,
     method: 'POST',
     data,
-    timeout: fetchTimeout,
+    timeout: slowRequestTimeout,
   })
 }
 

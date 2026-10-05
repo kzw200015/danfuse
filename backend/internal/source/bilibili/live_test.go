@@ -118,7 +118,7 @@ var liveCases = []struct {
 		name: "港澳台限定番剧", link: "https://www.bilibili.com/bangumi/play/ep409059",
 		ref:     `{"kind":"episode","epId":409059}`,
 		kind:    source.NotFound,
-		message: "视频不存在、已删除或不可见；港澳台限定番剧暂不支持",
+		message: "视频不存在、已删除或不可见",
 	},
 	{
 		name: "整季的 ss 链接被拒绝", link: "https://www.bilibili.com/bangumi/play/ss24605",

@@ -48,7 +48,7 @@ type Querier interface {
 	GetImageSHA256(ctx context.Context, id int64) ([]byte, error)
 	// 弹弹 API 的作品详情：一季连同所属剧的类型、剧名、原名和年份，列与 SearchSeasons 相同。季不存在时没有行。
 	GetSeason(ctx context.Context, id int64) (GetSeasonRow, error)
-	// 补建用：季绑定本身。不存在时没有行。
+	// 季绑定本身：补建读它，立即补建前确认它存在。不存在时没有行。
 	GetSeasonBinding(ctx context.Context, id int64) (SeasonBinding, error)
 	// 季绑定的 JSON：连同它建出的、现存的绑定数，以及是否正在补建（有没有没过期的、按季绑定的租约，见 database.LeaseSeasonBackfill，
 	// lease_prefix 为它的前缀）。不存在时没有行。
@@ -79,13 +79,13 @@ type Querier interface {
 	// 一条 SELECT 读完：清空后重新拉取在一个事务里完成，读到的要么全旧、要么全新。
 	ListDanmakuByBinding(ctx context.Context, bindingID int64) ([]ListDanmakuByBindingRow, error)
 	// 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚：
-	//   从没检查过；距上次检查已满 24 小时（checked_before = 现在 - 24 小时）；这一季里有集的建出时间晚于上次检查时间；
-	//   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 24 小时（fetched_before = 现在 - 24 小时）、
+	//   从没检查过；距上次检查已满 24 小时（due_before = 现在 - 24 小时）；这一季里有集的建出时间晚于上次检查时间；
+	//   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 24 小时（同样以 due_before 判断）、
 	//   而且是在上次检查开始之后才满 24 小时的（满 24 小时之前开始的那一轮已经试过拉取它，失败了等下一次每天的检查，不每分钟重试）。
 	// 24 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
 	// id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
 	ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBindingsParams) ([]int64, error)
-	// 一季的全部集号，预览给出默认的集号对应用。
+	// 一季的全部集号：预览给出默认的集号对应，详情判断条目是否在等待对应的集。
 	ListEpisodeNumbersBySeason(ctx context.Context, seasonID int64) ([]int32, error)
 	// 搜索结果、作品详情里各季的全部集，按季、集号排序。
 	ListEpisodesBySeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesBySeasonsRow, error)
@@ -109,8 +109,8 @@ type Querier interface {
 	// 重新拉取、标为失效的写入事务的第一句：锁住这个绑定到提交。同一个绑定的写入因此排队执行，
 	// 计数的算术准确；删除绑定也要等它提交。绑定已被删除时没有行。
 	LockBinding(ctx context.Context, id int64) (int64, error)
-	// 创建绑定的写入事务的第一句：锁住这一集到提交，期间删不掉它。FOR KEY SHARE 与同步的 upsert 兼容。
-	// 这一集已被删除时没有行。
+	// 锁住这一集到提交，期间删不掉它：创建绑定的写入事务的第一句；补建的写入事务在锁住季、季绑定之后也用它锁集。
+	// FOR KEY SHARE 与同步的 upsert 兼容。这一集已被删除时没有行。
 	LockEpisode(ctx context.Context, id int64) (int64, error)
 	// 创建季绑定、补建的写入事务的第一句：锁住这一季到提交，期间删不掉它。这一季已被删除时没有行。
 	LockSeason(ctx context.Context, id int64) (int64, error)

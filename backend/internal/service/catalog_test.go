@@ -119,7 +119,7 @@ func TestDeleteCatalog(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-				syncOnce(t, newTestService(t, pool, &fakeSource{items: catalogItems()}))
+				syncOnce(t, newTestService(t, pool, &fakeCatalog{items: catalogItems()}))
 				seedBindings(t, pool)
 				svc := newCatalogService(pool)
 
@@ -164,7 +164,7 @@ func TestDeleteDuringSync(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-				src := &fakeSource{items: catalogItems()}
+				src := &fakeCatalog{items: catalogItems()}
 				svc := newTestService(t, pool, src)
 				syncOnce(t, svc)
 				before := readCatalog(t, pool)

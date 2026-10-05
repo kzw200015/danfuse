@@ -14,10 +14,10 @@ import (
 )
 
 // 应用的锁是 leases 表里的租约（docs/adr/0003）：拿锁是一条只在过期后才能接管的 upsert，持有者每 leaseRenewInterval
-// 续约一次，LeaseTTL 内没有续约就过期，过期按数据库的 now() 判断。持锁期间不占用连接。
+// 续约一次，leaseTTL 内没有续约就过期，过期按数据库的 now() 判断。持锁期间不占用连接。
 // 迁移用的是 goose 自带的表锁（goose_lock 表，租约时长与续约间隔与这里相同），与 leases 表无关。
 const (
-	LeaseTTL           = 30 * time.Second
+	leaseTTL           = 30 * time.Second
 	leaseRenewInterval = 10 * time.Second
 	leaseQueryTimeout  = 5 * time.Second // 续约、释放各自的超时
 )
@@ -75,7 +75,7 @@ type Lease struct {
 func TryLease(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, key string) (lease *Lease, ok bool, err error) {
 	start := time.Now()
 	var token int64
-	err = pool.QueryRow(ctx, acquireSQL, key, LeaseTTL.Seconds()).Scan(&token)
+	err = pool.QueryRow(ctx, acquireSQL, key, leaseTTL.Seconds()).Scan(&token)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -92,7 +92,7 @@ func TryLease(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, key 
 		done:   make(chan struct{}),
 	}
 	lease.ctx, lease.cancel = context.WithCancelCause(ctx)
-	go lease.renew(start.Add(LeaseTTL))
+	go lease.renew(start.Add(leaseTTL))
 	return lease, true, nil
 }
 
@@ -120,7 +120,7 @@ func (l *Lease) Release() {
 }
 
 // renew 每 leaseRenewInterval 续约一次，直到 Release。deadline 是本地估计的过期时间：上一次续约成功（或拿到锁）的
-// 那条语句发出时加上 LeaseTTL，比数据库里记的过期时间早。续约出错时只记日志、下次再试；到了 deadline 还没续上，
+// 那条语句发出时加上 leaseTTL，比数据库里记的过期时间早。续约出错时只记日志、下次再试；到了 deadline 还没续上，
 // 或者发现已被接管，取消 Context。
 func (l *Lease) renew(deadline time.Time) {
 	defer close(l.done)
@@ -148,7 +148,7 @@ func (l *Lease) renew(deadline time.Time) {
 			l.cancel(fmt.Errorf("%w: %s: taken over", ErrLeaseLost, l.key))
 			return
 		default:
-			expired.Reset(time.Until(start.Add(LeaseTTL)))
+			expired.Reset(time.Until(start.Add(leaseTTL)))
 		}
 	}
 }
@@ -157,7 +157,7 @@ func (l *Lease) renew(deadline time.Time) {
 func (l *Lease) extend() (renewed bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), leaseQueryTimeout)
 	defer cancel()
-	tag, err := l.pool.Exec(ctx, renewSQL, l.key, l.token, LeaseTTL.Seconds())
+	tag, err := l.pool.Exec(ctx, renewSQL, l.key, l.token, leaseTTL.Seconds())
 	if err != nil {
 		return false, err
 	}

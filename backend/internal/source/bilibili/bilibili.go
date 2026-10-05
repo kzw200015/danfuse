@@ -2,13 +2,14 @@
 // 拉弹幕都按 cid 请求同样的接口，弹幕 ID 在同一个空间里；令牌桶、SESSDATA 与重试策略共用；链接解析会跨类型。
 //
 // 文件划分：
-//   - bilibili.go：Adapter / Linker 的实现，ref 的结构，Fetch 的编排（元数据 → protobuf 分段与 XML → 按 ID 合并）；
+//   - bilibili.go：Adapter / Linker 的实现，ref 的结构，Fetch 的编排（元数据 → protobuf 分段与 XML → 按 ID 合并），
+//     以及共用的元数据 meta 和弹幕字段的映射 newDanmaku；
 //   - collection.go：Collector 的实现：合集 ref 的结构，季面板链接的识别，番剧的一季、投稿合集、多 P 投稿的列出；
 //   - link.go：链接解析（集面板与季面板共用，各自决定接受哪些）、短链跳转，BV 号与 aid 互转；
-//   - client.go：HTTP 层：UA、Referer 与 SESSDATA、全局令牌桶、重试与退避、错误归类；
+//   - client.go：HTTP 层：UA、Referer 与 SESSDATA、全局令牌桶、重试与退避、错误归类与给用户的提示；
 //   - view.go：投稿的元数据，解析出 cid、标题、时长；带 redirect_url 的转给番剧；
 //   - pgc.go：番剧单集的元数据，番剧一季的结构；
-//   - seg.go：protobuf 分段弹幕的拉取、protowire 解码与字段映射；
+//   - seg.go：protobuf 分段弹幕的拉取与 protowire 解码；
 //   - xml.go：XML 弹幕的拉取、解析，与 protobuf 的合并。
 //
 // 测试平时只回放 testdata/ 里脱敏后的样本，不联网；请求真实 B 站的 live 模式见 live_test.go。
@@ -21,6 +22,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 
 	"golang.org/x/sync/errgroup"
 
@@ -58,6 +60,12 @@ func decodeRef(r source.Ref) (ref, error) {
 		return v, nil
 	}
 	return ref{}, fmt.Errorf("bilibili: invalid ref %s", r)
+}
+
+// encode 编码成 bindings.ref。字段只有字符串和整数，json.Marshal 不会出错。
+func (v ref) encode() source.Ref {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 type Adapter struct {
@@ -109,13 +117,20 @@ func (a *Adapter) ParseLink(ctx context.Context, link string) (source.Ref, error
 	}
 	switch t.kind {
 	case targetVideo:
-		return json.Marshal(ref{Kind: kindVideo, Aid: t.id, Page: t.page})
+		return ref{Kind: kindVideo, Aid: t.id, Page: t.page}.encode(), nil
 	case targetEpisode:
-		return json.Marshal(ref{Kind: kindEpisode, EpID: t.id})
+		return ref{Kind: kindEpisode, EpID: t.id}.encode(), nil
 	case targetSeason, targetMedia, targetUGCSeason:
 		return nil, &source.Error{Kind: source.InvalidLink, Message: "整季或合集的链接请在季面板绑定", Err: fmt.Errorf("%s %d 是合集", t.kind, t.id)}
 	}
 	return nil, t.unsupported("短链指向的不是投稿或番剧单集")
+}
+
+// meta 解析出的弹幕源：拉弹幕用的 cid，以及绑定的标题和时长。
+type meta struct {
+	cid      int64
+	title    string
+	duration int // 秒
 }
 
 // Fetch 重新取元数据（cid、标题、时长），再拉取全部 protobuf 分段和 XML，按原始 ID 合并。全有或全无。
@@ -174,4 +189,25 @@ func (a *Adapter) fetchDanmaku(ctx context.Context, cid int64, duration int) (pr
 		return nil, nil, err
 	}
 	return slices.Concat(parts...), xml, nil
+}
+
+// newDanmaku 把 B 站一条弹幕的字段映射成内部格式，protobuf 与 XML 共用；不是普通的文字弹幕、没有 ID 或正文为空时 ok 为 false。
+//   - 模式：1、2、3 合并为滚动，4、5、6 原样保留，7、8、9（高级、代码、BAS）和其他取值丢弃；
+//   - 颜色：只取低 24 位，大会员渐变色忽略；
+//   - 正文：只清洗非法的 UTF-8 字节和 NUL（PostgreSQL 的 text 存不了），其余原样保留；去掉空白后为空的丢弃。
+func newDanmaku(id int64, timeMs int32, mode int64, color uint64, text string) (danmaku.Danmaku, bool) {
+	d := danmaku.Danmaku{SourceID: id, TimeMs: timeMs, Color: uint32(color & 0xFFFFFF)}
+	switch mode {
+	case 1, 2, 3:
+		d.Mode = danmaku.ModeScroll
+	case 4, 5, 6:
+		d.Mode = danmaku.Mode(mode)
+	default:
+		return danmaku.Danmaku{}, false
+	}
+	d.Text = strings.ReplaceAll(strings.ToValidUTF8(text, ""), "\x00", "")
+	if d.SourceID == 0 || strings.TrimSpace(d.Text) == "" {
+		return danmaku.Danmaku{}, false
+	}
+	return d, true
 }

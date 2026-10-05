@@ -1,4 +1,6 @@
-// Package database 负责 PostgreSQL 连接池与自动迁移。
+// Package database 负责 PostgreSQL 的连接池与自动迁移（goose 的表锁保证多实例只有一个执行迁移），
+// 应用自己的锁（leases 表里的租约，见 TryLease 与登记在 lease.go 的键），以及数据库错误的判断（IsUniqueViolation）。
+// 测试用的数据库在子包 dbtest。
 package database
 
 import (

@@ -36,13 +36,13 @@ func collectionView(t *testing.T, pages int) response {
 	for i := range pages {
 		data.Pages = append(data.Pages, viewPage{Page: i + 1, CID: int64(101 + i), Part: fmt.Sprintf("第 %d 局", i+1), Duration: 10})
 	}
-	return viewDataResponse(t, data)
+	return dataResponse(t, data)
 }
 
 // ewcArchives 合集 8597253 的条目列表，与 collectionView 里的合集一致。
 func ewcArchives(t *testing.T) response {
 	t.Helper()
-	return archivesResponse(t, archivesData{
+	return dataResponse(t, archivesData{
 		Archives: []archive{{Aid: 170001, Title: " 合集里的稿件 "}, {Aid: 170002, Title: "第二个"}, {Aid: 170003, Title: "下一节"}},
 		Meta:     archivesMeta{Mid: 50329118, Title: "2026EWC"},
 		Page:     archivesPager{Total: 3},
@@ -74,7 +74,7 @@ func TestParseCollectionLink(t *testing.T) {
 		{
 			name: "md 换算结果为 0：番剧不存在", link: "md999999999",
 			samples: map[string][]response{"media-999999999": {mediaResponse(0)}},
-			kind:    source.NotFound, message: "番剧不存在、已下架或不可见；港澳台限定番剧暂不支持", requests: []string{"media-999999999"},
+			kind:    source.NotFound, message: "番剧不存在、已下架或不可见", requests: []string{"media-999999999"},
 		},
 		{
 			name: "单集 ep 取它所在的季", link: "https://www.bilibili.com/bangumi/play/ep508404",
@@ -291,7 +291,7 @@ func TestListUGCSeasonPaging(t *testing.T) {
 		for aid := from; aid <= to; aid++ {
 			data.Archives = append(data.Archives, archive{Aid: int64(aid), Title: fmt.Sprintf("第 %d 期", aid)})
 		}
-		return archivesResponse(t, data)
+		return dataResponse(t, data)
 	}
 	fake := newFake(t, map[string][]response{
 		"archives-8597253-1": {page(1, 100, 230)},
@@ -348,7 +348,7 @@ func TestListCollectionErrors(t *testing.T) {
 		message  string
 		attempts int
 	}{
-		{"番剧不存在", bangumiRef, "season-41410", codeResponse(-404), source.NotFound, "番剧不存在、已下架或不可见；港澳台限定番剧暂不支持", 1},
+		{"番剧不存在", bangumiRef, "season-41410", codeResponse(-404), source.NotFound, "番剧不存在、已下架或不可见", 1},
 		{"番剧限流", bangumiRef, "season-41410", codeResponse(-412), source.RateLimited, "B 站限流，请稍后再试", 4},
 		{"番剧接口异常", bangumiRef, "season-41410", statusResponse(http.StatusBadGateway), source.Upstream, "B 站接口异常", 4},
 		{"合集不存在", ugcSeasonRef, "archives-8597253-1", codeResponse(-404), source.NotFound, "合集不存在或已删除", 1},

@@ -9,14 +9,8 @@ import {
 } from 'lucide-react'
 
 import type { SyncRun, SyncStatus } from '@/api/sync'
+import { runStatusText } from '@/lib/sync'
 import { cn } from '@/lib/utils'
-
-export const runStatusText: Record<SyncStatus, string> = {
-  running: '同步中',
-  succeeded: '成功',
-  failed: '失败',
-  interrupted: '已中断',
-}
 
 const statusIcons: Record<SyncStatus, { Icon: LucideIcon; className: string }> = {
   running: { Icon: Loader2Icon, className: 'animate-spin text-sky-600' },
@@ -32,12 +26,6 @@ export function RunStatusIcon({
 }: LucideProps & { status: SyncStatus }) {
   const { Icon, className: statusClassName } = statusIcons[status]
   return <Icon className={cn('size-4 shrink-0', statusClassName, className)} {...props} />
-}
-
-/** 已完成/总数；列完媒体库之前总数未知 */
-export function runProgressText(run: SyncRun) {
-  if (run.total !== null) return `${run.done} / ${run.total} 部`
-  return run.status === 'running' ? '正在列出媒体库…' : '—'
 }
 
 /** "同步"导航项上的状态：进行中显示进度，失败、中断显示图标，有警告显示条数，正常结束不显示 */

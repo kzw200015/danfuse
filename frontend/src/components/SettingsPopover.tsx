@@ -53,7 +53,7 @@ function SettingsContent() {
       <Separator />
       <section className="grid gap-1.5">
         <h3 className="text-sm font-medium">目录源</h3>
-        <CatalogSourceSettings settings={data} />
+        <CatalogSourceInfo settings={data} />
       </section>
       <Separator />
       <section className="grid gap-1.5">
@@ -111,7 +111,7 @@ function DandanUrl({ token }: { token: string | null }) {
   )
 }
 
-function CatalogSourceSettings({ settings }: { settings: Settings }) {
+function CatalogSourceInfo({ settings }: { settings: Settings }) {
   const source = settings.catalogSource
   if (!source) return <p className="text-xs text-muted-foreground">未配置目录源</p>
   return (

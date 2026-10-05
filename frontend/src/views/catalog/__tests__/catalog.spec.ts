@@ -8,8 +8,6 @@ import {
   deletionImpact,
   durationMismatch,
   filterSeries,
-  formatDuration,
-  parseId,
   parseOffset,
   resolveSelection,
   seasonLabel,
@@ -153,19 +151,6 @@ describe('季的标签与名称', () => {
   })
 })
 
-describe('formatDuration', () => {
-  it.each([
-    [null, '—'],
-    [0, '0:00'],
-    [45, '0:45'],
-    [1420, '23:40'],
-    [3600, '1:00:00'],
-    [5405, '1:30:05'],
-  ])('%j 秒', (seconds, want) => {
-    expect(formatDuration(seconds)).toBe(want)
-  })
-})
-
 describe('bindingStats', () => {
   /** 一集，按给出的状态各带一个绑定 */
   function episode(...statuses: BindingStatus[]): Episode {
@@ -275,21 +260,5 @@ describe('parseOffset', () => {
     '.1234',
   ])('%j 不合法', (text) => {
     expect(parseOffset(text)).toBeNull()
-  })
-})
-
-describe('parseId', () => {
-  it.each([
-    ['1', 1],
-    ['42', 42],
-    ['0', undefined],
-    ['-1', undefined],
-    ['1.5', undefined],
-    ['01', undefined],
-    ['1e1', undefined],
-    ['abc', undefined],
-    ['', undefined],
-  ])('%j', (param, want) => {
-    expect(parseId(param)).toBe(want)
   })
 })

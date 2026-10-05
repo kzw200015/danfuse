@@ -1,4 +1,4 @@
-import { request } from './request'
+import { request, slowRequestTimeout } from './request'
 
 export type BindingStatus = 'active' | 'dead'
 
@@ -24,19 +24,13 @@ export interface Binding {
   seasonBindingId: number | null
 }
 
-/**
- * 创建绑定、重新拉取时后端当场拉取全部弹幕，最长约 25 秒（服务端的写超时是 30 秒）；
- * 默认的 15 秒请求超时不够，放宽到 35 秒，让服务端先给出结果。
- */
-const fetchTimeout = 35_000
-
 /** 贴链接给一集创建绑定，当场拉取全部弹幕；拉取失败时不创建 */
 export function createBinding(episodeId: number, url: string) {
   return request<Binding>({
     url: `/episodes/${episodeId}/bindings`,
     method: 'POST',
     data: { url },
-    timeout: fetchTimeout,
+    timeout: slowRequestTimeout,
   })
 }
 
@@ -55,7 +49,7 @@ export function refetchBinding(id: number, clear: boolean) {
     url: `/bindings/${id}/refetch`,
     method: 'POST',
     data: { clear },
-    timeout: fetchTimeout,
+    timeout: slowRequestTimeout,
   })
 }
 

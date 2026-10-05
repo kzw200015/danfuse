@@ -15,7 +15,7 @@ type Collector interface {
 	// ParseCollectionLink 识别季面板贴的链接，返回一个或多个候选合集，按适配器认为合适的顺序排列。
 	// 同一个合集不论链接怎么写，候选的 ref 都相同。不是本平台的链接返回 ErrUnrecognized；
 	// 是本平台的但不能作为合集绑定的，返回 Kind 为 InvalidLink 的 *Error，提示由适配器写。可能联网。
-	ParseCollectionLink(ctx context.Context, link string) ([]Candidate, error)
+	ParseCollectionLink(ctx context.Context, link string) ([]CollectionCandidate, error)
 	// ListCollection 按合集 ref 列出合集的标题、是否完结（取不到时为否）和全部条目，条目按合集里的顺序排列。
 	// 合集不存在时返回 Kind 为 NotFound 的 *Error。重复序号不在这里判定，见 MarkDuplicateNumbers。
 	ListCollection(ctx context.Context, ref CollectionRef) (Collection, error)
@@ -23,8 +23,8 @@ type Collector interface {
 	DescribeCollection(ref CollectionRef) (Display, error)
 }
 
-// Candidate 链接识别出的一个候选合集。
-type Candidate struct {
+// CollectionCandidate 链接识别出的一个候选合集。
+type CollectionCandidate struct {
 	Kind string // 适配器自己定义的种类标识，例如 B 站的番剧、投稿合集、多 P 投稿；创建季绑定时用它选候选
 	Ref  CollectionRef
 }
@@ -47,7 +47,7 @@ type CollectionItem struct {
 
 // ParseCollectionLink 依次交给实现了 Collector 的适配器，返回第一个认识这个链接的适配器和它给出的候选。
 // 适配器返回 ErrUnrecognized 以外的错误时直接返回；都不认识时返回 Kind 为 InvalidLink 的 *Error（"无法识别的链接"）。
-func (r *Registry) ParseCollectionLink(ctx context.Context, link string) (Adapter, []Candidate, error) {
+func (r *Registry) ParseCollectionLink(ctx context.Context, link string) (Adapter, []CollectionCandidate, error) {
 	for _, a := range r.adapters {
 		collector, ok := a.(Collector)
 		if !ok {

@@ -27,6 +27,17 @@ function isApiResponse(body: unknown): body is ApiResponse {
   return typeof body === 'object' && body !== null && typeof (body as ApiResponse).code === 'number'
 }
 
+/** status 为给定 HTTP 状态码的 ApiError */
+export function isApiStatus(e: unknown, status: number): e is ApiError {
+  return e instanceof ApiError && e.status === status
+}
+
+/**
+ * 后端当场请求平台的接口（创建绑定、重新拉取、预览和创建季绑定）最长约 25 秒（服务端的写超时是 30 秒）；
+ * 默认的 15 秒请求超时不够，放宽到 35 秒，让服务端先给出结果。
+ */
+export const slowRequestTimeout = 35_000
+
 export const http = axios.create({
   baseURL: '/api',
   timeout: 15_000,

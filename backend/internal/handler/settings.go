@@ -9,14 +9,14 @@ import (
 
 // SettingsHandler 只读的配置。没有业务逻辑，直接读配置，不设 service。
 type SettingsHandler struct {
-	dandanplay config.Dandanplay
-	source     config.CatalogSource
-	sync       config.Sync
-	bilibili   config.Bilibili
+	dandanplay    config.Dandanplay
+	catalogSource config.CatalogSource
+	sync          config.Sync
+	bilibili      config.Bilibili
 }
 
-func NewSettingsHandler(dandanplay config.Dandanplay, source config.CatalogSource, sync config.Sync, bilibili config.Bilibili) *SettingsHandler {
-	return &SettingsHandler{dandanplay: dandanplay, source: source, sync: sync, bilibili: bilibili}
+func NewSettingsHandler(dandanplay config.Dandanplay, catalogSource config.CatalogSource, sync config.Sync, bilibili config.Bilibili) *SettingsHandler {
+	return &SettingsHandler{dandanplay: dandanplay, catalogSource: catalogSource, sync: sync, bilibili: bilibili}
 }
 
 type settingsResponse struct {
@@ -48,9 +48,9 @@ func (h *SettingsHandler) Get(c *echo.Context) error {
 		resp.DandanplayToken = &h.dandanplay.Token
 	}
 	// 只读取选中那一种的设置块；kind 为空表示未配置目录源（config 已校验，只能为空或 jellyfin）
-	if h.source.Kind == config.KindJellyfin {
-		jf := h.source.Jellyfin
-		resp.CatalogSource = &catalogSourceSettings{Kind: h.source.Kind, URL: jf.URL, Libraries: jf.Libraries}
+	if h.catalogSource.Kind == config.KindJellyfin {
+		jf := h.catalogSource.Jellyfin
+		resp.CatalogSource = &catalogSourceSettings{Kind: h.catalogSource.Kind, URL: jf.URL, Libraries: jf.Libraries}
 	}
 	return response.OK(c, resp)
 }

@@ -1,15 +1,9 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import {
-  ChevronDownIcon,
-  ChevronRightIcon,
-  ExternalLinkIcon,
-  Loader2Icon,
-  RefreshCwIcon,
-} from 'lucide-react'
+import { ChevronDownIcon, ChevronRightIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { ApiError } from '@/api/request'
+import { isApiStatus } from '@/api/request'
 import {
   backfillSeasonBinding,
   deleteSeasonBinding,
@@ -17,30 +11,23 @@ import {
   type SeasonBinding,
   type SeasonBindingDetail,
   type SeasonBindingPatch,
-  type SeasonBindingItem,
+  type SeasonBindingItemState,
 } from '@/api/season-bindings'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { useSeasonBinding, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { formatAgo, formatDateTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
-import MappingInputs from './MappingInputs'
-import { itemStateText, parseMappingNumber } from './season-binding'
+import CollectionItemsTable from './CollectionItemsTable'
+import { MappingEditor } from './MappingInputs'
+import { itemStateText } from './season-binding'
+import { SourceLink, StatusBadge } from './shared'
 
 /**
  * 一个季绑定的卡片：状态、合集标题（链接到原页面）与标签、建出的绑定数、上次检查的时间与错误、补建中的已用秒数；
@@ -91,7 +78,7 @@ export default function SeasonBindingCard({
       return watch(binding.id)
     },
     onError: (e) => {
-      if (e instanceof ApiError && e.status === 409) {
+      if (isApiStatus(e, 409)) {
         toast.error(e.message)
         return watch(binding.id) // 正在补建：显示它的进度
       }
@@ -108,7 +95,7 @@ export default function SeasonBindingCard({
     onError: (e) => {
       showError(e)
       // 已经不在了（例如在别处删掉了）：重新加载，卡片随之消失
-      if (e instanceof ApiError && e.status === 404) return reload()
+      if (isApiStatus(e, 404)) return reload()
     },
   })
   // 确认框里"同时删除建出的绑定"的勾选，每次打开时恢复成默认的不勾选
@@ -116,34 +103,20 @@ export default function SeasonBindingCard({
   const busy = remove.isPending
 
   const dead = view.status === 'dead'
+  // 合集标题为空时用标签代替
+  const name = view.title || view.sourceLabel
   return (
     <article
-      aria-label={view.title}
+      aria-label={name}
       className={cn('grid gap-2 rounded-lg border p-3', dead && 'border-destructive/40')}
     >
       <div className="flex items-start gap-2">
-        {dead ? (
-          <Badge
-            variant="destructive"
-            title="上次检查时合集已不存在或已下架；已经建出的绑定不受影响，追更开着时照常检查，恢复后自动变回正常"
-          >
-            失效
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="border-emerald-600/30 text-emerald-700">
-            正常
-          </Badge>
-        )}
+        <StatusBadge
+          dead={dead}
+          deadTitle="上次检查时合集已不存在或已下架；已经建出的绑定不受影响，追更开着时照常检查，恢复后自动变回正常"
+        />
         <div className="min-w-0 flex-1">
-          <a
-            href={view.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium break-all hover:underline"
-          >
-            {view.title || view.sourceLabel}
-            <ExternalLinkIcon className="size-3 shrink-0 opacity-50" />
-          </a>
+          <SourceLink href={view.sourceUrl}>{name}</SourceLink>
           <div className="text-xs text-muted-foreground">
             {view.sourceLabel}
             {view.finished && ' · 已完结'}
@@ -187,7 +160,7 @@ export default function SeasonBindingCard({
           key={`${view.mappingFrom}-${view.mappingTo}`}
           binding={view}
           disabled={update.isPending || busy}
-          onSave={(mappingFrom, mappingTo) => update.mutate({ mappingFrom, mappingTo })}
+          onSave={({ from, to }) => update.mutate({ mappingFrom: from, mappingTo: to })}
         />
         <div className="ml-auto flex gap-1">
           <Button
@@ -212,7 +185,7 @@ export default function SeasonBindingCard({
             onOpenChange={(open) => open && setWithBindings(false)}
             onConfirm={() => remove.mutate(withBindings)}
           >
-            <p>「{view.title || view.sourceLabel}」的条目表和处理过的记录会一起删除。</p>
+            <p>「{name}」的条目表和处理过的记录会一起删除。</p>
             {running && <p>正在进行的补建会随即停下。</p>}
             {view.bindingCount > 0 ? (
               <>
@@ -252,51 +225,7 @@ export default function SeasonBindingCard({
   )
 }
 
-/** 集号对应的输入框，改动之后才显示"保存"；不合法时不能保存 */
-function MappingEditor({
-  binding,
-  disabled,
-  onSave,
-}: {
-  binding: SeasonBinding
-  disabled: boolean
-  onSave: (from: number, to: number) => void
-}) {
-  const [from, setFrom] = useState(String(binding.mappingFrom))
-  const [to, setTo] = useState(String(binding.mappingTo))
-  const f = parseMappingNumber(from)
-  const t = parseMappingNumber(to)
-  const changed = f !== binding.mappingFrom || t !== binding.mappingTo
-  return (
-    <form
-      className="flex items-center gap-2"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (f !== null && t !== null) onSave(f, t)
-      }}
-    >
-      <MappingInputs
-        from={from}
-        to={to}
-        onFromChange={setFrom}
-        onToChange={setTo}
-        disabled={disabled}
-      />
-      {changed && (
-        <Button
-          type="submit"
-          size="xs"
-          disabled={disabled || f === null || t === null}
-          title="只影响还没处理过的条目，已经建出的绑定不动"
-        >
-          保存
-        </Button>
-      )}
-    </form>
-  )
-}
-
-const stateClass: Partial<Record<SeasonBindingItem['state'], string>> = {
+const stateClass: Partial<Record<SeasonBindingItemState, string>> = {
   bound: 'text-emerald-700',
   failed: 'text-destructive',
   unmatched: 'text-amber-700',
@@ -315,31 +244,17 @@ function ItemTable({ detail, error }: { detail?: SeasonBindingDetail; error: Err
     return <p className="text-xs text-muted-foreground">上次检查时合集里没有条目。</p>
   }
   return (
-    <Table aria-label="条目表" className="text-xs">
-      <TableHeader>
-        <TableRow>
-          <TableHead className="w-12 text-right">序号</TableHead>
-          <TableHead>条目</TableHead>
-          <TableHead>状态</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {detail.items.map((it, i) => (
-          <TableRow key={i}>
-            <TableCell className="text-right tabular-nums">{it.number ?? '—'}</TableCell>
-            <TableCell className="whitespace-normal">
-              {it.label}
-              {it.note && <div className="text-muted-foreground">{it.note}</div>}
-            </TableCell>
-            <TableCell
-              className={cn('whitespace-normal', stateClass[it.state])}
-              title={it.lastErrorAt ? formatDateTime(it.lastErrorAt) : undefined}
-            >
-              {itemStateText(it)}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <CollectionItemsTable
+      label="条目表"
+      heading="状态"
+      rows={detail.items.map((it) => ({
+        number: it.number,
+        label: it.label,
+        note: it.note,
+        text: itemStateText(it),
+        className: stateClass[it.state],
+        title: it.lastErrorAt ? formatDateTime(it.lastErrorAt) : undefined,
+      }))}
+    />
   )
 }

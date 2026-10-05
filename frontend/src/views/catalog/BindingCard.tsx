@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { ExternalLinkIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react'
+import { Loader2Icon, RefreshCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteBinding, refetchBinding, updateBindingOffset, type Binding } from '@/api/bindings'
-import { ApiError } from '@/api/request'
+import { isApiStatus } from '@/api/request'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Badge } from '@/components/ui/badge'
@@ -12,10 +12,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { useReloadSeries } from '@/hooks/use-series'
-import { formatAgo, formatDateTime } from '@/lib/time'
+import { formatAgo, formatDateTime, formatDuration } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
-import { durationMismatch, formatDuration, MAX_OFFSET, parseOffset } from './catalog'
+import { durationMismatch, MAX_OFFSET, parseOffset } from './catalog'
+import { SourceLink, StatusBadge } from './shared'
 
 const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间的秒数，小数最多三位`
 
@@ -51,7 +52,7 @@ export default function BindingCard({
     onError: (e) => {
       showError(e)
       // 弹幕源不存在时后端已把绑定标为失效，重新加载这部剧，让失效状态显示出来
-      if (e instanceof ApiError && e.status === 422) return reload()
+      if (isApiStatus(e, 422)) return reload()
     },
   })
   const saveOffset = useMutation({
@@ -93,25 +94,9 @@ export default function BindingCard({
       className={cn('grid gap-2 rounded-lg border p-3', dead && 'border-destructive/40')}
     >
       <div className="flex items-start gap-2">
-        {dead ? (
-          <Badge variant="destructive" title="上次拉取时弹幕源已不存在；已保存的弹幕仍照常输出">
-            失效
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="border-emerald-600/30 text-emerald-700">
-            正常
-          </Badge>
-        )}
+        <StatusBadge dead={dead} deadTitle="上次拉取时弹幕源已不存在；已保存的弹幕仍照常输出" />
         <div className="min-w-0 flex-1">
-          <a
-            href={binding.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium break-all hover:underline"
-          >
-            {binding.title}
-            <ExternalLinkIcon className="size-3 shrink-0 opacity-50" />
-          </a>
+          <SourceLink href={binding.sourceUrl}>{binding.title}</SourceLink>
           <div className="text-xs text-muted-foreground">{binding.sourceLabel}</div>
         </div>
         {binding.seasonBindingId !== null && (

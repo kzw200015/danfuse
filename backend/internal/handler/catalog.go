@@ -39,7 +39,7 @@ func (r *seriesRequest) Validate() error {
 }
 
 // GetSeries GET /api/series/:id
-// 一部剧的完整子树：季 → 集 → 绑定。
+// 一部剧的完整子树：季 → 季绑定、集 → 绑定。
 func (h *CatalogHandler) GetSeries(c *echo.Context) error {
 	req, err := bind[seriesRequest](c)
 	if err != nil {
@@ -53,7 +53,7 @@ func (h *CatalogHandler) GetSeries(c *echo.Context) error {
 }
 
 // DeleteSeries DELETE /api/series/:id
-// 它的季、集、绑定、弹幕和海报一起删除。
+// 它的季、集、季绑定、绑定、弹幕和海报一起删除。
 func (h *CatalogHandler) DeleteSeries(c *echo.Context) error {
 	req, err := bind[seriesRequest](c)
 	if err != nil {
@@ -77,7 +77,7 @@ func (r *seasonRequest) Validate() error {
 }
 
 // DeleteSeason DELETE /api/seasons/:id
-// 它的集、绑定和弹幕一起删除。
+// 它的集、季绑定、绑定和弹幕一起删除。
 func (h *CatalogHandler) DeleteSeason(c *echo.Context) error {
 	req, err := bind[seasonRequest](c)
 	if err != nil {

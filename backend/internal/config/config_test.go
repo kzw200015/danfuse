@@ -12,7 +12,7 @@ import (
 func setEnv(t *testing.T, env map[string]string) {
 	t.Helper()
 	for k, v := range env {
-		t.Setenv(EnvPrefix+"_"+k, v)
+		t.Setenv(envPrefix+"_"+k, v)
 	}
 }
 

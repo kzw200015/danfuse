@@ -54,7 +54,6 @@ type Season struct {
 	Titles       []string // 所属剧的标题，有原名时加上原名；识别时用来判断文件名里的标题是不是这部剧
 	Kind         SeasonKind
 	Year         *int
-	Number       *int      // 季号，以后的上游可能没有
 	Episodes     []Episode // 按集号升序
 	EpisodeCount int       // 这一季的总集数；按集号过滤时 Episodes 只有那一集，总集数不变
 }

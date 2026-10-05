@@ -3,7 +3,7 @@ import { Loader2Icon, Trash2Icon } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
-import { ApiError } from '@/api/request'
+import { isApiStatus } from '@/api/request'
 import type { Episode, Season, SeriesDetail } from '@/api/series'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
@@ -49,7 +49,7 @@ export default function DeleteButton({
     },
     onError: (e) => {
       // 已经不在了（例如在别处删掉了）：重新加载，页面显示"找不到"和返回上一级的链接
-      if (e instanceof ApiError && e.status === 404) return reload()
+      if (isApiStatus(e, 404)) return reload()
     },
   })
 

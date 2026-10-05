@@ -24,3 +24,17 @@ export function formatAgo(iso: string) {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
   return `${Math.floor(seconds / 86400)} 天前`
 }
+
+/** 两个时间点相隔的秒数，四舍五入到整秒 */
+export function secondsBetween(from: string, to: string) {
+  return Math.round((Date.parse(to) - Date.parse(from)) / 1000)
+}
+
+/** 时长（秒）显示为 m:ss 或 h:mm:ss，没有时显示"—" */
+export function formatDuration(seconds: number | null) {
+  if (seconds === null) return '—'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const ss = String(seconds % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}

@@ -37,20 +37,6 @@ const archivesPageSize = 100
 // maxArchivePages 列合集条目最多翻的页数，防止接口异常时一直翻下去。
 const maxArchivePages = 200
 
-// 合集不存在时给用户看的提示。
-const (
-	bangumiNotFound   = "番剧不存在、已下架或不可见；港澳台限定番剧暂不支持"
-	ugcSeasonNotFound = "合集不存在或已删除"
-)
-
-// notFoundAs err 是 NotFound 时换成 message 这个提示，底层原因不变；其他错误原样返回。
-func notFoundAs(err error, message string) error {
-	if srcErr, ok := errors.AsType[*source.Error](err); ok && srcErr.Kind == source.NotFound {
-		return &source.Error{Kind: source.NotFound, Message: message, Err: srcErr.Err}
-	}
-	return err
-}
-
 var _ source.Collector = (*Adapter)(nil)
 
 // decodeCollectionRef 解析并校验 season_bindings.ref。
@@ -68,10 +54,15 @@ func decodeCollectionRef(r source.CollectionRef) (collectionRef, error) {
 	return collectionRef{}, fmt.Errorf("bilibili: invalid collection ref %s", r)
 }
 
+// encode 编码成 season_bindings.ref。字段只有字符串和整数，json.Marshal 不会出错。
+func (v collectionRef) encode() source.CollectionRef {
+	b, _ := json.Marshal(v)
+	return b
+}
+
 // candidate 由合集 ref 构造候选，种类标识就是 ref 的 kind。
-func candidate(v collectionRef) (source.Candidate, error) {
-	r, err := json.Marshal(v)
-	return source.Candidate{Kind: v.Kind, Ref: r}, err
+func candidate(v collectionRef) source.CollectionCandidate {
+	return source.CollectionCandidate{Kind: v.Kind, Ref: v.encode()}
 }
 
 // ParseCollectionLink 识别季面板贴的链接：
@@ -80,36 +71,28 @@ func candidate(v collectionRef) (source.Candidate, error) {
 //   - 普通稿件：有多个分 P 时候选里有多 P 投稿，属于合集时候选里有投稿合集，按这个顺序；两者都不是时为 InvalidLink；
 //   - 系列、没写 type 的列表页为 InvalidLink；
 //   - 指向以上页面的短链。
-func (a *Adapter) ParseCollectionLink(ctx context.Context, link string) ([]source.Candidate, error) {
+func (a *Adapter) ParseCollectionLink(ctx context.Context, link string) ([]source.CollectionCandidate, error) {
 	t, err := a.resolve(ctx, link)
 	if err != nil {
 		return nil, err
 	}
 	switch t.kind {
 	case targetSeason:
-		return bangumiCandidates(t.id)
+		return bangumiCandidates(t.id), nil
 	case targetMedia:
 		seasonID, err := a.mediaSeason(ctx, t.id)
 		if err != nil {
 			return nil, err
 		}
-		return bangumiCandidates(seasonID)
+		return bangumiCandidates(seasonID), nil
 	case targetEpisode:
 		s, err := a.season(ctx, t.id)
 		if err != nil {
 			return nil, err
 		}
-		return bangumiCandidates(s.SeasonID)
+		return bangumiCandidates(s.SeasonID), nil
 	case targetUGCSeason:
-		first, err := a.archives(ctx, t.id, 1)
-		if err != nil {
-			return nil, err
-		}
-		if first.Meta.Mid <= 0 {
-			return nil, sourceError(source.Upstream, fmt.Errorf("合集 %d 的作者 mid 为 %d", t.id, first.Meta.Mid))
-		}
-		c, err := candidate(collectionRef{Kind: collectionUGCSeason, SeasonID: t.id, Mid: first.Meta.Mid})
-		return []source.Candidate{c}, err
+		return a.ugcSeasonCandidates(ctx, t.id)
 	case targetVideo:
 		return a.videoCandidates(ctx, t.id)
 	case targetSeries:
@@ -124,9 +107,20 @@ func (a *Adapter) ParseCollectionLink(ctx context.Context, link string) ([]sourc
 }
 
 // bangumiCandidates 番剧的一季这一个候选。
-func bangumiCandidates(seasonID int64) ([]source.Candidate, error) {
-	c, err := candidate(collectionRef{Kind: collectionBangumi, SeasonID: seasonID})
-	return []source.Candidate{c}, err
+func bangumiCandidates(seasonID int64) []source.CollectionCandidate {
+	return []source.CollectionCandidate{candidate(collectionRef{Kind: collectionBangumi, SeasonID: seasonID})}
+}
+
+// ugcSeasonCandidates 空间里的合集页这一个候选：请求一次合集的条目列表，取作者的 mid。
+func (a *Adapter) ugcSeasonCandidates(ctx context.Context, seasonID int64) ([]source.CollectionCandidate, error) {
+	first, err := a.archives(ctx, seasonID, 1)
+	if err != nil {
+		return nil, err
+	}
+	if first.Meta.Mid <= 0 {
+		return nil, sourceError(source.Upstream, fmt.Errorf("合集 %d 的作者 mid 为 %d", seasonID, first.Meta.Mid))
+	}
+	return []source.CollectionCandidate{candidate(collectionRef{Kind: collectionUGCSeason, SeasonID: seasonID, Mid: first.Meta.Mid})}, nil
 }
 
 // mediaSeason 作品页 md 换算成 season_id。md 不存在时接口照样成功，只是 season_id 为 0，按 NotFound 处理。
@@ -144,7 +138,7 @@ func (a *Adapter) mediaSeason(ctx context.Context, mediaID int64) (int64, error)
 }
 
 // videoCandidates 普通稿件链接的候选。番剧的稿件（带 redirect_url）只有它所在的番剧的一季。
-func (a *Adapter) videoCandidates(ctx context.Context, aid int64) ([]source.Candidate, error) {
+func (a *Adapter) videoCandidates(ctx context.Context, aid int64) ([]source.CollectionCandidate, error) {
 	v, err := a.view(ctx, aid)
 	if err != nil {
 		return nil, err
@@ -154,25 +148,17 @@ func (a *Adapter) videoCandidates(ctx context.Context, aid int64) ([]source.Cand
 		if err != nil {
 			return nil, err
 		}
-		return bangumiCandidates(s.SeasonID)
+		return bangumiCandidates(s.SeasonID), nil
 	}
-	var candidates []source.Candidate
+	var candidates []source.CollectionCandidate
 	if len(v.Pages) > 1 {
-		c, err := candidate(collectionRef{Kind: collectionMultiPage, Aid: aid})
-		if err != nil {
-			return nil, err
-		}
-		candidates = append(candidates, c)
+		candidates = append(candidates, candidate(collectionRef{Kind: collectionMultiPage, Aid: aid}))
 	}
 	if s := v.UGCSeason; s != nil {
 		if s.ID <= 0 || s.Mid <= 0 {
 			return nil, sourceError(source.Upstream, fmt.Errorf("av%d 所在的合集 id 为 %d、作者 mid 为 %d", aid, s.ID, s.Mid))
 		}
-		c, err := candidate(collectionRef{Kind: collectionUGCSeason, SeasonID: s.ID, Mid: s.Mid})
-		if err != nil {
-			return nil, err
-		}
-		candidates = append(candidates, c)
+		candidates = append(candidates, candidate(collectionRef{Kind: collectionUGCSeason, SeasonID: s.ID, Mid: s.Mid}))
 	}
 	if len(candidates) == 0 {
 		return nil, &source.Error{
@@ -215,11 +201,7 @@ func (a *Adapter) listBangumi(ctx context.Context, seasonID int64) (source.Colle
 		if e.SectionType != 0 || e.ID <= 0 {
 			continue
 		}
-		r, err := json.Marshal(ref{Kind: kindEpisode, EpID: e.ID})
-		if err != nil {
-			return source.Collection{}, err
-		}
-		item := source.CollectionItem{Ref: r, Label: e.label()}
+		item := source.CollectionItem{Ref: ref{Kind: kindEpisode, EpID: e.ID}.encode(), Label: e.label()}
 		if n, ok := episodeNumber(e.Title); ok {
 			item.Number = n
 		} else {
@@ -280,11 +262,7 @@ func (a *Adapter) listUGCSeason(ctx context.Context, seasonID int64) (source.Col
 		if e.Aid <= 0 || e.Aid >= maxAid {
 			continue
 		}
-		r, err := json.Marshal(ref{Kind: kindVideo, Aid: e.Aid, Page: 1})
-		if err != nil {
-			return source.Collection{}, err
-		}
-		item := source.CollectionItem{Ref: r, Number: i + 1, Label: strings.TrimSpace(e.Title)}
+		item := source.CollectionItem{Ref: ref{Kind: kindVideo, Aid: e.Aid, Page: 1}.encode(), Number: i + 1, Label: strings.TrimSpace(e.Title)}
 		if n := pages[e.Aid]; n > 1 {
 			item.Note = fmt.Sprintf("共 %d 个分 P，只用 P1", n)
 		}
@@ -333,12 +311,8 @@ func (a *Adapter) listPages(ctx context.Context, aid int64) (source.Collection, 
 		if p.Page < 1 {
 			continue
 		}
-		r, err := json.Marshal(ref{Kind: kindVideo, Aid: aid, Page: p.Page})
-		if err != nil {
-			return source.Collection{}, err
-		}
 		label := strings.TrimSpace(fmt.Sprintf("P%d %s", p.Page, strings.TrimSpace(p.Part)))
-		c.Items = append(c.Items, source.CollectionItem{Ref: r, Number: p.Page, Label: label})
+		c.Items = append(c.Items, source.CollectionItem{Ref: ref{Kind: kindVideo, Aid: aid, Page: p.Page}.encode(), Number: p.Page, Label: label})
 	}
 	return c, nil
 }

@@ -32,7 +32,7 @@ func TestSyncRunsAPI(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		src := &fakeSource{
+		src := &fakeCatalog{
 			items: []catalog.Item{
 				{Name: "甲", Series: &catalog.Series{Type: catalog.TypeTV, Title: "甲", Seasons: []catalog.Season{
 					{Number: 1, Episodes: []catalog.Episode{{Number: 1}, {Number: 2}}},

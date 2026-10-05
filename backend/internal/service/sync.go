@@ -52,11 +52,11 @@ var (
 // 互斥靠同步的租约（database.LeaseSync），多实例同样成立：每次同步持有租约直到结束，用租约的 ctx 执行，
 // 租约丢失时这次同步同样记为 interrupted。已有同步在跑时，定时的触发被丢弃、只记日志，手动的触发返回 409。
 type SyncService struct {
-	store    repository.Store
-	pool     *pgxpool.Pool  // 拿同步的租约
-	source   catalog.Source // nil 表示未配置目录源
-	interval time.Duration
-	logger   *slog.Logger
+	store         repository.Store
+	pool          *pgxpool.Pool  // 拿同步的租约
+	catalogSource catalog.Source // nil 表示未配置目录源
+	interval      time.Duration
+	logger        *slog.Logger
 
 	triggers chan chan triggerResult // 手动触发：Run 的循环收到后开始同步，把结果送回
 	stopped  chan struct{}           // Run 返回时关闭，之后的手动触发不再等它
@@ -68,15 +68,15 @@ type triggerResult struct {
 	err   error
 }
 
-func NewSyncService(store repository.Store, pool *pgxpool.Pool, src catalog.Source, cfg config.Sync, logger *slog.Logger) *SyncService {
+func NewSyncService(store repository.Store, pool *pgxpool.Pool, catalogSource catalog.Source, cfg config.Sync, logger *slog.Logger) *SyncService {
 	return &SyncService{
-		store:    store,
-		pool:     pool,
-		source:   src,
-		interval: cfg.Interval,
-		logger:   logger,
-		triggers: make(chan chan triggerResult),
-		stopped:  make(chan struct{}),
+		store:         store,
+		pool:          pool,
+		catalogSource: catalogSource,
+		interval:      cfg.Interval,
+		logger:        logger,
+		triggers:      make(chan chan triggerResult),
+		stopped:       make(chan struct{}),
 	}
 }
 
@@ -87,7 +87,7 @@ func (s *SyncService) Run(ctx context.Context) {
 	s.cleanupStale(ctx)
 
 	var tick <-chan time.Time
-	if s.source != nil && s.interval > 0 {
+	if s.catalogSource != nil && s.interval > 0 {
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
 		tick = ticker.C
@@ -98,7 +98,7 @@ func (s *SyncService) Run(ctx context.Context) {
 			s.wg.Wait()
 			return
 		case <-tick:
-			s.start(ctx, triggerSchedule)
+			s.startScheduled(ctx)
 		case reply := <-s.triggers:
 			runID, err := s.tryStart(ctx, triggerManual)
 			reply <- triggerResult{runID: runID, err: err}
@@ -110,7 +110,7 @@ func (s *SyncService) Run(ctx context.Context) {
 // 未配置目录源返回 errNoCatalogSource；已有同步在跑（包括其他实例）返回 errSyncRunning；
 // Run 已经返回（服务正在关闭）时返回 503，不拖住优雅关闭。
 func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
-	if s.source == nil {
+	if s.catalogSource == nil {
 		return 0, errNoCatalogSource
 	}
 	reply := make(chan triggerResult, 1)
@@ -187,13 +187,13 @@ func (s *SyncService) interruptStale(ctx context.Context) error {
 	return nil
 }
 
-// start 开始一次定时同步，出错（包括已有同步在跑）只记日志。
-func (s *SyncService) start(ctx context.Context, trigger string) {
-	switch _, err := s.tryStart(ctx, trigger); {
+// startScheduled 开始一次定时同步，出错（包括已有同步在跑）只记日志。
+func (s *SyncService) startScheduled(ctx context.Context) {
+	switch _, err := s.tryStart(ctx, triggerSchedule); {
 	case errors.Is(err, errSyncRunning):
-		s.logger.Info("sync already running, skipped", "trigger", trigger)
+		s.logger.Info("sync already running, skipped", "trigger", triggerSchedule)
 	case err != nil && ctx.Err() == nil:
-		s.logger.Error("start sync failed", "trigger", trigger, "error", err)
+		s.logger.Error("start sync failed", "trigger", triggerSchedule, "error", err)
 	}
 }
 

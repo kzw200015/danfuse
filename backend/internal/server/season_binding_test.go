@@ -30,13 +30,13 @@ type fakeListRef struct {
 	List string `json:"list"`
 }
 
-func (fakeAdapter) ParseCollectionLink(_ context.Context, link string) ([]source.Candidate, error) {
+func (fakeAdapter) ParseCollectionLink(_ context.Context, link string) ([]source.CollectionCandidate, error) {
 	name, ok := strings.CutPrefix(link, "fakelist/")
 	if !ok {
 		return nil, source.ErrUnrecognized
 	}
 	ref, err := json.Marshal(fakeListRef{List: name})
-	return []source.Candidate{{Kind: "list", Ref: ref}}, err
+	return []source.CollectionCandidate{{Kind: "list", Ref: ref}}, err
 }
 
 func (fakeAdapter) ListCollection(_ context.Context, ref source.CollectionRef) (source.Collection, error) {
@@ -80,14 +80,7 @@ func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.P
 	logger := slog.New(slog.DiscardHandler)
 	bindings := service.NewBindingService(store, sources, logger)
 	svc := service.NewSeasonBindingService(store, pool, sources, bindings, logger)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		svc.Run(ctx)
-	}()
-	t.Cleanup(func() { cancel(); <-done }) // 在关闭连接池之前
-	synctest.Wait()
+	runInBackground(t, svc)
 
 	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{
 		Catalog:       handler.NewCatalogHandler(service.NewCatalogService(store, sources)),
@@ -108,11 +101,11 @@ func TestSeasonBindingAPI(t *testing.T) {
 		_, _, data := call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": " fakelist/s "}`, http.StatusOK)
 		assertJSON(t, data, `{"candidates": [{
 			"kind": "list", "title": "合集 s", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
-			"finished": false, "defaultMapping": {"from": 1, "to": 1},
+			"finished": false, "mappingFrom": 1, "mappingTo": 1,
 			"items": [
-				{"label": "s1", "note": null, "number": 1, "unmatchedReason": null},
-				{"label": "s2", "note": "共 2 个分 P，只用 P1", "number": 2, "unmatchedReason": null},
-				{"label": "ssp", "note": null, "number": null, "unmatchedReason": "集号「SP」不是整数"}
+				{"label": "s1", "note": null, "number": 1, "reason": null},
+				{"label": "s2", "note": "共 2 个分 P，只用 P1", "number": 2, "reason": null},
+				{"label": "ssp", "note": null, "number": null, "reason": "集号「SP」不是整数"}
 			]
 		}]}`)
 

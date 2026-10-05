@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatSeconds } from '@/lib/time'
+import { formatDuration, formatSeconds } from '@/lib/time'
 
 describe('formatSeconds', () => {
   it.each([
@@ -13,5 +13,18 @@ describe('formatSeconds', () => {
     [0, '0 秒'],
   ])('%s 秒 → %s', (seconds, want) => {
     expect(formatSeconds(seconds)).toBe(want)
+  })
+})
+
+describe('formatDuration', () => {
+  it.each([
+    [null, '—'],
+    [0, '0:00'],
+    [45, '0:45'],
+    [1420, '23:40'],
+    [3600, '1:00:00'],
+    [5405, '1:30:05'],
+  ])('%j 秒', (seconds, want) => {
+    expect(formatDuration(seconds)).toBe(want)
   })
 })

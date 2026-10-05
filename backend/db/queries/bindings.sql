@@ -3,8 +3,8 @@
 SELECT EXISTS (SELECT 1 FROM episodes WHERE id = $1);
 
 -- name: LockEpisode :one
--- 创建绑定的写入事务的第一句：锁住这一集到提交，期间删不掉它。FOR KEY SHARE 与同步的 upsert 兼容。
--- 这一集已被删除时没有行。
+-- 锁住这一集到提交，期间删不掉它：创建绑定的写入事务的第一句；补建的写入事务在锁住季、季绑定之后也用它锁集。
+-- FOR KEY SHARE 与同步的 upsert 兼容。这一集已被删除时没有行。
 SELECT id
 FROM episodes
 WHERE id = $1

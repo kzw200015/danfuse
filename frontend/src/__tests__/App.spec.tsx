@@ -4,7 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { listSeries } from '@/api/series'
 import { getSettings } from '@/api/settings'
 import { getLatestSyncRun, getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
-import { renderRoutes, syncRun } from './utils'
+import { mockRootLayout, renderRoutes, settings, syncRun } from './utils'
 
 vi.mock('@/api/series')
 vi.mock('@/api/settings')
@@ -12,14 +12,8 @@ vi.mock('@/api/sync')
 
 beforeEach(() => {
   vi.mocked(listSeries).mockResolvedValue([])
-  vi.mocked(getSettings).mockResolvedValue({
-    dandanplayToken: null,
-    catalogSource: null,
-    syncInterval: 0,
-    bilibiliSessdataConfigured: false,
-  })
+  mockRootLayout()
   vi.mocked(listSyncRuns).mockResolvedValue([])
-  vi.mocked(getLatestSyncRun).mockResolvedValue(null)
 })
 
 describe('App', () => {
@@ -92,16 +86,16 @@ async function openSettings() {
 
 describe('设置弹出层', () => {
   it('只读显示目录源的配置，API key 只显示已配置', async () => {
-    vi.mocked(getSettings).mockResolvedValue({
-      dandanplayToken: null,
-      catalogSource: {
-        kind: 'jellyfin',
-        url: 'http://192.168.1.10:8096',
-        libraries: ['番剧', '电影'],
-      },
-      syncInterval: 86400,
-      bilibiliSessdataConfigured: false,
-    })
+    vi.mocked(getSettings).mockResolvedValue(
+      settings({
+        catalogSource: {
+          kind: 'jellyfin',
+          url: 'http://192.168.1.10:8096',
+          libraries: ['番剧', '电影'],
+        },
+        syncInterval: 86400,
+      }),
+    )
     renderRoutes('/catalog')
 
     const dialog = await openSettings()
@@ -124,12 +118,7 @@ describe('设置弹出层', () => {
   })
 
   it('弹弹 API 地址按当前页面的地址拼出，可以复制', async () => {
-    vi.mocked(getSettings).mockResolvedValue({
-      dandanplayToken: 's3cret',
-      catalogSource: null,
-      syncInterval: 0,
-      bilibiliSessdataConfigured: false,
-    })
+    vi.mocked(getSettings).mockResolvedValue(settings({ dandanplayToken: 's3cret' }))
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     onTestFinished(() => {
@@ -161,12 +150,7 @@ describe('设置弹出层', () => {
     { configured: true, want: '已配置' },
     { configured: false, want: '未配置，以未登录的身份拉取，弹幕可能不全' },
   ])('B 站 SESSDATA 只显示是否已配置：$want', async ({ configured, want }) => {
-    vi.mocked(getSettings).mockResolvedValue({
-      dandanplayToken: null,
-      catalogSource: null,
-      syncInterval: 0,
-      bilibiliSessdataConfigured: configured,
-    })
+    vi.mocked(getSettings).mockResolvedValue(settings({ bilibiliSessdataConfigured: configured }))
     renderRoutes('/catalog')
 
     const dialog = await openSettings()

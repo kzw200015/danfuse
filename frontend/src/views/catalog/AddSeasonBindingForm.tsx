@@ -1,37 +1,27 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { ExternalLinkIcon, Loader2Icon, SearchIcon } from 'lucide-react'
+import { Loader2Icon, SearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
   createSeasonBinding,
   previewSeasonBinding,
   type CollectionCandidate,
+  type Mapping,
 } from '@/api/season-bindings'
 import type { Season } from '@/api/series'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { useWatchSeasonBinding } from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { cn } from '@/lib/utils'
 
-import MappingInputs from './MappingInputs'
-import {
-  candidateText,
-  parseMappingNumber,
-  previewTarget,
-  previewTargetText,
-} from './season-binding'
+import CollectionItemsTable from './CollectionItemsTable'
+import MappingInputs, { useMappingDraft } from './MappingInputs'
+import { candidateText, previewTarget, previewTargetText } from './season-binding'
+import { SourceLink } from './shared'
 
 /**
  * 季面板里添加季绑定：贴链接 → 预览（后端当场识别链接、列出合集）→ 有多个候选时先选一个 → 看对应表、改集号对应 → 创建。
@@ -167,17 +157,17 @@ function CandidatePreview({
 }) {
   const reload = useReloadSeries()
   const watch = useWatchSeasonBinding()
-  const [from, setFrom] = useState(String(candidate.defaultMapping.from))
-  const [to, setTo] = useState(String(candidate.defaultMapping.to))
-  const mappingFrom = parseMappingNumber(from)
-  const mappingTo = parseMappingNumber(to)
+  const { from, to, setFrom, setTo, mapping } = useMappingDraft({
+    from: candidate.mappingFrom,
+    to: candidate.mappingTo,
+  })
   const create = useMutation({
-    mutationFn: () =>
+    mutationFn: (m: Mapping) =>
       createSeasonBinding(season.id, {
         link,
         kind: candidate.kind,
-        mappingFrom: mappingFrom!,
-        mappingTo: mappingTo!,
+        mappingFrom: m.from,
+        mappingTo: m.to,
       }),
     onSuccess: async (detail) => {
       toast.success('已创建季绑定，正在后台补建')
@@ -188,21 +178,11 @@ function CandidatePreview({
     },
   })
   const elapsed = useElapsed(create.isPending)
-  const mapping =
-    mappingFrom === null || mappingTo === null ? null : { from: mappingFrom, to: mappingTo }
 
   return (
     <div className="grid gap-3">
       <div>
-        <a
-          href={candidate.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 font-medium break-all hover:underline"
-        >
-          {candidate.title}
-          <ExternalLinkIcon className="size-3 shrink-0 opacity-50" />
-        </a>
+        <SourceLink href={candidate.sourceUrl}>{candidate.title}</SourceLink>
         <div className="text-xs text-muted-foreground">
           {candidate.sourceLabel} · 共 {candidate.items.length} 条
         </div>
@@ -218,42 +198,30 @@ function CandidatePreview({
       {candidate.items.length === 0 ? (
         <p className="text-xs text-muted-foreground">合集里还没有条目。</p>
       ) : (
-        <Table aria-label="对应表" className="text-xs">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12 text-right">序号</TableHead>
-              <TableHead>条目</TableHead>
-              <TableHead>对到本地</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {candidate.items.map((it, i) => {
-              const target = mapping && previewTarget(it, mapping, season.episodes)
-              return (
-                <TableRow key={i}>
-                  <TableCell className="text-right tabular-nums">{it.number ?? '—'}</TableCell>
-                  <TableCell className="whitespace-normal">
-                    {it.label}
-                    {it.note && <div className="text-muted-foreground">{it.note}</div>}
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      'whitespace-normal',
-                      target?.kind === 'episode' ? 'text-foreground' : 'text-muted-foreground',
-                      target?.kind === 'unmatched' && 'text-amber-700',
-                    )}
-                  >
-                    {target ? previewTargetText(target) : '—'}
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+        <CollectionItemsTable
+          label="对应表"
+          heading="对到本地"
+          rows={candidate.items.map((it) => {
+            const target = mapping && previewTarget(it, mapping, season.episodes)
+            return {
+              number: it.number,
+              label: it.label,
+              note: it.note,
+              text: target ? previewTargetText(target) : '—',
+              className: cn(
+                target?.kind === 'episode' ? 'text-foreground' : 'text-muted-foreground',
+                target?.kind === 'unmatched' && 'text-amber-700',
+              ),
+            }
+          })}
+        />
       )}
 
       <div className="flex gap-2">
-        <Button disabled={create.isPending || mapping === null} onClick={() => create.mutate()}>
+        <Button
+          disabled={create.isPending || mapping === null}
+          onClick={() => mapping && create.mutate(mapping)}
+        >
           {create.isPending && <Loader2Icon className="animate-spin" />}
           {create.isPending ? `创建中 ${elapsed}s` : '创建'}
         </Button>

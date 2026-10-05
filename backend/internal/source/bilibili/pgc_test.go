@@ -74,9 +74,9 @@ func TestFetchEpisode(t *testing.T) {
 	}
 }
 
-// TestFetchEpisodeNotFound 番剧的 NotFound 都带上港澳台的提示：从大陆请求港澳台限定的番剧与 ep 不存在时一样返回 -404。
+// TestFetchEpisodeNotFound 番剧单集不存在时与投稿用同一个提示。
 func TestFetchEpisodeNotFound(t *testing.T) {
-	const message = "视频不存在、已删除或不可见；港澳台限定番剧暂不支持"
+	const message = "视频不存在、已删除或不可见"
 	tests := []struct {
 		name string
 		pgc  response
@@ -183,7 +183,7 @@ func TestFetchRedirect(t *testing.T) {
 	}
 }
 
-// TestFetchRedirectNotFound 番剧的稿件取整季时 NotFound，同样带上港澳台的提示。
+// TestFetchRedirectNotFound 番剧的稿件取它所在的季时 NotFound，同样提示视频不存在。
 func TestFetchRedirectNotFound(t *testing.T) {
 	fake := newFake(t, map[string][]response{
 		testView:     {viewRedirectResponse(t, "番剧的稿件", "https://www.bilibili.com/bangumi/play/ep600001", viewPage{Page: 1, CID: 301, Duration: 52})},
@@ -192,5 +192,5 @@ func TestFetchRedirectNotFound(t *testing.T) {
 
 	_, err := fetch(t, fake.adapter(), "av170001")
 
-	assertErrorMessage(t, err, source.NotFound, "视频不存在、已删除或不可见；港澳台限定番剧暂不支持")
+	assertErrorMessage(t, err, source.NotFound, "视频不存在、已删除或不可见")
 }

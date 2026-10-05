@@ -15,10 +15,6 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// fetchTimeout 一次拉取的总时限，创建绑定时也包括解析链接（跟随短链也要联网）：
-// server.write_timeout 是 30 秒，留出写库和响应的时间。超时由适配器按 Upstream 返回。
-const fetchTimeout = 25 * time.Second
-
 var (
 	errEpisodeDeleted  = errcode.ErrNotFound.WithMessage("这一集已被删除")
 	errBindingExists   = errcode.ErrConflict.WithMessage("这一集已经绑定过这个弹幕源")
@@ -121,7 +117,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 	return bindingView(s.sources, binding)
 }
 
-// Refetch 重新拉取一个绑定的全部弹幕，返回更新后的绑定和新增条数。不依赖 HTTP 请求，以后的定时拉取直接复用。
+// Refetch 重新拉取一个绑定的全部弹幕，返回更新后的绑定和新增条数。不依赖 HTTP 请求，追更的自动重新拉取（SeasonBindingService.refetchRecent）也复用它。
 //   - replace 为 false（重新拉取）：只插入新弹幕，从不删除，平台上已经删掉的弹幕继续保留。
 //   - replace 为 true（清空后重新拉取，即管理 API 的 clear）：拉取成功后，在同一个事务里删掉这个绑定的全部弹幕、
 //     写入这次的结果；新增条数为这次的总条数。
@@ -170,7 +166,7 @@ func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (B
 }
 
 // markDead 重新拉取时弹幕源已不存在：把绑定标为失效，已保存的弹幕保留。
-// 成功后记一条 info 日志，连同适配器给的原因：422 不经过 errorHandler 的日志，以后定时拉取时也能看出绑定失效了。
+// 成功后记一条 info 日志，连同适配器给的原因：422 不经过 errorHandler 的日志，追更自动重新拉取时也能看出绑定失效了。
 func (s *BindingService) markDead(ctx context.Context, b repository.Binding, reason error) error {
 	err := s.store.ExecTx(ctx, func(q repository.Querier) error {
 		if err := lockBinding(ctx, q, b.ID); err != nil {
@@ -223,13 +219,6 @@ func (s *BindingService) Delete(ctx context.Context, id int64) error {
 		return errBindingNotFound
 	}
 	return nil
-}
-
-// fetch 拉取一个弹幕源的全部弹幕，总时限 fetchTimeout。调用方拉完才开写入事务。
-func fetch(ctx context.Context, adapter source.Adapter, ref source.Ref) (source.Fetched, error) {
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	defer cancel()
-	return adapter.Fetch(ctx, ref)
 }
 
 // saveFetched 在写入事务里保存一次拉取的结果：replace 时先删掉这个绑定的全部弹幕；
@@ -308,21 +297,4 @@ func bindingView(sources *source.Registry, b repository.Binding) (BindingView, e
 		LastFetchedAt:   b.LastFetchedAt,
 		SeasonBindingID: b.SeasonBindingID,
 	}, nil
-}
-
-// sourceError 把适配器的 *source.Error 转成管理 API 的错误：InvalidLink 为 400，NotFound 为 422，其余为 502；
-// 提示用适配器写的 Message，底层原因只进日志。其他错误原样返回，按服务器内部错误处理。
-func sourceError(err error) error {
-	srcErr, ok := errors.AsType[*source.Error](err)
-	if !ok {
-		return err
-	}
-	base := errcode.ErrBadGateway
-	switch srcErr.Kind {
-	case source.InvalidLink:
-		base = errcode.ErrBadRequest
-	case source.NotFound:
-		base = errcode.ErrUnprocessable
-	}
-	return base.WithMessage(srcErr.Message).Wrap(err)
 }

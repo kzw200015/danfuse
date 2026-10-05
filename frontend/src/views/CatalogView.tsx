@@ -1,17 +1,12 @@
 import type { ReactNode } from 'react'
 import { useParams } from 'react-router'
 
-import { ApiError } from '@/api/request'
+import { isApiStatus } from '@/api/request'
 import type { SeriesDetail } from '@/api/series'
 import { useSeries } from '@/hooks/use-series'
+import { parseId } from '@/lib/route'
 
-import {
-  catalogPath,
-  parseId,
-  resolveSelection,
-  seasonName,
-  type Selection,
-} from './catalog/catalog'
+import { catalogPath, resolveSelection, seasonName, type Selection } from './catalog/catalog'
 import EpisodePanel from './catalog/EpisodePanel'
 import SeasonPanel from './catalog/SeasonPanel'
 import SeriesColumn from './catalog/SeriesColumn'
@@ -56,7 +51,7 @@ function SelectedSeries({
 }) {
   const { data: series, error } = useSeries(id)
 
-  if (error instanceof ApiError && error.status === 404) {
+  if (isApiStatus(error, 404)) {
     return (
       <MiddleColumn>
         <SeriesNotFound />

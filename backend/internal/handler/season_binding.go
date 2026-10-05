@@ -135,7 +135,7 @@ func (r *updateSeasonBindingRequest) Validate() error {
 	if r.Follow == nil && r.MappingFrom == nil && r.MappingTo == nil {
 		return invalidParam("没有要修改的内容")
 	}
-	if r.MappingFrom != nil && *r.MappingFrom < 0 || r.MappingTo != nil && *r.MappingTo < 0 {
+	if r.MappingFrom != nil && !validMapping(r.MappingFrom) || r.MappingTo != nil && !validMapping(r.MappingTo) {
 		return invalidParam(invalidMapping)
 	}
 	return nil
@@ -158,7 +158,7 @@ func (h *SeasonBindingHandler) Update(c *echo.Context) error {
 }
 
 // Backfill POST /api/season-bindings/:id/backfill
-// 立即在后台补建，返回 202（另一个季绑定的手动补建在进行时排队，同样返回 202）；这个季绑定正在补建时返回 409。
+// 立即在后台补建，返回 202；这个季绑定正在补建时返回 409，服务正在关闭时返回 503。
 func (h *SeasonBindingHandler) Backfill(c *echo.Context) error {
 	req, err := bind[seasonBindingRequest](c)
 	if err != nil {

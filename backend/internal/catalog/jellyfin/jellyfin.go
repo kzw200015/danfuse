@@ -53,7 +53,7 @@ func (s *Source) List(ctx context.Context) (catalog.Listing, error) {
 
 	var listed []item
 	for _, lib := range libraries {
-		items, err := s.client.items(ctx, lib.ItemID, typeSeries+","+typeMovie, "OriginalTitle")
+		items, err := s.client.listItems(ctx, lib.ItemID, typeSeries+","+typeMovie, "OriginalTitle")
 		if err != nil {
 			return catalog.Listing{}, fmt.Errorf("列出媒体库「%s」的剧和电影失败：%w", lib.Name, err)
 		}
@@ -90,7 +90,7 @@ func (s *Source) items(ctx context.Context, listed []item) iter.Seq2[catalog.Ite
 			if it.Type == typeMovie {
 				result = mapMovie(it)
 			} else {
-				children, err := s.client.items(ctx, it.ID, typeSeason+","+typeEpisode)
+				children, err := s.client.listItems(ctx, it.ID, typeSeason+","+typeEpisode)
 				if err != nil {
 					yield(catalog.Item{}, fmt.Errorf("取「%s」的季和集失败：%w", displayName(it), err))
 					return

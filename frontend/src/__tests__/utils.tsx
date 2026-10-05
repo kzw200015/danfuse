@@ -1,10 +1,14 @@
 import { vi } from 'vitest'
-import { act, render } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
+import type { Binding } from '@/api/bindings'
 import { ApiError } from '@/api/request'
+import { getSeries, listSeries, type SeriesDetail, type SeriesSummary } from '@/api/series'
+import { getSettings, type Settings } from '@/api/settings'
 import { getLatestSyncRun, getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
+import { seriesKeys } from '@/hooks/use-series'
 import { routes } from '@/router/routes'
 
 /** 在 path 渲染完整的路由（根布局加页面），每次用新的 QueryClient */
@@ -65,3 +69,103 @@ export function mockSyncRuns() {
 
 /** 推进假时间（vi.useFakeTimers），期间到点的轮询照常触发 */
 export const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
+
+/** 配置，默认是什么都没配置 */
+export function settings(patch: Partial<Settings> = {}): Settings {
+  return {
+    dandanplayToken: null,
+    catalogSource: null,
+    syncInterval: 0,
+    bilibiliSessdataConfigured: false,
+    ...patch,
+  }
+}
+
+/**
+ * 根布局会取最近一次同步和设置：设置为默认的什么都没配置，一次都没同步过。
+ * 在 beforeEach 里调用；测试文件要先 vi.mock('@/api/settings') 和 vi.mock('@/api/sync')。
+ */
+export function mockRootLayout() {
+  vi.mocked(getSettings).mockResolvedValue(settings())
+  vi.mocked(getLatestSyncRun).mockResolvedValue(null)
+}
+
+/** 一个绑定，默认是正常的 B 站投稿 */
+export function binding(id: number, patch: Partial<Binding> = {}): Binding {
+  return {
+    id,
+    adapter: 'bilibili',
+    sourceUrl: `https://www.bilibili.com/video/BV1xx411c7X${id}`,
+    sourceLabel: `B 站投稿 BV1xx411c7X${id}`,
+    title: `弹幕源 ${id}`,
+    duration: 1420,
+    offset: 0,
+    status: 'active',
+    danmakuCount: 1234,
+    lastFetchedAt: '2026-10-05T08:00:00Z',
+    seasonBindingId: null,
+    ...patch,
+  }
+}
+
+/** 电影「长夜灯塔」（剧 2）：唯一的一集（集 200）没有绑定 */
+export function lighthouse(): SeriesDetail {
+  return {
+    id: 2,
+    type: 'movie',
+    title: '长夜灯塔',
+    originalTitle: null,
+    year: 2020,
+    posterImageId: null,
+    seasons: [
+      {
+        id: 20,
+        number: 1,
+        title: null,
+        seasonBindings: [],
+        episodes: [{ id: 200, number: 1, title: null, duration: 5400, bindings: [] }],
+      },
+    ],
+  }
+}
+
+/** 剧列表的一项，统计由剧详情现算 */
+function summarize({ seasons, ...series }: SeriesDetail): SeriesSummary {
+  const episodes = seasons.flatMap((se) => se.episodes)
+  const bindings = episodes.flatMap((e) => e.bindings)
+  return {
+    ...series,
+    seasonCount: seasons.length,
+    episodeCount: episodes.length,
+    boundEpisodeCount: episodes.filter((e) => e.bindings.length > 0).length,
+    bindingCount: bindings.length,
+    deadBindingCount: bindings.filter((b) => b.status === 'dead').length,
+    following: seasons.some((se) => se.seasonBindings.some((sb) => sb.follow)),
+  }
+}
+
+/**
+ * 假的目录接口，在 beforeEach 里调用；测试文件要先 vi.mock('@/api/series')。
+ * listSeries、getSeries 每次按 all() 返回的剧（服务端的目录）现算，用例改目录来模拟后端的变化。
+ */
+export function mockCatalog(all: () => SeriesDetail[]) {
+  vi.mocked(listSeries).mockImplementation(async () => all().map(summarize))
+  vi.mocked(getSeries).mockImplementation(async (id) => {
+    const series = all().find((s) => s.id === id)
+    if (!series) throw new ApiError('剧不存在', 1, 404)
+    return structuredClone(series)
+  })
+}
+
+/** 预放目录页的查询（剧列表和打开的那部剧），返回一个函数，取它们是否已失效 */
+export function seedSeries(queryClient: QueryClient) {
+  queryClient.setQueryData(seriesKeys.list, [])
+  queryClient.setQueryData(seriesKeys.detail(7), {})
+  return () =>
+    [seriesKeys.list, seriesKeys.detail(7)].map(
+      (key) => queryClient.getQueryState(key)?.isInvalidated,
+    )
+}
+
+/** 名称为 name 的卡片（绑定或季绑定） */
+export const card = async (name: string) => within(await screen.findByRole('article', { name }))

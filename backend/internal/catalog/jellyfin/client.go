@@ -69,10 +69,10 @@ func (c *client) virtualFolders(ctx context.Context) ([]virtualFolder, error) {
 	return folders, nil
 }
 
-// items GET /Items，ParentId 下递归列出 types 类型的条目。
+// listItems GET /Items，ParentId 下递归列出 types 类型的条目。
 //   - 不传 userId：12.x 带上它时会把按剧名合并的剧去重，同名不同年的剧整部丢失；
 //   - 不传 Limit、不分页：偏移分页在库内容变化时会重复或漏项。
-func (c *client) items(ctx context.Context, parentID, types string, fields ...string) ([]item, error) {
+func (c *client) listItems(ctx context.Context, parentID, types string, fields ...string) ([]item, error) {
 	query := url.Values{
 		"ParentId":         {parentID},
 		"IncludeItemTypes": {types},

@@ -10,13 +10,6 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// meta 解析出的弹幕源：拉弹幕用的 cid，以及绑定的标题和时长。
-type meta struct {
-	cid      int64
-	title    string
-	duration int // 秒
-}
-
 // viewData x/web-interface/view 的 data，只取用到的字段。
 type viewData struct {
 	Title       string     `json:"title"`
@@ -60,9 +53,9 @@ type viewPage struct {
 // videoMeta 取投稿第 page 个分 P 的 cid、标题和时长。分 P 超出范围为 NotFound。
 // 标题为"视频标题 / 分 P 标题"；只有一个分 P 时，分 P 标题多与视频标题重复或是上传的文件名，只用视频标题。
 //
-// 带 redirect_url 的稿件其实是番剧的单集，按番剧处理：再取它所在的整季，标题为"番剧名 集标题"。
+// 带 redirect_url 的稿件其实是番剧的单集，按番剧处理：再取它所在的季，标题为"番剧名 集标题"。
 // 一个稿件可能有多个分 P、分别是不同的单集（例如先导 PV 和正式 PV），redirect_url 只指向第一个，
-// 所以在整季里按这个分 P 的 cid 找对应的那一集；找不到时仍按普通投稿处理。
+// 所以在这一季的单集里按这个分 P 的 cid 找对应的那一集；找不到时仍按普通投稿处理。
 func (a *Adapter) videoMeta(ctx context.Context, aid int64, page int) (meta, error) {
 	data, err := a.view(ctx, aid)
 	if err != nil {
@@ -108,6 +101,6 @@ func redirectEpisode(redirectURL string) (int64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	t, err := parseURL(u)
-	return t.id, err == nil && t.kind == targetEpisode
+	t := parseURL(u)
+	return t.id, t.kind == targetEpisode
 }

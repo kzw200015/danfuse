@@ -44,6 +44,20 @@ func sourceError(kind source.Kind, err error) *source.Error {
 	return &source.Error{Kind: kind, Message: messages[kind], Err: err}
 }
 
+// 番剧的一季、投稿合集不存在时给用户看的提示，由 notFoundAs 换上；投稿与番剧单集用 messages 里通用的提示。
+var (
+	bangumiNotFound   = "番剧不存在、已下架或不可见"
+	ugcSeasonNotFound = "合集不存在或已删除"
+)
+
+// notFoundAs err 是 NotFound 时换成 message 这个提示，底层原因不变；其他错误原样返回。
+func notFoundAs(err error, message string) error {
+	if srcErr, ok := errors.AsType[*source.Error](err); ok && srcErr.Kind == source.NotFound {
+		return &source.Error{Kind: source.NotFound, Message: message, Err: srcErr.Err}
+	}
+	return err
+}
+
 // codeKind B 站业务 code 对应的错误类别，没有列出的都算 Upstream（包括 62004 审核中）。
 func codeKind(code int) source.Kind {
 	switch code {

@@ -67,15 +67,6 @@ export function seriesMeta(series: Pick<SeriesSummary, 'type' | 'year'>) {
   return `${series.year ?? '年份未知'} · ${series.type === 'movie' ? '电影' : '剧集'}`
 }
 
-/** 时长（秒）显示为 m:ss 或 h:mm:ss，没有时显示"—" */
-export function formatDuration(seconds: number | null) {
-  if (seconds === null) return '—'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const ss = String(seconds % 60).padStart(2, '0')
-  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
-}
-
 /** 一组集的绑定统计：已绑定的集数（至少有一个绑定）、失效的绑定数 */
 export function bindingStats(episodes: Episode[]) {
   return {
@@ -134,9 +125,4 @@ export function parseOffset(text: string) {
 /** 目录页的地址：/catalog[/剧[/季[/集]]] */
 export function catalogPath(...ids: number[]) {
   return ['/catalog', ...ids].join('/')
-}
-
-/** 地址栏里的剧 ID：规范写法的正整数（与季、集 ID 按字符串比较一致，"01""1e1"都不算），否则为 undefined */
-export function parseId(param: string) {
-  return /^[1-9]\d*$/.test(param) ? Number(param) : undefined
 }

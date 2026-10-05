@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 
-import { advance, renderRoutes } from '@/__tests__/utils'
-import type { Binding } from '@/api/bindings'
+import {
+  advance,
+  binding,
+  card,
+  lighthouse,
+  mockCatalog,
+  mockRootLayout,
+  renderRoutes,
+} from '@/__tests__/utils'
 import { ApiError } from '@/api/request'
 import {
   backfillSeasonBinding,
@@ -15,14 +22,12 @@ import {
   type SeasonBinding,
   type SeasonBindingItem,
 } from '@/api/season-bindings'
-import { getSeries, listSeries, type SeriesDetail } from '@/api/series'
-import { getSettings } from '@/api/settings'
-import { getLatestSyncRun } from '@/api/sync'
+import { getSeries, type SeriesDetail } from '@/api/series'
 
 vi.mock('@/api/bindings')
 vi.mock('@/api/season-bindings')
 vi.mock('@/api/series')
-// 根布局会取同步列表和设置
+// 根布局会取最近一次同步和设置
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
 
@@ -43,23 +48,6 @@ function seasonBinding(id: number, patch: Partial<SeasonBinding> = {}): SeasonBi
     lastCheckedAt: '2026-10-05T08:00:00Z',
     running: false,
     bindingCount: 1,
-    ...patch,
-  }
-}
-
-function binding(id: number, patch: Partial<Binding> = {}): Binding {
-  return {
-    id,
-    adapter: 'bilibili',
-    sourceUrl: `https://www.bilibili.com/bangumi/play/ep${id}`,
-    sourceLabel: `B 站番剧 ep${id}`,
-    title: `弹幕源 ${id}`,
-    duration: 1420,
-    offset: 0,
-    status: 'active',
-    danmakuCount: 1234,
-    lastFetchedAt: '2026-10-05T08:00:00Z',
-    seasonBindingId: null,
     ...patch,
   }
 }
@@ -94,26 +82,6 @@ function starVoyager(): SeriesDetail {
   }
 }
 
-function lighthouse(): SeriesDetail {
-  return {
-    id: 2,
-    type: 'movie',
-    title: '长夜灯塔',
-    originalTitle: null,
-    year: 2020,
-    posterImageId: null,
-    seasons: [
-      {
-        id: 20,
-        number: 1,
-        title: null,
-        seasonBindings: [],
-        episodes: [{ id: 200, number: 1, title: null, duration: 5400, bindings: [] }],
-      },
-    ],
-  }
-}
-
 /** 服务端的目录与各季绑定的条目表，mock 的接口按它返回；用例改它来模拟后端的变化 */
 let all: SeriesDetail[]
 let items: Record<number, SeasonBindingItem[]>
@@ -129,33 +97,8 @@ function serverBinding(id: number) {
 beforeEach(() => {
   all = [starVoyager(), lighthouse()]
   items = {}
-  vi.mocked(getSettings).mockResolvedValue({
-    dandanplayToken: null,
-    catalogSource: null,
-    syncInterval: 0,
-    bilibiliSessdataConfigured: false,
-  })
-  vi.mocked(getLatestSyncRun).mockResolvedValue(null)
-  vi.mocked(listSeries).mockImplementation(async () =>
-    all.map(({ seasons, ...s }) => {
-      const episodes = seasons.flatMap((se) => se.episodes)
-      const bindings = episodes.flatMap((e) => e.bindings)
-      return {
-        ...s,
-        seasonCount: seasons.length,
-        episodeCount: episodes.length,
-        boundEpisodeCount: episodes.filter((e) => e.bindings.length > 0).length,
-        bindingCount: bindings.length,
-        deadBindingCount: 0,
-        following: seasons.some((se) => se.seasonBindings.some((sb) => sb.follow)),
-      }
-    }),
-  )
-  vi.mocked(getSeries).mockImplementation(async (id) => {
-    const series = all.find((s) => s.id === id)
-    if (!series) throw new ApiError('剧不存在', 1, 404)
-    return structuredClone(series)
-  })
+  mockRootLayout()
+  mockCatalog(() => all)
   vi.mocked(getSeasonBinding).mockImplementation(async (id) => ({
     ...structuredClone(serverBinding(id)),
     items: structuredClone(items[id] ?? []),
@@ -167,8 +110,6 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
-const card = async (title: string) => within(await screen.findByRole('article', { name: title }))
-
 /** Re:0 第二季后半那样接着编号的番剧：B 站从第 14 集起，本季从第 1 集起 */
 const continued: CollectionCandidate = {
   kind: 'bangumi',
@@ -176,13 +117,14 @@ const continued: CollectionCandidate = {
   sourceUrl: 'https://www.bilibili.com/bangumi/play/ss36429',
   sourceLabel: 'B 站番剧 ss36429',
   finished: true,
-  defaultMapping: { from: 14, to: 1 },
+  mappingFrom: 14,
+  mappingTo: 1,
   items: [
-    { label: '第13话 回顾', note: null, number: 13, unmatchedReason: null },
-    { label: '第14话 再出发', note: null, number: 14, unmatchedReason: null },
-    { label: '第15话 归途', note: null, number: 15, unmatchedReason: null },
-    { label: '第16话 终章', note: null, number: 16, unmatchedReason: null },
-    { label: 'SP 总集篇', note: null, number: null, unmatchedReason: '集号「SP」不是整数' },
+    { label: '第13话 回顾', note: null, number: 13, reason: null },
+    { label: '第14话 再出发', note: null, number: 14, reason: null },
+    { label: '第15话 归途', note: null, number: 15, reason: null },
+    { label: '第16话 终章', note: null, number: 16, reason: null },
+    { label: 'SP 总集篇', note: null, number: null, reason: '集号「SP」不是整数' },
   ],
 }
 
@@ -311,8 +253,9 @@ describe('添加季绑定', () => {
       sourceUrl: 'https://www.bilibili.com/video/BV17x411w7KC',
       sourceLabel: 'B 站多 P 投稿 BV17x411w7KC',
       finished: false,
-      defaultMapping: { from: 1, to: 1 },
-      items: [{ label: 'P1 第一集', note: null, number: 1, unmatchedReason: null }],
+      mappingFrom: 1,
+      mappingTo: 1,
+      items: [{ label: 'P1 第一集', note: null, number: 1, reason: null }],
     }
     const collection: CollectionCandidate = {
       ...pages,
@@ -320,8 +263,8 @@ describe('添加季绑定', () => {
       title: '搬运合集',
       sourceLabel: 'B 站投稿合集 8597253',
       items: [
-        { label: '第一集', note: '共 2 个分 P，只用 P1', number: 1, unmatchedReason: null },
-        { label: '第二集', note: null, number: 2, unmatchedReason: null },
+        { label: '第一集', note: '共 2 个分 P，只用 P1', number: 1, reason: null },
+        { label: '第二集', note: null, number: 2, reason: null },
       ],
     }
     vi.mocked(previewSeasonBinding).mockResolvedValue({ candidates: [pages, collection] })
@@ -385,7 +328,7 @@ describe('季绑定卡片', () => {
   it('显示合集、建出的绑定数、上次检查的时间与错误、追更开关；失效时标红', async () => {
     Object.assign(all[0]!.seasons[0]!.seasonBindings[0]!, {
       status: 'dead',
-      lastError: '番剧不存在、已下架或不可见；港澳台限定番剧暂不支持',
+      lastError: '番剧不存在、已下架或不可见',
       finished: true,
     })
     renderRoutes('/catalog/1/11')
@@ -400,9 +343,7 @@ describe('季绑定卡片', () => {
     expect(sb.getByText('B 站番剧 ss41410 · 已完结')).toBeInTheDocument()
     expect(sb.getByText('建出 1 个绑定')).toBeInTheDocument()
     expect(sb.getByText(/^上次检查 /)).toBeInTheDocument()
-    expect(
-      sb.getByText('上次检查：番剧不存在、已下架或不可见；港澳台限定番剧暂不支持'),
-    ).toBeInTheDocument()
+    expect(sb.getByText('上次检查：番剧不存在、已下架或不可见')).toBeInTheDocument()
     expect(sb.getByRole('switch', { name: '追更' })).toBeChecked()
     expect(sb.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')
     // 打开季面板不请求详情

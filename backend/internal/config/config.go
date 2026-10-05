@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-// EnvPrefix 环境变量前缀，例如 DANFUSE_DATABASE_DSN 覆盖 database.dsn。
-const EnvPrefix = "DANFUSE"
+// envPrefix 环境变量前缀，例如 DANFUSE_DATABASE_DSN 覆盖 database.dsn。
+const envPrefix = "DANFUSE"
 
 type Config struct {
 	Server        Server        `mapstructure:"server"`
@@ -86,7 +86,7 @@ func Load(path string) (*Config, error) {
 	v := viper.New()
 	setDefaults(v)
 
-	v.SetEnvPrefix(EnvPrefix)
+	v.SetEnvPrefix(envPrefix)
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 

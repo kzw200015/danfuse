@@ -306,11 +306,11 @@ func viewRedirectResponse(t *testing.T, title, redirectURL string, pages ...view
 	if redirectURL != "" {
 		data["redirect_url"] = redirectURL
 	}
-	return marshalResponse(t, map[string]any{"code": 0, "message": "0", "ttl": 1, "data": data})
+	return dataResponse(t, data)
 }
 
-// viewDataResponse view 接口的成功响应，data 由 viewData 编码而来，例如带着 ugc_season 的稿件。
-func viewDataResponse(t *testing.T, data viewData) response {
+// dataResponse x/ 下 JSON 接口的成功响应，根对象用 data，例如带着 ugc_season 的 viewData、合集条目列表的 archivesData。
+func dataResponse(t *testing.T, data any) response {
 	t.Helper()
 	return marshalResponse(t, map[string]any{"code": 0, "message": "0", "ttl": 1, "data": data})
 }
@@ -318,12 +318,6 @@ func viewDataResponse(t *testing.T, data viewData) response {
 // mediaResponse md 换算的成功响应；md 不存在时 B 站同样成功，只是 season_id 为 0。
 func mediaResponse(seasonID int64) response {
 	return jsonResponse(fmt.Sprintf(`{"code":0,"message":"success","result":{"media":{"media_id":1,"season_id":%d,"title":"某番剧"}}}`, seasonID))
-}
-
-// archivesResponse 合集条目列表的成功响应。
-func archivesResponse(t *testing.T, data archivesData) response {
-	t.Helper()
-	return marshalResponse(t, map[string]any{"code": 0, "message": "0", "ttl": 1, "data": data})
 }
 
 // pgcResponse pgc 接口的成功响应，根对象用 result。

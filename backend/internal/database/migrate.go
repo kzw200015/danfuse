@@ -24,7 +24,7 @@ func migrate(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error
 	}
 
 	locker, err := lock.NewPostgresTableLocker(
-		lock.WithTableLeaseDuration(LeaseTTL),
+		lock.WithTableLeaseDuration(leaseTTL),
 		lock.WithTableHeartbeatInterval(leaseRenewInterval),
 		lock.WithTableLogger(logger),
 	)

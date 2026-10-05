@@ -24,7 +24,6 @@ var (
 	errSeasonBindingExists   = errcode.ErrConflict.WithMessage("这一季已经绑定过这个合集")
 	errSeasonBindingNotFound = errcode.ErrNotFound.WithMessage("季绑定不存在")
 	errBackfillRunning       = errcode.ErrConflict.WithMessage("正在补建")
-	errShuttingDown          = errcode.ErrServiceUnavailable.WithMessage("服务正在关闭")
 	errKindRequired          = errcode.ErrBadRequest.WithMessage("链接对应多个合集，请选择一个")
 	errKindNotFound          = errcode.ErrBadRequest.WithMessage("链接里没有这种合集，请重新预览")
 )
@@ -121,26 +120,22 @@ type CollectionPreview struct {
 }
 
 type PreviewCandidate struct {
-	Kind           string        `json:"kind"` // 创建时传回，用来选候选
-	Title          string        `json:"title"`
-	SourceURL      string        `json:"sourceUrl"`
-	SourceLabel    string        `json:"sourceLabel"`
-	Finished       bool          `json:"finished"`
-	DefaultMapping MappingView   `json:"defaultMapping"`
-	Items          []PreviewItem `json:"items"`
+	Kind        string        `json:"kind"` // 创建时传回，用来选候选
+	Title       string        `json:"title"`
+	SourceURL   string        `json:"sourceUrl"`
+	SourceLabel string        `json:"sourceLabel"`
+	Finished    bool          `json:"finished"`
+	MappingFrom int           `json:"mappingFrom"` // 默认的集号对应，字段与季绑定的相同：合集第 mappingFrom 集为本地第 mappingTo 集
+	MappingTo   int           `json:"mappingTo"`
+	Items       []PreviewItem `json:"items"`
 }
 
-type MappingView struct {
-	From int `json:"from"`
-	To   int `json:"to"`
-}
-
-// PreviewItem 预览的条目；重复的序号已标为对不上（number 为 null、unmatchedReason 为"集号重复"）。
+// PreviewItem 预览的条目，字段与季绑定的条目相同；重复的序号已标为对不上（number 为 null、reason 为"集号重复"）。
 type PreviewItem struct {
-	Label           string  `json:"label"`
-	Note            *string `json:"note"`
-	Number          *int    `json:"number"`
-	UnmatchedReason *string `json:"unmatchedReason"`
+	Label  string  `json:"label"`
+	Note   *string `json:"note"`
+	Number *int    `json:"number"`
+	Reason *string `json:"reason"` // 对不上的原因
 }
 
 // Preview 识别链接、列出每个候选合集，给出默认的集号对应。不写库。识别与列出共用 fetchTimeout。
@@ -175,19 +170,20 @@ func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link
 		if err != nil {
 			return CollectionPreview{}, fmt.Errorf("describe collection %s: %w", c.Ref, err)
 		}
-		items := normalizeItems(col.Items)
+		items := source.NormalizeItems(col.Items)
 		m := source.DefaultMapping(items, episodes)
 		pc := PreviewCandidate{
-			Kind:           c.Kind,
-			Title:          col.Title,
-			SourceURL:      d.URL,
-			SourceLabel:    d.Label,
-			Finished:       col.Finished,
-			DefaultMapping: MappingView{From: m.From, To: m.To},
-			Items:          make([]PreviewItem, len(items)),
+			Kind:        c.Kind,
+			Title:       col.Title,
+			SourceURL:   d.URL,
+			SourceLabel: d.Label,
+			Finished:    col.Finished,
+			MappingFrom: m.From,
+			MappingTo:   m.To,
+			Items:       make([]PreviewItem, len(items)),
 		}
 		for i, it := range items {
-			pi := PreviewItem{Label: it.Label, Note: nullIfEmpty(it.Note), UnmatchedReason: nullIfEmpty(it.Unmatched)}
+			pi := PreviewItem{Label: it.Label, Note: nullIfEmpty(it.Note), Reason: nullIfEmpty(it.Unmatched)}
 			if it.Unmatched == "" {
 				pi.Number = new(it.Number)
 			}
@@ -271,7 +267,7 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 			}
 			return fmt.Errorf("insert season binding of season %d: %w", seasonID, err)
 		}
-		return saveItems(ctx, q, id, normalizeItems(col.Items))
+		return saveItems(ctx, q, id, source.NormalizeItems(col.Items))
 	})
 	if err != nil {
 		return SeasonBindingDetail{}, err
@@ -281,31 +277,18 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 }
 
 // chooseCandidate 按 kind 选候选：只有一个候选时 kind 可以为空；有多个候选而没给 kind、或 kind 不在候选里时为 400。
-func chooseCandidate(candidates []source.Candidate, kind string) (source.Candidate, error) {
+func chooseCandidate(candidates []source.CollectionCandidate, kind string) (source.CollectionCandidate, error) {
 	if kind == "" {
 		if len(candidates) != 1 {
-			return source.Candidate{}, errKindRequired
+			return source.CollectionCandidate{}, errKindRequired
 		}
 		return candidates[0], nil
 	}
-	i := slices.IndexFunc(candidates, func(c source.Candidate) bool { return c.Kind == kind })
+	i := slices.IndexFunc(candidates, func(c source.CollectionCandidate) bool { return c.Kind == kind })
 	if i < 0 {
-		return source.Candidate{}, errKindNotFound
+		return source.CollectionCandidate{}, errKindNotFound
 	}
 	return candidates[i], nil
-}
-
-// normalizeItems 去掉 ref 重复的条目（保留第一个），再标出重复的序号。
-func normalizeItems(items []source.CollectionItem) []source.CollectionItem {
-	seen := make(map[string]bool, len(items))
-	unique := make([]source.CollectionItem, 0, len(items))
-	for _, it := range items {
-		if !seen[string(it.Ref)] {
-			seen[string(it.Ref)] = true
-			unique = append(unique, it)
-		}
-	}
-	return source.MarkDuplicateNumbers(unique)
 }
 
 // saveItems 在写入事务里保存一次列出的条目：按弹幕源 upsert（位置从 1 开始），删掉合集里已经没有的。
@@ -367,48 +350,50 @@ func (s *SeasonBindingService) Get(ctx context.Context, id int64) (SeasonBinding
 	return SeasonBindingDetail{SeasonBindingView: view, Items: itemViews(row.SeasonBinding, items, handled, numbers)}, nil
 }
 
-// itemViews 算出各条目的状态。处理过的：那一集上还有这个弹幕源的绑定为已建绑定，否则为绑定已被删除。
-// 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、最近一次失败、待补建。
-// 条目与处理过的记录的 ref 都读自 jsonb 列，格式相同，可以直接比较。
+// itemViews 算出各条目的状态（见 itemView）。条目与处理过的记录的 ref 都读自 jsonb 列，格式相同，可以直接比较。
 func itemViews(sb repository.SeasonBinding, items []repository.SeasonBindingItem, handled []repository.ListSeasonBindingHandledRow, numbers []int32) []SeasonBindingItemView {
-	done := make(map[string]repository.ListSeasonBindingHandledRow, len(handled))
-	for _, h := range handled {
-		done[string(h.Ref)] = h
+	done := make(map[string]*repository.ListSeasonBindingHandledRow, len(handled))
+	for i := range handled {
+		done[string(handled[i].Ref)] = &handled[i]
 	}
 	views := make([]SeasonBindingItemView, len(items))
 	for i, it := range items {
-		v := SeasonBindingItemView{Label: it.Label, Note: it.Note, Number: it.Number}
-		if h, ok := done[string(it.Ref)]; ok {
-			v.EpisodeNumber = new(h.EpisodeNumber)
-			v.State = itemBindingDeleted
-			if h.Bound {
-				v.State = itemBound
-			}
-			views[i] = v
-			continue
-		}
-		if it.Number == nil {
-			v.State, v.Reason = itemUnmatched, it.UnmatchedReason
-			views[i] = v
-			continue
-		}
-		target, ok := mappedEpisode(sb, *it.Number)
-		switch {
-		case !ok:
-			v.State = itemBeforeStart
-		case !slices.Contains(numbers, target):
-			v.State = itemWaitingEpisode
-		case it.LastError != nil:
-			v.State, v.Reason, v.LastErrorAt = itemFailed, it.LastError, it.LastErrorAt
-		default:
-			v.State = itemPending
-		}
-		if ok {
-			v.EpisodeNumber = new(target)
-		}
-		views[i] = v
+		views[i] = itemView(sb, it, done[string(it.Ref)], numbers)
 	}
 	return views
+}
+
+// itemView 一个条目的状态。处理过的（h 不为 nil）：那一集上还有这个弹幕源的绑定为已建绑定，否则为绑定已被删除。
+// 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、最近一次失败、待补建。numbers 是本季的集号。
+func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, h *repository.ListSeasonBindingHandledRow, numbers []int32) SeasonBindingItemView {
+	v := SeasonBindingItemView{Label: it.Label, Note: it.Note, Number: it.Number}
+	if h != nil {
+		v.EpisodeNumber = new(h.EpisodeNumber)
+		v.State = itemBindingDeleted
+		if h.Bound {
+			v.State = itemBound
+		}
+		return v
+	}
+	if it.Number == nil {
+		v.State, v.Reason = itemUnmatched, it.UnmatchedReason
+		return v
+	}
+	target, ok := mappedEpisode(sb, *it.Number)
+	if !ok {
+		v.State = itemBeforeStart
+		return v
+	}
+	v.EpisodeNumber = new(target)
+	switch {
+	case !slices.Contains(numbers, target):
+		v.State = itemWaitingEpisode
+	case it.LastError != nil:
+		v.State, v.Reason, v.LastErrorAt = itemFailed, it.LastError, it.LastErrorAt
+	default:
+		v.State = itemPending
+	}
+	return v
 }
 
 // mappedEpisode 按季绑定的集号对应，合集序号 number 对到的本地集号。在起点之前时 ok 为 false；

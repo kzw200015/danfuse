@@ -40,15 +40,11 @@ type pgcEpisode struct {
 	SectionType int `json:"section_type"`
 }
 
-// episodeNotFound 番剧单集的 NotFound 提示。从大陆请求港澳台限定的番剧时，pgc 与 ep 不存在时一样返回 -404，分不出来，
-// 所以番剧的 NotFound 提示都带上"港澳台限定番剧暂不支持"。
-var episodeNotFound = messages[source.NotFound] + "；港澳台限定番剧暂不支持"
-
-// season 取 epID 所在的整季。NotFound 的提示见 episodeNotFound。
+// season 取 epID 所在的季。
 func (a *Adapter) season(ctx context.Context, epID int64) (seasonData, error) {
 	var s seasonData
 	err := a.client.getJSON(ctx, fmt.Sprintf("%s/pgc/view/web/season?ep_id=%d", apiURL, epID), &s)
-	return s, notFoundAs(err, episodeNotFound)
+	return s, err
 }
 
 // episodeMeta 取番剧单集的 cid、标题和时长。正片和 section 里的 PV、花絮等都能绑定；ep 不在这一季的列表里为 NotFound。
@@ -60,7 +56,7 @@ func (a *Adapter) episodeMeta(ctx context.Context, epID int64) (meta, error) {
 	all := s.allEpisodes()
 	i := slices.IndexFunc(all, func(e pgcEpisode) bool { return e.ID == epID })
 	if i < 0 {
-		return meta{}, &source.Error{Kind: source.NotFound, Message: episodeNotFound, Err: fmt.Errorf("ep%d 不在 ss%d 的单集列表里", epID, s.SeasonID)}
+		return meta{}, sourceError(source.NotFound, fmt.Errorf("ep%d 不在 ss%d 的单集列表里", epID, s.SeasonID))
 	}
 	return s.meta(all[i])
 }

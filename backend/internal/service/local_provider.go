@@ -118,7 +118,6 @@ func seasonOf(r repository.SearchSeasonsRow, episodes []provider.Episode) provid
 		Titles:       titles,
 		Kind:         seasonKind(typ, n),
 		Year:         intPtr(r.Year),
-		Number:       &n,
 		Episodes:     episodes,
 		EpisodeCount: len(episodes),
 	}

@@ -3,9 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-import { advance, mockSyncRuns, syncRun } from '@/__tests__/utils'
+import { advance, mockSyncRuns, seedSeries, syncRun } from '@/__tests__/utils'
 import { getLatestSyncRun } from '@/api/sync'
-import { seriesKeys } from '@/hooks/use-series'
 import { useLatestSyncRun } from '@/hooks/use-sync-runs'
 
 vi.mock('@/api/sync')
@@ -26,17 +25,12 @@ afterEach(() => {
 /** 用新的 QueryClient 渲染 useLatestSyncRun，并放进目录页的查询：剧列表和打开的那部剧 */
 function renderLatestSyncRun() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  queryClient.setQueryData(seriesKeys.list, [])
-  queryClient.setQueryData(seriesKeys.detail(7), {})
+  const seriesInvalidated = seedSeries(queryClient)
   const { result } = renderHook(useLatestSyncRun, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     ),
   })
-  const seriesInvalidated = () =>
-    [seriesKeys.list, seriesKeys.detail(7)].map(
-      (key) => queryClient.getQueryState(key)?.isInvalidated,
-    )
   return { result, seriesInvalidated }
 }
 

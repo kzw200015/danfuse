@@ -12,7 +12,7 @@ import (
 
 // syncCatalog 列出目录源的清单，再一部剧一部剧地写入目录。每处理完一部剧（包括跳过的）写入一次进度。
 func (s *SyncService) syncCatalog(ctx context.Context, run *syncRun) error {
-	listing, err := s.source.List(ctx)
+	listing, err := s.catalogSource.List(ctx)
 	if err != nil {
 		return err
 	}
