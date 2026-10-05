@@ -3,10 +3,11 @@
 //
 // 文件划分：
 //   - bilibili.go：Adapter / Linker 的实现，ref 的结构，Fetch 的编排（元数据 → protobuf 分段与 XML → 按 ID 合并）；
-//   - link.go：链接解析、短链跳转，BV 号与 aid 互转；
+//   - collection.go：Collector 的实现：合集 ref 的结构，季面板链接的识别，番剧的一季、投稿合集、多 P 投稿的列出；
+//   - link.go：链接解析（集面板与季面板共用，各自决定接受哪些）、短链跳转，BV 号与 aid 互转；
 //   - client.go：HTTP 层：UA、Referer 与 SESSDATA、全局令牌桶、重试与退避、错误归类；
 //   - view.go：投稿的元数据，解析出 cid、标题、时长；带 redirect_url 的转给番剧；
-//   - pgc.go：番剧单集的元数据；
+//   - pgc.go：番剧单集的元数据，番剧一季的结构；
 //   - seg.go：protobuf 分段弹幕的拉取、protowire 解码与字段映射；
 //   - xml.go：XML 弹幕的拉取、解析，与 protobuf 的合并。
 //
@@ -100,19 +101,21 @@ func (a *Adapter) Describe(r source.Ref) (source.Display, error) {
 // ParseLink 接受投稿、番剧单集的链接和裸 ID（见 parseURL），以及 b23.tv、bili2233.cn 的短链。
 // 只有短链要联网：请求一次，按跳转到的长链接解析。同一个弹幕源不论链接怎么写，ref 都相同；
 // 投稿链接不联网，所以番剧的稿件（av、BV）与它的 ep 是不同的 ref，拉取时才按番剧处理。
+// 番剧一季的 ss 链接、作品页与空间里的合集页返回 InvalidLink，提示到季面板绑定；系列页与其他链接一样认不出。
 func (a *Adapter) ParseLink(ctx context.Context, link string) (source.Ref, error) {
-	u, ok := toURL(link)
-	if !ok {
-		return nil, source.ErrUnrecognized
-	}
-	if short, ok := shortLink(u); ok {
-		return a.parseShortLink(ctx, short)
-	}
-	v, err := parseURL(u)
+	t, err := a.resolve(ctx, link)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(v)
+	switch t.kind {
+	case targetVideo:
+		return json.Marshal(ref{Kind: kindVideo, Aid: t.id, Page: t.page})
+	case targetEpisode:
+		return json.Marshal(ref{Kind: kindEpisode, EpID: t.id})
+	case targetSeason, targetMedia, targetUGCSeason:
+		return nil, &source.Error{Kind: source.InvalidLink, Message: "整季或合集的链接请在季面板绑定", Err: fmt.Errorf("%s %d 是合集", t.kind, t.id)}
+	}
+	return nil, t.unsupported("短链指向的不是投稿或番剧单集")
 }
 
 // Fetch 重新取元数据（cid、标题、时长），再拉取全部 protobuf 分段和 XML，按原始 ID 合并。全有或全无。

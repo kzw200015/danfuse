@@ -84,13 +84,13 @@ func TestListSeries(t *testing.T) {
 	assertJSON(t, data, `[
 		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019,
 		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3,
-		 "boundEpisodeCount": 2, "bindingCount": 3, "deadBindingCount": 2},
+		 "boundEpisodeCount": 2, "bindingCount": 3, "deadBindingCount": 2, "following": false},
 		{"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020,
 		 "posterImageId": null, "seasonCount": 1, "episodeCount": 1,
-		 "boundEpisodeCount": 1, "bindingCount": 1, "deadBindingCount": 0},
+		 "boundEpisodeCount": 1, "bindingCount": 1, "deadBindingCount": 0, "following": false},
 		{"id": 3, "type": "tv", "title": "空无一季", "originalTitle": null, "year": null,
 		 "posterImageId": null, "seasonCount": 0, "episodeCount": 0,
-		 "boundEpisodeCount": 0, "bindingCount": 0, "deadBindingCount": 0}
+		 "boundEpisodeCount": 0, "bindingCount": 0, "deadBindingCount": 0, "following": false}
 	]`)
 }
 
@@ -109,31 +109,31 @@ func TestGetSeries(t *testing.T) {
 		{"/api/series/1", `{
 			"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "posterImageId": 1,
 			"seasons": [
-				{"id": 2, "number": 0, "title": null, "episodes": [
+				{"id": 2, "number": 0, "title": null, "seasonBindings": [], "episodes": [
 					{"id": 3, "number": 1, "title": null, "duration": null, "bindings": [
 						{"id": 3, "adapter": "fake", "sourceUrl": "https://fake.test/c", "sourceLabel": "假弹幕源 c",
-						 "title": "弹幕源 c", "duration": 600, "offset": 0, "status": "dead", "danmakuCount": 0, "lastFetchedAt": null}
+						 "title": "弹幕源 c", "duration": 600, "offset": 0, "status": "dead", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]},
-				{"id": 1, "number": 1, "title": "第 1 季", "episodes": [
+				{"id": 1, "number": 1, "title": "第 1 季", "seasonBindings": [], "episodes": [
 					{"id": 2, "number": 1, "title": "启程", "duration": 1420, "bindings": []},
 					{"id": 1, "number": 2, "title": "归航", "duration": 1440, "bindings": [
 						{"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
-						 "title": "弹幕源 a", "duration": 1440, "offset": 1.5, "status": "active", "danmakuCount": 2, "lastFetchedAt": null},
+						 "title": "弹幕源 a", "duration": 1440, "offset": 1.5, "status": "active", "danmakuCount": 2, "seasonBindingId": null, "lastFetchedAt": null},
 						{"id": 2, "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假弹幕源 b",
-						 "title": "弹幕源 b", "duration": 1380, "offset": 0, "status": "dead", "danmakuCount": 0, "lastFetchedAt": null}
+						 "title": "弹幕源 b", "duration": 1380, "offset": 0, "status": "dead", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]},
-				{"id": 3, "number": 2, "title": "第 2 季", "episodes": []}
+				{"id": 3, "number": 2, "title": "第 2 季", "seasonBindings": [], "episodes": []}
 			]
 		}`},
 		{"/api/series/2", `{
 			"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020, "posterImageId": null,
 			"seasons": [
-				{"id": 4, "number": 1, "title": null, "episodes": [
+				{"id": 4, "number": 1, "title": null, "seasonBindings": [], "episodes": [
 					{"id": 4, "number": 1, "title": null, "duration": 5400, "bindings": [
 						{"id": 4, "adapter": "fake", "sourceUrl": "https://fake.test/d", "sourceLabel": "假弹幕源 d",
-						 "title": "弹幕源 d", "duration": 5400, "offset": -2, "status": "active", "danmakuCount": 0, "lastFetchedAt": null}
+						 "title": "弹幕源 d", "duration": 5400, "offset": -2, "status": "active", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]}
 			]

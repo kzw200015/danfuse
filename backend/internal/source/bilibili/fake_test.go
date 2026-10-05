@@ -165,7 +165,8 @@ func (f *fakeBilibili) requested() []string {
 	return append([]string(nil), f.requests...)
 }
 
-// sampleName 请求对应的样本名：view-<aid>、pgc-<ep_id>、seg-<cid>-<段号>、xml-<cid>，短链为 short-<域名>-<路径>。
+// sampleName 请求对应的样本名：view-<aid>、pgc-<ep_id>（按 season_id 取整季时为 season-<season_id>）、
+// media-<media_id>、archives-<合集 ID>-<页码>、seg-<cid>-<段号>、xml-<cid>，短链为 short-<域名>-<路径>。
 func sampleName(r *http.Request) string {
 	q := r.URL.Query()
 	switch {
@@ -175,8 +176,14 @@ func sampleName(r *http.Request) string {
 		return "xml-" + strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), ".xml")
 	case r.URL.Path == viewPath:
 		return "view-" + q.Get("aid")
+	case r.URL.Path == pgcPath && q.Has("season_id"):
+		return "season-" + q.Get("season_id")
 	case r.URL.Path == pgcPath:
 		return "pgc-" + q.Get("ep_id")
+	case r.URL.Path == mediaPath:
+		return "media-" + q.Get("media_id")
+	case r.URL.Path == archivesPath:
+		return "archives-" + q.Get("season_id") + "-" + q.Get("page_num")
 	case r.URL.Path == segPath:
 		return "seg-" + q.Get("oid") + "-" + q.Get("segment_index")
 	default:
@@ -185,9 +192,11 @@ func sampleName(r *http.Request) string {
 }
 
 const (
-	viewPath = "/x/web-interface/view"
-	pgcPath  = "/pgc/view/web/season"
-	segPath  = "/x/v2/dm/web/seg.so"
+	viewPath     = "/x/web-interface/view"
+	pgcPath      = "/pgc/view/web/season"
+	mediaPath    = "/pgc/review/user"
+	archivesPath = "/x/polymer/web-space/seasons_archives_list"
+	segPath      = "/x/v2/dm/web/seg.so"
 )
 
 var (
@@ -236,10 +245,28 @@ func (f *fakeBilibili) checkRequest(r *http.Request) {
 		if !number.MatchString(q.Get("aid")) {
 			t.Errorf("view 的 aid = %q", q.Get("aid"))
 		}
+	case r.URL.Path == pgcPath && q.Has("season_id"):
+		want = url.Values{"season_id": {q.Get("season_id")}}
+		if !number.MatchString(q.Get("season_id")) {
+			t.Errorf("pgc 的 season_id = %q", q.Get("season_id"))
+		}
 	case r.URL.Path == pgcPath:
 		want = url.Values{"ep_id": {q.Get("ep_id")}}
 		if !number.MatchString(q.Get("ep_id")) {
 			t.Errorf("pgc 的 ep_id = %q", q.Get("ep_id"))
+		}
+	case r.URL.Path == mediaPath:
+		want = url.Values{"media_id": {q.Get("media_id")}}
+		if !number.MatchString(q.Get("media_id")) {
+			t.Errorf("md 换算的 media_id = %q", q.Get("media_id"))
+		}
+	case r.URL.Path == archivesPath:
+		want = url.Values{
+			"mid": {"0"}, "season_id": {q.Get("season_id")}, "sort_reverse": {"false"},
+			"page_num": {q.Get("page_num")}, "page_size": {"100"},
+		}
+		if !number.MatchString(q.Get("season_id")) || !number.MatchString(q.Get("page_num")) {
+			t.Errorf("合集条目列表的 season_id = %q, page_num = %q", q.Get("season_id"), q.Get("page_num"))
 		}
 	case r.URL.Path == segPath:
 		want = url.Values{"type": {"1"}, "oid": {q.Get("oid")}, "segment_index": {q.Get("segment_index")}}
@@ -279,6 +306,23 @@ func viewRedirectResponse(t *testing.T, title, redirectURL string, pages ...view
 	if redirectURL != "" {
 		data["redirect_url"] = redirectURL
 	}
+	return marshalResponse(t, map[string]any{"code": 0, "message": "0", "ttl": 1, "data": data})
+}
+
+// viewDataResponse view 接口的成功响应，data 由 viewData 编码而来，例如带着 ugc_season 的稿件。
+func viewDataResponse(t *testing.T, data viewData) response {
+	t.Helper()
+	return marshalResponse(t, map[string]any{"code": 0, "message": "0", "ttl": 1, "data": data})
+}
+
+// mediaResponse md 换算的成功响应；md 不存在时 B 站同样成功，只是 season_id 为 0。
+func mediaResponse(seasonID int64) response {
+	return jsonResponse(fmt.Sprintf(`{"code":0,"message":"success","result":{"media":{"media_id":1,"season_id":%d,"title":"某番剧"}}}`, seasonID))
+}
+
+// archivesResponse 合集条目列表的成功响应。
+func archivesResponse(t *testing.T, data archivesData) response {
+	t.Helper()
 	return marshalResponse(t, map[string]any{"code": 0, "message": "0", "ttl": 1, "data": data})
 }
 

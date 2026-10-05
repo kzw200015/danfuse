@@ -3,13 +3,21 @@ import type { Episode, Season, SeriesDetail, SeriesSummary } from '@/api/series'
 // 标题里的数字按数值比较："第2部"排在"第10部"前面
 const collator = new Intl.Collator('zh', { numeric: true })
 
-/** 按剧名或原名筛选（不区分大小写），按标题排序，同名的按年份排 */
-export function filterSeries(list: SeriesSummary[], keyword: string): SeriesSummary[] {
+/**
+ * 按剧名或原名筛选（不区分大小写），followingOnly 时只留追更中的剧（有开着追更的季绑定）；
+ * 按标题排序，同名的按年份排
+ */
+export function filterSeries(
+  list: SeriesSummary[],
+  keyword: string,
+  followingOnly = false,
+): SeriesSummary[] {
   const k = keyword.trim().toLowerCase()
   return list
     .filter(
       (s) =>
-        !k || s.title.toLowerCase().includes(k) || !!s.originalTitle?.toLowerCase().includes(k),
+        (!followingOnly || s.following) &&
+        (!k || s.title.toLowerCase().includes(k) || !!s.originalTitle?.toLowerCase().includes(k)),
     )
     .toSorted((a, b) => collator.compare(a.title, b.title) || (a.year ?? 0) - (b.year ?? 0))
 }

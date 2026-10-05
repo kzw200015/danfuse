@@ -28,6 +28,13 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 	api.DELETE("/bindings/:id", h.Binding.Delete)
 	api.POST("/bindings/:id/refetch", h.Binding.Refetch)
 
+	api.POST("/seasons/:id/season-bindings/preview", h.SeasonBinding.Preview)
+	api.POST("/seasons/:id/season-bindings", h.SeasonBinding.Create)
+	api.GET("/season-bindings/:id", h.SeasonBinding.Get)
+	api.PATCH("/season-bindings/:id", h.SeasonBinding.Update)
+	api.POST("/season-bindings/:id/backfill", h.SeasonBinding.Backfill)
+	api.DELETE("/season-bindings/:id", h.SeasonBinding.Delete)
+
 	api.POST("/sync-runs", h.Sync.Trigger)
 	api.GET("/sync-runs", h.Sync.List)
 	api.GET("/sync-runs/:id", h.Sync.Get)

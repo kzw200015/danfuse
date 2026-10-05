@@ -20,6 +20,8 @@ export interface Binding {
   status: BindingStatus
   danmakuCount: number
   lastFetchedAt: string | null
+  /** 建出这个绑定的季绑定；手动贴链接建的、或季绑定已被删除的为 null */
+  seasonBindingId: number | null
 }
 
 /**

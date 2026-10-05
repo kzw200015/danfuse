@@ -56,25 +56,26 @@ WHERE binding_id = $1;
 --   只增不删时，新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
 --   清空后重新拉取（replace）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1。
 -- 标题、时长用这次拉取的值覆盖；拉取成功即为 active。只更新拉取相关的列，不覆盖 offset。
+-- 拉取时间由应用写入：追更按它判断自动重新拉取是否已满 24 小时，与上次检查时间用同一个时钟。
 UPDATE bindings
 SET danmaku_count   = CASE WHEN @replace::boolean THEN 0 ELSE danmaku_count END + @added::int,
     content_version = content_version + (@replace::boolean OR @added::int > 0)::int,
     title           = @title,
     duration        = @duration,
     status          = 'active',
-    last_fetched_at = now(),
+    last_fetched_at = @fetched_at::timestamptz,
     updated_at      = now()
 WHERE id = @id
 RETURNING *;
 
 -- name: MarkBindingDead :exec
 -- 重新拉取时弹幕源已不存在：标为失效。已保存的弹幕、计数、标题和时长都不动；
--- 这次拉取得到了确定的结果，拉取时间照常更新。
+-- 这次拉取得到了确定的结果，拉取时间照常更新，由应用写入（同 RecordFetch）。
 UPDATE bindings
 SET status          = 'dead',
-    last_fetched_at = now(),
+    last_fetched_at = sqlc.arg(fetched_at)::timestamptz,
     updated_at      = now()
-WHERE id = $1;
+WHERE id = sqlc.arg(id);
 
 -- name: UpdateBindingOffset :one
 -- 只改偏移，content_version 不变。

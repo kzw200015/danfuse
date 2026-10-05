@@ -2,8 +2,6 @@ package bilibili
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -15,6 +13,7 @@ import (
 
 var (
 	linkHosts      = []string{"www.bilibili.com", "bilibili.com", "m.bilibili.com"}
+	spaceHost      = "space.bilibili.com"              // UP 主的个人空间：合集页、系列页
 	shortLinkHosts = []string{"b23.tv", "bili2233.cn"} // 只对这两个域名跟随跳转
 )
 
@@ -27,6 +26,34 @@ var linkIDs = map[string][]string{
 
 // bareIDs 裸 ID 可以是的前缀。
 var bareIDs = []string{"BV", "av", "ep", "ss", "md"}
+
+// target 链接指向的页面，由 parseURL 只做字符串解析得到。集面板与季面板各自决定接受哪些。
+type target struct {
+	kind string // 见下面的常量；为空表示认不出
+	id   int64  // aid、ep_id、season_id、media_id 或投稿合集的 ID；系列与 lists 为 0
+	page int    // 投稿的分 P，从 1 开始；其他为 0
+
+	short, to string // 由短链跳转而来时：短链和跳转到的地址
+}
+
+// unsupported 认不出、或者这个面板不接受的链接：由短链跳转而来的为 InvalidLink，提示为 message
+// （是 B 站的短链，只是指向了绑定不了的页面，例如直播间、个人空间）；其他的为 source.ErrUnrecognized。
+func (t target) unsupported(message string) error {
+	if t.short == "" {
+		return source.ErrUnrecognized
+	}
+	return &source.Error{Kind: source.InvalidLink, Message: message, Err: fmt.Errorf("%s 跳转到 %s", t.short, t.to)}
+}
+
+const (
+	targetVideo     = "video"     // 投稿，可带分 P
+	targetEpisode   = "episode"   // 番剧单集 ep
+	targetSeason    = "season"    // 番剧的一季 ss
+	targetMedia     = "media"     // 番剧作品页 md
+	targetUGCSeason = "ugcSeason" // 空间里的投稿合集页
+	targetSeries    = "series"    // 空间里的系列页、系列的播放列表
+	targetLists     = "lists"     // 空间里没写 type 的列表页：分不出是合集还是系列（两者的 ID 是两套编号）
+)
 
 // toURL 把用户贴的文本解析成 URL；没写协议的链接（例如 www.bilibili.com/video/BV…、b23.tv/…）补上 https://。
 // 裸 ID（例如 BV…?p=2）没有协议和域名，原样留在 Path 和查询串里。
@@ -48,76 +75,116 @@ func shortLink(u *url.URL) (string, bool) {
 	return "https://" + host + u.EscapedPath(), true
 }
 
-// parseShortLink 请求一次短链，只读 Location，按跳转到的长链接解析；不跟随第二次跳转。
-func (a *Adapter) parseShortLink(ctx context.Context, short string) (source.Ref, error) {
-	var target *url.URL
+// resolve 解析用户贴的链接：短链请求一次、只读 Location，按跳转到的长链接解析，不跟随第二次跳转；其他链接不联网。
+// 认不出时 kind 为空，由调用方交给 target.unsupported；只有请求短链失败时返回错误。
+func (a *Adapter) resolve(ctx context.Context, link string) (target, error) {
+	u, ok := toURL(link)
+	if !ok {
+		return target{}, nil
+	}
+	short, ok := shortLink(u)
+	if !ok {
+		t, _ := parseURL(u)
+		return t, nil
+	}
+	var to *url.URL
 	err := a.client.retry(ctx, func() (err error) {
-		target, err = a.client.location(ctx, short)
+		to, err = a.client.location(ctx, short)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return target{}, err
 	}
-	v, err := parseURL(target)
-	if errors.Is(err, source.ErrUnrecognized) {
-		// 是 B 站的短链，只是指向直播间、个人空间这类绑定不了的页面
-		return nil, &source.Error{Kind: source.InvalidLink, Message: "短链指向的不是投稿或番剧单集", Err: fmt.Errorf("%s 跳转到 %s", short, target)}
-	}
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(v)
+	t, _ := parseURL(to)
+	t.short, t.to = short, to.String()
+	return t, nil
 }
 
-// parseURL 只做字符串解析，不联网：
-//   - 投稿 video/BV…、video/av…，可带 ?p=N（从 1 开始，缺省为 1）；
-//   - 番剧单集 bangumi/play/ep…；
-//   - 裸的 BV、av 号（同样可带 ?p=）和 ep 号。
-//
-// 整季 bangumi/play/ss…、作品页 bangumi/media/md… 和裸的 ss、md 号定位不到单集，返回 InvalidLink；
-// 其他的返回 source.ErrUnrecognized。
-func parseURL(u *url.URL) (ref, error) {
-	var id string
-	var prefixes []string // 这个位置上可以出现的 ID 前缀
-	switch {
-	case u.Scheme == "" && u.Host == "":
-		id, prefixes = u.Path, bareIDs
-	case (u.Scheme == "https" || u.Scheme == "http") && slices.Contains(linkHosts, strings.ToLower(u.Hostname())):
-		for path, p := range linkIDs {
-			if rest, ok := strings.CutPrefix(u.Path, path); ok {
-				id, prefixes = strings.TrimSuffix(rest, "/"), p
-			}
+// parseURL 只做字符串解析，不联网，认不出时返回 source.ErrUnrecognized：
+//   - 投稿 video/BV…、video/av…，可带 ?p=N（从 1 开始，缺省为 1）；番剧单集 bangumi/play/ep…；
+//     番剧的一季 bangumi/play/ss…；作品页 bangumi/media/md…；以及裸的 BV、av（同样可带 ?p=）、ep、ss、md 号；
+//   - 空间里的合集页 space.bilibili.com/{mid}/lists/{sid}?type=season、旧版 …/channel/collectiondetail?sid=；
+//   - 系列页 …/lists/{sid}?type=series、旧版 …/channel/seriesdetail?sid=，系列的播放列表 www.bilibili.com/list/{mid}?sid=；
+//   - 没写 type 的 …/lists/{sid}。
+func parseURL(u *url.URL) (target, error) {
+	if u.Scheme == "" && u.Host == "" {
+		return parseID(u.Path, bareIDs, u.Query())
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return target{}, source.ErrUnrecognized
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == spaceHost {
+		return parseSpaceURL(u)
+	}
+	if !slices.Contains(linkHosts, host) {
+		return target{}, source.ErrUnrecognized
+	}
+	if mid, ok := strings.CutPrefix(strings.TrimSuffix(u.Path, "/"), "/list/"); ok {
+		if _, ok := positiveInt(mid); ok && isPositive(u.Query().Get("sid")) {
+			return target{kind: targetSeries}, nil
+		}
+		return target{}, source.ErrUnrecognized
+	}
+	for path, prefixes := range linkIDs {
+		if rest, ok := strings.CutPrefix(u.Path, path); ok {
+			return parseID(strings.TrimSuffix(rest, "/"), prefixes, u.Query())
 		}
 	}
-	if !slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(id, p) }) {
-		return ref{}, source.ErrUnrecognized
-	}
+	return target{}, source.ErrUnrecognized
+}
 
-	switch prefix, digits := id[:2], id[2:]; prefix {
-	case "ep":
-		ep, ok := positiveInt(digits)
+// parseID 解析一个 ID，它在这个位置上只能以 prefixes 之一开头；投稿的分 P 取自查询串的 p。
+func parseID(id string, prefixes []string, query url.Values) (target, error) {
+	if !slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(id, p) }) {
+		return target{}, source.ErrUnrecognized
+	}
+	kinds := map[string]string{"ep": targetEpisode, "ss": targetSeason, "md": targetMedia}
+	if kind, ok := kinds[id[:2]]; ok {
+		n, ok := positiveInt(id[2:])
 		if !ok {
-			return ref{}, source.ErrUnrecognized
+			return target{}, source.ErrUnrecognized
 		}
-		return ref{Kind: kindEpisode, EpID: ep}, nil
-	case "ss", "md":
-		if _, ok := positiveInt(digits); !ok {
-			return ref{}, source.ErrUnrecognized
-		}
-		return ref{}, &source.Error{Kind: source.InvalidLink, Message: "请打开具体某一集再复制链接", Err: fmt.Errorf("%s 是整季或作品页", id)}
+		return target{kind: kind, id: n}, nil
 	}
 
 	aid, ok := parseVideoID(id)
 	if !ok {
-		return ref{}, source.ErrUnrecognized
+		return target{}, source.ErrUnrecognized
 	}
 	page := int64(1)
-	if p, ok := u.Query()["p"]; ok {
+	if p, ok := query["p"]; ok {
 		if page, ok = positiveInt(p[0]); !ok {
-			return ref{}, source.ErrUnrecognized
+			return target{}, source.ErrUnrecognized
 		}
 	}
-	return ref{Kind: kindVideo, Aid: aid, Page: int(page)}, nil
+	return target{kind: targetVideo, id: aid, page: int(page)}, nil
+}
+
+// parseSpaceURL 个人空间里的合集页与系列页，路径以 UP 主的 mid 开头。
+func parseSpaceURL(u *url.URL) (target, error) {
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) != 3 || !isPositive(parts[0]) {
+		return target{}, source.ErrUnrecognized
+	}
+	switch q := u.Query(); {
+	case parts[1] == "lists" && isPositive(parts[2]):
+		sid, _ := positiveInt(parts[2])
+		switch q.Get("type") {
+		case "season":
+			return target{kind: targetUGCSeason, id: sid}, nil
+		case "series":
+			return target{kind: targetSeries}, nil
+		case "":
+			return target{kind: targetLists}, nil
+		}
+	case parts[1] == "channel" && parts[2] == "collectiondetail" && isPositive(q.Get("sid")):
+		sid, _ := positiveInt(q.Get("sid"))
+		return target{kind: targetUGCSeason, id: sid}, nil
+	case parts[1] == "channel" && parts[2] == "seriesdetail" && isPositive(q.Get("sid")):
+		return target{kind: targetSeries}, nil
+	}
+	return target{}, source.ErrUnrecognized
 }
 
 // parseVideoID 把 av 号或 BV 号换算成 aid。
@@ -136,6 +203,11 @@ func positiveInt(s string) (int64, bool) {
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
 	return n, err == nil && n > 0
+}
+
+func isPositive(s string) bool {
+	_, ok := positiveInt(s)
+	return ok
 }
 
 // BV 号与 aid 的公开换算算法：BV 号是 "BV1" 加 9 位 58 进制数，aid 小于 2^51。

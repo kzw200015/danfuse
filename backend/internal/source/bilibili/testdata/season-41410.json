@@ -1,0 +1,424 @@
+{
+  "code": 0,
+  "message": "success",
+  "result": {
+    "season_id": 41410,
+    "title": "间谍过家家",
+    "publish": {
+      "is_finish": 1
+    },
+    "episodes": [
+      {
+        "id": 508404,
+        "cid": 785726095,
+        "title": "1",
+        "long_title": "任务1 <枭>行动",
+        "show_title": "第1话 任务1 <枭>行动",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 508405,
+        "cid": 785728276,
+        "title": "2",
+        "long_title": "任务2 寻找妻子",
+        "show_title": "第2话 任务2 寻找妻子",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 511074,
+        "cid": 719121009,
+        "title": "3",
+        "long_title": "任务3 准备考试",
+        "show_title": "第3话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 512057,
+        "cid": 724333483,
+        "title": "4",
+        "long_title": "任务4 名门学校面试",
+        "show_title": "第4话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 512620,
+        "cid": 728040745,
+        "title": "5",
+        "long_title": "任务5 能否合格",
+        "show_title": "第5话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 514368,
+        "cid": 734215306,
+        "title": "6",
+        "long_title": "任务6 交友行动",
+        "show_title": "第6话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 517092,
+        "cid": 748332610,
+        "title": "7",
+        "long_title": "任务7 目标的次子",
+        "show_title": "第7话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 517093,
+        "cid": 748332888,
+        "title": "8",
+        "long_title": "任务8 对秘密特工伪装行动",
+        "show_title": "第8话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 518984,
+        "cid": 751940078,
+        "title": "9",
+        "long_title": "任务9 假装恩爱",
+        "show_title": "第9话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 544593,
+        "cid": 761028949,
+        "title": "10",
+        "long_title": "任务10 躲避球大作战",
+        "show_title": "第10话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 660473,
+        "cid": 765397379,
+        "title": "11",
+        "long_title": "任务11 <星>",
+        "show_title": "第11话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 606879,
+        "cid": 772584482,
+        "title": "12",
+        "long_title": "任务12 企鹅乐园",
+        "show_title": "第12话预告",
+        "duration": 11000,
+        "section_type": 1
+      },
+      {
+        "id": 508406,
+        "cid": 917705395,
+        "title": "3",
+        "long_title": "任务3 准备考试",
+        "show_title": "第3话 任务3 准备考试",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 511578,
+        "cid": 785731972,
+        "title": "4",
+        "long_title": "任务4 名门学校面试",
+        "show_title": "第4话 任务4 名门学校面试",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 511579,
+        "cid": 785731739,
+        "title": "5",
+        "long_title": "任务5 能否合格",
+        "show_title": "第5话 任务5 能否合格",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 511580,
+        "cid": 785731861,
+        "title": "6",
+        "long_title": "任务6 交友行动",
+        "show_title": "第6话 任务6 交友行动",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 516900,
+        "cid": 785732015,
+        "title": "7",
+        "long_title": "任务7 目标的次子",
+        "show_title": "第7话 任务7 目标的次子",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 516901,
+        "cid": 785732020,
+        "title": "8",
+        "long_title": "任务8 对秘密特工伪装行动",
+        "show_title": "第8话 任务8 对秘密特工伪装行动",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 516902,
+        "cid": 755498768,
+        "title": "9",
+        "long_title": "任务9 假装恩爱",
+        "show_title": "第9话 任务9 假装恩爱",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 542448,
+        "cid": 785732040,
+        "title": "10",
+        "long_title": "任务10 躲避球大作战",
+        "show_title": "第10话 任务10 躲避球大作战",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 542449,
+        "cid": 785732164,
+        "title": "11",
+        "long_title": "任务11 <星>",
+        "show_title": "第11话 任务11 <星>",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 542450,
+        "cid": 783389215,
+        "title": "12",
+        "long_title": "任务12 企鹅乐园",
+        "show_title": "第12话 任务12 企鹅乐园",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 691612,
+        "cid": 942489041,
+        "title": "13",
+        "long_title": "任务13<苹果>计划",
+        "show_title": "第13话 任务13<苹果>计划",
+        "duration": 1449948,
+        "section_type": 0
+      },
+      {
+        "id": 691613,
+        "cid": 874305462,
+        "title": "14",
+        "long_title": "任务14 拆除定时炸弹",
+        "show_title": "第14话 任务14 拆除定时炸弹",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 691614,
+        "cid": 909776959,
+        "title": "15",
+        "long_title": "任务15 新的家人",
+        "show_title": "第15话 任务15 新的家人",
+        "duration": 1445944,
+        "section_type": 0
+      },
+      {
+        "id": 700607,
+        "cid": 892361691,
+        "title": "16",
+        "long_title": "任务16  约尔的厨房 情报贩子的恋爱大作战",
+        "show_title": "第16话 任务16  约尔的厨房 情报贩子的恋爱大作战",
+        "duration": 1449989,
+        "section_type": 0
+      },
+      {
+        "id": 700608,
+        "cid": 894450973,
+        "title": "17",
+        "long_title": "任务17 执行狮啾行动 | <钢铁淑女> | 蛋包饭♡",
+        "show_title": "第17话 任务17 执行狮啾行动 | <钢铁淑女> | 蛋包饭♡",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 700609,
+        "cid": 902339193,
+        "title": "18",
+        "long_title": "任务18 家庭教师舅舅 | <东云>",
+        "show_title": "第18话 任务18 家庭教师舅舅 | <东云>",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 704872,
+        "cid": 909719369,
+        "title": "19",
+        "long_title": "任务19 对德斯蒙复仇计划 | 母亲，幻化成风",
+        "show_title": "第19话 任务19 对德斯蒙复仇计划 | 母亲，幻化成风",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 704873,
+        "cid": 942489055,
+        "title": "20",
+        "long_title": "任务20 调查综合医院 | 解读难懂密文",
+        "show_title": "第20话 任务20 调查综合医院 | 解读难懂密文",
+        "duration": 1429344,
+        "section_type": 0
+      },
+      {
+        "id": 704874,
+        "cid": 926248568,
+        "title": "21",
+        "long_title": "任务21<夜帷> | 第一次嫉妒",
+        "show_title": "第21话 任务21<夜帷> | 第一次嫉妒",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 718239,
+        "cid": 944786537,
+        "title": "22",
+        "long_title": "任务22 地下网球赛 坎贝尔顿",
+        "show_title": "第22话 任务22 地下网球赛 坎贝尔顿",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 718240,
+        "cid": 953373520,
+        "title": "23",
+        "long_title": "任务23 坚定不移的轨道",
+        "show_title": "第23话 任务23 坚定不移的轨道",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 718241,
+        "cid": 959539778,
+        "title": "24",
+        "long_title": "任务24 母亲角色与妻子角色 | 和朋友购物",
+        "show_title": "第24话 任务24 母亲角色与妻子角色 | 和朋友购物",
+        "duration": 1451000,
+        "section_type": 0
+      },
+      {
+        "id": 718242,
+        "cid": 985393915,
+        "title": "25",
+        "long_title": "任务25 接敌行动",
+        "show_title": "第25话 任务25 接敌行动",
+        "duration": 1450031,
+        "section_type": 0
+      }
+    ],
+    "section": [
+      {
+        "episodes": [
+          {
+            "id": 477533,
+            "cid": 562998972,
+            "title": "PV1",
+            "long_title": "",
+            "show_title": "PV1",
+            "duration": 51000,
+            "section_type": 2
+          },
+          {
+            "id": 478176,
+            "cid": 565279482,
+            "title": "PV2",
+            "long_title": "",
+            "show_title": "PV2",
+            "duration": 101000,
+            "section_type": 2
+          },
+          {
+            "id": 478665,
+            "cid": 569742427,
+            "title": "正式PV",
+            "long_title": "",
+            "show_title": "正式PV",
+            "duration": 111000,
+            "section_type": 2
+          },
+          {
+            "id": 480968,
+            "cid": 579399931,
+            "title": "声优问候",
+            "long_title": "江口拓也",
+            "show_title": "声优问候 江口拓也",
+            "duration": 25000,
+            "section_type": 2
+          },
+          {
+            "id": 480969,
+            "cid": 581054137,
+            "title": "声优问候",
+            "long_title": "种崎敦美",
+            "show_title": "声优问候 种崎敦美",
+            "duration": 33000,
+            "section_type": 2
+          },
+          {
+            "id": 480970,
+            "cid": 581055716,
+            "title": "声优问候",
+            "long_title": "早见沙织",
+            "show_title": "声优问候 早见沙织",
+            "duration": 39000,
+            "section_type": 2
+          },
+          {
+            "id": 512091,
+            "cid": 725164002,
+            "title": "声优&工作人员精选片段①",
+            "long_title": "",
+            "show_title": "声优&工作人员精选片段①",
+            "duration": 42000,
+            "section_type": 2
+          },
+          {
+            "id": 512742,
+            "cid": 729109711,
+            "title": "声优&工作人员精选片段②",
+            "long_title": "",
+            "show_title": "声优&工作人员精选片段②",
+            "duration": 78000,
+            "section_type": 2
+          },
+          {
+            "id": 519174,
+            "cid": 755233986,
+            "title": "Part 2 PV",
+            "long_title": "",
+            "show_title": "Part 2 PV",
+            "duration": 47000,
+            "section_type": 2
+          },
+          {
+            "id": 691463,
+            "cid": 866822136,
+            "title": "Part 2 抢先看",
+            "long_title": "",
+            "show_title": "Part 2 抢先看",
+            "duration": 47000,
+            "section_type": 2
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -40,6 +40,7 @@ function binding(id: number, patch: Partial<Binding> = {}): Binding {
     status: 'active',
     danmakuCount: 1234,
     lastFetchedAt: '2026-10-05T08:00:00Z',
+    seasonBindingId: null,
     ...patch,
   }
 }
@@ -56,12 +57,14 @@ const tv: SeriesDetail = {
       id: 10,
       number: 0,
       title: null,
+      seasonBindings: [],
       episodes: [{ id: 100, number: 1, title: '番外', duration: 600, bindings: [] }],
     },
     {
       id: 11,
       number: 1,
       title: '远航篇',
+      seasonBindings: [],
       episodes: [
         {
           id: 110,
@@ -91,6 +94,7 @@ const movie: SeriesDetail = {
       id: 20,
       number: 1,
       title: null,
+      seasonBindings: [],
       episodes: [{ id: 200, number: 1, title: null, duration: 5400, bindings: [] }],
     },
   ],
@@ -119,6 +123,7 @@ beforeEach(() => {
         boundEpisodeCount: episodes.filter((e) => e.bindings.length > 0).length,
         bindingCount: bindings.length,
         deadBindingCount: bindings.filter((b) => b.status === 'dead').length,
+        following: seasons.some((se) => se.seasonBindings.some((sb) => sb.follow)),
       }
     }),
   )

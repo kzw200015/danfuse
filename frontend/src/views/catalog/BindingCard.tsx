@@ -114,6 +114,11 @@ export default function BindingCard({
           </a>
           <div className="text-xs text-muted-foreground">{binding.sourceLabel}</div>
         </div>
+        {binding.seasonBindingId !== null && (
+          <Badge variant="secondary" title="由季面板上的季绑定按集号对应自动建出">
+            季绑定
+          </Badge>
+        )}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>弹幕 {binding.danmakuCount.toLocaleString()} 条</span>

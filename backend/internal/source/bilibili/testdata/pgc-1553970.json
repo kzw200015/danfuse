@@ -1,0 +1,433 @@
+{
+  "code": 0,
+  "message": "success",
+  "result": {
+    "season_id": 92458,
+    "title": "宝可梦 地平线（中配）",
+    "publish": {
+      "is_finish": 0
+    },
+    "episodes": [
+      {
+        "id": 1553926,
+        "cid": 29179710022,
+        "title": "1",
+        "long_title": "起源的吊坠 前篇",
+        "show_title": "第1话 起源的吊坠 前篇",
+        "duration": 1470000,
+        "section_type": 0
+      },
+      {
+        "id": 1553927,
+        "cid": 29281947440,
+        "title": "2",
+        "long_title": "起源的吊坠 后篇",
+        "show_title": "第2话 起源的吊坠 后篇",
+        "duration": 1424000,
+        "section_type": 0
+      },
+      {
+        "id": 1553928,
+        "cid": 29281947543,
+        "title": "3",
+        "long_title": "和新叶喵一起，一定可以",
+        "show_title": "第3话 和新叶喵一起，一定可以",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553929,
+        "cid": 29422519519,
+        "title": "4",
+        "long_title": "漂来的宝物",
+        "show_title": "第4话 漂来的宝物",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553930,
+        "cid": 29422519299,
+        "title": "5",
+        "long_title": "找到你了，呆火鳄",
+        "show_title": "第5话 找到你了，呆火鳄",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553931,
+        "cid": 29562110151,
+        "title": "6",
+        "long_title": "远古的精灵球",
+        "show_title": "第6话 远古的精灵球",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553932,
+        "cid": 29562110340,
+        "title": "7",
+        "long_title": "特训！皮卡丘船长",
+        "show_title": "第7话 特训！皮卡丘船长",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553933,
+        "cid": 29656678414,
+        "title": "8",
+        "long_title": "紧闭之门的秘密",
+        "show_title": "第8话 紧闭之门的秘密",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553934,
+        "cid": 29656679076,
+        "title": "9",
+        "long_title": "抵达帕底亚！",
+        "show_title": "第9话 抵达帕底亚！",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553935,
+        "cid": 29820784053,
+        "title": "10",
+        "long_title": "妮莫与寇沙",
+        "show_title": "第10话 妮莫与寇沙",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553936,
+        "cid": 29820784106,
+        "title": "11",
+        "long_title": "奥利瓦的森林",
+        "show_title": "第11话 奥利瓦的森林",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553937,
+        "cid": 29950411694,
+        "title": "12",
+        "long_title": "我选择的未来",
+        "show_title": "第12话 我选择的未来",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553938,
+        "cid": 29950411376,
+        "title": "13",
+        "long_title": "突如其来的野餐",
+        "show_title": "第13话 突如其来的野餐",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553939,
+        "cid": 30049960929,
+        "title": "14",
+        "long_title": "飞翔吧！电海燕！！",
+        "show_title": "第14话 飞翔吧！电海燕！！",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553940,
+        "cid": 30049960933,
+        "title": "15",
+        "long_title": "看不见的家伙！谁来奇述？",
+        "show_title": "第15话 看不见的家伙！谁来奇述？",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553941,
+        "cid": 30193550444,
+        "title": "16",
+        "long_title": "和润水鸭一起，就没问题",
+        "show_title": "第16话 和润水鸭一起，就没问题",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553942,
+        "cid": 30193551354,
+        "title": "17",
+        "long_title": "电海燕与呆火鳄 秘密大特训",
+        "show_title": "第17话 电海燕与呆火鳄 秘密大特训",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553943,
+        "cid": 30310859785,
+        "title": "18",
+        "long_title": "飞翔皮卡丘，蓝天之上！",
+        "show_title": "第18话 飞翔皮卡丘，蓝天之上！",
+        "duration": 1470000,
+        "section_type": 0
+      },
+      {
+        "id": 1553944,
+        "cid": 30310860335,
+        "title": "19",
+        "long_title": "霜奶仙的心愿",
+        "show_title": "第19话 霜奶仙的心愿",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553945,
+        "cid": 30404969874,
+        "title": "20",
+        "long_title": "卡芜先生的对战修行",
+        "show_title": "第20话 卡芜先生的对战修行",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553946,
+        "cid": 30404969757,
+        "title": "21",
+        "long_title": "孤零零的迷布莉姆",
+        "show_title": "第21话 孤零零的迷布莉姆",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553947,
+        "cid": 30561534089,
+        "title": "22",
+        "long_title": "激烈冲突！伽勒尔矿山",
+        "show_title": "第22话 激烈冲突！伽勒尔矿山",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553948,
+        "cid": 30561534012,
+        "title": "23",
+        "long_title": "怒火冲天的伽勒尔火焰鸟",
+        "show_title": "第23话 怒火冲天的伽勒尔火焰鸟",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553949,
+        "cid": 30685462756,
+        "title": "24",
+        "long_title": "在古城的重逢",
+        "show_title": "第24话 在古城的重逢",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553950,
+        "cid": 30685463321,
+        "title": "25",
+        "long_title": "黑夜中的强敌",
+        "show_title": "第25话 黑夜中的强敌",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553951,
+        "cid": 30806705644,
+        "title": "26",
+        "long_title": "太乐巴戈斯的冒险",
+        "show_title": "第26话 太乐巴戈斯的冒险",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553952,
+        "cid": 30806705544,
+        "title": "27",
+        "long_title": "只要和伙伴在一起",
+        "show_title": "第27话 只要和伙伴在一起",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553953,
+        "cid": 30936533300,
+        "title": "28",
+        "long_title": "被偷走的宝物",
+        "show_title": "第28话 被偷走的宝物",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553954,
+        "cid": 30936663587,
+        "title": "29",
+        "long_title": "奥莉欧和精灵球匠",
+        "show_title": "第29话 奥莉欧和精灵球匠",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553955,
+        "cid": 31101485649,
+        "title": "30",
+        "long_title": "呲溜又哐当，神秘宝可梦！",
+        "show_title": "第30话 呲溜又哐当，神秘宝可梦！",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553956,
+        "cid": 31101485592,
+        "title": "31",
+        "long_title": "白雾中的歌声",
+        "show_title": "第31话 白雾中的歌声",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553957,
+        "cid": 31242652454,
+        "title": "32",
+        "long_title": "拉普拉斯的思念，对同伴的思念",
+        "show_title": "第32话 拉普拉斯的思念，对同伴的思念",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553958,
+        "cid": 31242652287,
+        "title": "33",
+        "long_title": "咆哮的黑色烈空坐",
+        "show_title": "第33话 咆哮的黑色烈空坐",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553959,
+        "cid": 31392140116,
+        "title": "34",
+        "long_title": "各自的旅程",
+        "show_title": "第34话 各自的旅程",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553960,
+        "cid": 31392139916,
+        "title": "35",
+        "long_title": "弗里德和船长 于荒野之上",
+        "show_title": "第35话 弗里德和船长 于荒野之上",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553961,
+        "cid": 31524981211,
+        "title": "36",
+        "long_title": "飘香豚的友情大作战",
+        "show_title": "第36话 飘香豚的友情大作战",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553962,
+        "cid": 31524981110,
+        "title": "37",
+        "long_title": "呆火鳄，要变坏孩子了？",
+        "show_title": "第37话 呆火鳄，要变坏孩子了？",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553963,
+        "cid": 31681677855,
+        "title": "38",
+        "long_title": "来自一对鼠的紧急求助？",
+        "show_title": "第38话 来自一对鼠的紧急求助？",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553964,
+        "cid": 31681677173,
+        "title": "39",
+        "long_title": "小锻匠和讲究的锤子",
+        "show_title": "第39话 小锻匠和讲究的锤子",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553965,
+        "cid": 31826120564,
+        "title": "40",
+        "long_title": "新叶喵，再见？",
+        "show_title": "第40话 新叶喵，再见？",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553966,
+        "cid": 31826120496,
+        "title": "41",
+        "long_title": "强势的母亲登场！",
+        "show_title": "第41话 强势的母亲登场！",
+        "duration": 1426000,
+        "section_type": 0
+      },
+      {
+        "id": 1553967,
+        "cid": 31996513505,
+        "title": "42",
+        "long_title": "变身！海之英雄海豚侠",
+        "show_title": "第42话 变身！海之英雄海豚侠",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553968,
+        "cid": 31996512877,
+        "title": "43",
+        "long_title": "来自探索者队的战书",
+        "show_title": "第43话 来自探索者队的战书",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553969,
+        "cid": 32146722144,
+        "title": "44",
+        "long_title": "烈空坐捕捉计划",
+        "show_title": "第44话 烈空坐捕捉计划",
+        "duration": 1425000,
+        "section_type": 0
+      },
+      {
+        "id": 1553970,
+        "cid": 32146722305,
+        "title": "45",
+        "long_title": "到那遥远的地方",
+        "show_title": "第45话 到那遥远的地方",
+        "duration": 1426000,
+        "section_type": 0
+      }
+    ],
+    "section": [
+      {
+        "episodes": [
+          {
+            "id": 1554061,
+            "cid": 29179055905,
+            "title": "定档PV",
+            "long_title": "4月5日起，每周五、六 10:00更新！",
+            "show_title": "定档PV 4月5日起，每周五、六 10:00更新！",
+            "duration": 71000,
+            "section_type": 2
+          }
+        ]
+      }
+    ]
+  }
+}

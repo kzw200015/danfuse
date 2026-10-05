@@ -41,8 +41,9 @@ func syncTest(t *testing.T, f func(t *testing.T, pool *pgxpool.Pool)) {
 	})
 }
 
-// assertInvariants 检查任何时候都成立的两条不变量：每个绑定的 danmaku_count 等于它实际的弹幕条数；
-// images 表里没有不被任何剧引用的图片。
+// assertInvariants 检查任何时候都成立的不变量：每个绑定的 danmaku_count 等于它实际的弹幕条数；
+// images 表里没有不被任何剧引用的图片；每条处理过的记录都指向存在的集；
+// 带 season_binding_id 的绑定，所在的集属于那个季绑定的季。
 func assertInvariants(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background() // 在 t.Cleanup 里调用时 t.Context() 已经取消
@@ -78,6 +79,32 @@ func assertInvariants(t *testing.T, pool *pgxpool.Pool) {
 	if len(orphans) > 0 {
 		t.Errorf("images 里有不被任何剧引用的图片：%v", orphans)
 	}
+
+	var dangling int64
+	err = pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM season_binding_handled h
+		WHERE NOT EXISTS (SELECT 1 FROM episodes e WHERE e.id = h.episode_id)`).Scan(&dangling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dangling > 0 {
+		t.Errorf("有 %d 条处理过的记录指向不存在的集", dangling)
+	}
+
+	var misplaced []int64
+	err = pool.QueryRow(ctx, `
+		SELECT coalesce(array_agg(b.id ORDER BY b.id), '{}')
+		FROM bindings b
+		JOIN episodes e ON e.id = b.episode_id
+		JOIN season_bindings sb ON sb.id = b.season_binding_id
+		WHERE e.season_id <> sb.season_id`).Scan(&misplaced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(misplaced) > 0 {
+		t.Errorf("绑定 %v 所在的集不属于建出它的季绑定的季", misplaced)
+	}
 }
 
 // newTestService 构造不开定时同步的 SyncService 并在后台运行 Run。src 为 nil 表示未配置目录源。
@@ -90,7 +117,7 @@ func newTestService(t *testing.T, pool *pgxpool.Pool, src catalog.Source) *SyncS
 
 // runInBackground 在后台运行 svc.Run，等它做完启动时的清理再返回。
 // 返回的 stop 取消 Run 并等它返回；测试结束时也会自动调用。
-func runInBackground(t *testing.T, svc *SyncService) (stop func()) {
+func runInBackground(t *testing.T, svc interface{ Run(context.Context) }) (stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

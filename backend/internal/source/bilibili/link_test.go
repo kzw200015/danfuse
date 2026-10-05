@@ -49,7 +49,17 @@ func TestParseShortLink(t *testing.T) {
 		{
 			name: "跳到整季", link: "https://b23.tv/abcdefg", sample: "short-b23.tv-abcdefg",
 			resp: redirectResponse("https://www.bilibili.com/bangumi/play/ss41410"),
-			kind: source.InvalidLink, message: "请打开具体某一集再复制链接", attempts: 1,
+			kind: source.InvalidLink, message: "整季或合集的链接请在季面板绑定", attempts: 1,
+		},
+		{
+			name: "跳到空间里的合集页", link: "https://b23.tv/abcdefg", sample: "short-b23.tv-abcdefg",
+			resp: redirectResponse("https://space.bilibili.com/2142762/lists/7540520?type=season"),
+			kind: source.InvalidLink, message: "整季或合集的链接请在季面板绑定", attempts: 1,
+		},
+		{
+			name: "跳到系列页", link: "https://b23.tv/abcdefg", sample: "short-b23.tv-abcdefg",
+			resp: redirectResponse("https://space.bilibili.com/37737161/lists/2800550?type=series"),
+			kind: source.InvalidLink, message: "短链指向的不是投稿或番剧单集", attempts: 1,
 		},
 		{
 			name: "跳到绑定不了的页面", link: "https://b23.tv/abcdefg", sample: "short-b23.tv-abcdefg",

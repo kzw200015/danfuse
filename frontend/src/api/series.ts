@@ -1,5 +1,6 @@
 import type { Binding } from './bindings'
 import { request } from './request'
+import type { SeasonBinding } from './season-bindings'
 
 export type SeriesType = 'tv' | 'movie'
 
@@ -18,6 +19,8 @@ export interface SeriesSummary {
   boundEpisodeCount: number
   bindingCount: number
   deadBindingCount: number
+  /** 有开着追更的季绑定 */
+  following: boolean
 }
 
 export interface Episode {
@@ -35,6 +38,8 @@ export interface Season {
   id: number
   number: number
   title: string | null
+  /** 按创建顺序，不含条目表 */
+  seasonBindings: SeasonBinding[]
   /** 按集号排序 */
   episodes: Episode[]
 }

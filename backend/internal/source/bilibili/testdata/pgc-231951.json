@@ -4,6 +4,9 @@
   "result": {
     "season_id": 24605,
     "title": "前进吧！登山少女 第三季",
+    "publish": {
+      "is_finish": 1
+    },
     "episodes": [
       {
         "id": 231951,
@@ -11,7 +14,8 @@
         "title": "1",
         "long_title": "在筑波山上的第一次约会！？",
         "show_title": "第1话 在筑波山上的第一次约会！？",
-        "duration": 811000
+        "duration": 811000,
+        "section_type": 0
       },
       {
         "id": 231952,
@@ -19,7 +23,8 @@
         "title": "2",
         "long_title": "登山靴很厉害的吗？",
         "show_title": "第2话 登山靴很厉害的吗？",
-        "duration": 811000
+        "duration": 811000,
+        "section_type": 0
       },
       {
         "id": 231953,
@@ -27,7 +32,8 @@
         "title": "3",
         "long_title": "饭能的阿尔卑斯！？",
         "show_title": "第3话 饭能的阿尔卑斯！？",
-        "duration": 810110
+        "duration": 810110,
+        "section_type": 0
       },
       {
         "id": 231954,
@@ -35,7 +41,8 @@
         "title": "4",
         "long_title": "和同学一起去玩吧！",
         "show_title": "第4话 和同学一起去玩吧！",
-        "duration": 809976
+        "duration": 809976,
+        "section_type": 0
       },
       {
         "id": 231955,
@@ -43,7 +50,8 @@
         "title": "5",
         "long_title": "拍下回忆吧",
         "show_title": "第5话 拍下回忆吧",
-        "duration": 809976
+        "duration": 809976,
+        "section_type": 0
       },
       {
         "id": 231956,
@@ -51,7 +59,8 @@
         "title": "6",
         "long_title": "咖啡是什么味的？",
         "show_title": "第6话 咖啡是什么味的？",
-        "duration": 810110
+        "duration": 810110,
+        "section_type": 0
       },
       {
         "id": 231957,
@@ -59,7 +68,8 @@
         "title": "7",
         "long_title": "不工作就没法去爬山！？",
         "show_title": "第7话 不工作就没法去爬山！？",
-        "duration": 809976
+        "duration": 809976,
+        "section_type": 0
       },
       {
         "id": 231958,
@@ -67,7 +77,8 @@
         "title": "8",
         "long_title": "两个约定",
         "show_title": "第8话 两个约定",
-        "duration": 809976
+        "duration": 809976,
+        "section_type": 0
       },
       {
         "id": 231959,
@@ -75,7 +86,8 @@
         "title": "9",
         "long_title": "各自的景色",
         "show_title": "第9话 各自的景色",
-        "duration": 810110
+        "duration": 810110,
+        "section_type": 0
       },
       {
         "id": 231960,
@@ -83,7 +95,8 @@
         "title": "10",
         "long_title": "错过的季节",
         "show_title": "第10话 错过的季节",
-        "duration": 809976
+        "duration": 809976,
+        "section_type": 0
       },
       {
         "id": 231961,
@@ -91,7 +104,8 @@
         "title": "11",
         "long_title": "生硬的纵走",
         "show_title": "第11话 生硬的纵走",
-        "duration": 809976
+        "duration": 809976,
+        "section_type": 0
       },
       {
         "id": 231962,
@@ -99,7 +113,8 @@
         "title": "12",
         "long_title": "朋友",
         "show_title": "第12话 朋友",
-        "duration": 811000
+        "duration": 811000,
+        "section_type": 0
       },
       {
         "id": 231963,
@@ -107,7 +122,8 @@
         "title": "13",
         "long_title": "这是秘密哦",
         "show_title": "第13话 这是秘密哦",
-        "duration": 811000
+        "duration": 811000,
+        "section_type": 0
       }
     ],
     "section": null

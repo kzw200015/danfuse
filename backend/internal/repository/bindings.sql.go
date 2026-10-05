@@ -7,6 +7,7 @@ package repository
 
 import (
 	"context"
+	"time"
 )
 
 const bindingExists = `-- name: BindingExists :one
@@ -65,7 +66,7 @@ func (q *Queries) EpisodeExists(ctx context.Context, id int64) (bool, error) {
 }
 
 const getBinding = `-- name: GetBinding :one
-SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
+SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id
 FROM bindings
 WHERE id = $1
 `
@@ -89,6 +90,7 @@ func (q *Queries) GetBinding(ctx context.Context, id int64) (Binding, error) {
 		&i.LastFetchedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SeasonBindingID,
 	)
 	return i, err
 }
@@ -159,7 +161,7 @@ func (q *Queries) InsertDanmaku(ctx context.Context, arg InsertDanmakuParams) (i
 }
 
 const listBindingsBySeries = `-- name: ListBindingsBySeries :many
-SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at
+SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at, b.season_binding_id
 FROM bindings b
 JOIN episodes e ON e.id = b.episode_id
 JOIN seasons se ON se.id = e.season_id
@@ -192,6 +194,7 @@ func (q *Queries) ListBindingsBySeries(ctx context.Context, seriesID int64) ([]B
 			&i.LastFetchedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SeasonBindingID,
 		); err != nil {
 			return nil, err
 		}
@@ -238,15 +241,20 @@ func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 const markBindingDead = `-- name: MarkBindingDead :exec
 UPDATE bindings
 SET status          = 'dead',
-    last_fetched_at = now(),
+    last_fetched_at = $1::timestamptz,
     updated_at      = now()
-WHERE id = $1
+WHERE id = $2
 `
 
+type MarkBindingDeadParams struct {
+	FetchedAt time.Time `json:"fetchedAt"`
+	ID        int64     `json:"id"`
+}
+
 // 重新拉取时弹幕源已不存在：标为失效。已保存的弹幕、计数、标题和时长都不动；
-// 这次拉取得到了确定的结果，拉取时间照常更新。
-func (q *Queries) MarkBindingDead(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, markBindingDead, id)
+// 这次拉取得到了确定的结果，拉取时间照常更新，由应用写入（同 RecordFetch）。
+func (q *Queries) MarkBindingDead(ctx context.Context, arg MarkBindingDeadParams) error {
+	_, err := q.db.Exec(ctx, markBindingDead, arg.FetchedAt, arg.ID)
 	return err
 }
 
@@ -257,18 +265,19 @@ SET danmaku_count   = CASE WHEN $1::boolean THEN 0 ELSE danmaku_count END + $2::
     title           = $3,
     duration        = $4,
     status          = 'active',
-    last_fetched_at = now(),
+    last_fetched_at = $5::timestamptz,
     updated_at      = now()
-WHERE id = $5
-RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
+WHERE id = $6
+RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id
 `
 
 type RecordFetchParams struct {
-	Replace  bool   `json:"replace"`
-	Added    int32  `json:"added"`
-	Title    string `json:"title"`
-	Duration int32  `json:"duration"`
-	ID       int64  `json:"id"`
+	Replace   bool      `json:"replace"`
+	Added     int32     `json:"added"`
+	Title     string    `json:"title"`
+	Duration  int32     `json:"duration"`
+	FetchedAt time.Time `json:"fetchedAt"`
+	ID        int64     `json:"id"`
 }
 
 // 一次拉取写入弹幕之后更新绑定：
@@ -277,12 +286,14 @@ type RecordFetchParams struct {
 //	清空后重新拉取（replace）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1。
 //
 // 标题、时长用这次拉取的值覆盖；拉取成功即为 active。只更新拉取相关的列，不覆盖 offset。
+// 拉取时间由应用写入：追更按它判断自动重新拉取是否已满 24 小时，与上次检查时间用同一个时钟。
 func (q *Queries) RecordFetch(ctx context.Context, arg RecordFetchParams) (Binding, error) {
 	row := q.db.QueryRow(ctx, recordFetch,
 		arg.Replace,
 		arg.Added,
 		arg.Title,
 		arg.Duration,
+		arg.FetchedAt,
 		arg.ID,
 	)
 	var i Binding
@@ -301,6 +312,7 @@ func (q *Queries) RecordFetch(ctx context.Context, arg RecordFetchParams) (Bindi
 		&i.LastFetchedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SeasonBindingID,
 	)
 	return i, err
 }
@@ -310,7 +322,7 @@ UPDATE bindings
 SET "offset"   = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
+RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id
 `
 
 type UpdateBindingOffsetParams struct {
@@ -337,6 +349,7 @@ func (q *Queries) UpdateBindingOffset(ctx context.Context, arg UpdateBindingOffs
 		&i.LastFetchedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SeasonBindingID,
 	)
 	return i, err
 }

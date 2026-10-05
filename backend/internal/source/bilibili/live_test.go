@@ -1,17 +1,19 @@
 package bilibili
 
-// live 模式：请求真实的 B 站，确认适配器在一份固定的公开视频列表上仍然正确。默认跳过，CI 不请求 B 站。
+// live 模式：请求真实的 B 站，确认适配器在一份固定的公开视频列表（集面板的 liveCases、季面板的 liveCollectionCases）上
+// 仍然正确。默认跳过，CI 不请求 B 站。
 //
 //	go test ./internal/source/bilibili -run TestLive -args -live           # 只验证
 //	go test ./internal/source/bilibili -run TestLive -args -live -update   # 验证，并重新录制 testdata/
 //
-// 在里程碑验收时和改动 B 站适配器之后各跑一遍。全部用例共 26 次请求（结束时打印实际次数），靠适配器自己的令牌桶限速。
+// 在里程碑验收时和改动 B 站适配器之后各跑一遍。全部用例共 36 次请求（结束时打印实际次数），靠适配器自己的令牌桶限速。
 // 不带 SESSDATA，以未登录的身份请求；港澳台限定番剧的用例要求从大陆请求。
 // 列表里的视频状态变了（被删、开关弹幕、改标题）就换一个，再加 -update 重新录制。
 //
 // -update 只在 -live 时生效：先清空 testdata/，再把 B 站的响应脱敏后写进去，原始响应不落盘；
 // 限流、接口异常这类出错的响应不录制，原样交给适配器重试。
-//   - view、pgc：只保留适配器会读的字段；标记了 redactTitle 的视频，标题也换成占位文本；
+//   - view、pgc（含按 season_id 取整季）、md 换算、合集条目列表：只保留适配器会读的字段；
+//     标记了 redactTitle 的视频，标题也换成占位文本；
 //   - seg.so：解码后每段只留前 sampleElems 条；正文依次换成"弹幕1""弹幕2"……，每段的前几条换成 specialTexts；
 //     发送者哈希换成固定值；ID、时间、模式、颜色等其余字段和其他顶层字段原样保留，再重新编码；
 //   - XML：解压后同样只留前 sampleElems 条，正文与发送者哈希的处理同上，存成便于阅读的 .xml，回放时再压缩；
@@ -120,11 +122,57 @@ var liveCases = []struct {
 	},
 	{
 		name: "整季的 ss 链接被拒绝", link: "https://www.bilibili.com/bangumi/play/ss24605",
-		kind: source.InvalidLink, message: "请打开具体某一集再复制链接",
+		kind: source.InvalidLink, message: "整季或合集的链接请在季面板绑定",
 	},
 	{
 		name: "作品页的 md 链接被拒绝", link: "https://www.bilibili.com/bangumi/media/md28237119",
-		kind: source.InvalidLink, message: "请打开具体某一集再复制链接",
+		kind: source.InvalidLink, message: "整季或合集的链接请在季面板绑定",
+	},
+}
+
+// liveCollectionCases 季面板的固定链接：一部完结的番剧（混有预告）、一部连载中的番剧、一个投稿合集（每个稿件都有多个分 P）、
+// 一个多 P 又属于这个合集的投稿，以及被拒绝的系列、单 P 稿件。连载中的番剧完结了、合集被改了就换一个，再重新录制。
+// 每个用例只列出第一个候选。
+var liveCollectionCases = []struct {
+	name       string
+	link       string
+	candidates []string    // 期望的候选，即合集 ref，按顺序；为空表示链接被拒绝
+	kind       source.Kind // 链接被拒绝时期望的错误类别
+	message    string
+	title      string // 第一个候选的合集标题
+	finished   bool
+	minItems   int    // 条目至少这么多：连载中的会越来越多
+	exact      bool   // 条目恰好 minItems 条
+	first      string // 第一个条目的"序号|标签|提示"
+}{
+	{
+		// 完结的番剧：episodes 里混着 10 个预告，与正片同号，不是条目
+		name: "完结的番剧：作品页 md 链接", link: "https://www.bilibili.com/bangumi/media/md28237119",
+		candidates: []string{`{"kind":"bangumi","seasonId":41410}`},
+		title:      "间谍过家家", finished: true, minItems: 25, exact: true, first: "1|第1话 任务1 <枭>行动|",
+	},
+	{
+		name: "连载中的番剧：单集 ep 链接", link: "https://www.bilibili.com/bangumi/play/ep1553970",
+		candidates: []string{`{"kind":"bangumi","seasonId":92458}`},
+		title:      "宝可梦 地平线（中配）", minItems: 45, first: "1|第1话 起源的吊坠 前篇|",
+	},
+	{
+		name: "投稿合集：新版合集页", link: "https://space.bilibili.com/50329118/lists/8597253?type=season",
+		candidates: []string{`{"kind":"ugcSeason","seasonId":8597253,"mid":50329118}`},
+		title:      "2026EWC", minItems: 31, first: "1|【2026EWC】7月16日 MIBR.LOS vs JDG|共 4 个分 P，只用 P1",
+	},
+	{
+		name: "多 P 又属于合集的投稿", link: "https://www.bilibili.com/video/BV1kcK568Edu",
+		candidates: []string{`{"kind":"multiPage","aid":116930132313786}`, `{"kind":"ugcSeason","seasonId":8597253,"mid":50329118}`},
+		title:      "【2026EWC】7月16日 DK vs G2", minItems: 5, exact: true, first: "1|P1 第一局|",
+	},
+	{
+		name: "系列页被拒绝", link: "https://space.bilibili.com/37737161/lists/2800550?type=series",
+		kind: source.InvalidLink, message: "暂不支持系列",
+	},
+	{
+		name: "单 P 且不属于合集的稿件被拒绝", link: "https://www.bilibili.com/video/BV1GJ411x7h7/",
+		kind: source.InvalidLink, message: "这个稿件只有一个分 P，也不属于合集，请在集面板绑定",
 	},
 }
 
@@ -138,6 +186,7 @@ func TestLive(t *testing.T) {
 	}
 	requests := countRequests(a)
 	checkCases(t, a, requests)
+	checkCollectionCases(t, a)
 	t.Logf("共请求 B 站 %d 次", requests())
 }
 
@@ -164,6 +213,7 @@ func TestSanitizeXML(t *testing.T) {
 func TestSamples(t *testing.T) {
 	a := replayFake(t).adapter()
 	results := checkCases(t, a, countRequests(a))
+	checkCollectionCases(t, a)
 
 	// 样本每段只留前 sampleElems 条，都是普通的文字弹幕，一条不少
 	for _, name := range []string{"单 P 投稿的 BV 链接", "多 P 投稿带 ?p=3", "av 链接"} {
@@ -264,6 +314,56 @@ func checkCases(t *testing.T, a *Adapter, requests func() int) map[string]source
 	return results
 }
 
+// checkCollectionCases 逐个识别 liveCollectionCases 的链接并断言候选，列出第一个候选并断言合集。
+func checkCollectionCases(t *testing.T, a *Adapter) {
+	t.Helper()
+	registry := source.NewRegistry(a)
+	for _, tc := range liveCollectionCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, candidates, err := registry.ParseCollectionLink(t.Context(), tc.link)
+			if tc.candidates == nil {
+				assertErrorMessage(t, err, tc.kind, tc.message)
+				return
+			}
+			var refs []string
+			for _, c := range candidates {
+				refs = append(refs, string(c.Ref))
+			}
+			if err != nil || !slices.Equal(refs, tc.candidates) {
+				t.Fatalf("ParseCollectionLink(%q) = (%q, %v), want %q", tc.link, refs, err, tc.candidates)
+			}
+
+			got, err := a.ListCollection(t.Context(), candidates[0].Ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("%q，完结 %v，%d 条", got.Title, got.Finished, len(got.Items))
+			if got.Title != tc.title || got.Finished != tc.finished {
+				t.Errorf("ListCollection() = (%q, 完结 %v), want (%q, %v)", got.Title, got.Finished, tc.title, tc.finished)
+			}
+			if n := len(got.Items); n < tc.minItems || tc.exact && n != tc.minItems {
+				t.Errorf("%d 条，want %d 条", n, tc.minItems)
+			}
+			if len(got.Items) > 0 {
+				first := got.Items[0]
+				if s := fmt.Sprintf("%d|%s|%s", first.Number, first.Label, first.Note); s != tc.first {
+					t.Errorf("第一个条目 = %s, want %s", s, tc.first)
+				}
+			}
+			seen := map[string]bool{}
+			for _, it := range got.Items {
+				if _, err := decodeRef(it.Ref); err != nil || seen[string(it.Ref)] {
+					t.Errorf("条目的弹幕源 ref 不合法或重复：%+v", it)
+				}
+				seen[string(it.Ref)] = true
+				if it.Label == "" || it.Unmatched == "" && it.Number < 1 {
+					t.Errorf("条目没有标签或序号：%+v", it)
+				}
+			}
+		})
+	}
+}
+
 // logAttr 取 LogAttrs 里的一个计数，没有时为 -1。
 func logAttr(f source.Fetched, key string) int {
 	i := slices.IndexFunc(f.LogAttrs, func(a slog.Attr) bool { return a.Key == key })
@@ -358,12 +458,17 @@ func recordFake(t *testing.T) *fakeBilibili {
 		var ext string
 		var sample []byte
 		switch kind, _, _ := strings.Cut(name, "-"); {
-		case (kind == "view" || kind == "pgc") && recordableJSON(got):
+		case slices.Contains([]string{"view", "pgc", "season", "media", "archives"}, kind) && recordableJSON(got):
 			ext = ".json"
-			if kind == "view" {
+			switch kind {
+			case "view":
 				sample, err = sanitizeView(body, redacted[name])
-			} else {
+			case "pgc", "season":
 				sample, err = sanitizePgc(body)
+			case "media":
+				sample, err = sanitizeMedia(body)
+			default:
+				sample, err = sanitizeArchives(body)
 			}
 			got.body = sample
 		case kind == "seg" && got.status == http.StatusNotModified:
@@ -396,7 +501,7 @@ func recordFake(t *testing.T) *fakeBilibili {
 	})
 }
 
-// recordableJSON view、pgc 的响应能否录制：成功，或是 NotFound、AuthRequired 这类确定的结果；
+// recordableJSON JSON 接口的响应能否录制：成功，或是 NotFound、AuthRequired 这类确定的结果；
 // 限流（包括要求风控验证的 v_voucher）和接口异常不录制。
 func recordableJSON(got response) bool {
 	if got.status != http.StatusOK {
@@ -432,6 +537,37 @@ func sanitizePgc(body []byte) ([]byte, error) {
 		Code    int         `json:"code"`
 		Message string      `json:"message"`
 		Result  *seasonData `json:"result,omitempty"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		return nil, err
+	}
+	return encodeSample(v)
+}
+
+// sanitizeMedia md 换算的 JSON 只保留 season_id。
+func sanitizeMedia(body []byte) ([]byte, error) {
+	type media struct {
+		SeasonID int64 `json:"season_id"`
+	}
+	var v struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Result  *struct {
+			Media media `json:"media"`
+		} `json:"result,omitempty"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		return nil, err
+	}
+	return encodeSample(v)
+}
+
+// sanitizeArchives 合集条目列表的 JSON 只保留适配器会读的字段。
+func sanitizeArchives(body []byte) ([]byte, error) {
+	var v struct {
+		Code    int           `json:"code"`
+		Message string        `json:"message"`
+		Data    *archivesData `json:"data,omitempty"`
 	}
 	if err := json.Unmarshal(body, &v); err != nil {
 		return nil, err

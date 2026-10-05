@@ -30,6 +30,7 @@ function summary(id: number, title: string, originalTitle: string | null, year: 
     boundEpisodeCount: 0,
     bindingCount: 0,
     deadBindingCount: 0,
+    following: false,
   } satisfies SeriesSummary
 }
 
@@ -38,6 +39,7 @@ function season(id: number, number: number, episodeIds: number[] = []): Season {
     id,
     number,
     title: null,
+    seasonBindings: [],
     episodes: episodeIds.map((e, i) => ({
       id: e,
       number: i + 1,
@@ -67,6 +69,17 @@ describe('filterSeries', () => {
     ['不存在', []],
   ])('筛选 %j', (keyword, want) => {
     expect(titles(keyword)).toEqual(want)
+  })
+
+  it('只看追更中：与关键词同时生效', () => {
+    const mixed = [
+      { ...summary(1, '星海旅人', 'Star Voyager', 2023), following: true },
+      summary(2, '雾港谜案', null, 2021),
+      { ...summary(3, '雾港日常', null, null), following: true },
+    ]
+    expect(filterSeries(mixed, '', true).map((s) => s.id)).toEqual([3, 1])
+    expect(filterSeries(mixed, '雾港', true).map((s) => s.id)).toEqual([3])
+    expect(filterSeries(mixed, '雾港').map((s) => s.id)).toEqual([2, 3])
   })
 
   it('标题里的数字按数值排序', () => {

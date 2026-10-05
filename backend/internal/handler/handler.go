@@ -13,6 +13,7 @@ var ProviderSet = wire.NewSet(
 	NewHealthHandler,
 	NewCatalogHandler,
 	NewBindingHandler,
+	NewSeasonBindingHandler,
 	NewSyncHandler,
 	NewSettingsHandler,
 	wire.Struct(new(Handlers), "*"),
@@ -20,11 +21,12 @@ var ProviderSet = wire.NewSet(
 
 // Handlers 汇总所有 handler，供路由注册使用。
 type Handlers struct {
-	Health   *HealthHandler
-	Catalog  *CatalogHandler
-	Binding  *BindingHandler
-	Sync     *SyncHandler
-	Settings *SettingsHandler
+	Health        *HealthHandler
+	Catalog       *CatalogHandler
+	Binding       *BindingHandler
+	SeasonBinding *SeasonBindingHandler
+	Sync          *SyncHandler
+	Settings      *SettingsHandler
 }
 
 // validatable 约束请求类型：*T 必须实现 Validate，遇到第一个不合法的参数即返回错误。

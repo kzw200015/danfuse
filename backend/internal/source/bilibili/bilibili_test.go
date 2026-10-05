@@ -61,7 +61,7 @@ func assertErrorMessage(t *testing.T, err error, kind source.Kind, wantMessage s
 func TestParseLink(t *testing.T) {
 	const p1, p2, p3 = `{"kind":"video","aid":170001,"page":1}`, `{"kind":"video","aid":170001,"page":2}`, `{"kind":"video","aid":170001,"page":3}`
 	const ep = `{"kind":"episode","epId":508404}`
-	const wholeSeason = "请打开具体某一集再复制链接"
+	const wholeSeason = "整季或合集的链接请在季面板绑定"
 	tests := []struct {
 		link string
 		want string // 规范化的 ref；不是 JSON 时为期望的 InvalidLink 提示，为空表示"无法识别的链接"
@@ -96,13 +96,21 @@ func TestParseLink(t *testing.T) {
 		{"www.bilibili.com/bangumi/play/ep508404", ep},
 		{"ep508404", ep},
 		{" ep508404?p=3 ", ep},
-		// 整季、作品页定位不到单集
+		// 整季、作品页、空间里的合集页定位不到单集，到季面板绑定
 		{"https://www.bilibili.com/bangumi/play/ss41410", wholeSeason},
 		{"https://m.bilibili.com/bangumi/play/ss41410/?spm_id_from=333.337", wholeSeason},
 		{"https://www.bilibili.com/bangumi/media/md28237119", wholeSeason},
 		{"https://www.bilibili.com/bangumi/media/md28237119/", wholeSeason},
 		{"ss41410", wholeSeason},
 		{"md28237119", wholeSeason},
+		{"https://space.bilibili.com/2142762/lists/7540520?type=season", wholeSeason},
+		{"https://space.bilibili.com/2142762/lists/7540520/?type=season&spm_id_from=333.1387", wholeSeason},
+		{"space.bilibili.com/2142762/channel/collectiondetail?sid=7540520", wholeSeason},
+		// 系列页在集面板与其他链接一样认不出
+		{"https://space.bilibili.com/37737161/lists/2800550?type=series", ""},
+		{"https://space.bilibili.com/37737161/channel/seriesdetail?sid=2800550", ""},
+		{"https://www.bilibili.com/list/37737161?sid=2800550", ""},
+		{"https://space.bilibili.com/2142762/lists/7540520", ""}, // 没写 type，分不出合集和系列
 		// 无法识别
 		{"", ""},
 		{"   ", ""},
@@ -123,6 +131,14 @@ func TestParseLink(t *testing.T) {
 		{"https://www.bilibili.com/bangumi/play/ep508404/extra", ""},
 		{"https://www.bilibili.com/bangumi/play/", ""},
 		{"https://live.bilibili.com/22603245", ""},
+		{"https://space.bilibili.com/2142762", ""},
+		{"https://space.bilibili.com/2142762/lists/7540520?type=other", ""},
+		{"https://space.bilibili.com/abc/lists/7540520?type=season", ""},
+		{"https://space.bilibili.com/2142762/lists/0?type=season", ""},
+		{"https://space.bilibili.com/2142762/channel/collectiondetail", ""},
+		{"https://space.bilibili.com/2142762/channel/collectiondetail?sid=x", ""},
+		{"https://www.bilibili.com/list/37737161", ""},
+		{"https://www.bilibili.com/list/watchlater?sid=1", ""},
 		{"ep", ""},
 		{"ep0", ""},
 		{"ep-1", ""},

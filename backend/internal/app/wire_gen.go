@@ -44,6 +44,8 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	catalogHandler := handler.NewCatalogHandler(catalogService)
 	bindingService := service.NewBindingService(sqlStore, registry, slogLogger)
 	bindingHandler := handler.NewBindingHandler(bindingService)
+	seasonBindingService := service.NewSeasonBindingService(sqlStore, pool, registry, bindingService, slogLogger)
+	seasonBindingHandler := handler.NewSeasonBindingHandler(seasonBindingService)
 	catalogSource := configConfig.CatalogSource
 	source := newCatalogSource(catalogSource)
 	sync := configConfig.Sync
@@ -51,17 +53,18 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	syncHandler := handler.NewSyncHandler(syncService)
 	settingsHandler := handler.NewSettingsHandler(dandanplay, catalogSource, sync, bilibili)
 	handlers := &handler.Handlers{
-		Health:   healthHandler,
-		Catalog:  catalogHandler,
-		Binding:  bindingHandler,
-		Sync:     syncHandler,
-		Settings: settingsHandler,
+		Health:        healthHandler,
+		Catalog:       catalogHandler,
+		Binding:       bindingHandler,
+		SeasonBinding: seasonBindingHandler,
+		Sync:          syncHandler,
+		Settings:      settingsHandler,
 	}
 	localProvider := service.NewLocalProvider(sqlStore, registry)
 	aggregator := newAggregator(localProvider)
 	dandanHandler := dandan.NewHandler(aggregator)
 	serverServer := server.New(configServer, dandanplay, slogLogger, handlers, dandanHandler)
-	app := New(serverServer, syncService)
+	app := New(serverServer, syncService, seasonBindingService)
 	return app, func() {
 		cleanup()
 	}, nil

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -54,10 +55,11 @@ type SeriesDetail struct {
 }
 
 type SeasonDetail struct {
-	ID       int64           `json:"id"`
-	Number   int32           `json:"number"`
-	Title    *string         `json:"title"`
-	Episodes []EpisodeDetail `json:"episodes"`
+	ID             int64               `json:"id"`
+	Number         int32               `json:"number"`
+	Title          *string             `json:"title"`
+	SeasonBindings []SeasonBindingView `json:"seasonBindings"` // 按创建顺序，不含条目表
+	Episodes       []EpisodeDetail     `json:"episodes"`
 }
 
 type EpisodeDetail struct {
@@ -68,7 +70,7 @@ type EpisodeDetail struct {
 	Bindings []BindingView `json:"bindings"` // 按创建顺序
 }
 
-// GetSeries 一部剧的完整子树：季 → 集 → 绑定。剧、季、集、绑定分开查询，在 Go 里组装；剧不存在时返回 404。
+// GetSeries 一部剧的完整子树：季 → 季绑定、集 → 绑定。剧、季、季绑定、集、绑定分开查询，在 Go 里组装；剧不存在时返回 404。
 // 几次查询不在同一个快照里：查完季之后同步新增的季，它的集会出现在集的查询结果里；查完集之后新增的集，
 // 它的绑定会出现在绑定的查询结果里。组装时都丢弃，下次加载就完整了。
 func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail, error) {
@@ -91,6 +93,12 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 	if err != nil {
 		return SeriesDetail{}, fmt.Errorf("list bindings of series %d: %w", id, err)
 	}
+	seasonBindings, err := s.store.ListSeasonBindingSummariesBySeries(ctx, repository.ListSeasonBindingSummariesBySeriesParams{
+		SeriesID: id, LockNamespace: database.LockSeasonBackfill,
+	})
+	if err != nil {
+		return SeriesDetail{}, fmt.Errorf("list season bindings of series %d: %w", id, err)
+	}
 	views := make(map[int64][]BindingView) // 集 ID → 这一集的绑定
 	for _, b := range bindings {
 		v, err := bindingView(s.sources, b)
@@ -111,8 +119,21 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 	}
 	seasonIndex := make(map[int64]int, len(seasons)) // 季 ID → 在 detail.Seasons 里的下标
 	for i, se := range seasons {
-		detail.Seasons[i] = SeasonDetail{ID: se.ID, Number: se.Number, Title: se.Title, Episodes: []EpisodeDetail{}}
+		detail.Seasons[i] = SeasonDetail{
+			ID: se.ID, Number: se.Number, Title: se.Title, SeasonBindings: []SeasonBindingView{}, Episodes: []EpisodeDetail{},
+		}
 		seasonIndex[se.ID] = i
+	}
+	for _, row := range seasonBindings {
+		i, ok := seasonIndex[row.SeasonBinding.SeasonID]
+		if !ok {
+			continue
+		}
+		v, err := seasonBindingView(s.sources, row.SeasonBinding, row.BindingCount, row.Running)
+		if err != nil {
+			return SeriesDetail{}, err
+		}
+		detail.Seasons[i].SeasonBindings = append(detail.Seasons[i].SeasonBindings, v)
 	}
 	for _, e := range episodes {
 		i, ok := seasonIndex[e.SeasonID]

@@ -68,7 +68,7 @@ func TestCreateBinding(t *testing.T) {
 	binding := decodeObject(t, data)
 	wantFields := []string{
 		"adapter", "danmakuCount", "duration", "id", "lastFetchedAt", "offset",
-		"sourceLabel", "sourceUrl", "status", "title",
+		"seasonBindingId", "sourceLabel", "sourceUrl", "status", "title",
 	}
 	if got := slices.Sorted(maps.Keys(binding)); !slices.Equal(got, wantFields) {
 		t.Errorf("绑定的字段 = %q\nwant %q", got, wantFields)
@@ -79,7 +79,7 @@ func TestCreateBinding(t *testing.T) {
 	delete(binding, "lastFetchedAt")
 	assertJSON(t, json.RawMessage(jsonString(binding)), `{
 		"id": 5, "adapter": "fake", "sourceUrl": "https://fake.test/x", "sourceLabel": "假弹幕源 x",
-		"title": "弹幕源 x", "duration": 1418, "offset": 0, "status": "active", "danmakuCount": 2
+		"title": "弹幕源 x", "duration": 1418, "offset": 0, "status": "active", "danmakuCount": 2, "seasonBindingId": null
 	}`)
 
 	// 剧列表随之更新
@@ -134,14 +134,14 @@ func TestRefetchBinding(t *testing.T) {
 		// 绑定 1 已有原始 ID 为 1、2 的两条弹幕：没有新弹幕；偏移不变。没传 clear 时为重新拉取
 		{"/api/bindings/1/refetch", `{"clear": false}`, `{"added": 0, "binding": {
 			"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
-			"title": "弹幕源 a", "duration": 1418, "offset": 1.5, "status": "active", "danmakuCount": 2}}`},
+			"title": "弹幕源 a", "duration": 1418, "offset": 1.5, "status": "active", "danmakuCount": 2, "seasonBindingId": null}}`},
 		{"/api/bindings/1/refetch", `{}`, `{"added": 0, "binding": {
 			"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
-			"title": "弹幕源 a", "duration": 1418, "offset": 1.5, "status": "active", "danmakuCount": 2}}`},
+			"title": "弹幕源 a", "duration": 1418, "offset": 1.5, "status": "active", "danmakuCount": 2, "seasonBindingId": null}}`},
 		// 失效的绑定 2 清空后重新拉取：新增条数为总条数，恢复正常
 		{"/api/bindings/2/refetch", `{"clear": true}`, `{"added": 2, "binding": {
 			"id": 2, "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假弹幕源 b",
-			"title": "弹幕源 b", "duration": 1418, "offset": 0, "status": "active", "danmakuCount": 2}}`},
+			"title": "弹幕源 b", "duration": 1418, "offset": 0, "status": "active", "danmakuCount": 2, "seasonBindingId": null}}`},
 	} {
 		_, _, data := call(t, srv, http.MethodPost, tt.target, tt.body, http.StatusOK)
 		result := decodeObject(t, data)
@@ -189,7 +189,7 @@ func TestUpdateBinding(t *testing.T) {
 	_, _, data := call(t, srv, http.MethodPatch, "/api/bindings/1", `{"offset": -12.5}`, http.StatusOK)
 	assertJSON(t, data, `{
 		"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
-		"title": "弹幕源 a", "duration": 1440, "offset": -12.5, "status": "active", "danmakuCount": 2, "lastFetchedAt": null
+		"title": "弹幕源 a", "duration": 1440, "offset": -12.5, "status": "active", "danmakuCount": 2, "seasonBindingId": null, "lastFetchedAt": null
 	}`)
 	// 上下限本身是合法的
 	for _, offset := range []string{"86400", "-86400"} {

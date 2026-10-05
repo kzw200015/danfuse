@@ -51,6 +51,8 @@ type BindingView struct {
 	Status        string     `json:"status"`   // active | dead
 	DanmakuCount  int32      `json:"danmakuCount"`
 	LastFetchedAt *time.Time `json:"lastFetchedAt"`
+	// SeasonBindingID 建出这个绑定的季绑定；手动贴链接建的、或季绑定已被删除的为 null
+	SeasonBindingID *int64 `json:"seasonBindingId"`
 }
 
 // Create 贴链接创建绑定：解析链接 → 确认这一集存在（404）→ 查重（409）→ 拉取 → 写入。拉取失败就不创建。
@@ -82,6 +84,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 	if err != nil {
 		return BindingView{}, sourceError(err)
 	}
+	fetchedAt := time.Now()
 
 	var (
 		binding repository.Binding
@@ -108,7 +111,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 			}
 			return fmt.Errorf("insert binding of episode %d: %w", episodeID, err)
 		}
-		binding, added, err = saveFetched(ctx, q, id, fetched, false)
+		binding, added, err = saveFetched(ctx, q, id, fetched, false, fetchedAt)
 		return err
 	})
 	if err != nil {
@@ -147,6 +150,7 @@ func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (B
 		}
 		return BindingView{}, 0, sourceError(err)
 	}
+	fetchedAt := time.Now()
 
 	var added int64
 	err = s.store.ExecTx(ctx, func(q repository.Querier) error {
@@ -154,7 +158,7 @@ func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (B
 			return err
 		}
 		var err error
-		b, added, err = saveFetched(ctx, q, id, fetched, replace)
+		b, added, err = saveFetched(ctx, q, id, fetched, replace, fetchedAt)
 		return err
 	})
 	if err != nil {
@@ -172,7 +176,7 @@ func (s *BindingService) markDead(ctx context.Context, b repository.Binding, rea
 		if err := lockBinding(ctx, q, b.ID); err != nil {
 			return err
 		}
-		if err := q.MarkBindingDead(ctx, b.ID); err != nil {
+		if err := q.MarkBindingDead(ctx, repository.MarkBindingDeadParams{ID: b.ID, FetchedAt: time.Now()}); err != nil {
 			return fmt.Errorf("mark binding %d dead: %w", b.ID, err)
 		}
 		return nil
@@ -229,9 +233,12 @@ func fetch(ctx context.Context, adapter source.Adapter, ref source.Ref) (source.
 }
 
 // saveFetched 在写入事务里保存一次拉取的结果：replace 时先删掉这个绑定的全部弹幕；
-// 插入弹幕（按原始 ID 去重，已有的跳过），再更新绑定的计数、content_version、标题、时长与拉取时间。
+// 插入弹幕（按原始 ID 去重，已有的跳过），再更新绑定的计数、content_version、标题、时长与拉取时间 fetchedAt。
 // 调用方已在同一个事务里锁住或刚插入这个绑定。返回更新后的绑定和新增条数（replace 时即这次的总条数）。
-func saveFetched(ctx context.Context, q repository.Querier, bindingID int64, f source.Fetched, replace bool) (repository.Binding, int64, error) {
+//
+// 拉取时间取自应用的时钟（拉取完成时的 time.Now()），不用数据库的 now()：追更按它判断自动重新拉取是否已满 24 小时，
+// 与上次检查时间用同一个时钟，测试里也能用假时间推进。
+func saveFetched(ctx context.Context, q repository.Querier, bindingID int64, f source.Fetched, replace bool, fetchedAt time.Time) (repository.Binding, int64, error) {
 	if replace {
 		if err := q.DeleteDanmaku(ctx, bindingID); err != nil {
 			return repository.Binding{}, 0, fmt.Errorf("delete danmaku of binding %d: %w", bindingID, err)
@@ -257,11 +264,12 @@ func saveFetched(ctx context.Context, q repository.Querier, bindingID int64, f s
 		return repository.Binding{}, 0, fmt.Errorf("insert danmaku of binding %d: %w", bindingID, err)
 	}
 	b, err := q.RecordFetch(ctx, repository.RecordFetchParams{
-		ID:       bindingID,
-		Replace:  replace,
-		Added:    int32(added),
-		Title:    f.Title,
-		Duration: int32(f.Duration),
+		ID:        bindingID,
+		Replace:   replace,
+		Added:     int32(added),
+		Title:     f.Title,
+		Duration:  int32(f.Duration),
+		FetchedAt: fetchedAt,
 	})
 	if err != nil {
 		return repository.Binding{}, 0, fmt.Errorf("record fetch of binding %d: %w", bindingID, err)
@@ -288,16 +296,17 @@ func bindingView(sources *source.Registry, b repository.Binding) (BindingView, e
 		return BindingView{}, fmt.Errorf("describe binding %d: %w", b.ID, err)
 	}
 	return BindingView{
-		ID:            b.ID,
-		Adapter:       b.Adapter,
-		SourceURL:     d.URL,
-		SourceLabel:   d.Label,
-		Title:         b.Title,
-		Duration:      b.Duration,
-		Offset:        b.Offset,
-		Status:        b.Status,
-		DanmakuCount:  b.DanmakuCount,
-		LastFetchedAt: b.LastFetchedAt,
+		ID:              b.ID,
+		Adapter:         b.Adapter,
+		SourceURL:       d.URL,
+		SourceLabel:     d.Label,
+		Title:           b.Title,
+		Duration:        b.Duration,
+		Offset:          b.Offset,
+		Status:          b.Status,
+		DanmakuCount:    b.DanmakuCount,
+		LastFetchedAt:   b.LastFetchedAt,
+		SeasonBindingID: b.SeasonBindingID,
 	}, nil
 }
 

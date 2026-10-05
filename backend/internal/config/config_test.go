@@ -76,7 +76,7 @@ func TestLoadDandanplayToken(t *testing.T) {
 }
 
 func TestLoadAcceptsMaxConns(t *testing.T) {
-	for _, maxConns := range []string{"0", "2"} { // 0 表示用 pgx 的默认值
+	for _, maxConns := range []string{"0", "4"} { // 0 表示用 pgx 的默认值（不小于 4）
 		t.Run(maxConns, func(t *testing.T) {
 			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", "DATABASE_MAX_CONNS": maxConns})
 			if _, err := Load(""); err != nil {
@@ -116,6 +116,7 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"interval 为负", with(jellyfin, "SYNC_INTERVAL", "-1h"), "sync.interval"},
 		{"interval > 0 但没有目录源", map[string]string{"SYNC_INTERVAL": "1h"}, "sync.interval"},
 		{"max_conns 为 1", map[string]string{"DATABASE_MAX_CONNS": "1"}, "database.max_conns"},
+		{"max_conns 为 3", map[string]string{"DATABASE_MAX_CONNS": "3"}, "database.max_conns"},
 		{"token 含斜杠", map[string]string{"DANDANPLAY_TOKEN": "a/b"}, "dandanplay.token"},
 		{"token 含空格", map[string]string{"DANDANPLAY_TOKEN": "a b"}, "dandanplay.token"},
 		{"token 含百分号编码", map[string]string{"DANDANPLAY_TOKEN": "a%20b"}, "dandanplay.token"},

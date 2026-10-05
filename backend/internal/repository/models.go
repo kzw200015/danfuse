@@ -9,20 +9,21 @@ import (
 )
 
 type Binding struct {
-	ID             int64      `json:"id"`
-	EpisodeID      int64      `json:"episodeId"`
-	Adapter        string     `json:"adapter"`
-	Ref            []byte     `json:"ref"`
-	Offset         float64    `json:"offset"`
-	Scale          float64    `json:"scale"`
-	Status         string     `json:"status"`
-	ContentVersion int32      `json:"contentVersion"`
-	DanmakuCount   int32      `json:"danmakuCount"`
-	Title          string     `json:"title"`
-	Duration       int32      `json:"duration"`
-	LastFetchedAt  *time.Time `json:"lastFetchedAt"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
+	ID              int64      `json:"id"`
+	EpisodeID       int64      `json:"episodeId"`
+	Adapter         string     `json:"adapter"`
+	Ref             []byte     `json:"ref"`
+	Offset          float64    `json:"offset"`
+	Scale           float64    `json:"scale"`
+	Status          string     `json:"status"`
+	ContentVersion  int32      `json:"contentVersion"`
+	DanmakuCount    int32      `json:"danmakuCount"`
+	Title           string     `json:"title"`
+	Duration        int32      `json:"duration"`
+	LastFetchedAt   *time.Time `json:"lastFetchedAt"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+	SeasonBindingID *int64     `json:"seasonBindingId"`
 }
 
 type Danmaku struct {
@@ -60,6 +61,42 @@ type Season struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 	SearchVector string    `json:"searchVector"`
+}
+
+type SeasonBinding struct {
+	ID            int64      `json:"id"`
+	SeasonID      int64      `json:"seasonId"`
+	Adapter       string     `json:"adapter"`
+	Ref           []byte     `json:"ref"`
+	Title         string     `json:"title"`
+	Finished      bool       `json:"finished"`
+	MappingFrom   int32      `json:"mappingFrom"`
+	MappingTo     int32      `json:"mappingTo"`
+	Follow        bool       `json:"follow"`
+	Status        string     `json:"status"`
+	LastError     *string    `json:"lastError"`
+	LastCheckedAt *time.Time `json:"lastCheckedAt"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+}
+
+type SeasonBindingHandled struct {
+	SeasonBindingID int64     `json:"seasonBindingId"`
+	Ref             []byte    `json:"ref"`
+	EpisodeID       int64     `json:"episodeId"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
+
+type SeasonBindingItem struct {
+	SeasonBindingID int64      `json:"seasonBindingId"`
+	Ref             []byte     `json:"ref"`
+	Position        int32      `json:"position"`
+	Number          *int32     `json:"number"`
+	UnmatchedReason *string    `json:"unmatchedReason"`
+	Label           string     `json:"label"`
+	Note            *string    `json:"note"`
+	LastError       *string    `json:"lastError"`
+	LastErrorAt     *time.Time `json:"lastErrorAt"`
 }
 
 type Series struct {

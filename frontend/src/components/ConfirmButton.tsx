@@ -22,6 +22,7 @@ export function ConfirmButton({
   children,
   confirmLabel,
   onConfirm,
+  onOpenChange,
 }: {
   trigger: ReactElement
   title: string
@@ -29,10 +30,16 @@ export function ConfirmButton({
   children: ReactNode
   confirmLabel: string
   onConfirm: () => void
+  /** 确认框打开、关闭时调用，例如每次打开时把确认框里的选项恢复成默认值 */
+  onOpenChange?: (open: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
+  const changeOpen = (next: boolean) => {
+    setOpen(next)
+    onOpenChange?.(next)
+  }
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
+    <AlertDialog open={open} onOpenChange={changeOpen}>
       <AlertDialogTrigger render={trigger} />
       <AlertDialogContent className="data-[size=default]:sm:max-w-md">
         <AlertDialogHeader>
@@ -46,7 +53,7 @@ export function ConfirmButton({
           <AlertDialogAction
             variant="destructive"
             onClick={() => {
-              setOpen(false)
+              changeOpen(false)
               onConfirm()
             }}
           >
