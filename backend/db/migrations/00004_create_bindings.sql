@@ -7,7 +7,6 @@ CREATE TABLE bindings (
     ref             JSONB            NOT NULL, -- 弹幕源在平台内的引用，由适配器定义，适配器之外不解析
     "offset"        DOUBLE PRECISION NOT NULL DEFAULT 0,   -- 秒，正数表示弹幕延后
     scale           DOUBLE PRECISION NOT NULL DEFAULT 1.0, -- 时间缩放系数，纠正线性漂移；只建字段，不出界面
-    mode            TEXT             NOT NULL DEFAULT 'snapshot',
     status          TEXT             NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'dead')),
     content_version INT              NOT NULL DEFAULT 0, -- 插入了新弹幕、或清空后重新拉取时加 1
     danmaku_count   INT              NOT NULL DEFAULT 0, -- 在拉取的事务里与弹幕一起维护，读取时不 COUNT
@@ -20,7 +19,7 @@ CREATE TABLE bindings (
     UNIQUE (episode_id, adapter, ref)
 );
 
--- snapshot 弹幕：拉取时落库。主键 (binding_id, source_id) 即源内去重：同一个绑定按平台原始弹幕 ID 只存一条。
+-- 弹幕：拉取时落库。主键 (binding_id, source_id) 即源内去重：同一个绑定按平台原始弹幕 ID 只存一条。
 CREATE TABLE danmaku (
     binding_id BIGINT   NOT NULL REFERENCES bindings (id) ON DELETE CASCADE,
     source_id  BIGINT   NOT NULL, -- 平台原始弹幕 ID

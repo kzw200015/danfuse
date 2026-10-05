@@ -26,7 +26,7 @@ var (
 	errBindingDeleted  = errcode.ErrNotFound.WithMessage("绑定已被删除")
 )
 
-// BindingService 绑定：贴链接创建，拉取弹幕源的全部弹幕写入 snapshot；重新拉取、改偏移与删除。
+// BindingService 绑定：贴链接创建，拉取弹幕源的全部弹幕落库；重新拉取、改偏移与删除。
 // 拉取（网络请求）都在事务之外，拉完才开写入事务，写入事务的第一句锁住要写的行（创建时锁集，重新拉取时锁绑定）；
 // 不加应用层的锁，并发靠行锁、外键级联和唯一约束。
 type BindingService struct {

@@ -65,7 +65,7 @@ func (q *Queries) EpisodeExists(ctx context.Context, id int64) (bool, error) {
 }
 
 const getBinding = `-- name: GetBinding :one
-SELECT id, episode_id, adapter, ref, "offset", scale, mode, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
+SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
 FROM bindings
 WHERE id = $1
 `
@@ -81,7 +81,6 @@ func (q *Queries) GetBinding(ctx context.Context, id int64) (Binding, error) {
 		&i.Ref,
 		&i.Offset,
 		&i.Scale,
-		&i.Mode,
 		&i.Status,
 		&i.ContentVersion,
 		&i.DanmakuCount,
@@ -160,7 +159,7 @@ func (q *Queries) InsertDanmaku(ctx context.Context, arg InsertDanmakuParams) (i
 }
 
 const listBindingsBySeries = `-- name: ListBindingsBySeries :many
-SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.mode, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at
+SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at
 FROM bindings b
 JOIN episodes e ON e.id = b.episode_id
 JOIN seasons se ON se.id = e.season_id
@@ -185,7 +184,6 @@ func (q *Queries) ListBindingsBySeries(ctx context.Context, seriesID int64) ([]B
 			&i.Ref,
 			&i.Offset,
 			&i.Scale,
-			&i.Mode,
 			&i.Status,
 			&i.ContentVersion,
 			&i.DanmakuCount,
@@ -262,7 +260,7 @@ SET danmaku_count   = CASE WHEN $1::boolean THEN 0 ELSE danmaku_count END + $2::
     last_fetched_at = now(),
     updated_at      = now()
 WHERE id = $5
-RETURNING id, episode_id, adapter, ref, "offset", scale, mode, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
+RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
 `
 
 type RecordFetchParams struct {
@@ -295,7 +293,6 @@ func (q *Queries) RecordFetch(ctx context.Context, arg RecordFetchParams) (Bindi
 		&i.Ref,
 		&i.Offset,
 		&i.Scale,
-		&i.Mode,
 		&i.Status,
 		&i.ContentVersion,
 		&i.DanmakuCount,
@@ -313,7 +310,7 @@ UPDATE bindings
 SET "offset"   = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, episode_id, adapter, ref, "offset", scale, mode, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
+RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at
 `
 
 type UpdateBindingOffsetParams struct {
@@ -332,7 +329,6 @@ func (q *Queries) UpdateBindingOffset(ctx context.Context, arg UpdateBindingOffs
 		&i.Ref,
 		&i.Offset,
 		&i.Scale,
-		&i.Mode,
 		&i.Status,
 		&i.ContentVersion,
 		&i.DanmakuCount,

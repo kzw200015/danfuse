@@ -138,7 +138,7 @@ func (p *LocalProvider) Comments(ctx context.Context, episodeID int64) ([]danmak
 		if err != nil {
 			return nil, fmt.Errorf("binding %d: %w", b.ID, err)
 		}
-		items, err := p.bindingDanmaku(ctx, b)
+		items, err := p.bindingDanmaku(ctx, b.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -147,23 +147,17 @@ func (p *LocalProvider) Comments(ctx context.Context, episodeID int64) ([]danmak
 	return danmaku.Merge(tracks), nil
 }
 
-// bindingDanmaku 取一个绑定的弹幕，时间未校正。各存储模式在这里分开实现：现在只有 snapshot，读拉取时落库的弹幕；
-// 以后的 live 在这里按适配器现取。之后的校正、跨源去重、cid 都与存储模式无关。
-func (p *LocalProvider) bindingDanmaku(ctx context.Context, b repository.Binding) ([]danmaku.Danmaku, error) {
-	switch b.Mode {
-	case "snapshot":
-		rows, err := p.store.ListDanmakuByBinding(ctx, b.ID)
-		if err != nil {
-			return nil, fmt.Errorf("list danmaku of binding %d: %w", b.ID, err)
-		}
-		items := make([]danmaku.Danmaku, len(rows))
-		for i, r := range rows {
-			items[i] = danmaku.Danmaku{TimeMs: r.TimeMs, Mode: danmaku.Mode(r.Mode), Color: uint32(r.Color), Text: r.Text, SourceID: r.SourceID}
-		}
-		return items, nil
-	default:
-		return nil, fmt.Errorf("binding %d: unknown mode %q", b.ID, b.Mode)
+// bindingDanmaku 取一个绑定落库的弹幕，时间未校正。播放时不向平台现取（不做 live 存储模式，见 ADR 0002）。
+func (p *LocalProvider) bindingDanmaku(ctx context.Context, bindingID int64) ([]danmaku.Danmaku, error) {
+	rows, err := p.store.ListDanmakuByBinding(ctx, bindingID)
+	if err != nil {
+		return nil, fmt.Errorf("list danmaku of binding %d: %w", bindingID, err)
 	}
+	items := make([]danmaku.Danmaku, len(rows))
+	for i, r := range rows {
+		items[i] = danmaku.Danmaku{TimeMs: r.TimeMs, Mode: danmaku.Mode(r.Mode), Color: uint32(r.Color), Text: r.Text, SourceID: r.SourceID}
+	}
+	return items, nil
 }
 
 func seasonKind(t catalog.SeriesType, number int) provider.SeasonKind {

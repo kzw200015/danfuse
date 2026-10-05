@@ -15,7 +15,6 @@ type Binding struct {
 	Ref            []byte     `json:"ref"`
 	Offset         float64    `json:"offset"`
 	Scale          float64    `json:"scale"`
-	Mode           string     `json:"mode"`
 	Status         string     `json:"status"`
 	ContentVersion int32      `json:"contentVersion"`
 	DanmakuCount   int32      `json:"danmakuCount"`

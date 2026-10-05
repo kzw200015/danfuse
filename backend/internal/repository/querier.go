@@ -52,7 +52,7 @@ type Querier interface {
 	ListBindingsByEpisode(ctx context.Context, episodeID int64) ([]Binding, error)
 	// 剧详情用：一部剧所有集的绑定，按创建顺序排列。
 	ListBindingsBySeries(ctx context.Context, seriesID int64) ([]Binding, error)
-	// 一个绑定的 snapshot 弹幕，时间未校正。合并时重新排序，这里不排。
+	// 一个绑定落库的弹幕，时间未校正。合并时重新排序，这里不排。
 	// 一条 SELECT 读完：清空后重新拉取在一个事务里完成，读到的要么全旧、要么全新。
 	ListDanmakuByBinding(ctx context.Context, bindingID int64) ([]ListDanmakuByBindingRow, error)
 	// 搜索结果、作品详情里各季的全部集，按季、集号排序。
