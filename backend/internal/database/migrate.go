@@ -12,10 +12,9 @@ import (
 	"github.com/pressly/goose/v3/lock"
 
 	"github.com/kzw200015/danfuse/backend/db"
-	_ "github.com/kzw200015/danfuse/backend/db/migrations" // 注册 Go 迁移（重算搜索列）
 )
 
-// migrate 执行所有未应用的 goose 迁移（SQL 迁移嵌入二进制，Go 迁移由 db/migrations 包注册）。
+// migrate 执行所有未应用的 goose 迁移（迁移文件嵌入二进制）。
 // 使用 goose 自带的 PostgreSQL advisory lock（键与 lock.go 里的应用锁不同），多实例同时启动时只有一个实例会执行迁移。
 func migrate(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error {
 	migrations, err := fs.Sub(db.Migrations, "migrations")

@@ -140,7 +140,7 @@ func SeasonName(t SeriesType, seriesTitle string, number int) string {
 }
 
 // SearchVector 一季的搜索列（tsvector 文本）：A 档为剧名和季号标签，B 档为原名，C 档为目录源给的季标题。
-// 同步写入季、重算搜索列的迁移都用它；改动它的组成时，要新增一个重算搜索列的 Go 迁移（见 db/migrations）。
+// 同步写入季时用它计算；改动它的组成时，要新增一个 goose Go 迁移，重算所有季的搜索列。
 func SearchVector(t SeriesType, seriesTitle, originalTitle string, number int, seasonTitle string) string {
 	return fulltext.Vector(
 		fulltext.Field{Weight: fulltext.WeightA, Text: seriesTitle + " " + SeasonLabel(t, number)},

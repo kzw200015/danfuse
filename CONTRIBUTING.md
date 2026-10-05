@@ -19,7 +19,7 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 
 ├── backend/
 │   ├── cmd/server/     # 程序入口
 │   ├── configs/        # 配置模板
-│   ├── db/             # 数据库迁移（含 Go 迁移）与 SQL 查询
+│   ├── db/             # 数据库迁移与 SQL 查询
 │   ├── internal/       # 应用代码：handler、service、repository、server，以及 catalog、source、danmaku 等领域包
 │   └── web/            # 内嵌的前端构建产物与占位页
 ├── frontend/
