@@ -15,21 +15,26 @@ import (
 )
 
 // migrate 执行所有未应用的 goose 迁移（迁移文件嵌入二进制）。
-// 使用 goose 自带的 PostgreSQL advisory lock（键与 lock.go 里的应用锁不同），多实例同时启动时只有一个实例会执行迁移。
+// 使用 goose 自带的表锁（goose_lock 表里的租约，租约时长与续约间隔同应用的租约），多实例同时启动时只有一个实例会执行迁移，
+// 其他实例等它做完（最多等 goose 默认的 5 分钟）。
 func migrate(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error {
 	migrations, err := fs.Sub(db.Migrations, "migrations")
 	if err != nil {
 		return fmt.Errorf("load migrations: %w", err)
 	}
 
-	locker, err := lock.NewPostgresSessionLocker()
+	locker, err := lock.NewPostgresTableLocker(
+		lock.WithTableLeaseDuration(LeaseTTL),
+		lock.WithTableHeartbeatInterval(leaseRenewInterval),
+		lock.WithTableLogger(logger),
+	)
 	if err != nil {
 		return fmt.Errorf("create migration locker: %w", err)
 	}
 
 	// 基于连接池包装出 *sql.DB 供 goose 使用，关闭它不会关闭底层的 pgxpool
 	sqlDB := stdlib.OpenDBFromPool(pool)
-	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations, goose.WithSessionLocker(locker))
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations, goose.WithLocker(locker))
 	if err != nil {
 		_ = sqlDB.Close() // 已有更重要的错误要返回，忽略关闭错误
 		return fmt.Errorf("create migration provider: %w", err)

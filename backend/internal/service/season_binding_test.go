@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"slices"
@@ -199,7 +200,8 @@ type seasonEnv struct {
 	pool *pgxpool.Pool
 	src  *fakeCollector
 	svc  *SeasonBindingService
-	stop func() // 取消 Run 并等它返回
+	stop func()       // 取消 Run 并等它返回
+	logs lockedBuffer // 服务的日志，同时写进测试输出
 }
 
 // newSeasonEnv 在 synctest 气泡里调用，pool 是气泡里新建的连接池。集的建出时间为现在（假时间），与追更比较的时间一致。
@@ -223,7 +225,7 @@ func newSeasonEnv(t *testing.T, pool *pgxpool.Pool, src *fakeCollector, episodes
 func (e *seasonEnv) start() {
 	store := repository.NewStore(e.pool)
 	sources := source.NewRegistry(e.src)
-	logger := testLogger(e.t)
+	logger := slogTo(io.MultiWriter(e.t.Output(), &e.logs))
 	e.svc = NewSeasonBindingService(store, e.pool, sources, NewBindingService(store, sources, logger), logger)
 	e.stop = runInBackground(e.t, e.svc)
 }
@@ -823,6 +825,100 @@ func TestDeleteSeasonBindingDuringBackfill(t *testing.T) {
 				}
 				assertStrings(t, "绑定", env.bindings(), want)
 				assertStrings(t, "拉取", src.fetchedNames(), []string{"a", "b"})
+			})
+		})
+	}
+}
+
+// holdRowLock 在另一个事务里执行 sql 锁住行，返回的函数回滚这个事务、放开锁。
+func (e *seasonEnv) holdRowLock(sql string) (release func()) {
+	e.t.Helper()
+	tx, err := e.pool.Begin(e.t.Context())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := tx.Exec(e.t.Context(), sql); err != nil {
+		e.t.Fatalf("%s: %v", sql, err)
+	}
+	return func() { _ = tx.Rollback(context.Background()) }
+}
+
+// goDo 在后台执行 f，结果从返回的 channel 送回。
+func goDo(f func() error) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- f() }()
+	return done
+}
+
+// waitLockWaiters 等到这个库里有 n 个连接在等锁。阻塞在数据库 I/O 上时气泡里的假时间不前进，所以不 sleep，反复查询。
+func (e *seasonEnv) waitLockWaiters(n int64) {
+	e.t.Helper()
+	for range 100000 {
+		if queryInt(e.t, e.pool, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`) >= n {
+			return
+		}
+	}
+	e.t.Fatalf("等不到 %d 个连接在等锁", n)
+}
+
+// TestBackfillWriteDuringDeleteSeason 删季锁住了第 1 集、还没删到季绑定时，补建开始写入第 1 集：
+// 两边加锁的顺序不能相反（否则死锁），补建等删季做完，随后发现季绑定已被删除。
+func TestBackfillWriteDuringDeleteSeason(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, videos: fakeVideos("a")}
+		env := newSeasonEnv(t, pool, src, 1, 2)
+		src.gate()
+		if _, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		<-src.started // a：还没开始写入
+
+		// 第 2 集被另一个事务锁住，删季锁住季和第 1 集之后停在第 2 集上
+		release := env.holdRowLock(`SELECT id FROM episodes WHERE number = 2 FOR UPDATE`)
+		deleted := goDo(func() error { _, err := pool.Exec(t.Context(), `DELETE FROM seasons WHERE id = 1`); return err })
+		env.waitLockWaiters(1)
+		src.release <- struct{}{}
+		env.waitLockWaiters(2) // 补建的写入事务也在等
+		release()
+
+		if err := <-deleted; err != nil {
+			t.Fatalf("删季: %v", err)
+		}
+		synctest.Wait()
+		if logs := env.logs.String(); strings.Contains(logs, "level=ERROR") {
+			t.Errorf("补建出错：\n%s", logs)
+		}
+		assertStrings(t, "绑定", env.bindings(), nil)
+	})
+}
+
+// TestDeleteSeasonBindingDuringDeleteSeason 删季停在第 2 集上手动建的绑定上时，删除季绑定：删季的级联在删绑定之前
+// 已经锁住了季绑定，删除季绑定在第一句就排队，与删季加锁的顺序相同，不死锁；删季做完后季绑定已不存在。
+func TestDeleteSeasonBindingDuringDeleteSeason(t *testing.T) {
+	t.Parallel()
+	for _, withBindings := range []bool{false, true} {
+		t.Run(fmt.Sprintf("withBindings=%v", withBindings), func(t *testing.T) {
+			t.Parallel()
+			syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+				src := &fakeCollector{collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, videos: fakeVideos("a")}
+				env := newSeasonEnv(t, pool, src, 1, 2)
+				env.exec(`INSERT INTO bindings (episode_id, adapter, ref, title, duration) VALUES (2, 'fake', '{"name": "m"}', '手动', 1420)`)
+				id := env.create(1, 1).ID
+
+				// 第 2 集上手动建的绑定被另一个事务锁住，删季（季 → 集 → 季绑定 → 绑定）停在它上面
+				release := env.holdRowLock(`SELECT id FROM bindings WHERE ref->>'name' = 'm' FOR UPDATE`)
+				deletedSeason := goDo(func() error { _, err := pool.Exec(t.Context(), `DELETE FROM seasons WHERE id = 1`); return err })
+				env.waitLockWaiters(1)
+				deletedBinding := goDo(func() error { return env.svc.Delete(t.Context(), id, withBindings) })
+				env.waitLockWaiters(2)
+				release()
+
+				if err := <-deletedSeason; err != nil {
+					t.Fatalf("删季: %v", err)
+				}
+				assertAppError(t, <-deletedBinding, http.StatusNotFound, "季绑定不存在")
+				assertStrings(t, "绑定", env.bindings(), nil)
 			})
 		})
 	}

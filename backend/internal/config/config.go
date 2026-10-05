@@ -155,10 +155,8 @@ func (c *Config) validate() error {
 	if c.Database.DSN == "" {
 		return errors.New("config: database.dsn is required")
 	}
-	// 同步、追更的扫描、手动补建各用一个专用连接持有自己的锁直到结束，写库还要再取连接：
-	// 三者同时进行时至少还要剩一个连接，否则会互相等死。0 时 pgx 的默认值不小于 4
-	if c.Database.MaxConns != 0 && c.Database.MaxConns < 4 {
-		return errors.New("config: database.max_conns must be 0 (default) or at least 4: a running sync, the follow scan and a manual backfill each hold one connection for their locks")
+	if c.Database.MaxConns < 0 {
+		return errors.New("config: database.max_conns must not be negative (0 means the pgx default)")
 	}
 
 	// "." 和 ".." 在路径里表示当前目录、上级目录，会被浏览器和反向代理改写

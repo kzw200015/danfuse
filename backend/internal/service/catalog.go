@@ -94,7 +94,7 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 		return SeriesDetail{}, fmt.Errorf("list bindings of series %d: %w", id, err)
 	}
 	seasonBindings, err := s.store.ListSeasonBindingSummariesBySeries(ctx, repository.ListSeasonBindingSummariesBySeriesParams{
-		SeriesID: id, LockNamespace: database.LockSeasonBackfill,
+		SeriesID: id, LeasePrefix: database.LeaseSeasonBackfillPrefix,
 	})
 	if err != nil {
 		return SeriesDetail{}, fmt.Errorf("list season bindings of series %d: %w", id, err)

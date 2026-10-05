@@ -68,7 +68,7 @@ WHERE status = 'running'
 `
 
 // 把残留的 running（进程崩溃或被杀）改为 interrupted，结束时间未知，保持为空。
-// 只能在持有同步锁时调用：这时不会有正在进行的同步。
+// 只能在持有同步的租约时调用：这时不会有正在进行的同步。
 func (q *Queries) InterruptRunningSyncRuns(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, interruptRunningSyncRuns)
 	if err != nil {

@@ -32,7 +32,7 @@ var (
 )
 
 // follow 追更的扫描：每分钟一次，按上次检查时间从早到晚、一次一个地补建到期的季绑定（ListDueSeasonBindings）。
-// 正在补建的（手动触发或其他实例）跳过；列出之后才检查过的（拿到锁之后再确认一次）也跳过。
+// 正在补建的（手动触发或其他实例）跳过；列出之后才检查过的（拿到租约之后再确认一次）也跳过。
 // 与同步不耦合：新集靠"这一季里有集晚于上次检查时间建出"在一分钟内被发现。
 func (s *SeasonBindingService) follow(ctx context.Context) {
 	ticker := time.NewTicker(followScanInterval)
@@ -63,21 +63,22 @@ func (s *SeasonBindingService) scan(ctx context.Context) {
 	}
 }
 
-// scanOne 拿到季绑定的锁、确认仍然到期后补建一轮，补建完随即解锁；正在补建时跳过。
+// scanOne 拿到季绑定的租约、确认仍然到期后补建一轮，补建完随即释放；正在补建时跳过。
 func (s *SeasonBindingService) scanOne(ctx context.Context, id int64) {
-	unlock, ok, err := database.TryAdvisoryLockPair(ctx, s.pool, database.LockSeasonBackfill, id)
+	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSeasonBackfill(id))
 	if err != nil {
 		if ctx.Err() == nil {
-			s.logger.ErrorContext(ctx, "acquire backfill lock failed", "season_binding_id", id, "error", err)
+			s.logger.ErrorContext(ctx, "acquire backfill lease failed", "season_binding_id", id, "error", err)
 		}
 		return
 	}
 	if !ok {
 		return
 	}
-	defer unlock()
+	defer lease.Release()
+	ctx = lease.Context()
 
-	// 列出之后、拿到锁之前，它可能刚被手动补建或其他实例的扫描检查过
+	// 列出之后、拿到租约之前，它可能刚被手动补建或其他实例的扫描检查过
 	due, err := s.store.ListDueSeasonBindings(ctx, dueParams(&id))
 	if err != nil {
 		if ctx.Err() == nil {
@@ -113,18 +114,18 @@ type backfillRound struct {
 	dead                                bool // 合集已不存在
 }
 
-// backfill 补建一轮，调用方持有这个季绑定的锁：
+// backfill 补建一轮，调用方持有这个季绑定的租约，ctx 是租约的 ctx：
 //  1. 在事务之外列出合集：NotFound 标为失效、限流和其他上游错误记下原因，都结束这一轮；成功则恢复为正常，保存条目。
 //  2. 按合集顺序逐个处理还没处理过、对得上、目录里有对应的集的条目（见 backfillItem）。
 //  3. 追更开着时，自动重新拉取它建出的、建出不到 14 天、距上次拉取已满 24 小时的绑定（见 refetchRecent）。
 //  4. 正常结束或因错误、限流结束时，把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算"上次检查之后才有的"，
-//     一分钟后会被再扫到。被 ctx 取消（关闭服务）时不写，重启后一分钟内接着做。
+//     一分钟后会被再扫到。被 ctx 取消（关闭服务、租约丢失）时不写，一分钟内接着做。
 func (s *SeasonBindingService) backfill(ctx context.Context, id int64) {
 	r := &backfillRound{id: id, start: time.Now()}
 	err := s.runBackfill(ctx, r)
 	switch {
 	case ctx.Err() != nil:
-		s.logger.Info("backfill interrupted", "season_binding_id", id)
+		s.logger.Info("backfill interrupted", "season_binding_id", id, "cause", context.Cause(ctx))
 		return
 	case errors.Is(err, errSeasonBindingGone):
 		s.logger.Info("season binding deleted during backfill", "season_binding_id", id)
@@ -289,6 +290,13 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 		created bool
 	)
 	err := s.store.ExecTx(ctx, func(q repository.Querier) error {
+		// 先锁季：删季的级联先锁集、后锁季绑定，补建若先锁季绑定、后锁集就会与它死锁；先锁住季，删季在第一步就排队
+		if _, err := q.LockSeason(ctx, sb.SeasonID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errSeasonBindingGone // 季删除时季绑定随之删除
+			}
+			return fmt.Errorf("lock season %d: %w", sb.SeasonID, err)
+		}
 		if _, err := q.LockSeasonBindingShared(ctx, sb.ID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return errSeasonBindingGone

@@ -127,7 +127,7 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `log.level` | `DANFUSE_LOG_LEVEL` | `info` | 日志级别：`debug`、`info`、`warn`、`error` |
 | `log.format` | `DANFUSE_LOG_FORMAT` | `text` | 日志格式：`text`、`json` |
 | `database.dsn` | `DANFUSE_DATABASE_DSN` | 无，必填 | PostgreSQL 连接串，例如 `postgres://user:pass@host:5432/danfuse?sslmode=disable` |
-| `database.max_conns` | `DANFUSE_DATABASE_MAX_CONNS` | `10` | 连接池的连接数上限。`0` 表示用 pgx 的默认值，否则至少为 `4`：同步、追更的检查、手动补建进行时各要一直占用一个连接 |
+| `database.max_conns` | `DANFUSE_DATABASE_MAX_CONNS` | `10` | 连接池的连接数上限。`0` 表示用 pgx 的默认值 |
 | `database.min_conns` | `DANFUSE_DATABASE_MIN_CONNS` | `1` | 连接池保持的最少连接数 |
 | `database.max_conn_lifetime` | `DANFUSE_DATABASE_MAX_CONN_LIFETIME` | `1h` | 单个连接的最长使用时间 |
 | `database.max_conn_idle_time` | `DANFUSE_DATABASE_MAX_CONN_IDLE_TIME` | `30m` | 连接空闲多久后关闭 |
@@ -140,7 +140,7 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `bilibili.sessdata` | `DANFUSE_BILIBILI_SESSDATA` | 空 | 可选。B 站登录 Cookie 里 SESSDATA 的值，配置后以登录身份拉取，弹幕更全 |
 
 - `catalog_source.kind` 为 `jellyfin` 时，`url`、`api_key`、`libraries` 都必须填写；`sync.interval` 大于 0 时必须配置目录源。
-- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为 1～3 或负数；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；token 或 SESSDATA 含不允许的字符。
+- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；token 或 SESSDATA 含不允许的字符。
 - 启动时不连接 Jellyfin，两个服务的启动顺序互不影响；媒体库存不存在、类型对不对在每次同步时检查，有问题的会出现在同步记录的警告里。
 - **SESSDATA**：在浏览器里登录 B 站，从开发者工具的 Cookie 里找到 `SESSDATA`，原样复制它的值（里面的逗号显示为 `%2C`，不要还原），不能含空格、逗号、分号、引号和反斜杠。它会过期，过期后悄悄退化成未登录的效果，需要换上新的值后重启。没有配置时以未登录的身份拉取，弹幕可能不全。
 - Jellyfin 的 API key、SESSDATA 和 token 都不会写进日志；API key 和 SESSDATA 不入库，管理界面上只显示"已配置"。
@@ -302,6 +302,7 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 - 特别篇是第 0 季。电影在目录里是只有一季一集的剧，界面上直接显示这一集（"正片"）。一个文件包含多集（例如 `S01E01-E02`）时，每个集号各有一行。
 - 剧的海报同步时保存进 danfuse 自己的数据库。
 - 同步失败时，已经写入的部分保留，修好问题后重新同步即可补齐；被服务重启打断的同步显示为"中断"。
+- 服务被强行终止（崩溃、`kill -9`，没有正常关闭）时，之后最多 30 秒内仍认为同步正在进行，这期间不能手动同步。
 
 ### 贴链接
 
@@ -346,7 +347,7 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 - 删掉一个补建出来的绑定之后，它不会被建回来（例如剪辑不同、你不想要的那一集）。
 - 合集里已经有、目录里还没有的集（文件还没下载、还没同步）会一直等着，同步进来之后再补建。删掉的集被同步用新 ID 建回来时，算作新集照常补建。
 - 单个条目补建失败（B 站故障、这一集不可见）不影响其他条目，失败原因显示在条目表里，下次补建再试。遇到 B 站限流时立即停下这一轮，下次再继续。
-- 补建到一半时服务重启，追更开着的季绑定重启后一分钟内接着做。
+- 补建到一半时服务重启，追更开着的季绑定重启后一分钟内接着做。服务被强行终止（没有正常关闭）时，这个季绑定之后最多 30 秒内仍显示"正在补建"。
 
 季绑定卡片上显示合集的链接和标题、集号对应、追更开关、状态、上次检查的时间和结果、建出了几个绑定，展开"条目表"可以看到每个条目的状态（已建绑定、绑定已被删除、等待目录里出现这一集、对不上、在起点之前、最近一次失败）。条目表显示的是上次检查时的合集内容，打开季面板不会去请求 B 站。"立即补建"随时手动跑一次，追更关着时也能用。
 

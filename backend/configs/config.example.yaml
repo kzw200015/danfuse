@@ -16,7 +16,7 @@ log:
 
 database:
   dsn: "postgres://postgres:postgres@localhost:5432/danfuse?sslmode=disable"
-  max_conns: 10 # 0 表示用 pgx 的默认值；否则至少为 4：同步、追更的检查、手动补建各要用一个连接一直持有自己的锁
+  max_conns: 10 # 0 表示用 pgx 的默认值
   min_conns: 1
   max_conn_lifetime: 1h
   max_conn_idle_time: 30m

@@ -130,20 +130,16 @@ const getSeasonBindingSummary = `-- name: GetSeasonBindingSummary :one
 SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
-               FROM pg_catalog.pg_locks l
-               WHERE l.locktype = 'advisory'
-                 AND l.granted
-                 AND l.database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
-                 AND l.classid = $1::int::oid
-                 AND l.objid = sb.id::oid
-                 AND l.objsubid = 2)::boolean AS running
+               FROM leases l
+               WHERE l.key = $1::text || sb.id
+                 AND l.expires_at > now())::boolean AS running
 FROM season_bindings sb
 WHERE sb.id = $2
 `
 
 type GetSeasonBindingSummaryParams struct {
-	LockNamespace int32 `json:"lockNamespace"`
-	ID            int64 `json:"id"`
+	LeasePrefix string `json:"leasePrefix"`
+	ID          int64  `json:"id"`
 }
 
 type GetSeasonBindingSummaryRow struct {
@@ -152,10 +148,10 @@ type GetSeasonBindingSummaryRow struct {
 	Running       bool          `json:"running"`
 }
 
-// 季绑定的 JSON：连同它建出的、现存的绑定数，以及是否正在补建（有没有人持有按季绑定的 advisory lock，见 database.LockSeasonBackfill）。
-// advisory lock 只在当前数据库里有效，pg_locks 却列出整个集群的锁，所以按数据库过滤。不存在时没有行。
+// 季绑定的 JSON：连同它建出的、现存的绑定数，以及是否正在补建（有没有没过期的、按季绑定的租约，见 database.LeaseSeasonBackfill，
+// lease_prefix 为它的前缀）。不存在时没有行。
 func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBindingSummaryParams) (GetSeasonBindingSummaryRow, error) {
-	row := q.db.QueryRow(ctx, getSeasonBindingSummary, arg.LockNamespace, arg.ID)
+	row := q.db.QueryRow(ctx, getSeasonBindingSummary, arg.LeasePrefix, arg.ID)
 	var i GetSeasonBindingSummaryRow
 	err := row.Scan(
 		&i.SeasonBinding.ID,
@@ -294,7 +290,7 @@ type ListDueSeasonBindingsParams struct {
 //	而且是在上次检查开始之后才满 24 小时的（满 24 小时之前开始的那一轮已经试过拉取它，失败了等下一次每天的检查，不每分钟重试）。
 //
 // 24 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
-// id 不为空时只看这一个季绑定：扫描拿到它的锁之后再确认一次仍然到期。
+// id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
 func (q *Queries) ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBindingsParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, listDueSeasonBindings,
 		arg.ID,
@@ -467,13 +463,9 @@ const listSeasonBindingSummariesBySeries = `-- name: ListSeasonBindingSummariesB
 SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
-               FROM pg_catalog.pg_locks l
-               WHERE l.locktype = 'advisory'
-                 AND l.granted
-                 AND l.database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
-                 AND l.classid = $1::int::oid
-                 AND l.objid = sb.id::oid
-                 AND l.objsubid = 2)::boolean AS running
+               FROM leases l
+               WHERE l.key = $1::text || sb.id
+                 AND l.expires_at > now())::boolean AS running
 FROM season_bindings sb
 JOIN seasons se ON se.id = sb.season_id
 WHERE se.series_id = $2
@@ -481,8 +473,8 @@ ORDER BY sb.id
 `
 
 type ListSeasonBindingSummariesBySeriesParams struct {
-	LockNamespace int32 `json:"lockNamespace"`
-	SeriesID      int64 `json:"seriesId"`
+	LeasePrefix string `json:"leasePrefix"`
+	SeriesID    int64  `json:"seriesId"`
 }
 
 type ListSeasonBindingSummariesBySeriesRow struct {
@@ -493,7 +485,7 @@ type ListSeasonBindingSummariesBySeriesRow struct {
 
 // 剧详情用：一部剧所有季的季绑定，列与 GetSeasonBindingSummary 相同，按创建顺序排列。
 func (q *Queries) ListSeasonBindingSummariesBySeries(ctx context.Context, arg ListSeasonBindingSummariesBySeriesParams) ([]ListSeasonBindingSummariesBySeriesRow, error) {
-	rows, err := q.db.Query(ctx, listSeasonBindingSummariesBySeries, arg.LockNamespace, arg.SeriesID)
+	rows, err := q.db.Query(ctx, listSeasonBindingSummariesBySeries, arg.LeasePrefix, arg.SeriesID)
 	if err != nil {
 		return nil, err
 	}
@@ -536,7 +528,7 @@ WHERE id = $1
 FOR KEY SHARE
 `
 
-// 创建季绑定的写入事务的第一句：锁住这一季到提交，期间删不掉它。这一季已被删除时没有行。
+// 创建季绑定、补建的写入事务的第一句：锁住这一季到提交，期间删不掉它。这一季已被删除时没有行。
 func (q *Queries) LockSeason(ctx context.Context, id int64) (int64, error) {
 	row := q.db.QueryRow(ctx, lockSeason, id)
 	var id_2 int64
@@ -566,7 +558,7 @@ WHERE id = $1
 FOR KEY SHARE
 `
 
-// 补建的写入事务的第一句：锁住季绑定到提交，期间删不掉它；之后的删除要等这个事务提交，再连同刚建出的绑定一起删掉。
+// 补建的写入事务的第二句（第一句锁季）：锁住季绑定到提交，期间删不掉它；之后的删除要等这个事务提交，再连同刚建出的绑定一起删掉。
 // FOR KEY SHARE 与改集号对应、开关追更的 UPDATE 兼容。季绑定已被删除时没有行。
 func (q *Queries) LockSeasonBindingShared(ctx context.Context, id int64) (int64, error) {
 	row := q.db.QueryRow(ctx, lockSeasonBindingShared, id)

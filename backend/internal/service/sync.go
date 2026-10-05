@@ -50,10 +50,11 @@ var (
 // 用的是 Run 的 ctx（应用级），不是 HTTP 请求的 ctx。ctx 取消时这次同步记为 interrupted，Run 等它写完记录再返回，
 // 之后 wire 的 cleanup 才关闭连接池。
 //
-// 互斥靠 PostgreSQL 的 advisory lock（database.LockSync），多实例同样成立：每次同步用一个专用连接持有锁直到结束。
+// 互斥靠同步的租约（database.LeaseSync），多实例同样成立：每次同步持有租约直到结束，用租约的 ctx 执行，
+// 租约丢失时这次同步同样记为 interrupted。
 type SyncService struct {
 	store    repository.Store
-	pool     *pgxpool.Pool  // 取专用连接持有同步锁
+	pool     *pgxpool.Pool  // 拿同步的租约
 	source   catalog.Source // nil 表示未配置目录源
 	interval time.Duration
 	logger   *slog.Logger
@@ -151,10 +152,10 @@ func (s *SyncService) GetRun(ctx context.Context, id int64) (repository.SyncRun,
 	return run, nil
 }
 
-// cleanupStale 启动时把残留的 running 改为 interrupted：拿得到同步锁才清理（拿不到说明有同步正在跑），清理完释放锁。
-// 失败只记日志：之后每次同步拿到锁时还会再清理。
+// cleanupStale 启动时把残留的 running 改为 interrupted：拿得到同步的租约才清理（拿不到说明有同步正在跑），清理完释放。
+// 失败只记日志：之后每次同步拿到租约时还会再清理。
 func (s *SyncService) cleanupStale(ctx context.Context) {
-	unlock, ok, err := database.TryAdvisoryLock(ctx, s.pool, database.LockSync)
+	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSync)
 	if err != nil {
 		s.logger.Error("clean up stale sync runs failed", "error", err)
 		return
@@ -162,13 +163,13 @@ func (s *SyncService) cleanupStale(ctx context.Context) {
 	if !ok {
 		return
 	}
-	defer unlock()
-	if err := s.interruptStale(ctx); err != nil {
+	defer lease.Release()
+	if err := s.interruptStale(lease.Context()); err != nil {
 		s.logger.Error("clean up stale sync runs failed", "error", err)
 	}
 }
 
-// interruptStale 把残留的 running 改为 interrupted。调用方必须持有同步锁，这时不会有正在进行的同步。
+// interruptStale 把残留的 running 改为 interrupted。调用方必须持有同步的租约，这时不会有正在进行的同步。
 func (s *SyncService) interruptStale(ctx context.Context) error {
 	n, err := s.store.InterruptRunningSyncRuns(ctx)
 	if err != nil {
@@ -180,25 +181,25 @@ func (s *SyncService) interruptStale(ctx context.Context) error {
 	return nil
 }
 
-// start 拿锁 → 清理残留的 running → 删掉最近 20 次以前的记录 → 插入 running 记录 → 在后台执行。
-// 锁由执行同步的 goroutine 持有到结束。
+// start 拿租约 → 清理残留的 running → 删掉最近 20 次以前的记录 → 插入 running 记录 → 在后台执行。
+// 租约由执行同步的 goroutine 持有到结束。
 func (s *SyncService) start(ctx context.Context, trigger string) (int64, error) {
-	unlock, ok, err := database.TryAdvisoryLock(ctx, s.pool, database.LockSync)
+	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSync)
 	if err != nil {
-		return 0, fmt.Errorf("acquire sync lock: %w", err)
+		return 0, fmt.Errorf("acquire sync lease: %w", err)
 	}
 	if !ok {
 		return 0, errSyncRunning
 	}
 
-	runID, err := s.createRun(ctx, trigger)
+	runID, err := s.createRun(lease.Context(), trigger)
 	if err != nil {
-		unlock()
+		lease.Release()
 		return 0, err
 	}
 	s.wg.Go(func() {
-		defer unlock()
-		s.execute(ctx, runID)
+		defer lease.Release()
+		s.execute(lease.Context(), runID)
 	})
 	return runID, nil
 }
@@ -218,7 +219,7 @@ func (s *SyncService) createRun(ctx context.Context, trigger string) (int64, err
 }
 
 // execute 执行一次同步并写入最终状态：目录源或数据库出错记为 failed 并写明原因，已提交的部分保留，不自动重试；
-// ctx 取消记为 interrupted。最终状态用 context.WithoutCancel 加超时写入，ctx 取消后也能写完。
+// ctx 取消（关闭服务、租约丢失）记为 interrupted。最终状态用 context.WithoutCancel 加超时写入，ctx 取消后也能写完。
 func (s *SyncService) execute(ctx context.Context, runID int64) {
 	logger := s.logger.With("sync_run", runID)
 	logger.Info("sync started")
@@ -226,10 +227,10 @@ func (s *SyncService) execute(ctx context.Context, runID int64) {
 	run := newSyncRun(runID)
 	err := s.syncCatalog(ctx, run)
 
-	status, reason := statusSucceeded, (*string)(nil)
+	status, reason, cause := statusSucceeded, (*string)(nil), context.Cause(ctx)
 	switch {
 	case err == nil:
-	case ctx.Err() != nil:
+	case cause != nil:
 		status = statusInterrupted
 	default:
 		status = statusFailed
@@ -251,6 +252,7 @@ func (s *SyncService) execute(ctx context.Context, runID int64) {
 	switch status {
 	case statusInterrupted:
 		level = slog.LevelWarn
+		attrs = append(attrs, "cause", cause)
 	case statusFailed:
 		level = slog.LevelError
 		attrs = append(attrs, "error", err)

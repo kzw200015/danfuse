@@ -143,16 +143,15 @@ func slogTo(w io.Writer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(w, nil))
 }
 
-// holdSyncLock 模拟另一个实例正在同步：拿走同步锁。返回的 unlock 可以重复调用，测试结束时也会自动调用。
+// holdSyncLock 模拟另一个实例正在同步：拿走同步的租约。返回的 unlock 可以重复调用，测试结束时也会自动调用。
 func holdSyncLock(t *testing.T, pool *pgxpool.Pool) (unlock func()) {
 	t.Helper()
-	unlock, ok, err := database.TryAdvisoryLock(t.Context(), pool, database.LockSync)
+	lease, ok, err := database.TryLease(t.Context(), pool, testLogger(t), database.LeaseSync)
 	if err != nil || !ok {
-		t.Fatalf("TryAdvisoryLock = %v, %v", ok, err)
+		t.Fatalf("TryLease = %v, %v", ok, err)
 	}
-	unlock = sync.OnceFunc(unlock)
-	t.Cleanup(unlock) // 在关闭连接池之前：连接池要等占用的连接归还才能关闭
-	return unlock
+	t.Cleanup(lease.Release) // 在关闭连接池之前：释放要用连接池
+	return lease.Release
 }
 
 // syncOnce 手动触发一次同步，等它结束后返回同步记录。

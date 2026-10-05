@@ -53,6 +53,12 @@ type Image struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
+type Lease struct {
+	Key       string    `json:"key"`
+	Token     int64     `json:"token"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
 type Season struct {
 	ID           int64     `json:"id"`
 	SeriesID     int64     `json:"seriesId"`

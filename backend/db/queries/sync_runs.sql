@@ -5,7 +5,7 @@ RETURNING id;
 
 -- name: InterruptRunningSyncRuns :execrows
 -- 把残留的 running（进程崩溃或被杀）改为 interrupted，结束时间未知，保持为空。
--- 只能在持有同步锁时调用：这时不会有正在进行的同步。
+-- 只能在持有同步的租约时调用：这时不会有正在进行的同步。
 UPDATE sync_runs
 SET status = 'interrupted'
 WHERE status = 'running';

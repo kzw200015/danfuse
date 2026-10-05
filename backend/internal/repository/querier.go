@@ -50,8 +50,8 @@ type Querier interface {
 	GetSeason(ctx context.Context, id int64) (GetSeasonRow, error)
 	// 补建用：季绑定本身。不存在时没有行。
 	GetSeasonBinding(ctx context.Context, id int64) (SeasonBinding, error)
-	// 季绑定的 JSON：连同它建出的、现存的绑定数，以及是否正在补建（有没有人持有按季绑定的 advisory lock，见 database.LockSeasonBackfill）。
-	// advisory lock 只在当前数据库里有效，pg_locks 却列出整个集群的锁，所以按数据库过滤。不存在时没有行。
+	// 季绑定的 JSON：连同它建出的、现存的绑定数，以及是否正在补建（有没有没过期的、按季绑定的租约，见 database.LeaseSeasonBackfill，
+	// lease_prefix 为它的前缀）。不存在时没有行。
 	GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBindingSummaryParams) (GetSeasonBindingSummaryRow, error)
 	GetSeries(ctx context.Context, id int64) (Series, error)
 	GetSyncRun(ctx context.Context, id int64) (SyncRun, error)
@@ -69,7 +69,7 @@ type Querier interface {
 	// 记一条处理过的记录；已经记过时什么都不做。
 	InsertSeasonBindingHandled(ctx context.Context, arg InsertSeasonBindingHandledParams) error
 	// 把残留的 running（进程崩溃或被杀）改为 interrupted，结束时间未知，保持为空。
-	// 只能在持有同步锁时调用：这时不会有正在进行的同步。
+	// 只能在持有同步的租约时调用：这时不会有正在进行的同步。
 	InterruptRunningSyncRuns(ctx context.Context) (int64, error)
 	// 读取一集的弹幕用：这一集的全部绑定（含失效的），按创建顺序排列。集不存在时没有行。
 	ListBindingsByEpisode(ctx context.Context, episodeID int64) ([]Binding, error)
@@ -83,7 +83,7 @@ type Querier interface {
 	//   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 24 小时（fetched_before = 现在 - 24 小时）、
 	//   而且是在上次检查开始之后才满 24 小时的（满 24 小时之前开始的那一轮已经试过拉取它，失败了等下一次每天的检查，不每分钟重试）。
 	// 24 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
-	// id 不为空时只看这一个季绑定：扫描拿到它的锁之后再确认一次仍然到期。
+	// id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
 	ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBindingsParams) ([]int64, error)
 	// 一季的全部集号，预览给出默认的集号对应用。
 	ListEpisodeNumbersBySeason(ctx context.Context, seasonID int64) ([]int32, error)
@@ -112,11 +112,11 @@ type Querier interface {
 	// 创建绑定的写入事务的第一句：锁住这一集到提交，期间删不掉它。FOR KEY SHARE 与同步的 upsert 兼容。
 	// 这一集已被删除时没有行。
 	LockEpisode(ctx context.Context, id int64) (int64, error)
-	// 创建季绑定的写入事务的第一句：锁住这一季到提交，期间删不掉它。这一季已被删除时没有行。
+	// 创建季绑定、补建的写入事务的第一句：锁住这一季到提交，期间删不掉它。这一季已被删除时没有行。
 	LockSeason(ctx context.Context, id int64) (int64, error)
 	// 删除季绑定的事务的第一句：等进行中的补建写入事务提交，之后补建再也锁不到它。季绑定已被删除时没有行。
 	LockSeasonBindingForDelete(ctx context.Context, id int64) (int64, error)
-	// 补建的写入事务的第一句：锁住季绑定到提交，期间删不掉它；之后的删除要等这个事务提交，再连同刚建出的绑定一起删掉。
+	// 补建的写入事务的第二句（第一句锁季）：锁住季绑定到提交，期间删不掉它；之后的删除要等这个事务提交，再连同刚建出的绑定一起删掉。
 	// FOR KEY SHARE 与改集号对应、开关追更的 UPDATE 兼容。季绑定已被删除时没有行。
 	LockSeasonBindingShared(ctx context.Context, id int64) (int64, error)
 	// 重新拉取时弹幕源已不存在：标为失效。已保存的弹幕、计数、标题和时长都不动；

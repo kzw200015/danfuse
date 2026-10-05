@@ -34,11 +34,11 @@ var (
 // 手动触发（创建、立即补建、改集号对应、打开追更）经 Run 的循环立即在后台开始，追更的扫描在 Run 里另一个 goroutine 中
 // 每分钟进行一次、一次补建一个。ctx 取消时进行中的补建停下，Run 等它们返回，之后 wire 的 cleanup 才关闭连接池。
 //
-// "补建中"以按季绑定的 advisory lock（database.LockSeasonBackfill）为准，多实例同样成立，不在表里存运行状态。
-// 网络请求都在事务之外；写入事务的第一句锁住季绑定，删除季绑定时排队，之后补建再也锁不到它，随即结束。
+// "补建中"以按季绑定的租约（database.LeaseSeasonBackfill）为准，多实例同样成立，季绑定上不存运行状态。
+// 网络请求都在事务之外；写入事务先锁季、再锁季绑定，删除季绑定时排队，之后补建再也锁不到它，随即结束。
 type SeasonBindingService struct {
 	store    repository.Store
-	pool     *pgxpool.Pool // 取专用连接持有按季绑定的锁
+	pool     *pgxpool.Pool // 拿按季绑定的租约
 	sources  *source.Registry
 	bindings *BindingService // 自动重新拉取复用它的 Refetch
 	logger   *slog.Logger
@@ -338,7 +338,7 @@ func saveItems(ctx context.Context, q repository.Querier, id int64, items []sour
 // Get 季绑定的详情，条目表各条目的状态由条目、处理过的记录、绑定和本季的集算出。不存在时返回 404。
 func (s *SeasonBindingService) Get(ctx context.Context, id int64) (SeasonBindingDetail, error) {
 	row, err := s.store.GetSeasonBindingSummary(ctx, repository.GetSeasonBindingSummaryParams{
-		ID: id, LockNamespace: database.LockSeasonBackfill,
+		ID: id, LeasePrefix: database.LeaseSeasonBackfillPrefix,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -523,9 +523,6 @@ func (s *SeasonBindingService) Delete(ctx context.Context, id int64, withBinding
 // Run 后台循环，阻塞到 ctx 取消；返回前等进行中的补建停下。只能调用一次。
 // 追更的扫描在另一个 goroutine 里每分钟进行一次，启动时不立即扫描；这里处理手动触发：同一时间只进行一轮手动补建，
 // 多出来的按触发的先后排队，同一个季绑定只排一次。
-//
-// 每轮补建用一个专用连接持有它的锁，轮内的查询另外取连接。同步、追更的扫描、手动补建同时进行时，持锁的连接最多三个，
-// 连接池至少有四个连接（见 config 的 database.max_conns），轮内的查询总有连接可用，不会互相等死。
 func (s *SeasonBindingService) Run(ctx context.Context) {
 	defer close(s.stopped)
 	s.wg.Go(func() { s.follow(ctx) })
@@ -593,35 +590,36 @@ func (s *SeasonBindingService) startBackfill(ctx context.Context, id int64) {
 	}
 }
 
-// start 拿到按季绑定的锁就在后台补建一轮，锁由补建的 goroutine 持有到结束，结束后在 done 上报到；
+// start 拿到按季绑定的租约就在后台补建一轮，租约由补建的 goroutine 持有到结束，结束后在 done 上报到；
 // 拿不到时返回 errBackfillRunning。
 func (s *SeasonBindingService) start(ctx context.Context, id int64, done chan<- struct{}) error {
-	unlock, ok, err := database.TryAdvisoryLockPair(ctx, s.pool, database.LockSeasonBackfill, id)
+	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSeasonBackfill(id))
 	if err != nil {
-		return fmt.Errorf("acquire backfill lock of season binding %d: %w", id, err)
+		return fmt.Errorf("acquire backfill lease of season binding %d: %w", id, err)
 	}
 	if !ok {
 		return errBackfillRunning
 	}
 	s.wg.Go(func() {
 		defer func() {
-			unlock()
+			lease.Release()
 			done <- struct{}{}
 		}()
-		s.backfill(ctx, id)
+		s.backfill(lease.Context(), id)
 	})
 	return nil
 }
 
-// checkIdle 这个季绑定没有在补建（包括其他实例、追更的扫描）时返回 nil，否则返回 errBackfillRunning。只试一下锁，不持有。
+// checkIdle 这个季绑定没有在补建（包括其他实例、追更的扫描）时返回 nil，否则返回 errBackfillRunning。
+// 只试一下租约，随即释放。
 func (s *SeasonBindingService) checkIdle(ctx context.Context, id int64) error {
-	unlock, ok, err := database.TryAdvisoryLockPair(ctx, s.pool, database.LockSeasonBackfill, id)
+	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSeasonBackfill(id))
 	if err != nil {
-		return fmt.Errorf("acquire backfill lock of season binding %d: %w", id, err)
+		return fmt.Errorf("acquire backfill lease of season binding %d: %w", id, err)
 	}
 	if !ok {
 		return errBackfillRunning
 	}
-	unlock()
+	lease.Release()
 	return nil
 }

@@ -10,7 +10,7 @@ WHERE season_id = $1
 ORDER BY number;
 
 -- name: LockSeason :one
--- 创建季绑定的写入事务的第一句：锁住这一季到提交，期间删不掉它。这一季已被删除时没有行。
+-- 创建季绑定、补建的写入事务的第一句：锁住这一季到提交，期间删不掉它。这一季已被删除时没有行。
 SELECT id
 FROM seasons
 WHERE id = $1
@@ -58,18 +58,14 @@ FROM season_bindings
 WHERE id = $1;
 
 -- name: GetSeasonBindingSummary :one
--- 季绑定的 JSON：连同它建出的、现存的绑定数，以及是否正在补建（有没有人持有按季绑定的 advisory lock，见 database.LockSeasonBackfill）。
--- advisory lock 只在当前数据库里有效，pg_locks 却列出整个集群的锁，所以按数据库过滤。不存在时没有行。
+-- 季绑定的 JSON：连同它建出的、现存的绑定数，以及是否正在补建（有没有没过期的、按季绑定的租约，见 database.LeaseSeasonBackfill，
+-- lease_prefix 为它的前缀）。不存在时没有行。
 SELECT sqlc.embed(sb),
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
-               FROM pg_catalog.pg_locks l
-               WHERE l.locktype = 'advisory'
-                 AND l.granted
-                 AND l.database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
-                 AND l.classid = sqlc.arg(lock_namespace)::int::oid
-                 AND l.objid = sb.id::oid
-                 AND l.objsubid = 2)::boolean AS running
+               FROM leases l
+               WHERE l.key = sqlc.arg(lease_prefix)::text || sb.id
+                 AND l.expires_at > now())::boolean AS running
 FROM season_bindings sb
 WHERE sb.id = sqlc.arg(id);
 
@@ -78,13 +74,9 @@ WHERE sb.id = sqlc.arg(id);
 SELECT sqlc.embed(sb),
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
-               FROM pg_catalog.pg_locks l
-               WHERE l.locktype = 'advisory'
-                 AND l.granted
-                 AND l.database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
-                 AND l.classid = sqlc.arg(lock_namespace)::int::oid
-                 AND l.objid = sb.id::oid
-                 AND l.objsubid = 2)::boolean AS running
+               FROM leases l
+               WHERE l.key = sqlc.arg(lease_prefix)::text || sb.id
+                 AND l.expires_at > now())::boolean AS running
 FROM season_bindings sb
 JOIN seasons se ON se.id = sb.season_id
 WHERE se.series_id = sqlc.arg(series_id)
@@ -115,7 +107,7 @@ WHERE season_id = $1
   AND number = $2;
 
 -- name: LockSeasonBindingShared :one
--- 补建的写入事务的第一句：锁住季绑定到提交，期间删不掉它；之后的删除要等这个事务提交，再连同刚建出的绑定一起删掉。
+-- 补建的写入事务的第二句（第一句锁季）：锁住季绑定到提交，期间删不掉它；之后的删除要等这个事务提交，再连同刚建出的绑定一起删掉。
 -- FOR KEY SHARE 与改集号对应、开关追更的 UPDATE 兼容。季绑定已被删除时没有行。
 SELECT id
 FROM season_bindings
@@ -199,7 +191,7 @@ WHERE id = $1;
 --   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 24 小时（fetched_before = 现在 - 24 小时）、
 --   而且是在上次检查开始之后才满 24 小时的（满 24 小时之前开始的那一轮已经试过拉取它，失败了等下一次每天的检查，不每分钟重试）。
 -- 24 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
--- id 不为空时只看这一个季绑定：扫描拿到它的锁之后再确认一次仍然到期。
+-- id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
 SELECT sb.id
 FROM season_bindings sb
 WHERE sb.follow

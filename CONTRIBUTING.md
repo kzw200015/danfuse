@@ -30,7 +30,7 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 
 │       ├── router/     # 路由
 │       └── views/      # 页面
 ├── e2e/                # 端到端环境（Jellyfin 10.11、12.1，PostgreSQL 18 与 danfuse）
-├── docs/               # 文档用的图片等
+├── docs/               # 架构决策（adr/）、文档用的图片
 ├── Dockerfile          # 多阶段构建镜像
 └── compose.yaml        # 部署示例
 ```

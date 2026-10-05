@@ -207,18 +207,18 @@ func TestSeasonBindingAPI(t *testing.T) {
 			t.Errorf("立即补建返回 %s, want null", data)
 		}
 		synctest.Wait()
-		unlock, ok, err := database.TryAdvisoryLockPair(t.Context(), pool, database.LockSeasonBackfill, 1)
+		lease, ok, err := database.TryLease(t.Context(), pool, slog.New(slog.DiscardHandler), database.LeaseSeasonBackfill(1))
 		if err != nil || !ok {
-			t.Fatalf("TryAdvisoryLockPair = %v, %v", ok, err)
+			t.Fatalf("TryLease = %v, %v", ok, err)
 		}
 		if code, message, _ := call(t, srv, http.MethodPost, "/api/season-bindings/1/backfill", "", http.StatusConflict); code != 1 || message != "正在补建" {
 			t.Errorf("正在补建时：code=%d message=%q", code, message)
 		}
 		_, _, data = call(t, srv, http.MethodGet, "/api/season-bindings/1", "", http.StatusOK)
 		if got := decodeObject(t, data)["running"]; string(got) != "true" {
-			t.Errorf("持有锁时 running = %s, want true", got)
+			t.Errorf("持有租约时 running = %s, want true", got)
 		}
-		unlock()
+		lease.Release()
 
 		// 删除，一起删掉建出的绑定
 		call(t, srv, http.MethodDelete, "/api/season-bindings/1?withBindings=true", "", http.StatusOK)
