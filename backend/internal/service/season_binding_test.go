@@ -1231,9 +1231,8 @@ func TestAutoRefetchDueAfterCheck(t *testing.T) {
 	})
 }
 
-// TestManualBackfillQueue 同一时间只进行一轮手动补建：另一个季绑定的手动触发排队，不显示正在补建，
-// 前一轮结束后接着开始；排着队时再触发不重复排。
-func TestManualBackfillQueue(t *testing.T) {
+// TestManualBackfillConcurrent 不同季绑定的手动补建各自立即开始，互不等待。
+func TestManualBackfillConcurrent(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &fakeCollector{
@@ -1245,8 +1244,7 @@ func TestManualBackfillQueue(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2)
 		src.gate()
-		first, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}})
-		if err != nil {
+		if _, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}}); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 		if name := <-src.started; name != "a" {
@@ -1257,20 +1255,13 @@ func TestManualBackfillQueue(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if second.Running {
-			t.Error("排队的季绑定 running = true, want 排着队、还没开始")
+		if !second.Running {
+			t.Error("第二个季绑定 running = false, want 立即开始")
 		}
-		if err := env.svc.Backfill(t.Context(), second.ID); err != nil {
-			t.Errorf("排着队时再触发：%v", err)
-		}
-		if !env.get(first.ID).Running {
-			t.Error("第一个季绑定 running = false")
-		}
-
-		src.release <- struct{}{}
 		if name := <-src.started; name != "b" {
-			t.Fatalf("第一轮结束后拉取的是 %s, want 排队的 b", name)
+			t.Fatalf("第一轮还停着时拉取的是 %s, want b", name)
 		}
+		src.release <- struct{}{}
 		src.release <- struct{}{}
 		synctest.Wait()
 

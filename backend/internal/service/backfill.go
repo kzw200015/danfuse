@@ -31,22 +31,10 @@ var (
 	errEpisodeGone = errors.New("episode deleted")
 )
 
-// follow 追更的扫描：每分钟一次，按上次检查时间从早到晚、一次一个地补建到期的季绑定（ListDueSeasonBindings）。
-// 正在补建的（手动触发或其他实例）跳过；列出之后才检查过的（拿到租约之后再确认一次）也跳过。
+// scan 追更的扫描，Run 每分钟在后台开始一次：按上次检查时间从早到晚、一次一个地补建到期的季绑定（ListDueSeasonBindings）。
+// 上一次扫描还没做完时两次扫描同时进行：正在补建的（另一次扫描、手动触发或其他实例）跳过，
+// 列出之后才检查过的（拿到租约之后再确认一次）也跳过，同一个季绑定不会重复补建。
 // 与同步不耦合：新集靠"这一季里有集晚于上次检查时间建出"在一分钟内被发现。
-func (s *SeasonBindingService) follow(ctx context.Context) {
-	ticker := time.NewTicker(followScanInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.scan(ctx)
-		}
-	}
-}
-
 func (s *SeasonBindingService) scan(ctx context.Context) {
 	ids, err := s.store.ListDueSeasonBindings(ctx, dueParams(nil))
 	if err != nil {
