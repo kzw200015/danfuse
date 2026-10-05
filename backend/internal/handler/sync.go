@@ -16,12 +16,13 @@ func NewSyncHandler(svc *service.SyncService) *SyncHandler {
 }
 
 // Trigger POST /api/sync-runs
-// 不等同步开始，立即返回 202；已有同步在跑时这次触发被丢弃，同样返回 202。未配置目录源时返回 409。
+// 同步开始后立即返回 202 和这次同步的 ID，同步在后台进行；已有同步在跑、未配置目录源时返回 409，服务正在关闭时返回 503。
 func (h *SyncHandler) Trigger(c *echo.Context) error {
-	if err := h.svc.Trigger(); err != nil {
+	id, err := h.svc.Trigger(c.Request().Context())
+	if err != nil {
 		return err
 	}
-	return response.Accepted(c, nil)
+	return response.Accepted(c, map[string]int64{"id": id})
 }
 
 // List GET /api/sync-runs

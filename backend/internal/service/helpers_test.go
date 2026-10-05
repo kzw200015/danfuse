@@ -161,32 +161,14 @@ func syncOnce(t *testing.T, svc *SyncService) repository.SyncRun {
 }
 
 // triggerSync 手动触发一次同步，等后台停下（同步结束，或停在假目录源的 gate 上），返回这次同步的 ID。
-// 触发后没有开始新的同步时测试失败。
 func triggerSync(t *testing.T, svc *SyncService) int64 {
 	t.Helper()
-	before := latestRunID(t, svc)
-	if err := svc.Trigger(); err != nil {
+	id, err := svc.Trigger(t.Context())
+	if err != nil {
 		t.Fatalf("Trigger: %v", err)
 	}
 	synctest.Wait()
-	id := latestRunID(t, svc)
-	if id == before {
-		t.Fatal("触发后没有开始新的同步")
-	}
 	return id
-}
-
-// latestRunID 最近一次同步的 ID，一次都没有时为 0。
-func latestRunID(t *testing.T, svc *SyncService) int64 {
-	t.Helper()
-	run, err := svc.LatestRun(t.Context())
-	if err != nil {
-		t.Fatalf("LatestRun: %v", err)
-	}
-	if run == nil {
-		return 0
-	}
-	return run.ID
 }
 
 func getRun(t *testing.T, svc *SyncService, id int64) repository.SyncRun {

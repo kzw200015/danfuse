@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -471,30 +472,15 @@ func TestSyncProgress(t *testing.T) {
 	})
 }
 
-func TestTriggerNotStarted(t *testing.T) {
+func TestTriggerRejected(t *testing.T) {
 	t.Parallel()
-
-	// dropped 触发之后没有开始新的同步：同步记录仍是 want 条，日志里记了跳过
-	dropped := func(t *testing.T, svc *SyncService, logs *lockedBuffer, want int) {
-		t.Helper()
-		if err := svc.Trigger(); err != nil {
-			t.Fatalf("Trigger() error = %v, want nil", err)
-		}
-		synctest.Wait()
-		if runs, err := svc.ListRuns(t.Context()); err != nil || len(runs) != want {
-			t.Errorf("同步记录 %d 条（%v），want %d 条", len(runs), err, want)
-		}
-		if !strings.Contains(logs.String(), `level=INFO msg="sync already running, skipped" trigger=manual`) {
-			t.Errorf("丢弃手动触发应记 info 日志，实际日志：\n%s", logs.String())
-		}
-	}
 
 	t.Run("未配置目录源", func(t *testing.T) {
 		t.Parallel()
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 			svc := newTestService(t, pool, nil)
 
-			if err := svc.Trigger(); !errors.Is(err, errNoCatalogSource) {
+			if _, err := svc.Trigger(t.Context()); !errors.Is(err, errNoCatalogSource) {
 				t.Errorf("Trigger() error = %v, want errNoCatalogSource", err)
 			}
 		})
@@ -504,12 +490,16 @@ func TestTriggerNotStarted(t *testing.T) {
 		t.Parallel()
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 			src := &fakeSource{items: []catalog.Item{item(tv("甲", nil, season(1, "", episode(1, "", 30))))}, gate: make(chan struct{})}
-			var logs lockedBuffer
-			svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{}, slogTo(&logs))
-			runInBackground(t, svc)
-			first := triggerSync(t, svc)
+			svc := newTestService(t, pool, src)
+			first, err := svc.Trigger(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
 
-			dropped(t, svc, &logs, 1)
+			if _, err := svc.Trigger(t.Context()); !errors.Is(err, errSyncRunning) {
+				t.Errorf("Trigger() error = %v, want errSyncRunning", err)
+			}
 
 			src.gate <- struct{}{}
 			synctest.Wait()
@@ -519,38 +509,33 @@ func TestTriggerNotStarted(t *testing.T) {
 		})
 	})
 
-	t.Run("其他实例持有同步锁", func(t *testing.T) {
-		t.Parallel()
-		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-			var logs lockedBuffer
-			svc := NewSyncService(repository.NewStore(pool), pool, &fakeSource{}, config.Sync{}, slogTo(&logs))
-			runInBackground(t, svc)
-			unlock := holdSyncLock(t, pool)
-
-			dropped(t, svc, &logs, 0)
-
-			unlock()
-			if run := syncOnce(t, svc); run.Status != statusSucceeded {
-				t.Errorf("释放锁后同步 %s, want succeeded", run.Status)
-			}
-		})
-	})
-
-	t.Run("服务关闭之后", func(t *testing.T) {
+	t.Run("服务正在关闭", func(t *testing.T) {
 		t.Parallel()
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 			svc := NewSyncService(repository.NewStore(pool), pool, &fakeSource{}, config.Sync{}, testLogger(t))
 			stop := runInBackground(t, svc)
-			stop() // Run 已返回：触发不阻塞，也不再开始同步
+			stop() // Run 已返回：不再等它接收触发
 
-			for range 2 {
-				if err := svc.Trigger(); err != nil {
-					t.Fatalf("Trigger() error = %v, want nil", err)
-				}
+			_, err := svc.Trigger(t.Context())
+			if appErr, ok := errors.AsType[*errcode.Error](err); !ok || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Message != "服务正在关闭" {
+				t.Errorf("Trigger() error = %v, want 503 服务正在关闭", err)
 			}
-			synctest.Wait()
-			if runs, err := svc.ListRuns(t.Context()); err != nil || len(runs) != 0 {
-				t.Errorf("同步记录 %v, %v, want 没有", runs, err)
+		})
+	})
+
+	t.Run("其他实例持有同步锁", func(t *testing.T) {
+		t.Parallel()
+		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+			svc := newTestService(t, pool, &fakeSource{})
+			unlock := holdSyncLock(t, pool)
+
+			if _, err := svc.Trigger(t.Context()); !errors.Is(err, errSyncRunning) {
+				t.Errorf("Trigger() error = %v, want errSyncRunning", err)
+			}
+
+			unlock()
+			if run := syncOnce(t, svc); run.Status != statusSucceeded {
+				t.Errorf("释放锁后同步 %s, want succeeded", run.Status)
 			}
 		})
 	})

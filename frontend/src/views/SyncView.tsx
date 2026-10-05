@@ -58,9 +58,9 @@ function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
   const unconfigured = settings?.catalogSource === null
   const trigger = useMutation({
     mutationFn: triggerSync,
-    onSuccess: () => {
-      toast.success('已触发同步')
-      // 后台可能还没建出这次同步的记录，没赶上的由下一次轮询补上
+    onSuccess: ({ id }) => {
+      toast.success(`已开始同步 #${id}`)
+      // 返回时这次同步的记录已经建出，立即刷新，不等下一次轮询
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: syncRunKeys.list, exact: true }),
         queryClient.invalidateQueries({ queryKey: syncRunKeys.latest }),

@@ -43,7 +43,7 @@ func syncCatalog(t *testing.T, cfg *pgxpool.Config, items ...catalog.Item) {
 	t.Helper()
 	synctest.Test(t, func(t *testing.T) {
 		svc, _ := startSync(t, cfg, &fakeSource{items: items})
-		if err := svc.Trigger(); err != nil {
+		if _, err := svc.Trigger(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 		synctest.Wait()

@@ -55,14 +55,14 @@ describe('标题行与立即同步', () => {
     server.runs = [syncRun(1)]
     vi.mocked(triggerSync).mockImplementation(async () => {
       server.runs.unshift(syncRun(2, { status: 'running', finishedAt: null, total: null, done: 0 }))
-      return null
+      return { id: 2 }
     })
     const { queryClient } = renderRoutes('/sync')
     const invalidated = seedSeries(queryClient)
 
     await clickSyncNow()
 
-    expect(await screen.findByText('已触发同步')).toBeInTheDocument()
+    expect(await screen.findByText('已开始同步 #2')).toBeInTheDocument()
     // 还在列出媒体库
     expect(await within(await syncNav()).findByText('…')).toBeInTheDocument()
     expect(await screen.findByRole('cell', { name: '#2' })).toBeInTheDocument()
@@ -84,17 +84,17 @@ describe('标题行与立即同步', () => {
     expect(await screen.findByRole('button', { name: '立即同步' })).toBeEnabled()
   })
 
-  it('触发返回时记录还没建出来，由下一次轮询补上', async () => {
+  it('已有同步在跑（还没轮询到，例如其他实例刚开始的）时提示，轮询到之后"立即同步"禁用', async () => {
     server.runs = [syncRun(1)]
-    vi.mocked(triggerSync).mockResolvedValue(null)
+    vi.mocked(triggerSync).mockRejectedValue(new ApiError('同步正在进行', 1, 409))
     renderRoutes('/sync')
 
     await clickSyncNow()
-    expect(await screen.findByText('已触发同步')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步正在进行')
 
     server.runs.unshift(syncRun(2, { status: 'running', finishedAt: null, total: 3, done: 1 }))
     await advance(2000)
-    expect(await within(await syncNav()).findByText('1/3')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '同步中…' })).toBeDisabled()
     expect(await screen.findByRole('cell', { name: '#2' })).toBeInTheDocument()
   })
 
@@ -102,7 +102,7 @@ describe('标题行与立即同步', () => {
     server.runs = [syncRun(1)]
     vi.mocked(triggerSync).mockImplementation(async () => {
       server.runs.unshift(syncRun(2, { createdSeries: 1 }))
-      return null
+      return { id: 2 }
     })
     const { queryClient } = renderRoutes('/sync')
     const invalidated = seedSeries(queryClient)

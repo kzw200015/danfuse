@@ -42,7 +42,7 @@ export function getLatestSyncRun() {
   return request<SyncRun | null>({ url: '/sync-runs/latest' })
 }
 
-/** 触发一次同步，不等它开始；已有同步在跑时这次触发被丢弃，同样成功。未配置目录源时为 409 */
+/** 触发一次同步，同步开始后返回它的 ID；已有同步在跑、未配置目录源时为 409，服务正在关闭时为 503 */
 export function triggerSync() {
-  return request<null>({ url: '/sync-runs', method: 'POST' })
+  return request<{ id: number }>({ url: '/sync-runs', method: 'POST' })
 }

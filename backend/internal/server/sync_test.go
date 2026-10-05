@@ -49,15 +49,16 @@ func TestSyncRunsAPI(t *testing.T) {
 			t.Errorf("没有同步记录时最近一次 = %s, want null", data)
 		}
 
-		// 触发立即返回 202，不带数据，同步在后台进行
-		if _, _, data := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusAccepted); string(data) != "null" {
-			t.Errorf("触发返回 %s, want null", data)
+		// 触发立即返回 202 和同步 ID，同步在后台进行
+		if _, _, data := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusAccepted); string(data) != `{"id":1}` {
+			t.Errorf("触发返回 %s, want {\"id\":1}", data)
 		}
 		synctest.Wait()
 
-		// 同步进行中再触发同样返回 202，这次触发被丢弃
-		call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusAccepted)
-		synctest.Wait()
+		code, message, _ := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusConflict)
+		if code != 1 || message != "同步正在进行" {
+			t.Errorf("同步进行中再触发：code=%d message=%q", code, message)
+		}
 
 		// 进行中每提交一部剧，已完成数加一
 		progress := func() string {
