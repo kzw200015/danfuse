@@ -49,6 +49,11 @@ type fakeCollector struct {
 	fetched []string // Fetch 过的弹幕源名字，按调用顺序
 }
 
+var (
+	_ source.Adapter   = (*fakeCollector)(nil)
+	_ source.Collector = (*fakeCollector)(nil)
+)
+
 type fakeCollectionRef struct {
 	List  string `json:"list,omitempty"`
 	Pages string `json:"pages,omitempty"`

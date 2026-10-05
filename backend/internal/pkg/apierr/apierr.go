@@ -3,7 +3,11 @@
 // 由 service 按场景转换；弹弹 API 有自己的响应结构，也不用它。
 package apierr
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/labstack/echo/v5"
+)
 
 // Error 接口错误，携带 HTTP 状态码、业务码与提示信息。
 //
@@ -41,6 +45,8 @@ func (e *Error) Unwrap() []error {
 	}
 	return errs
 }
+
+var _ echo.HTTPStatusCoder = (*Error)(nil)
 
 // StatusCode 实现 echo.HTTPStatusCoder，使 echo 的中间件能识别出正确的 HTTP 状态码。
 func (e *Error) StatusCode() int { return e.HTTPStatus }

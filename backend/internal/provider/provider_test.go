@@ -14,6 +14,8 @@ type fakeLocal struct {
 	query  SearchQuery // 收到的搜索条件
 }
 
+var _ Provider = (*fakeLocal)(nil)
+
 func (f *fakeLocal) Search(_ context.Context, q SearchQuery) (SearchResult, error) {
 	f.query = q
 	return f.result, nil

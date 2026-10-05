@@ -41,6 +41,11 @@ type fakeAdapter struct {
 	fetches    atomic.Int32 // Fetch 被调用的次数
 }
 
+var (
+	_ source.Adapter = (*fakeAdapter)(nil)
+	_ source.Linker  = (*fakeAdapter)(nil)
+)
+
 // errNoDeadline 一直等待的 Fetch、ParseLink 收到的 ctx 没有截止时间：总时限没有生效。立即返回，免得测试一直挂着。
 var errNoDeadline = errors.New("ctx 没有截止时间")
 

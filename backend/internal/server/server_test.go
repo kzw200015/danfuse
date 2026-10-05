@@ -60,6 +60,8 @@ type fakeCatalog struct {
 	gate     chan struct{}
 }
 
+var _ catalog.Source = (*fakeCatalog)(nil)
+
 func (s *fakeCatalog) List(ctx context.Context) (catalog.Listing, error) {
 	return catalog.Listing{
 		Total:    len(s.items),

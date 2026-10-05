@@ -12,6 +12,8 @@ import (
 // fakeAdapter 只有 Adapter 的能力。
 type fakeAdapter struct{ id string }
 
+var _ Adapter = (*fakeAdapter)(nil)
+
 func (a *fakeAdapter) ID() string                 { return a.id }
 func (a *fakeAdapter) Platform() danmaku.Platform { return danmaku.PlatformNone }
 func (a *fakeAdapter) Describe(Ref) (Display, error) {
@@ -28,6 +30,8 @@ type fakeLinker struct {
 	prefix string
 	asked  int
 }
+
+var _ Linker = (*fakeLinker)(nil)
 
 func (l *fakeLinker) ParseLink(_ context.Context, link string) (Ref, error) {
 	l.asked++
@@ -99,6 +103,8 @@ type fakeCollector struct {
 	prefix string
 	asked  int
 }
+
+var _ Collector = (*fakeCollector)(nil)
 
 func (c *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]CollectionCandidate, error) {
 	c.asked++

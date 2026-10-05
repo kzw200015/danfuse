@@ -21,6 +21,8 @@ type SQLStore struct {
 	pool *pgxpool.Pool
 }
 
+var _ Store = (*SQLStore)(nil)
+
 func NewStore(pool *pgxpool.Pool) *SQLStore {
 	return &SQLStore{Queries: New(pool), pool: pool}
 }

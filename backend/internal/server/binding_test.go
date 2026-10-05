@@ -19,6 +19,12 @@ import (
 // Fetch 对名字 gone 返回 NotFound、对 down 返回 Upstream，其余返回两条弹幕。
 type fakeAdapter struct{}
 
+var (
+	_ source.Adapter   = fakeAdapter{}
+	_ source.Linker    = fakeAdapter{}
+	_ source.Collector = fakeAdapter{} // 合集的方法在 season_binding_test.go
+)
+
 type fakeRef struct {
 	Name string `json:"name"`
 }
