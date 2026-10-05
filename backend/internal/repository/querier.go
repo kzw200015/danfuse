@@ -83,6 +83,7 @@ type Querier interface {
 	//   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 24 小时（fetched_before = 现在 - 24 小时）、
 	//   而且是在上次检查开始之后才满 24 小时的（满 24 小时之前开始的那一轮已经试过拉取它，失败了等下一次每天的检查，不每分钟重试）。
 	// 24 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
+	// id 不为空时只看这一个季绑定：扫描拿到它的锁之后再确认一次仍然到期。
 	ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBindingsParams) ([]int64, error)
 	// 一季的全部集号，预览给出默认的集号对应用。
 	ListEpisodeNumbersBySeason(ctx context.Context, seasonID int64) ([]int32, error)

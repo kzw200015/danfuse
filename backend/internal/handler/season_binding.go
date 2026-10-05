@@ -158,7 +158,7 @@ func (h *SeasonBindingHandler) Update(c *echo.Context) error {
 }
 
 // Backfill POST /api/season-bindings/:id/backfill
-// 立即在后台补建，返回 202；正在补建时返回 409。
+// 立即在后台补建，返回 202（另一个季绑定的手动补建在进行时排队，同样返回 202）；这个季绑定正在补建时返回 409。
 func (h *SeasonBindingHandler) Backfill(c *echo.Context) error {
 	req, err := bind[seasonBindingRequest](c)
 	if err != nil {

@@ -32,7 +32,8 @@ var (
 )
 
 // follow 追更的扫描：每分钟一次，按上次检查时间从早到晚、一次一个地补建到期的季绑定（ListDueSeasonBindings）。
-// 正在补建的（手动触发或其他实例）跳过。与同步不耦合：新集靠"这一季里有集晚于上次检查时间建出"在一分钟内被发现。
+// 正在补建的（手动触发或其他实例）跳过；列出之后才检查过的（拿到锁之后再确认一次）也跳过。
+// 与同步不耦合：新集靠"这一季里有集晚于上次检查时间建出"在一分钟内被发现。
 func (s *SeasonBindingService) follow(ctx context.Context) {
 	ticker := time.NewTicker(followScanInterval)
 	defer ticker.Stop()
@@ -47,13 +48,7 @@ func (s *SeasonBindingService) follow(ctx context.Context) {
 }
 
 func (s *SeasonBindingService) scan(ctx context.Context) {
-	now := time.Now()
-	ids, err := s.store.ListDueSeasonBindings(ctx, repository.ListDueSeasonBindingsParams{
-		CheckedBefore:        now.Add(-followCheckInterval),
-		CreatedAfter:         now.Add(-followRefetchWindow),
-		FetchedBefore:        now.Add(-followCheckInterval),
-		CheckIntervalSeconds: int32(followCheckInterval / time.Second),
-	})
+	ids, err := s.store.ListDueSeasonBindings(ctx, dueParams(nil))
 	if err != nil {
 		if ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "list due season bindings failed", "error", err)
@@ -74,8 +69,28 @@ func (s *SeasonBindingService) scan(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		s.backfill(ctx, id)
+		// 列出之后、拿到锁之前，它可能刚被手动补建或其他实例的扫描检查过
+		switch due, err := s.store.ListDueSeasonBindings(ctx, dueParams(&id)); {
+		case err != nil:
+			if ctx.Err() == nil {
+				s.logger.ErrorContext(ctx, "check season binding due failed", "season_binding_id", id, "error", err)
+			}
+		case len(due) > 0:
+			s.backfill(ctx, id)
+		}
 		unlock()
+	}
+}
+
+// dueParams 按现在的时间判定追更是否到期的参数；id 不为 nil 时只判定这一个季绑定。
+func dueParams(id *int64) repository.ListDueSeasonBindingsParams {
+	now := time.Now()
+	return repository.ListDueSeasonBindingsParams{
+		ID:                   id,
+		CheckedBefore:        now.Add(-followCheckInterval),
+		CreatedAfter:         now.Add(-followRefetchWindow),
+		FetchedBefore:        now.Add(-followCheckInterval),
+		CheckIntervalSeconds: int32(followCheckInterval / time.Second),
 	}
 }
 

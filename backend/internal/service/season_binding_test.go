@@ -961,6 +961,36 @@ func TestFollowNewEpisode(t *testing.T) {
 	}
 }
 
+// TestFollowRechecksDue 扫描列出到期的季绑定之后，排在后面的被手动补建检查过：轮到它时已不再到期，不重复检查。
+func TestFollowRechecksDue(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{collections: map[string]source.Collection{"s": {}, "t": {}}, videos: fakeVideos("a")}
+		env := newSeasonEnv(t, pool, src, 1)
+		env.create(1, 1)
+		second, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/t", Mapping: source.Mapping{From: 1, To: 1}})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		synctest.Wait()
+		// 合集 s 新出了一集：每天的检查里，第一个季绑定停在拉取上
+		src.collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 1)}}
+		src.gate()
+
+		time.Sleep(followCheckInterval)
+		<-src.started // 扫描列出了两个季绑定，第一个停在拉取 a 上
+		lists := src.listCount()
+		env.backfill(second.ID)
+		src.release <- struct{}{}
+		synctest.Wait()
+
+		if n := src.listCount() - lists; n != 1 {
+			t.Errorf("第二个季绑定检查了 %d 次，want 只有手动补建的 1 次", n)
+		}
+		assertStrings(t, "绑定", env.bindings(), []string{"1 a 1"})
+	})
+}
+
 // TestFollowResumesAfterRestart 补建到一半时关闭服务：不写上次检查时间，重启后一分钟内从没做完的地方接着做。
 func TestFollowResumesAfterRestart(t *testing.T) {
 	t.Parallel()

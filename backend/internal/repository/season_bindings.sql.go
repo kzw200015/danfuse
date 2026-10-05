@@ -266,19 +266,21 @@ const listDueSeasonBindings = `-- name: ListDueSeasonBindings :many
 SELECT sb.id
 FROM season_bindings sb
 WHERE sb.follow
+  AND ($1::bigint IS NULL OR sb.id = $1::bigint)
   AND (sb.last_checked_at IS NULL
-    OR sb.last_checked_at <= $1::timestamptz
+    OR sb.last_checked_at <= $2::timestamptz
     OR EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at)
     OR EXISTS (SELECT 1
                FROM bindings b
                WHERE b.season_binding_id = sb.id
-                 AND b.created_at > $2::timestamptz
-                 AND b.last_fetched_at <= $3::timestamptz
-                 AND b.last_fetched_at > sb.last_checked_at - $4::int * interval '1 second'))
+                 AND b.created_at > $3::timestamptz
+                 AND b.last_fetched_at <= $4::timestamptz
+                 AND b.last_fetched_at > sb.last_checked_at - $5::int * interval '1 second'))
 ORDER BY sb.last_checked_at NULLS FIRST, sb.id
 `
 
 type ListDueSeasonBindingsParams struct {
+	ID                   *int64    `json:"id"`
 	CheckedBefore        time.Time `json:"checkedBefore"`
 	CreatedAfter         time.Time `json:"createdAfter"`
 	FetchedBefore        time.Time `json:"fetchedBefore"`
@@ -292,8 +294,10 @@ type ListDueSeasonBindingsParams struct {
 //	而且是在上次检查开始之后才满 24 小时的（满 24 小时之前开始的那一轮已经试过拉取它，失败了等下一次每天的检查，不每分钟重试）。
 //
 // 24 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
+// id 不为空时只看这一个季绑定：扫描拿到它的锁之后再确认一次仍然到期。
 func (q *Queries) ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBindingsParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, listDueSeasonBindings,
+		arg.ID,
 		arg.CheckedBefore,
 		arg.CreatedAfter,
 		arg.FetchedBefore,

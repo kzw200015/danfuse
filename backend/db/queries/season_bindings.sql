@@ -199,9 +199,11 @@ WHERE id = $1;
 --   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 24 小时（fetched_before = 现在 - 24 小时）、
 --   而且是在上次检查开始之后才满 24 小时的（满 24 小时之前开始的那一轮已经试过拉取它，失败了等下一次每天的检查，不每分钟重试）。
 -- 24 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
+-- id 不为空时只看这一个季绑定：扫描拿到它的锁之后再确认一次仍然到期。
 SELECT sb.id
 FROM season_bindings sb
 WHERE sb.follow
+  AND (sqlc.narg(id)::bigint IS NULL OR sb.id = sqlc.narg(id)::bigint)
   AND (sb.last_checked_at IS NULL
     OR sb.last_checked_at <= sqlc.arg(checked_before)::timestamptz
     OR EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at)

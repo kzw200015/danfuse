@@ -486,7 +486,8 @@ func (s *SeasonBindingService) Update(ctx context.Context, id int64, p UpdateSea
 	return s.Get(ctx, id)
 }
 
-// Backfill 立即在后台补建一次，追更关着时也能用。不存在时返回 404，正在补建时返回 409"正在补建"，不排队。
+// Backfill 立即在后台补建一次，追更关着时也能用。不存在时返回 404；这个季绑定正在补建时返回 409"正在补建"，不排第二次。
+// 另一个季绑定的手动补建在进行时排队，返回 nil，前一轮结束后开始（见 Run）。
 func (s *SeasonBindingService) Backfill(ctx context.Context, id int64) error {
 	if _, err := s.store.GetSeasonBinding(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
