@@ -24,6 +24,7 @@ var (
 	errSeasonBindingExists   = errcode.ErrConflict.WithMessage("这一季已经绑定过这个合集")
 	errSeasonBindingNotFound = errcode.ErrNotFound.WithMessage("季绑定不存在")
 	errBackfillRunning       = errcode.ErrConflict.WithMessage("正在补建")
+	errShuttingDown          = errcode.ErrServiceUnavailable.WithMessage("服务正在关闭")
 	errKindRequired          = errcode.ErrBadRequest.WithMessage("链接对应多个合集，请选择一个")
 	errKindNotFound          = errcode.ErrBadRequest.WithMessage("链接里没有这种合集，请重新预览")
 )

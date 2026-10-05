@@ -171,11 +171,7 @@ func TestDeleteDuringSync(t *testing.T) {
 				posterBefore := readPoster(t, pool, "星海旅人")
 
 				src.gate = make(chan struct{})
-				runID, err := svc.Trigger(t.Context())
-				if err != nil {
-					t.Fatal(err)
-				}
-				synctest.Wait() // 同步已经开始，停在第一部剧「星海旅人」之前
+				runID := triggerSync(t, svc) // 同步已经开始，停在第一部剧「星海旅人」之前
 				if err := tt.del(newCatalogService(pool), t.Context(), tt.id); err != nil {
 					t.Fatalf("删除：%v", err)
 				}

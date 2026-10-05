@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import { listSeries } from '@/api/series'
 import { getSettings } from '@/api/settings'
-import { getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
+import { getLatestSyncRun, getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
 import { renderRoutes, syncRun } from './utils'
 
 vi.mock('@/api/series')
@@ -19,6 +19,7 @@ beforeEach(() => {
     bilibiliSessdataConfigured: false,
   })
   vi.mocked(listSyncRuns).mockResolvedValue([])
+  vi.mocked(getLatestSyncRun).mockResolvedValue(null)
 })
 
 describe('App', () => {
@@ -71,6 +72,7 @@ describe('"同步"导航项上的同步状态', () => {
     { name: '有警告显示条数', latest: syncRun(1, { warningCount: 4 }), want: '同步4' },
     { name: '正常结束不显示', latest: syncRun(1), want: '同步' },
   ])('$name', async ({ latest, want }) => {
+    vi.mocked(getLatestSyncRun).mockResolvedValue(latest)
     vi.mocked(listSyncRuns).mockResolvedValue([latest, syncRun(0, { warningCount: 9 })])
     vi.mocked(getSyncRun).mockResolvedValue(latest)
     renderRoutes('/sync')

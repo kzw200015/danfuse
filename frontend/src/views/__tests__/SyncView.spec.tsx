@@ -51,27 +51,25 @@ async function clickSyncNow() {
 }
 
 describe('标题行与立即同步', () => {
-  it('触发成功后开始轮询，结束后停止并让剧列表失效', async () => {
+  it('触发后提示，顶栏和表格显示新的同步，结束后让剧列表失效', async () => {
     server.runs = [syncRun(1)]
     vi.mocked(triggerSync).mockImplementation(async () => {
       server.runs.unshift(syncRun(2, { status: 'running', finishedAt: null, total: null, done: 0 }))
-      return { id: 2 }
+      return null
     })
     const { queryClient } = renderRoutes('/sync')
     const invalidated = seedSeries(queryClient)
 
     await clickSyncNow()
 
-    expect(await screen.findByText('已开始同步 #2')).toBeInTheDocument()
+    expect(await screen.findByText('已触发同步')).toBeInTheDocument()
     // 还在列出媒体库
     expect(await within(await syncNav()).findByText('…')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '同步中…' })).toBeInTheDocument()
+    expect(await screen.findByRole('cell', { name: '#2' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '同步中…' })).toBeDisabled()
 
-    // 每秒一次：推进 3 秒至少新增 3 次请求
-    const polled = vi.mocked(getSyncRun).mock.calls.length
     server.updateLatest({ total: 2, done: 1 })
-    await advance(3000)
-    expect(vi.mocked(getSyncRun).mock.calls.length - polled).toBeGreaterThanOrEqual(3)
+    await advance(2000)
     expect(await within(await syncNav()).findByText('1/2')).toBeInTheDocument()
     expect(invalidated()).toEqual([false, false])
 
@@ -81,20 +79,30 @@ describe('标题行与立即同步', () => {
       createdSeries: 2,
       finishedAt: '2026-10-05T08:02:00Z',
     })
-    await advance(1000)
+    await advance(2000)
     await waitFor(() => expect(invalidated()).toEqual([true, true]))
-    expect(await screen.findByRole('button', { name: '立即同步' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '立即同步' })).toBeEnabled()
+  })
 
-    const calls = vi.mocked(getSyncRun).mock.calls.length
-    await advance(5000)
-    expect(getSyncRun).toHaveBeenCalledTimes(calls)
+  it('触发返回时记录还没建出来，由下一次轮询补上', async () => {
+    server.runs = [syncRun(1)]
+    vi.mocked(triggerSync).mockResolvedValue(null)
+    renderRoutes('/sync')
+
+    await clickSyncNow()
+    expect(await screen.findByText('已触发同步')).toBeInTheDocument()
+
+    server.runs.unshift(syncRun(2, { status: 'running', finishedAt: null, total: 3, done: 1 }))
+    await advance(2000)
+    expect(await within(await syncNav()).findByText('1/3')).toBeInTheDocument()
+    expect(await screen.findByRole('cell', { name: '#2' })).toBeInTheDocument()
   })
 
   it('触发后同步很快就结束、没赶上轮询时也让剧列表失效', async () => {
     server.runs = [syncRun(1)]
     vi.mocked(triggerSync).mockImplementation(async () => {
       server.runs.unshift(syncRun(2, { createdSeries: 1 }))
-      return { id: 2 }
+      return null
     })
     const { queryClient } = renderRoutes('/sync')
     const invalidated = seedSeries(queryClient)
@@ -104,23 +112,35 @@ describe('标题行与立即同步', () => {
     await waitFor(() => expect(invalidated()).toEqual([true, true]))
   })
 
-  it('被拒绝（409）时用 toast 显示 message，并重新取列表、显示已在进行的同步', async () => {
+  it('页面打开之后才开始的同步（定时或其他实例）由轮询发现，"立即同步"随之禁用', async () => {
     server.runs = [syncRun(1)]
-    // 页面打开之后才开始的同步（定时或其他实例），页面上的列表里还没有它
-    vi.mocked(triggerSync).mockImplementation(async () => {
-      server.runs.unshift(
-        syncRun(2, { trigger: 'schedule', status: 'running', finishedAt: null, total: 3, done: 1 }),
-      )
-      throw new ApiError('同步正在进行', 1, 409)
-    })
     renderRoutes('/sync')
+    expect(await screen.findByRole('button', { name: '立即同步' })).toBeEnabled()
 
-    await clickSyncNow()
-
-    expect(await screen.findByText('同步正在进行')).toBeInTheDocument()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    server.runs.unshift(
+      syncRun(2, { trigger: 'schedule', status: 'running', finishedAt: null, total: 3, done: 1 }),
+    )
+    await advance(2000)
+    expect(await screen.findByRole('button', { name: '同步中…' })).toBeDisabled()
     expect(await within(await syncNav()).findByText('1/3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '同步中…' })).toBeInTheDocument()
+  })
+
+  it('选中的同步还在运行时轮询详情，结束后停止', async () => {
+    server.runs = [syncRun(1, { status: 'running', finishedAt: null, total: 3, done: 1 })]
+    renderRoutes('/sync')
+    expect(await screen.findByText('同步 #1')).toBeInTheDocument()
+
+    server.updateLatest({ warningCount: 1, warnings: ['乙：没有有效的集，整部跳过'] })
+    await advance(2000)
+    expect(await screen.findByText('乙：没有有效的集，整部跳过')).toBeInTheDocument()
+
+    server.updateLatest({ status: 'succeeded', done: 3, finishedAt: '2026-10-05T08:02:00Z' })
+    await advance(2000)
+    await waitFor(() => expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled())
+    await advance(2000)
+    const calls = vi.mocked(getSyncRun).mock.calls.length
+    await advance(6000)
+    expect(getSyncRun).toHaveBeenCalledTimes(calls)
   })
 
   it('其他失败显示在按钮下方，可以关闭', async () => {

@@ -3,7 +3,6 @@ import { Loader2Icon } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
-import { ApiError } from '@/api/request'
 import type { Settings } from '@/api/settings'
 import { triggerSync, type SyncRun, type SyncRunDetail, type SyncTrigger } from '@/api/sync'
 import { ErrorNote } from '@/components/ErrorNote'
@@ -52,11 +51,6 @@ export default function SyncView() {
   )
 }
 
-/** 409（同步正在进行、未配置目录源）是预料之中的拒绝，用 toast 提示；其他失败显示在按钮下方 */
-function isRejected(error: Error) {
-  return error instanceof ApiError && error.status === 409
-}
-
 /** 标题行：定时间隔、最近一次同步的开始时间、"立即同步" */
 function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
   const queryClient = useQueryClient()
@@ -64,17 +58,13 @@ function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
   const unconfigured = settings?.catalogSource === null
   const trigger = useMutation({
     mutationFn: triggerSync,
-    onSuccess: ({ id }) => {
-      toast.success(`已开始同步 #${id}`)
-      // 重新取列表，第一条就是这次同步，顶栏随之开始轮询它的进度
-      return queryClient.invalidateQueries({ queryKey: syncRunKeys.list, exact: true })
-    },
-    onError: (error) => {
-      if (!isRejected(error)) return
-      toast.error(error.message)
-      // "同步正在进行"可能是页面打开之后才开始的同步（定时或其他实例），列表里还没有它；
-      // 重新取列表，顶栏和同步页才能显示它的进度
-      return queryClient.invalidateQueries({ queryKey: syncRunKeys.list, exact: true })
+    onSuccess: () => {
+      toast.success('已触发同步')
+      // 后台可能还没建出这次同步的记录，没赶上的由下一次轮询补上
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: syncRunKeys.list, exact: true }),
+        queryClient.invalidateQueries({ queryKey: syncRunKeys.latest }),
+      ])
     },
   })
   const running = latest?.status === 'running'
@@ -92,16 +82,14 @@ function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
         <Button
           size="sm"
           className="ml-auto"
-          disabled={unconfigured || trigger.isPending}
+          disabled={unconfigured || trigger.isPending || running}
           onClick={() => trigger.mutate()}
         >
           {running && <Loader2Icon className="animate-spin" />}
           {running ? '同步中…' : '立即同步'}
         </Button>
       </div>
-      {trigger.error && !isRejected(trigger.error) && (
-        <ErrorNote onClose={trigger.reset}>{trigger.error.message}</ErrorNote>
-      )}
+      {trigger.error && <ErrorNote onClose={trigger.reset}>{trigger.error.message}</ErrorNote>}
     </div>
   )
 }

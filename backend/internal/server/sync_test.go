@@ -44,16 +44,20 @@ func TestSyncRunsAPI(t *testing.T) {
 		}
 		srv := syncServer(t, cfg, src)
 
-		// 触发立即返回 202 和同步 ID，同步在后台进行
-		if _, _, data := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusAccepted); string(data) != `{"id":1}` {
-			t.Errorf("触发返回 %s, want {\"id\":1}", data)
+		// 一次都没同步过时最近一次为 null
+		if _, _, data := call(t, srv, http.MethodGet, "/api/sync-runs/latest", "", http.StatusOK); string(data) != "null" {
+			t.Errorf("没有同步记录时最近一次 = %s, want null", data)
+		}
+
+		// 触发立即返回 202，不带数据，同步在后台进行
+		if _, _, data := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusAccepted); string(data) != "null" {
+			t.Errorf("触发返回 %s, want null", data)
 		}
 		synctest.Wait()
 
-		code, message, _ := call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusConflict)
-		if code != 1 || message != "同步正在进行" {
-			t.Errorf("同步进行中再触发：code=%d message=%q", code, message)
-		}
+		// 同步进行中再触发同样返回 202，这次触发被丢弃
+		call(t, srv, http.MethodPost, "/api/sync-runs", "", http.StatusAccepted)
+		synctest.Wait()
 
 		// 进行中每提交一部剧，已完成数加一
 		progress := func() string {
@@ -107,6 +111,12 @@ func TestSyncRunsAPI(t *testing.T) {
 		wantListFields := slices.DeleteFunc(slices.Clone(wantFields), func(f string) bool { return f == "warnings" })
 		if len(list) != 1 || !slices.Equal(slices.Sorted(maps.Keys(list[0])), wantListFields) {
 			t.Errorf("列表 = %s, want 一条不含 warnings 的记录", data)
+		}
+
+		// 最近一次与列表的第一条相同
+		_, _, latest := call(t, srv, http.MethodGet, "/api/sync-runs/latest", "", http.StatusOK)
+		if !maps.EqualFunc(decodeObject(t, latest), list[0], func(a, b json.RawMessage) bool { return string(a) == string(b) }) {
+			t.Errorf("最近一次 = %s\nwant 列表的第一条 %s", latest, data)
 		}
 
 		for _, tt := range []struct {

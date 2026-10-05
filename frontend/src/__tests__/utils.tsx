@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
 import { ApiError } from '@/api/request'
-import { getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
+import { getLatestSyncRun, getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
 import { routes } from '@/router/routes'
 
 /** 在 path 渲染完整的路由（根布局加页面），每次用新的 QueryClient */
@@ -41,7 +41,7 @@ export function syncRun(id: number, patch: Partial<SyncRunDetail> = {}): SyncRun
 
 /**
  * 假的同步记录接口，在 beforeEach 里调用；测试文件要先 vi.mock('@/api/sync')。
- * listSyncRuns、getSyncRun 按返回对象的 runs（服务端的同步记录，新的在前）返回，用例改 runs 来推进同步。
+ * listSyncRuns、getSyncRun、getLatestSyncRun 按返回对象的 runs（服务端的同步记录，新的在前）返回，用例改 runs 来推进同步。
  */
 export function mockSyncRuns() {
   const server = {
@@ -52,6 +52,9 @@ export function mockSyncRuns() {
     },
   }
   vi.mocked(listSyncRuns).mockImplementation(async () => structuredClone(server.runs))
+  vi.mocked(getLatestSyncRun).mockImplementation(async () =>
+    server.runs[0] ? structuredClone(server.runs[0]) : null,
+  )
   vi.mocked(getSyncRun).mockImplementation(async (id) => {
     const run = server.runs.find((r) => r.id === id)
     if (!run) throw new ApiError('同步记录不存在', 1, 404)

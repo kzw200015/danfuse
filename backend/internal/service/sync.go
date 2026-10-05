@@ -38,20 +38,19 @@ const (
 )
 
 var (
-	errSyncRunning     = errcode.ErrConflict.WithMessage("同步正在进行")
+	errSyncRunning     = errors.New("sync already running")
 	errNoCatalogSource = errcode.ErrConflict.WithMessage("未配置目录源")
 	errSyncRunNotFound = errcode.ErrNotFound.WithMessage("同步记录不存在")
-	errShuttingDown    = errcode.ErrServiceUnavailable.WithMessage("服务正在关闭")
 )
 
 // SyncService 同步：触发、定时、互斥、同步核心（按剧写入目录）、同步记录。
 //
-// 生命周期：App.Run 运行 Run(ctx)；手动触发经 Trigger 交给 Run 的循环。每次同步在独立的 goroutine 里执行，
+// 生命周期：App.Run 运行 Run(ctx)；手动触发经 Trigger 交给 Run 的循环，不等同步开始。每次同步在独立的 goroutine 里执行，
 // 用的是 Run 的 ctx（应用级），不是 HTTP 请求的 ctx。ctx 取消时这次同步记为 interrupted，Run 等它写完记录再返回，
 // 之后 wire 的 cleanup 才关闭连接池。
 //
 // 互斥靠同步的租约（database.LeaseSync），多实例同样成立：每次同步持有租约直到结束，用租约的 ctx 执行，
-// 租约丢失时这次同步同样记为 interrupted。
+// 租约丢失时这次同步同样记为 interrupted。已有同步在跑时，定时和手动的触发都被丢弃，只记日志。
 type SyncService struct {
 	store    repository.Store
 	pool     *pgxpool.Pool  // 拿同步的租约
@@ -59,14 +58,8 @@ type SyncService struct {
 	interval time.Duration
 	logger   *slog.Logger
 
-	triggers chan chan triggerResult // 手动触发：Run 的循环收到后开始同步，把结果送回
-	stopped  chan struct{}           // Run 返回时关闭，之后的手动触发不再等它
-	wg       sync.WaitGroup          // 进行中的同步
-}
-
-type triggerResult struct {
-	runID int64
-	err   error
+	manual chan struct{}  // 手动触发，容量 1：Run 的循环还没接收时，之后的触发合并进这一个
+	wg     sync.WaitGroup // 进行中的同步
 }
 
 func NewSyncService(store repository.Store, pool *pgxpool.Pool, src catalog.Source, cfg config.Sync, logger *slog.Logger) *SyncService {
@@ -76,15 +69,13 @@ func NewSyncService(store repository.Store, pool *pgxpool.Pool, src catalog.Sour
 		source:   src,
 		interval: cfg.Interval,
 		logger:   logger,
-		triggers: make(chan chan triggerResult),
-		stopped:  make(chan struct{}),
+		manual:   make(chan struct{}, 1),
 	}
 }
 
 // Run 后台循环，阻塞到 ctx 取消；返回前等进行中的同步写完最终状态。只能调用一次。
 // 启动时先清理残留的 running；配置了目录源且 interval > 0 时每隔一个间隔触发一次，启动时不立即同步。
 func (s *SyncService) Run(ctx context.Context) {
-	defer close(s.stopped)
 	s.cleanupStale(ctx)
 
 	var tick <-chan time.Time
@@ -99,36 +90,24 @@ func (s *SyncService) Run(ctx context.Context) {
 			s.wg.Wait()
 			return
 		case <-tick:
-			switch _, err := s.start(ctx, triggerSchedule); {
-			case errors.Is(err, errSyncRunning):
-				s.logger.Info("sync already running, scheduled sync skipped")
-			case err != nil:
-				s.logger.Error("start scheduled sync failed", "error", err)
-			}
-		case reply := <-s.triggers:
-			runID, err := s.start(ctx, triggerManual)
-			reply <- triggerResult{runID: runID, err: err}
+			s.start(ctx, triggerSchedule)
+		case <-s.manual:
+			s.start(ctx, triggerManual)
 		}
 	}
 }
 
-// Trigger 手动触发一次同步，同步开始后立即返回它的 ID，同步在后台进行。
-// 未配置目录源返回 errNoCatalogSource；已有同步在跑（包括其他实例）返回 errSyncRunning；
-// Run 已经返回（服务正在关闭）时返回 503，不拖住优雅关闭。
-func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
+// Trigger 手动触发一次同步，不等它开始：Run 的循环收到后在后台开始同步，已有同步在跑（包括其他实例）时丢弃，只记日志。
+// 未配置目录源返回 errNoCatalogSource。服务正在关闭时触发留在通道里，不会再被接收。
+func (s *SyncService) Trigger() error {
 	if s.source == nil {
-		return 0, errNoCatalogSource
+		return errNoCatalogSource
 	}
-	reply := make(chan triggerResult, 1)
 	select {
-	case s.triggers <- reply:
-	case <-s.stopped:
-		return 0, errShuttingDown
-	case <-ctx.Done():
-		return 0, ctx.Err()
+	case s.manual <- struct{}{}:
+	default:
 	}
-	r := <-reply
-	return r.runID, r.err
+	return nil
 }
 
 // ListRuns 最近 20 次同步，新的在前，不含警告正文。
@@ -138,6 +117,18 @@ func (s *SyncService) ListRuns(ctx context.Context) ([]repository.ListSyncRunsRo
 		return nil, fmt.Errorf("list sync runs: %w", err)
 	}
 	return runs, nil
+}
+
+// LatestRun 最近一次同步，不含警告正文；一次都没有同步过时为 nil。
+func (s *SyncService) LatestRun(ctx context.Context) (*repository.ListSyncRunsRow, error) {
+	runs, err := s.store.ListSyncRuns(ctx, 1)
+	if err != nil {
+		return nil, fmt.Errorf("get latest sync run: %w", err)
+	}
+	if len(runs) == 0 {
+		return nil, nil
+	}
+	return &runs[0], nil
 }
 
 // GetRun 一次同步的详情，含警告。
@@ -181,27 +172,37 @@ func (s *SyncService) interruptStale(ctx context.Context) error {
 	return nil
 }
 
-// start 拿租约 → 清理残留的 running → 删掉最近 20 次以前的记录 → 插入 running 记录 → 在后台执行。
-// 租约由执行同步的 goroutine 持有到结束。
-func (s *SyncService) start(ctx context.Context, trigger string) (int64, error) {
+// start 开始一次同步，出错（包括已有同步在跑）只记日志。
+func (s *SyncService) start(ctx context.Context, trigger string) {
+	switch err := s.tryStart(ctx, trigger); {
+	case errors.Is(err, errSyncRunning):
+		s.logger.Info("sync already running, skipped", "trigger", trigger)
+	case err != nil && ctx.Err() == nil:
+		s.logger.Error("start sync failed", "trigger", trigger, "error", err)
+	}
+}
+
+// tryStart 拿租约 → 清理残留的 running → 删掉最近 20 次以前的记录 → 插入 running 记录 → 在后台执行。
+// 租约由执行同步的 goroutine 持有到结束；拿不到租约时返回 errSyncRunning。
+func (s *SyncService) tryStart(ctx context.Context, trigger string) error {
 	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSync)
 	if err != nil {
-		return 0, fmt.Errorf("acquire sync lease: %w", err)
+		return fmt.Errorf("acquire sync lease: %w", err)
 	}
 	if !ok {
-		return 0, errSyncRunning
+		return errSyncRunning
 	}
 
 	runID, err := s.createRun(lease.Context(), trigger)
 	if err != nil {
 		lease.Release()
-		return 0, err
+		return err
 	}
 	s.wg.Go(func() {
 		defer lease.Release()
 		s.execute(lease.Context(), runID)
 	})
-	return runID, nil
+	return nil
 }
 
 func (s *SyncService) createRun(ctx context.Context, trigger string) (int64, error) {

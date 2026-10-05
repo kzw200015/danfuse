@@ -19,7 +19,7 @@ import {
   type SeriesDetail,
 } from '@/api/series'
 import { getSettings } from '@/api/settings'
-import { listSyncRuns } from '@/api/sync'
+import { getLatestSyncRun } from '@/api/sync'
 import { seriesKeys } from '@/hooks/use-series'
 
 vi.mock('@/api/bindings')
@@ -111,7 +111,7 @@ beforeEach(() => {
     syncInterval: 0,
     bilibiliSessdataConfigured: false,
   })
-  vi.mocked(listSyncRuns).mockResolvedValue([])
+  vi.mocked(getLatestSyncRun).mockResolvedValue(null)
   vi.mocked(listSeries).mockImplementation(async () =>
     all.map(({ seasons, ...s }) => {
       const episodes = seasons.flatMap((se) => se.episodes)

@@ -4,7 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { advance, mockSyncRuns, syncRun } from '@/__tests__/utils'
-import { getSyncRun } from '@/api/sync'
+import { getLatestSyncRun } from '@/api/sync'
 import { seriesKeys } from '@/hooks/use-series'
 import { useLatestSyncRun } from '@/hooks/use-sync-runs'
 
@@ -41,40 +41,50 @@ function renderLatestSyncRun() {
 }
 
 describe('useLatestSyncRun', () => {
-  it('最近一次同步为 running 时每秒轮询它的详情，结束后停止并让剧列表和剧详情失效', async () => {
+  it('一直每 2 秒轮询最近一次同步，running 的结束后让剧列表和剧详情失效', async () => {
     server.runs = [
       syncRun(2, { status: 'running', finishedAt: null, total: 3, done: 1 }),
       syncRun(1),
     ]
     const { result, seriesInvalidated } = renderLatestSyncRun()
-    await waitFor(() => expect(getSyncRun).toHaveBeenCalledWith(2))
+    await waitFor(() => expect(result.current).toMatchObject({ id: 2, done: 1 }))
 
-    // 每秒一次：推进 3 秒至少新增 3 次请求
-    const calls = vi.mocked(getSyncRun).mock.calls.length
+    // 每 2 秒一次：推进 6 秒至少新增 3 次请求
+    const calls = vi.mocked(getLatestSyncRun).mock.calls.length
     server.updateLatest({ done: 2 })
-    await advance(3000)
-    expect(vi.mocked(getSyncRun).mock.calls.length - calls).toBeGreaterThanOrEqual(3)
-    // 详情顺带替换列表里的这一条
+    await advance(6000)
+    expect(vi.mocked(getLatestSyncRun).mock.calls.length - calls).toBeGreaterThanOrEqual(3)
     await waitFor(() => expect(result.current).toMatchObject({ id: 2, done: 2 }))
     expect(seriesInvalidated()).toEqual([false, false])
 
     server.updateLatest({ status: 'succeeded', done: 3, finishedAt: '2026-10-05T08:03:00Z' })
-    await advance(1000)
+    await advance(2000)
     await waitFor(() => expect(seriesInvalidated()).toEqual([true, true]))
     expect(result.current).toMatchObject({ id: 2, status: 'succeeded' })
 
-    const finished = vi.mocked(getSyncRun).mock.calls.length
-    await advance(5000)
-    expect(getSyncRun).toHaveBeenCalledTimes(finished)
+    // 结束之后照常轮询
+    const finished = vi.mocked(getLatestSyncRun).mock.calls.length
+    await advance(4000)
+    expect(vi.mocked(getLatestSyncRun).mock.calls.length - finished).toBeGreaterThanOrEqual(2)
   })
 
-  it('最近一次同步已经结束时不轮询，也不让剧列表失效', async () => {
+  it('最近一次同步已经结束时不让剧列表失效', async () => {
     server.runs = [syncRun(1, { warningCount: 3 })]
     const { result, seriesInvalidated } = renderLatestSyncRun()
 
     await waitFor(() => expect(result.current).toMatchObject({ id: 1, warningCount: 3 }))
     await advance(5000)
-    expect(getSyncRun).not.toHaveBeenCalled()
     expect(seriesInvalidated()).toEqual([false, false])
+  })
+
+  it('一次都没同步过时为 undefined；之后出现的同步没赶上轮询就已结束，也让剧列表失效', async () => {
+    const { result, seriesInvalidated } = renderLatestSyncRun()
+    await waitFor(() => expect(getLatestSyncRun).toHaveBeenCalled())
+    expect(result.current).toBeUndefined()
+
+    server.runs = [syncRun(1, { createdSeries: 1 })]
+    await advance(2000)
+    await waitFor(() => expect(seriesInvalidated()).toEqual([true, true]))
+    expect(result.current).toMatchObject({ id: 1 })
   })
 })

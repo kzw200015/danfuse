@@ -43,12 +43,11 @@ func syncCatalog(t *testing.T, cfg *pgxpool.Config, items ...catalog.Item) {
 	t.Helper()
 	synctest.Test(t, func(t *testing.T) {
 		svc, _ := startSync(t, cfg, &fakeSource{items: items})
-		id, err := svc.Trigger(t.Context())
-		if err != nil {
+		if err := svc.Trigger(); err != nil {
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		if run, err := svc.GetRun(t.Context(), id); err != nil || run.Status != "succeeded" {
+		if run, err := svc.LatestRun(t.Context()); err != nil || run == nil || run.Status != "succeeded" {
 			t.Fatalf("同步没有成功：%+v, %v", run, err)
 		}
 	})
