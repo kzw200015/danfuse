@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
 import { useSettings } from '@/hooks/use-settings'
-import { pluginUrl } from '@/lib/plugin-url'
+import { dandanUrl } from '@/lib/dandan-url'
 import { formatSeconds } from '@/lib/time'
 
 /** 目录源种类的显示名 */
@@ -47,8 +47,8 @@ function SettingsContent() {
   return (
     <>
       <section className="grid gap-1.5">
-        <h3 className="text-sm font-medium">插件地址</h3>
-        <PluginUrl token={data.dandanplayToken} />
+        <h3 className="text-sm font-medium">弹弹 API 地址</h3>
+        <DandanUrl token={data.dandanplayToken} />
       </section>
       <Separator />
       <section className="grid gap-1.5">
@@ -71,9 +71,9 @@ function SettingsContent() {
   )
 }
 
-/** 填进 jellyfin-danmaku 插件的地址，按当前打开管理界面的地址拼出 */
-function PluginUrl({ token }: { token: string | null }) {
-  const url = pluginUrl(location.origin, token)
+/** 填进播放器的弹弹 API 地址，按当前打开管理界面的地址拼出 */
+function DandanUrl({ token }: { token: string | null }) {
+  const url = dandanUrl(location.origin, token)
   const [copyFailed, setCopyFailed] = useState(false)
 
   async function copy() {
@@ -81,7 +81,7 @@ function PluginUrl({ token }: { token: string | null }) {
     try {
       // 剪贴板只在 https 或 localhost 页面可用，通过 http 访问内网地址时 navigator.clipboard 不存在
       await navigator.clipboard.writeText(url)
-      toast.success('已复制插件地址')
+      toast.success('已复制弹弹 API 地址')
     } catch {
       setCopyFailed(true)
     }
@@ -104,7 +104,8 @@ function PluginUrl({ token }: { token: string | null }) {
         </ErrorNote>
       )}
       <p className="text-xs text-muted-foreground">
-        插件会在后面拼 /api/v2。通过反向代理访问时，把前半段换成反代的地址。
+        填进 jellyfin-danmaku 插件或播放器的自定义弹幕 API，它们会在后面拼
+        /api/v2。通过反向代理访问时，把前半段换成反代的地址。
       </p>
     </div>
   )

@@ -625,7 +625,7 @@ describe('删除剧、季、集', () => {
       expect(
         dialog.getByText(
           '如果它在目录源里还在，之后的同步（包括正在进行的这次）会用新 ID 重新建出来，' +
-            '插件里缓存的旧 ID 会失效，需要在插件里重新搜一次。',
+            '插件、播放器里缓存的旧 ID 会失效，需要重新搜一次。',
         ),
       ).toBeInTheDocument()
       expect(remove).not.toHaveBeenCalled()

@@ -60,6 +60,29 @@ func TestVector(t *testing.T) {
 	}
 }
 
+func TestSameWords(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"星海旅人", "星海旅人", true},
+		{"Steins;Gate", "steins gate", true},
+		{"ＯＶＥＲＬＯＲＤ２", "Overlord 2", true},
+		{"  星海旅人 ", "星海旅人", true},
+		{"星海旅人", "旅人", false},
+		{"星海旅人", "星海旅人外传", false},
+		{"Steins;Gate", "Steins", false},
+		{"星海 旅人", "星海旅人", false}, // 中日韩字符串之间的分隔符也把词切开
+		{"！？", "！？", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		if got := SameWords(tt.a, tt.b); got != tt.want {
+			t.Errorf("SameWords(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
 func TestQuery(t *testing.T) {
 	tests := []struct {
 		name    string

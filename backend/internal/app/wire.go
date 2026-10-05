@@ -30,7 +30,7 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		newCatalogSource,
 		newSourceRegistry,
 		service.ProviderSet,
-		newProvider,
+		newAggregator,
 		handler.ProviderSet,
 		dandan.NewHandler,
 		server.New,

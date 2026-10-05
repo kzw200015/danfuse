@@ -35,6 +35,8 @@ type Querier interface {
 	GetImage(ctx context.Context, id int64) (GetImageRow, error)
 	// 同步时与目录源的新图比较，不取图片本身。
 	GetImageSHA256(ctx context.Context, id int64) ([]byte, error)
+	// 弹弹 API 的作品详情：一季连同所属剧的类型、剧名、原名和年份，列与 SearchSeasons 相同。季不存在时没有行。
+	GetSeason(ctx context.Context, id int64) (GetSeasonRow, error)
 	GetSeries(ctx context.Context, id int64) (Series, error)
 	GetSyncRun(ctx context.Context, id int64) (SyncRun, error)
 	// 同一集重复绑定同一个弹幕源时撞上唯一约束 (episode_id, adapter, ref)。
@@ -53,7 +55,7 @@ type Querier interface {
 	// 一个绑定的 snapshot 弹幕，时间未校正。合并时重新排序，这里不排。
 	// 一条 SELECT 读完：清空后重新拉取在一个事务里完成，读到的要么全旧、要么全新。
 	ListDanmakuByBinding(ctx context.Context, bindingID int64) ([]ListDanmakuByBindingRow, error)
-	// 搜索结果里各季的全部集，按季、集号排序。
+	// 搜索结果、作品详情里各季的全部集，按季、集号排序。
 	ListEpisodesBySeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesBySeasonsRow, error)
 	// 一部剧的全部集，按集号排序。
 	ListEpisodesBySeries(ctx context.Context, seriesID int64) ([]Episode, error)
@@ -81,6 +83,7 @@ type Querier interface {
 	// 目录搜索，query 是 Go 拼好的 tsquery 文本（fulltext.Query）。排序全在这里：
 	// ts_rank 降序（权重数组按 {D, C, B, A} 的顺序：A、B、C 为 1.0、0.67、0.33，D 不用）→ 剧名短的在前
 	// → 年份降序，无年份最后 → 剧 id → 季号，特别篇最后。调用方多取一条，用来判断后面还有没有。
+	// 给了 season 时只要这个季号的季，给了 episode 时只要有这个集号的季，都在截断之前过滤。
 	SearchSeasons(ctx context.Context, arg SearchSeasonsParams) ([]SearchSeasonsRow, error)
 	// 搜索列是 Go 生成的 tsvector 文本（catalog.SearchVector），直接转换，不经过 PostgreSQL 的分词器。
 	SetSeasonSearchVector(ctx context.Context, arg SetSeasonSearchVectorParams) error

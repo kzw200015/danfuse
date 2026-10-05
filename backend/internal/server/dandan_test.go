@@ -31,7 +31,8 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// 插件契约测试：按 jellyfin-danmaku 插件实际的调用方式原样重放请求，按插件的读法断言结果。
+// 弹弹 API 的测试。插件契约测试按 jellyfin-danmaku 插件实际的调用方式原样重放请求，按插件的读法断言结果；
+// 插件不调用的 search/anime、bangumi、match 按官方 Swagger 的结构断言。
 
 // jellyfinOrigin 插件运行在 Jellyfin Web 的页面里，对 danfuse 的请求都是跨域的。
 const jellyfinOrigin = "https://jellyfin.example.com"
@@ -157,6 +158,18 @@ func pluginGet(t *testing.T, srv *Server, target string, header http.Header) (*h
 		}
 	}
 	return rec, body
+}
+
+// dandanPost 发一个带 JSON 请求体的 POST（match）：跨域，像浏览器里的客户端，不要求压缩。返回响应和响应体。
+func dandanPost(t *testing.T, srv *Server, target, body string) (*httptest.ResponseRecorder, []byte) {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, strings.NewReader(body))
+	req.Header.Set("Origin", jellyfinOrigin)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	srv.echo.ServeHTTP(rec, req)
+	return rec, rec.Body.Bytes()
 }
 
 // pluginAnime 插件从 search/episodes 的响应里读的字段。
@@ -331,10 +344,40 @@ func TestSearchEpisodesResponse(t *testing.T) {
 		})
 	}
 
-	// 没有 anime 参数；episode、tmdbId 忽略
+	// 没有 anime 参数时 episode、tmdbId 不起作用
 	for _, target := range []string{"/dandanplay/api/v2/search/episodes", "/dandanplay/api/v2/search/episodes?tmdbId=1&episode=1"} {
 		_, body := pluginGet(t, srv, target, nil)
 		assertJSON(t, body, empty)
+	}
+}
+
+// TestSearchEpisodesEpisode 只保留一集：episode 参数为正整数时，或 anime 里写明了集号时（参数优先），没有这一集的季不返回。
+// 其他值的 episode 忽略。
+func TestSearchEpisodesEpisode(t *testing.T) {
+	t.Parallel()
+	srv := newDandanServer(t, "", pluginCatalog()...)
+
+	secondSeason := func(episodes string) string {
+		return `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "hasMore": false, "animes": [
+			{"animeId": 2, "animeTitle": "星海旅人 第2季", "type": "tvseries", "typeDescription": "剧集 · 2019", "episodes": [` + episodes + `]}]}`
+	}
+	only13 := secondSeason(`{"episodeId": 3, "episodeTitle": "第13话 新的航程"}`)
+	for _, tt := range []struct {
+		query string
+		want  string
+	}{
+		{"anime=星海旅人&episode=13", only13},
+		{"anime=星海旅人 第13话", only13},
+		{"anime=星海旅人 S02E13", only13},
+		{"anime=星海旅人 第1话&episode=13", only13},
+		{"anime=星海旅人&episode=99", `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "hasMore": false, "animes": []}`},
+		{"anime=星海旅人 第2季&episode=C1", secondSeason(`{"episodeId": 3, "episodeTitle": "第13话 新的航程"}, {"episodeId": 4, "episodeTitle": "第14话"}`)},
+		{"anime=星海旅人 第2季&episode=0", secondSeason(`{"episodeId": 3, "episodeTitle": "第13话 新的航程"}, {"episodeId": 4, "episodeTitle": "第14话"}`)},
+	} {
+		t.Run(tt.query, func(t *testing.T) {
+			_, body := pluginGet(t, srv, "/dandanplay/api/v2/search/episodes?"+tt.query, nil)
+			assertJSON(t, body, tt.want)
+		})
 	}
 }
 
@@ -356,6 +399,117 @@ func TestSearchEpisodesHasMore(t *testing.T) {
 	}
 	if len(resp.Animes) != 50 || !resp.HasMore {
 		t.Errorf("返回 %d 季，hasMore %v；want 50 季，hasMore true", len(resp.Animes), resp.HasMore)
+	}
+
+	// search/anime 的响应没有 hasMore，同样最多 50 季
+	_, body = pluginGet(t, srv, "/dandanplay/api/v2/search/anime?keyword=长篇连载", nil)
+	var animeResp struct {
+		Animes []json.RawMessage `json:"animes"`
+	}
+	if err := json.Unmarshal(body, &animeResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(animeResp.Animes) != 50 {
+		t.Errorf("search/anime 返回 %d 季，want 50", len(animeResp.Animes))
+	}
+}
+
+// searchAnimeJSON search/anime 里的一个作品：目录里没有的海报、上映日期、评分、关注状态为固定的值。
+func searchAnimeJSON(id int, title, animeType, typeDescription string, episodeCount int) string {
+	return fmt.Sprintf(`{"animeId": %d, "bangumiId": "%d", "animeTitle": %q, "type": %q, "typeDescription": %q,
+		"imageUrl": null, "startDate": null, "episodeCount": %d, "rating": 0, "isFavorited": false}`,
+		id, id, title, animeType, typeDescription, episodeCount)
+}
+
+func TestSearchAnimeResponse(t *testing.T) {
+	t.Parallel()
+	srv := newDandanServer(t, "", pluginCatalog()...)
+
+	animes := func(items ...string) string {
+		return `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "animes": [` + strings.Join(items, ",") + `]}`
+	}
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{
+			// 与 search/episodes 是同一个搜索：季的名称、类型、排序都相同，不带集，只给集数
+			"剧集", "?keyword=星海旅人", animes(
+				searchAnimeJSON(1, "星海旅人", "tvseries", "剧集 · 2019", 2),
+				searchAnimeJSON(2, "星海旅人 第2季", "tvseries", "剧集 · 2019", 2),
+				searchAnimeJSON(3, "星海旅人 特别篇", "tvspecial", "特别篇 · 2019", 1),
+			),
+		},
+		{"电影", "?keyword=长夜灯塔", animes(searchAnimeJSON(6, "长夜灯塔", "movie", "电影 · 2020", 1))},
+		{"没有年份时省略年份", "?keyword=无名之旅", animes(searchAnimeJSON(7, "无名之旅", "tvseries", "剧集", 1))},
+		{"关键词带分号", "?keyword=Steins;Gate", animes(searchAnimeJSON(8, "Steins;Gate", "tvseries", "剧集 · 2011", 1))},
+		{"空格分开的词都要命中", "?keyword=星海旅人 第2季", animes(searchAnimeJSON(2, "星海旅人 第2季", "tvseries", "剧集 · 2019", 2))},
+		{"type 忽略", "?keyword=长夜灯塔&type=tvseries", animes(searchAnimeJSON(6, "长夜灯塔", "movie", "电影 · 2020", 1))},
+		// 只要有这一集的季，集数仍是总集数
+		{"写明集号", "?keyword=星海旅人 第13话", animes(searchAnimeJSON(2, "星海旅人 第2季", "tvseries", "剧集 · 2019", 2))},
+		{"搜不到", "?keyword=星海旅人 灯塔", animes()},
+		{"不足 2 个字符（与 search/episodes 同一套关键词规则）", "?keyword=星", animes()},
+		{"没有 keyword 参数", "?anime=星海旅人", animes()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec, body := pluginGet(t, srv, "/dandanplay/api/v2/search/anime"+tt.target, nil)
+			if rec.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200", rec.Code)
+			}
+			assertJSON(t, body, tt.want)
+		})
+	}
+}
+
+// bangumiJSON 作品详情的响应：字段按官方 Swagger 一个不少，目录里没有的信息为固定的零值。
+func bangumiJSON(id int, title, animeType, typeDescription string, episodes ...string) string {
+	return fmt.Sprintf(`{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "bangumi": {
+		"animeId": %d, "bangumiId": "%d", "animeTitle": %q, "imageUrl": null, "searchKeyword": null,
+		"isOnAir": false, "airDay": 0, "isFavorited": false, "isRestricted": false, "rating": 0,
+		"type": %q, "typeDescription": %q, "titles": [], "seasons": [], "episodes": [%s],
+		"summary": null, "intro": null, "metadata": [], "bangumiUrl": null, "userRating": 0, "favoriteStatus": null,
+		"comment": null, "ratingDetails": {}, "relateds": [], "similars": [], "tags": [], "onlineDatabases": [], "trailers": []
+	}}`, id, id, title, animeType, typeDescription, strings.Join(episodes, ","))
+}
+
+// bangumiEpisodeJSON 作品详情里的一集：集标题与 search/episodes 相同，episodeNumber 是集号。
+func bangumiEpisodeJSON(id, number int, title string) string {
+	return fmt.Sprintf(`{"seasonId": null, "episodeId": %d, "episodeTitle": %q, "episodeNumber": "%d", "lastWatched": null, "airDate": null}`,
+		id, title, number)
+}
+
+func TestBangumiResponse(t *testing.T) {
+	t.Parallel()
+	srv := newDandanServer(t, "", pluginCatalog()...)
+
+	for _, tt := range []struct {
+		id   string
+		want string
+	}{
+		{"2", bangumiJSON(2, "星海旅人 第2季", "tvseries", "剧集 · 2019",
+			bangumiEpisodeJSON(3, 13, "第13话 新的航程"), bangumiEpisodeJSON(4, 14, "第14话"))},
+		{"3", bangumiJSON(3, "星海旅人 特别篇", "tvspecial", "特别篇 · 2019", bangumiEpisodeJSON(5, 1, "第1话 番外"))},
+		{"6", bangumiJSON(6, "长夜灯塔", "movie", "电影 · 2020", bangumiEpisodeJSON(9, 1, "第1话"))},
+		{"7", bangumiJSON(7, "无名之旅", "tvseries", "剧集", bangumiEpisodeJSON(10, 1, "第1话"))},
+	} {
+		rec, body := pluginGet(t, srv, "/dandanplay/api/v2/bangumi/"+tt.id, nil)
+		if rec.Code != http.StatusOK {
+			t.Errorf("bangumi/%s: status = %d, want 200", tt.id, rec.Code)
+		}
+		assertJSON(t, body, tt.want)
+	}
+
+	// 找不到作品：HTTP 200、success 为 false、bangumi 为 null。Echo 里路由末尾的参数匹配到路径末尾，
+	// 所以没有注册的 bangumi/bgmtv/{id} 也落到这里，结构与官方那个接口找不到番剧时相同
+	notFound := `{"errorCode": 404, "success": false, "errorMessage": "作品不存在", "errorDetail": null, "bangumi": null}`
+	for _, id := range []string{"999999", "0", "-1", "10000000000000", "abc", "tmdb-movie-21832", "bgmtv/975"} {
+		rec, body := pluginGet(t, srv, "/dandanplay/api/v2/bangumi/"+id, nil)
+		if rec.Code != http.StatusOK {
+			t.Errorf("bangumi/%s: status = %d, want 200", id, rec.Code)
+		}
+		assertJSON(t, body, notFound)
 	}
 }
 
@@ -513,6 +667,118 @@ func TestCommentResponse(t *testing.T) {
 	}
 }
 
+// TestSearchAnimeBangumiComment 先搜作品、再取作品详情、再取弹幕：前一步给出的 ID 能用于下一步；
+// 作品详情列出的集与 search/episodes 里同一季的集相同，集数与 search/anime 给出的一致。
+func TestSearchAnimeBangumiComment(t *testing.T) {
+	t.Parallel()
+	srv := newCommentServer(t)
+
+	_, body := pluginGet(t, srv, "/dandanplay/api/v2/search/anime?keyword=星海旅人", nil)
+	var search struct {
+		Animes []struct {
+			AnimeID      int64  `json:"animeId"`
+			BangumiID    string `json:"bangumiId"`
+			EpisodeCount int    `json:"episodeCount"`
+		} `json:"animes"`
+	}
+	if err := json.Unmarshal(body, &search); err != nil || len(search.Animes) == 0 {
+		t.Fatalf("search/anime: %s", body)
+	}
+	anime := search.Animes[0]
+
+	_, body = pluginGet(t, srv, "/dandanplay/api/v2/bangumi/"+anime.BangumiID, nil)
+	var detail struct {
+		Bangumi struct {
+			AnimeID  int64 `json:"animeId"`
+			Episodes []struct {
+				EpisodeID    int64  `json:"episodeId"`
+				EpisodeTitle string `json:"episodeTitle"`
+			} `json:"episodes"`
+		} `json:"bangumi"`
+	}
+	if err := json.Unmarshal(body, &detail); err != nil || detail.Bangumi.AnimeID != anime.AnimeID {
+		t.Fatalf("bangumi/%s: %s", anime.BangumiID, body)
+	}
+	episodes := detail.Bangumi.Episodes
+	if len(episodes) != anime.EpisodeCount {
+		t.Errorf("作品详情有 %d 集，search/anime 给出 %d 集", len(episodes), anime.EpisodeCount)
+	}
+	for _, a := range searchEpisodes(t, srv, "/dandanplay", "星海旅人") {
+		if a.AnimeID != anime.AnimeID {
+			continue
+		}
+		if len(a.Episodes) != len(episodes) {
+			t.Fatalf("search/episodes 有 %d 集，作品详情有 %d 集", len(a.Episodes), len(episodes))
+		}
+		for i, e := range a.Episodes {
+			if e.EpisodeID != episodes[i].EpisodeID || e.EpisodeTitle != episodes[i].EpisodeTitle {
+				t.Errorf("第 %d 集：search/episodes 为 %+v，作品详情为 %+v", i, e, episodes[i])
+			}
+		}
+	}
+
+	if got := pluginComments(t, srv, "/dandanplay", episodes[0].EpisodeID); len(got) != 6 {
+		t.Errorf("集 %d 的弹幕有 %d 条，want 6", episodes[0].EpisodeID, len(got))
+	}
+}
+
+// matchResultJSON match 的一个候选：作品与集的名称和格式同搜索结果，shift 为 0，没有海报。
+func matchResultJSON(episodeID, animeID int, animeTitle, episodeTitle, animeType, typeDescription string) string {
+	return fmt.Sprintf(`{"episodeId": %d, "animeId": %d, "animeTitle": %q, "episodeTitle": %q, "type": %q, "typeDescription": %q,
+		"shift": 0, "imageUrl": null}`, episodeID, animeID, animeTitle, episodeTitle, animeType, typeDescription)
+}
+
+// TestMatch match 只按文件名识别：认出集号，其余部分交给搜索；候选唯一且标题与剧名或原名相同时 isMatched 为 true。
+func TestMatch(t *testing.T) {
+	t.Parallel()
+	srv := newDandanServer(t, "", pluginCatalog()...)
+
+	response := func(isMatched bool, matches ...string) string {
+		return fmt.Sprintf(`{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "isMatched": %v, "matches": [%s]}`,
+			isMatched, strings.Join(matches, ","))
+	}
+	request := func(fileName string) string {
+		return fmt.Sprintf(`{"fileName": %q, "fileSize": 0, "matchMode": "fileNameOnly", "fileHash": "123d05841b9456ccc7420b3f0bb21c3b", "videoDuration": 0}`, fileName)
+	}
+	firstEpisode := matchResultJSON(1, 1, "星海旅人", "第1话 启程", "tvseries", "剧集 · 2019")
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"剧名加季号和集号", request("星海旅人 S01E02"), response(true, matchResultJSON(2, 1, "星海旅人", "第2话 归航", "tvseries", "剧集 · 2019"))},
+		{"集号接着上一季往下数", request("星海旅人 S02E13"), response(true, matchResultJSON(3, 2, "星海旅人 第2季", "第13话 新的航程", "tvseries", "剧集 · 2019"))},
+		{"第 0 季是特别篇", request("星海旅人 S00E01"), response(true, matchResultJSON(5, 3, "星海旅人 特别篇", "第1话 番外", "tvspecial", "特别篇 · 2019"))},
+		{"原名", request("ほしうみの旅人 S01E01"), response(true, firstEpisode)},
+		{"标题带分号", request("Steins;Gate S01E01"), response(true, matchResultJSON(11, 8, "Steins;Gate", "第1话", "tvseries", "剧集 · 2011"))},
+		{"不区分大小写", request("night watch S02E01"), response(true, matchResultJSON(8, 5, "Night Watch 第2季", "第1话", "tvseries", "剧集 · 2010"))},
+		{"季号和集号分开写", request("星海旅人 第2季 第13话"), response(true, matchResultJSON(3, 2, "星海旅人 第2季", "第13话 新的航程", "tvseries", "剧集 · 2019"))},
+		{"电影唯一的一季是第 1 季", request("长夜灯塔 S01E01"), response(true, matchResultJSON(9, 6, "长夜灯塔", "第1话", "movie", "电影 · 2020"))},
+		{"官方默认的匹配模式同样按文件名", `{"fileName": "星海旅人 S01E01", "fileHash": "658d05841b9476ccc7420b3f0bb21c3b", "fileSize": 1073741824}`, response(true, firstEpisode)},
+		// 搜索命中的是剧名中的一段：候选唯一也不算确定
+		{"标题只是剧名的一段", request("旅人 S01E01"), response(false, firstEpisode)},
+		// 只有集号时，这部剧有这一集的季都是候选，按搜索的排序
+		{"只有集号", request("星海旅人 第1话"), response(false, firstEpisode, matchResultJSON(5, 3, "星海旅人 特别篇", "第1话 番外", "tvspecial", "特别篇 · 2019"))},
+		{"这一季没有这一集", request("星海旅人 S02E01"), response(false)},
+		{"没有这一季", request("Night Watch S03E01"), response(false)},
+		{"认不出集号", request("长夜灯塔"), response(false)},
+		{"文件名里有搜不到的内容", request("[字幕组] 星海旅人 第01话 [1080p]"), response(false)},
+		{"只按 hash 匹配", `{"fileName": "星海旅人 S01E01", "fileHash": "658d05841b9476ccc7420b3f0bb21c3b", "matchMode": "hashOnly"}`, response(false)},
+		{"没有文件名", `{}`, response(false)},
+		{"空请求体", ``, response(false)},
+		{"不是 JSON", `不是 JSON`, response(false)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec, got := dandanPost(t, srv, "/dandanplay/api/v2/match", tt.body)
+			if rec.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200", rec.Code)
+			}
+			assertJSON(t, got, tt.want)
+		})
+	}
+}
+
 func TestRelated(t *testing.T) {
 	t.Parallel()
 	srv := newDandanServer(t, "", pluginCatalog()...)
@@ -533,15 +799,16 @@ func TestDandanUnregisteredEndpoints(t *testing.T) {
 
 	for _, target := range []string{
 		"/dandanplay/api/v2/extcomment?chConvert=0&url=https://www.bilibili.com/video/BV1xx411c7XX",
-		"/dandanplay/api/v2/bangumi/1",
-		"/dandanplay/api/v2/match",
-		"/dandanplay/api/v2/search/anime?keyword=星海旅人",
+		"/dandanplay/api/v2/search/tmdb?keyword=星海旅人",
 	} {
 		rec, body := pluginGet(t, srv, target, nil)
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s: status = %d, want 404", target, rec.Code)
 		}
 		assertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`) // 前缀下没命中的路由走全局处理
+	}
+	if rec, body := dandanPost(t, srv, "/dandanplay/api/v2/match/batch", `{"requests": []}`); rec.Code != http.StatusNotFound {
+		t.Errorf("POST match/batch: status = %d, want 404, body %s", rec.Code, body)
 	}
 }
 
@@ -552,43 +819,53 @@ func TestDandanCORS(t *testing.T) {
 	// 带 Origin 的请求（浏览器的跨域请求都带），响应都带 Access-Control-Allow-Origin，包括出错的
 	for _, target := range []string{
 		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
+		"/dandanplay/api/v2/search/anime?keyword=星海旅人",
+		"/dandanplay/api/v2/bangumi/1",
 		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
 		"/dandanplay/api/v2/related/1",
-		"/dandanplay/api/v2/match",
+		"/dandanplay/api/v2/extcomment",
 	} {
 		if rec, _ := pluginGet(t, srv, target, nil); rec.Header().Get("Access-Control-Allow-Origin") != "*" {
 			t.Errorf("GET %s: Access-Control-Allow-Origin = %q, want *", target, rec.Header().Get("Access-Control-Allow-Origin"))
 		}
 	}
+	if rec, _ := dandanPost(t, srv, "/dandanplay/api/v2/match", `{}`); rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("POST match: Access-Control-Allow-Origin = %q, want *", rec.Header().Get("Access-Control-Allow-Origin"))
+	}
 
-	// 插件设置了 User-Agent 请求头，保留它的浏览器会先发预检
-	for _, target := range []string{
-		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
-		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
-		"/dandanplay/api/v2/related/1",
+	// 插件设置了 User-Agent 请求头，保留它的浏览器会先发预检；POST JSON 请求体（match）也要先预检
+	for _, tt := range []struct {
+		target, method, headers string
+	}{
+		{"/dandanplay/api/v2/search/episodes?anime=星海旅人", http.MethodGet, "user-agent"},
+		{"/dandanplay/api/v2/search/anime?keyword=星海旅人", http.MethodGet, "user-agent"},
+		{"/dandanplay/api/v2/bangumi/1", http.MethodGet, "user-agent"},
+		{"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1", http.MethodGet, "user-agent"},
+		{"/dandanplay/api/v2/related/1", http.MethodGet, "user-agent"},
+		{"/dandanplay/api/v2/match", http.MethodPost, "content-type"},
 	} {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, browserURL(target), nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, browserURL(tt.target), nil)
 		req.Header.Set("Origin", jellyfinOrigin)
-		req.Header.Set("Access-Control-Request-Method", http.MethodGet)
-		req.Header.Set("Access-Control-Request-Headers", "user-agent")
+		req.Header.Set("Access-Control-Request-Method", tt.method)
+		req.Header.Set("Access-Control-Request-Headers", tt.headers)
 		rec := httptest.NewRecorder()
 		srv.echo.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusNoContent {
-			t.Errorf("OPTIONS %s: status = %d, want 204", target, rec.Code)
+			t.Errorf("OPTIONS %s: status = %d, want 204", tt.target, rec.Code)
 		}
 		h := rec.Header()
-		if got := strings.ReplaceAll(h.Get("Access-Control-Allow-Methods"), " ", ""); got != "GET,OPTIONS" {
-			t.Errorf("OPTIONS %s: Allow-Methods = %q, want GET, OPTIONS", target, h.Get("Access-Control-Allow-Methods"))
+		if got := strings.ReplaceAll(h.Get("Access-Control-Allow-Methods"), " ", ""); got != "GET,POST,OPTIONS" {
+			t.Errorf("OPTIONS %s: Allow-Methods = %q, want GET, POST, OPTIONS", tt.target, h.Get("Access-Control-Allow-Methods"))
 		}
 		for name, want := range map[string]string{
 			"Access-Control-Allow-Origin":      "*",
-			"Access-Control-Allow-Headers":     "user-agent", // 回显请求的 Access-Control-Request-Headers
+			"Access-Control-Allow-Headers":     tt.headers, // 回显请求的 Access-Control-Request-Headers
 			"Access-Control-Max-Age":           "86400",
 			"Access-Control-Allow-Credentials": "",
 		} {
 			if got := h.Get(name); got != want {
-				t.Errorf("OPTIONS %s: %s = %q, want %q", target, name, got, want)
+				t.Errorf("OPTIONS %s: %s = %q, want %q", tt.target, name, got, want)
 			}
 		}
 	}
@@ -609,6 +886,8 @@ func TestDandanGzip(t *testing.T) {
 
 	for _, target := range []string{
 		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
+		"/dandanplay/api/v2/search/anime?keyword=星海旅人",
+		"/dandanplay/api/v2/bangumi/1",
 		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
 		"/dandanplay/api/v2/related/1",
 	} {
@@ -629,8 +908,16 @@ func TestDandanToken(t *testing.T) {
 	if animeID, episodeID := pluginMatch(t, srv, "/dandanplay/s3cret", jellyfinItem{"星海旅人", "", 2, 13}); animeID != 2 || episodeID != 3 {
 		t.Errorf("带 token 的地址：选中季 %d 集 %d, want 季 2 集 3", animeID, episodeID)
 	}
-	if rec, _ := pluginGet(t, srv, "/dandanplay/s3cret/api/v2/related/1", nil); rec.Code != http.StatusOK {
-		t.Errorf("带 token 的 related: status = %d, want 200", rec.Code)
+	for _, target := range []string{"/dandanplay/s3cret/api/v2/related/1", "/dandanplay/s3cret/api/v2/bangumi/1"} {
+		if rec, _ := pluginGet(t, srv, target, nil); rec.Code != http.StatusOK {
+			t.Errorf("GET %s: status = %d, want 200", target, rec.Code)
+		}
+	}
+	if rec, _ := dandanPost(t, srv, "/dandanplay/s3cret/api/v2/match", `{}`); rec.Code != http.StatusOK {
+		t.Errorf("带 token 的 match: status = %d, want 200", rec.Code)
+	}
+	if rec, _ := dandanPost(t, srv, "/dandanplay/api/v2/match", `{}`); rec.Code != http.StatusNotFound {
+		t.Errorf("不带 token 的 match: status = %d, want 404", rec.Code)
 	}
 	for _, target := range []string{
 		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
@@ -659,6 +946,8 @@ func TestDandanIgnoresAppHeaders(t *testing.T) {
 
 	for _, target := range []string{
 		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
+		"/dandanplay/api/v2/search/anime?keyword=星海旅人",
+		"/dandanplay/api/v2/bangumi/1",
 		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
 		"/dandanplay/api/v2/related/1",
 	} {
@@ -680,22 +969,44 @@ func TestDandanServerError(t *testing.T) {
 
 	tests := []struct {
 		target    string
+		post      string // 不为空时发 POST，这是请求体
 		wantRoute string
 		wantBody  string
 	}{
 		{
-			"/search/episodes?anime=星海旅人", "/dandanplay/:token/api/v2/search/episodes",
+			"/match", `{"fileName": "星海旅人 S01E01"}`, "/dandanplay/:token/api/v2/match",
+			`{"errorCode": 1, "success": false, "errorMessage": "服务器内部错误", "errorDetail": null, "isMatched": false, "matches": []}`,
+		},
+		{
+			"/search/episodes?anime=星海旅人", "", "/dandanplay/:token/api/v2/search/episodes",
 			`{"errorCode": 1, "success": false, "errorMessage": "服务器内部错误", "errorDetail": null, "hasMore": false, "animes": []}`,
 		},
+		{
+			"/search/anime?keyword=星海旅人", "", "/dandanplay/:token/api/v2/search/anime",
+			`{"errorCode": 1, "success": false, "errorMessage": "服务器内部错误", "errorDetail": null, "animes": []}`,
+		},
+		{
+			"/bangumi/1", "", "/dandanplay/:token/api/v2/bangumi/:bangumiId",
+			`{"errorCode": 1, "success": false, "errorMessage": "服务器内部错误", "errorDetail": null, "bangumi": null}`,
+		},
 		// 官方的 CommentResponseV2 只有 count 和 comments，不加 success、errorCode
-		{"/comment/1?withRelated=true&chConvert=1", "/dandanplay/:token/api/v2/comment/:episodeId", `{"count": 0, "comments": []}`},
+		{"/comment/1?withRelated=true&chConvert=1", "", "/dandanplay/:token/api/v2/comment/:episodeId", `{"count": 0, "comments": []}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.wantRoute, func(t *testing.T) {
 			var logs bytes.Buffer
 			srv := dandanServer(pool, token, &logs)
 
-			rec, body := pluginGet(t, srv, "/dandanplay/"+token+"/api/v2"+tt.target, nil)
+			target := "/dandanplay/" + token + "/api/v2" + tt.target
+			method := http.MethodGet
+			var rec *httptest.ResponseRecorder
+			var body []byte
+			if tt.post != "" {
+				method = http.MethodPost
+				rec, body = dandanPost(t, srv, target, tt.post)
+			} else {
+				rec, body = pluginGet(t, srv, target, nil)
+			}
 
 			if rec.Code != http.StatusInternalServerError {
 				t.Errorf("status = %d, want 500", rec.Code)
@@ -716,8 +1027,8 @@ func TestDandanServerError(t *testing.T) {
 				t.Fatalf("应恰好记录一条日志：%v\n%s", err, logs.String())
 			}
 			if want := rec.Header().Get("X-Request-Id"); entry.Level != "ERROR" || entry.RequestID == "" || entry.RequestID != want ||
-				entry.Method != http.MethodGet || entry.Route != tt.wantRoute || entry.Error == "" {
-				t.Errorf("日志 = %+v, want ERROR、request_id %q、GET、路由模式 %s 和错误链", entry, want, tt.wantRoute)
+				entry.Method != method || entry.Route != tt.wantRoute || entry.Error == "" {
+				t.Errorf("日志 = %+v, want ERROR、request_id %q、%s、路由模式 %s 和错误链", entry, want, method, tt.wantRoute)
 			}
 			if strings.Contains(logs.String(), token) {
 				t.Errorf("日志里出现了 token：%s", logs.String())

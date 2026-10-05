@@ -35,10 +35,10 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 	api.GET("/settings", h.Settings.Get)
 }
 
-// registerDandanRoutes 弹弹 API 挂在 /dandanplay[/<token>]/api/v2 下，插件在填写的地址后面固定拼 /api/v2。
-// CORS（插件在浏览器里从 Jellyfin 的源跨域请求）与 Gzip 只作用于这个前缀，管理 API 不加。
+// registerDandanRoutes 弹弹 API 挂在 /dandanplay[/<token>]/api/v2 下，客户端在填写的地址后面固定拼 /api/v2。
+// CORS（浏览器里的客户端跨域请求，例如插件从 Jellyfin 的源请求）与 Gzip 只作用于这个前缀，管理 API 不加。
 // 配置了 token 时前缀注册为 /dandanplay/:token/api/v2，由组中间件比较 token：5xx 日志记录的是注册时的路由模式，
-// token 因此不会出现在日志里。extcomment、bangumi、match、search/anime 不注册，返回 404。
+// token 因此不会出现在日志里。只注册从搜索到取弹幕的接口，其余（match/batch、extcomment、search/tmdb 等）返回 404。
 func registerDandanRoutes(e *echo.Echo, cfg config.Dandanplay, h *dandan.Handler) {
 	prefix := "/dandanplay/api/v2"
 	var middlewares []echo.MiddlewareFunc
@@ -50,7 +50,7 @@ func registerDandanRoutes(e *echo.Echo, cfg config.Dandanplay, h *dandan.Handler
 		// 组上的中间件对组内没命中的路由同样生效（Echo 为组注册了 404 路由），OPTIONS 预检因此也经过 CORS
 		middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins: []string{"*"},
-			AllowMethods: []string{http.MethodGet, http.MethodOptions},
+			AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodOptions}, // POST 用于 match
 			MaxAge:       86400,
 			// AllowHeaders 留空：预检时回显请求里的 Access-Control-Request-Headers
 		}),
@@ -58,7 +58,10 @@ func registerDandanRoutes(e *echo.Echo, cfg config.Dandanplay, h *dandan.Handler
 	)
 
 	g := e.Group(prefix, middlewares...)
+	g.POST("/match", h.Match)
 	g.GET("/search/episodes", h.SearchEpisodes)
+	g.GET("/search/anime", h.SearchAnime)
+	g.GET("/bangumi/:bangumiId", h.Bangumi)
 	g.GET("/comment/:episodeId", h.Comment)
 	g.GET("/related/:episodeId", h.Related)
 }

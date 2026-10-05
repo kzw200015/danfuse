@@ -27,7 +27,7 @@ func newSourceRegistry(cfg config.Bilibili) *source.Registry {
 	return source.NewRegistry(bilibili.New(cfg))
 }
 
-// newProvider 弹弹 API 用的 Provider：聚合层，现在只注册了本地 Provider。
-func newProvider(local *service.LocalProvider) provider.Provider {
+// newAggregator 弹弹 API 用的聚合层，现在只注册了本地 Provider。
+func newAggregator(local *service.LocalProvider) *provider.Aggregator {
 	return provider.NewAggregator(local)
 }

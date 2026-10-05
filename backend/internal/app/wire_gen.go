@@ -58,8 +58,8 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		Settings: settingsHandler,
 	}
 	localProvider := service.NewLocalProvider(sqlStore, registry)
-	provider := newProvider(localProvider)
-	dandanHandler := dandan.NewHandler(provider)
+	aggregator := newAggregator(localProvider)
+	dandanHandler := dandan.NewHandler(aggregator)
 	serverServer := server.New(configServer, dandanplay, slogLogger, handlers, dandanHandler)
 	app := New(serverServer, syncService)
 	return app, func() {

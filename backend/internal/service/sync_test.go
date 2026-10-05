@@ -16,6 +16,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/errcode"
+	"github.com/kzw200015/danfuse/backend/internal/provider"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 )
 
@@ -177,7 +178,7 @@ func TestSyncRecomputesSearchVectors(t *testing.T) {
 			"Star Voyager":  nil,
 			"归航":            {"星海旅人 第2季 · 剧集 2019 · 2 · 1"}, // 这次没有给出的季保留原来的季标题
 		} {
-			if got, _ := searchSeasons(t, pool, keyword, 50); !slices.Equal(got, want) {
+			if got, _ := searchSeasons(t, pool, provider.SearchQuery{Keyword: keyword, MaxSeasons: 50}); !slices.Equal(got, want) {
 				t.Errorf("Search(%q) = %q, want %q", keyword, got, want)
 			}
 		}

@@ -121,7 +121,7 @@ describe('设置弹出层', () => {
     expect(await within(dialog).findByText('未配置目录源')).toBeInTheDocument()
   })
 
-  it('插件地址按当前页面的地址拼出，可以复制', async () => {
+  it('弹弹 API 地址按当前页面的地址拼出，可以复制', async () => {
     vi.mocked(getSettings).mockResolvedValue({
       dandanplayToken: 's3cret',
       catalogSource: null,
@@ -140,7 +140,7 @@ describe('设置弹出层', () => {
     expect(await within(dialog).findByText(url)).toBeInTheDocument()
 
     fireEvent.click(within(dialog).getByRole('button', { name: '复制' }))
-    expect(await screen.findByText('已复制插件地址')).toBeInTheDocument()
+    expect(await screen.findByText('已复制弹弹 API 地址')).toBeInTheDocument()
     expect(writeText).toHaveBeenCalledWith(url)
   })
 

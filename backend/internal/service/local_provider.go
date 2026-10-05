@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
@@ -12,7 +16,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// LocalProvider 本地 Provider：在目录里搜索季，读取一集所有绑定的弹幕。
+// LocalProvider 本地 Provider：在目录里搜索季、按 ID 取季，读取一集所有绑定的弹幕。
 type LocalProvider struct {
 	store   repository.Store
 	sources *source.Registry // 绑定的适配器决定弹幕在哪个平台
@@ -24,14 +28,22 @@ func NewLocalProvider(store repository.Store, sources *source.Registry) *LocalPr
 	return &LocalProvider{store: store, sources: sources}
 }
 
-// Search 按季的搜索列查找，排序全在 SQL 里；多取一条判断 HasMore，再为返回的季查一次集列表。
-// 季有没有绑定都照常返回。关键词切不出词时返回空。
+// Search 关键词按 catalog.ParseName 拆开：标题部分按季的搜索列查找，写明的季号、集号（集号以 q.Episode 优先）
+// 在 SQL 里按季号、集号过滤，排序全在 SQL 里；多取一条判断 HasMore，再为返回的季查一次集列表。
+// 季有没有绑定都照常返回。标题部分切不出词时返回空。
 func (p *LocalProvider) Search(ctx context.Context, q provider.SearchQuery) (provider.SearchResult, error) {
-	query := fulltext.Query(q.Keyword)
+	name := catalog.ParseName(q.Keyword)
+	query := fulltext.Query(name.Title)
 	if query == "" {
 		return provider.SearchResult{}, nil
 	}
-	rows, err := p.store.SearchSeasons(ctx, repository.SearchSeasonsParams{Query: query, MaxRows: int32(q.MaxSeasons + 1)})
+	episode := q.Episode
+	if episode == nil {
+		episode = name.Episode
+	}
+	rows, err := p.store.SearchSeasons(ctx, repository.SearchSeasonsParams{
+		Query: query, Season: int32Ptr(name.Season), Episode: int32Ptr(episode), MaxRows: int32(q.MaxSeasons + 1),
+	})
 	if err != nil {
 		return provider.SearchResult{}, fmt.Errorf("search seasons: %w", err)
 	}
@@ -45,28 +57,71 @@ func (p *LocalProvider) Search(ctx context.Context, q provider.SearchQuery) (pro
 	for i, r := range rows {
 		ids[i] = r.ID
 	}
-	episodes, err := p.store.ListEpisodesBySeasons(ctx, ids)
+	episodes, err := p.listEpisodes(ctx, ids)
 	if err != nil {
-		return provider.SearchResult{}, fmt.Errorf("list episodes of seasons: %w", err)
+		return provider.SearchResult{}, err
 	}
-	byID := make(map[int64][]provider.Episode, len(rows)) // 季 ID → 集，查询已按集号排序
-	for _, e := range episodes {
-		byID[e.SeasonID] = append(byID[e.SeasonID], provider.Episode{ID: e.ID, Number: int(e.Number), Title: emptyIfNull(e.Title)})
-	}
-
-	result.Seasons = make([]provider.Season, len(rows))
-	for i, r := range rows {
-		typ, number := catalog.SeriesType(r.Type), int(r.Number)
-		result.Seasons[i] = provider.Season{
-			ID:       r.ID,
-			Name:     catalog.SeasonName(typ, r.Title, number),
-			Kind:     seasonKind(typ, number),
-			Year:     intPtr(r.Year),
-			Number:   &number,
-			Episodes: byID[r.ID],
+	result.Seasons = make([]provider.Season, 0, len(rows))
+	for _, r := range rows {
+		s := seasonOf(r, episodes[r.ID])
+		if episode != nil {
+			s.Episodes = slices.DeleteFunc(s.Episodes, func(e provider.Episode) bool { return e.Number != *episode })
+			if len(s.Episodes) == 0 { // 查完季之后这一集被删除了，不返回，保证返回的季都带着这一集
+				continue
+			}
 		}
+		result.Seasons = append(result.Seasons, s)
 	}
 	return result, nil
+}
+
+// Season 一季连同它的全部集，与 Search 返回的同一季相同。不包事务：查完季后它被删除时，集列表读成空的。
+func (p *LocalProvider) Season(ctx context.Context, id int64) (provider.Season, bool, error) {
+	row, err := p.store.GetSeason(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return provider.Season{}, false, nil
+	}
+	if err != nil {
+		return provider.Season{}, false, fmt.Errorf("get season %d: %w", id, err)
+	}
+	episodes, err := p.listEpisodes(ctx, []int64{id})
+	if err != nil {
+		return provider.Season{}, false, err
+	}
+	// GetSeason 的列与 SearchSeasons 相同，行可以直接转换；两边的列不一致时编译不通过
+	return seasonOf(repository.SearchSeasonsRow(row), episodes[id]), true, nil
+}
+
+// listEpisodes 各季的全部集，按季 ID 分组，组内按集号升序。
+func (p *LocalProvider) listEpisodes(ctx context.Context, seasonIDs []int64) (map[int64][]provider.Episode, error) {
+	rows, err := p.store.ListEpisodesBySeasons(ctx, seasonIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list episodes of seasons: %w", err)
+	}
+	bySeason := make(map[int64][]provider.Episode, len(seasonIDs)) // 查询已按集号排序
+	for _, e := range rows {
+		bySeason[e.SeasonID] = append(bySeason[e.SeasonID], provider.Episode{ID: e.ID, Number: int(e.Number), Title: emptyIfNull(e.Title)})
+	}
+	return bySeason, nil
+}
+
+// seasonOf 由查出的一季（季号与所属剧的类型、剧名、原名、年份）和它的全部集组装一季，名称和类别按目录的规则得出。
+func seasonOf(r repository.SearchSeasonsRow, episodes []provider.Episode) provider.Season {
+	typ, n := catalog.SeriesType(r.Type), int(r.Number)
+	titles := []string{r.Title}
+	if r.OriginalTitle != nil {
+		titles = append(titles, *r.OriginalTitle)
+	}
+	return provider.Season{
+		ID:           r.ID,
+		Name:         catalog.SeasonName(typ, r.Title, n),
+		Titles:       titles,
+		Kind:         seasonKind(typ, n),
+		Year:         intPtr(r.Year),
+		Number:       &n,
+		Episodes:     episodes,
+		EpisodeCount: len(episodes),
+	}
 }
 
 // Comments 一集的全部弹幕：读出这一集的绑定（失效的照常参与），逐个取出弹幕，交给 danmaku.Merge

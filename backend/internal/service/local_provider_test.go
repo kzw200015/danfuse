@@ -61,11 +61,11 @@ func describe(s provider.Season) string {
 	return fmt.Sprintf("%s · %s %s · %s · %s", s.Name, kinds[s.Kind], year, number, strings.Join(episodes, ", "))
 }
 
-func searchSeasons(t *testing.T, pool *pgxpool.Pool, keyword string, maxSeasons int) (seasons []string, hasMore bool) {
+func searchSeasons(t *testing.T, pool *pgxpool.Pool, q provider.SearchQuery) (seasons []string, hasMore bool) {
 	t.Helper()
-	result, err := NewLocalProvider(repository.NewStore(pool), source.NewRegistry()).Search(t.Context(), provider.SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons})
+	result, err := NewLocalProvider(repository.NewStore(pool), source.NewRegistry()).Search(t.Context(), q)
 	if err != nil {
-		t.Fatalf("Search(%q): %v", keyword, err)
+		t.Fatalf("Search(%+v): %v", q, err)
 	}
 	for _, s := range result.Seasons {
 		seasons = append(seasons, describe(s))
@@ -126,7 +126,7 @@ func TestLocalSearch(t *testing.T) {
 			{"切不出词", "・！", nil},
 		}
 		for _, tt := range tests {
-			got, hasMore := searchSeasons(t, pool, tt.keyword, 50)
+			got, hasMore := searchSeasons(t, pool, provider.SearchQuery{Keyword: tt.keyword, MaxSeasons: 50})
 			if !slices.Equal(got, tt.want) || hasMore {
 				t.Errorf("%s：Search(%q) = %q, hasMore %v\nwant %q", tt.name, tt.keyword, got, hasMore, tt.want)
 			}
@@ -151,13 +151,118 @@ func TestLocalSearchHasMore(t *testing.T) {
 			{50, 50, true},
 			{51, 51, false},
 		} {
-			got, hasMore := searchSeasons(t, pool, "长篇连载", tt.maxSeasons)
+			got, hasMore := searchSeasons(t, pool, provider.SearchQuery{Keyword: "长篇连载", MaxSeasons: tt.maxSeasons})
 			if len(got) != tt.wantLen || hasMore != tt.wantHasMore {
 				t.Errorf("最多 %d 季：返回 %d 季，hasMore %v；want %d 季，hasMore %v", tt.maxSeasons, len(got), hasMore, tt.wantLen, tt.wantHasMore)
 			}
 			if len(got) > 0 && got[0] != "长篇连载 · 剧集 - · 1 · 1" {
 				t.Errorf("最多 %d 季：第一季 = %q, want 第 1 季", tt.maxSeasons, got[0])
 			}
+		}
+	})
+}
+
+// TestLocalSearchSeasonEpisode 关键词里写明的季号、集号（catalog.ParseName）按季号、集号精确过滤，集号以参数优先；
+// 按集号过滤时只返回有这一集的季，每季只带这一集，过滤在截断之前。季带着所属剧的标题，有原名时加上原名。
+func TestLocalSearchSeasonEpisode(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		syncOnce(t, newTestService(t, pool, &fakeSource{items: searchCatalog()}))
+		episodeOne := []string{
+			"星海旅人 · 剧集 2023 · 1 · 1",
+			"星海旅人 · 电影 2019 · 1 · 1",
+			"星海旅人 · 剧集 2019 · 1 · 1",
+			"星海旅人 特别篇 · 特别篇 2019 · 0 · 1 番外",
+			"星海旅人 · 剧集 - · 1 · 1",
+			"星海旅人外传 · 剧集 2021 · 1 · 1",
+		}
+		secondSeason := "星海旅人 第2季 · 剧集 2019 · 2 · 13 启程, 14"
+		tests := []struct {
+			name    string
+			q       provider.SearchQuery
+			want    []string
+			hasMore bool
+		}{
+			{"集号参数", provider.SearchQuery{Keyword: "星海旅人", Episode: new(1)}, episodeOne, false},
+			{"截断之前过滤", provider.SearchQuery{Keyword: "星海旅人", Episode: new(13), MaxSeasons: 1}, []string{"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程"}, false},
+			{"截断之后还有", provider.SearchQuery{Keyword: "星海旅人", Episode: new(1), MaxSeasons: 2}, episodeOne[:2], true},
+			{"没有这一集", provider.SearchQuery{Keyword: "星海旅人", Episode: new(99)}, nil, false},
+			{"关键词里的集号", provider.SearchQuery{Keyword: "星海旅人 第13话"}, []string{"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程"}, false},
+			{"集号参数优先", provider.SearchQuery{Keyword: "星海旅人 第13话", Episode: new(1)}, episodeOne, false},
+			{"关键词里的季号", provider.SearchQuery{Keyword: "星海旅人 第2季"}, []string{secondSeason}, false},
+			{"关键词里的季号和集号", provider.SearchQuery{Keyword: "星海旅人 S02E13"}, []string{"星海旅人 第2季 · 剧集 2019 · 2 · 13 启程"}, false},
+			{"这一季没有这一集", provider.SearchQuery{Keyword: "星海旅人 第2季 第1话"}, nil, false},
+			// 电影唯一的一季也是第 1 季
+			{"只写季号", provider.SearchQuery{Keyword: "星海旅人 S01"}, []string{
+				"星海旅人 · 剧集 2023 · 1 · 1",
+				"星海旅人 · 电影 2019 · 1 · 1",
+				"星海旅人 · 剧集 2019 · 1 · 1, 2",
+				"星海旅人 · 剧集 - · 1 · 1",
+				"星海旅人外传 · 剧集 2021 · 1 · 1",
+			}, false},
+			{"没有标题", provider.SearchQuery{Keyword: "第2季 第13话"}, nil, false},
+		}
+		for _, tt := range tests {
+			if tt.q.MaxSeasons == 0 {
+				tt.q.MaxSeasons = 50
+			}
+			got, hasMore := searchSeasons(t, pool, tt.q)
+			if !slices.Equal(got, tt.want) || hasMore != tt.hasMore {
+				t.Errorf("%s：Search(%+v) = %q, hasMore %v\nwant %q, hasMore %v", tt.name, tt.q, got, hasMore, tt.want, tt.hasMore)
+			}
+		}
+
+		// 按集号过滤时总集数不变
+		p := NewLocalProvider(repository.NewStore(pool), source.NewRegistry())
+		result, err := p.Search(t.Context(), provider.SearchQuery{Keyword: "星海旅人 S02E13", MaxSeasons: 50})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Seasons) != 1 || len(result.Seasons[0].Episodes) != 1 || result.Seasons[0].EpisodeCount != 2 {
+			t.Errorf("Search(星海旅人 S02E13) = %+v, want 一季，带着一集，总集数 2", result.Seasons)
+		}
+
+		for keyword, want := range map[string][]string{
+			"长夜灯塔":   {"长夜灯塔", "Night Lighthouse"},
+			"星海旅人外传": {"星海旅人外传"},
+		} {
+			result, err := p.Search(t.Context(), provider.SearchQuery{Keyword: keyword, MaxSeasons: 50})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Seasons) != 1 || !slices.Equal(result.Seasons[0].Titles, want) {
+				t.Errorf("Search(%q) 的标题 = %+v, want 一季，标题 %q", keyword, result.Seasons, want)
+			}
+		}
+	})
+}
+
+// TestLocalSeason 按 ID 取到的季与搜索结果里的同一季相同（剧集、电影、特别篇、没有年份）；季不存在时 found 为 false。
+func TestLocalSeason(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		syncOnce(t, newTestService(t, pool, &fakeSource{items: searchCatalog()}))
+		p := NewLocalProvider(repository.NewStore(pool), source.NewRegistry())
+
+		result, err := p.Search(t.Context(), provider.SearchQuery{Keyword: "星海旅人", MaxSeasons: 50})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Seasons) != 7 {
+			t.Fatalf("搜到 %d 季，want 7", len(result.Seasons))
+		}
+		for _, want := range result.Seasons {
+			got, found, err := p.Season(t.Context(), want.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !found || describe(got) != describe(want) || got.ID != want.ID {
+				t.Errorf("Season(%d) = %q, found %v; want %q", want.ID, describe(got), found, describe(want))
+			}
+		}
+
+		if got, found, err := p.Season(t.Context(), 999999); err != nil || found {
+			t.Errorf("Season(999999) = %q, found %v, err %v; want 不存在", describe(got), found, err)
 		}
 	})
 }

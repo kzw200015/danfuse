@@ -9,6 +9,37 @@ import (
 	"context"
 )
 
+const getSeason = `-- name: GetSeason :one
+SELECT se.id, se.number, s.type, s.title, s.original_title, s.year
+FROM seasons se
+JOIN series s ON s.id = se.series_id
+WHERE se.id = $1
+`
+
+type GetSeasonRow struct {
+	ID            int64   `json:"id"`
+	Number        int32   `json:"number"`
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	OriginalTitle *string `json:"originalTitle"`
+	Year          *int32  `json:"year"`
+}
+
+// 弹弹 API 的作品详情：一季连同所属剧的类型、剧名、原名和年份，列与 SearchSeasons 相同。季不存在时没有行。
+func (q *Queries) GetSeason(ctx context.Context, id int64) (GetSeasonRow, error) {
+	row := q.db.QueryRow(ctx, getSeason, id)
+	var i GetSeasonRow
+	err := row.Scan(
+		&i.ID,
+		&i.Number,
+		&i.Type,
+		&i.Title,
+		&i.OriginalTitle,
+		&i.Year,
+	)
+	return i, err
+}
+
 const listEpisodesBySeasons = `-- name: ListEpisodesBySeasons :many
 SELECT id, season_id, number, title
 FROM episodes
@@ -23,7 +54,7 @@ type ListEpisodesBySeasonsRow struct {
 	Title    *string `json:"title"`
 }
 
-// 搜索结果里各季的全部集，按季、集号排序。
+// 搜索结果、作品详情里各季的全部集，按季、集号排序。
 func (q *Queries) ListEpisodesBySeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesBySeasonsRow, error) {
 	rows, err := q.db.Query(ctx, listEpisodesBySeasons, seasonIds)
 	if err != nil {
@@ -50,37 +81,49 @@ func (q *Queries) ListEpisodesBySeasons(ctx context.Context, seasonIds []int64) 
 }
 
 const searchSeasons = `-- name: SearchSeasons :many
-SELECT se.id, se.number, s.type, s.title, s.year
+SELECT se.id, se.number, s.type, s.title, s.original_title, s.year
 FROM seasons se
 JOIN series s ON s.id = se.series_id
 WHERE se.search_vector @@ $1::text::tsquery
+  AND ($2::int IS NULL OR se.number = $2::int)
+  AND ($3::int IS NULL
+    OR EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = se.id AND e.number = $3::int))
 ORDER BY ts_rank('{0.1, 0.33, 0.67, 1.0}'::real[], se.search_vector, $1::text::tsquery) DESC,
          char_length(s.title),
          s.year DESC NULLS LAST,
          s.id,
          se.number = 0,
          se.number
-LIMIT $2
+LIMIT $4
 `
 
 type SearchSeasonsParams struct {
 	Query   string `json:"query"`
+	Season  *int32 `json:"season"`
+	Episode *int32 `json:"episode"`
 	MaxRows int32  `json:"maxRows"`
 }
 
 type SearchSeasonsRow struct {
-	ID     int64  `json:"id"`
-	Number int32  `json:"number"`
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Year   *int32 `json:"year"`
+	ID            int64   `json:"id"`
+	Number        int32   `json:"number"`
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	OriginalTitle *string `json:"originalTitle"`
+	Year          *int32  `json:"year"`
 }
 
 // 目录搜索，query 是 Go 拼好的 tsquery 文本（fulltext.Query）。排序全在这里：
 // ts_rank 降序（权重数组按 {D, C, B, A} 的顺序：A、B、C 为 1.0、0.67、0.33，D 不用）→ 剧名短的在前
 // → 年份降序，无年份最后 → 剧 id → 季号，特别篇最后。调用方多取一条，用来判断后面还有没有。
+// 给了 season 时只要这个季号的季，给了 episode 时只要有这个集号的季，都在截断之前过滤。
 func (q *Queries) SearchSeasons(ctx context.Context, arg SearchSeasonsParams) ([]SearchSeasonsRow, error) {
-	rows, err := q.db.Query(ctx, searchSeasons, arg.Query, arg.MaxRows)
+	rows, err := q.db.Query(ctx, searchSeasons,
+		arg.Query,
+		arg.Season,
+		arg.Episode,
+		arg.MaxRows,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +136,7 @@ func (q *Queries) SearchSeasons(ctx context.Context, arg SearchSeasonsParams) ([
 			&i.Number,
 			&i.Type,
 			&i.Title,
+			&i.OriginalTitle,
 			&i.Year,
 		); err != nil {
 			return nil, err

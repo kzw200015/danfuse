@@ -11,6 +11,7 @@ package fulltext
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -116,6 +117,13 @@ func Query(keyword string) string {
 		return ""
 	}
 	return strings.Join(terms, " & ")
+}
+
+// SameWords 两段文本按同样的规则清洗、切分后，词序列是否完全相同：不区分大小写和全半角，分隔符不算，
+// 例如 "Steins;Gate" 与 "steins gate" 相同、与 "Steins" 不同。切不出任何词的文本与什么都不相同。
+func SameWords(a, b string) bool {
+	ta, tb := tokens(clean(a)), tokens(clean(b))
+	return len(ta) > 0 && slices.EqualFunc(ta, tb, func(x, y token) bool { return slices.Equal(x.text, y.text) })
 }
 
 func clean(s string) []rune {
