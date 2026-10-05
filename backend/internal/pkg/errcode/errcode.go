@@ -48,11 +48,6 @@ func (e *Error) WithMessage(message string) *Error {
 	return &Error{HTTPStatus: e.HTTPStatus, Code: e.Code, Message: message, parent: e, cause: e.cause}
 }
 
-// WithMessagef 同 WithMessage，支持格式化。
-func (e *Error) WithMessagef(format string, args ...any) *Error {
-	return e.WithMessage(fmt.Sprintf(format, args...))
-}
-
 // Wrap 派生一个携带底层原因的错误。
 func (e *Error) Wrap(err error) *Error {
 	return &Error{HTTPStatus: e.HTTPStatus, Code: e.Code, Message: e.Message, parent: e, cause: err}

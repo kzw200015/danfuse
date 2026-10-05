@@ -10,14 +10,6 @@ export interface ApiResponse<T = unknown> {
   data: T
 }
 
-/** 分页数据，对应后端 response.Page */
-export interface Page<T> {
-  list: T[]
-  total: number
-  page: number
-  pageSize: number
-}
-
 /** 接口错误。code 为业务码（见 ./errcode.ts），status 为 HTTP 状态码（无响应时为 0） */
 export class ApiError extends Error {
   readonly code: number

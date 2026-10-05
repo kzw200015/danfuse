@@ -176,10 +176,3 @@ func seasonKind(t catalog.SeriesType, number int) provider.SeasonKind {
 		return provider.KindSeries
 	}
 }
-
-func intPtr(v *int32) *int {
-	if v == nil {
-		return nil
-	}
-	return new(int(*v))
-}

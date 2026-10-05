@@ -10,3 +10,35 @@ var ProviderSet = wire.NewSet(
 	NewSyncService,
 	NewLocalProvider,
 )
+
+// 以下为列与 Go 类型之间的转换，同步写入与本地 Provider 读取共用。
+
+// nullIfEmpty 空串存为 null。
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// emptyIfNull null 读作空串。
+func emptyIfNull(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func int32Ptr(v *int) *int32 {
+	if v == nil {
+		return nil
+	}
+	return new(int32(*v))
+}
+
+func intPtr(v *int32) *int {
+	if v == nil {
+		return nil
+	}
+	return new(int(*v))
+}

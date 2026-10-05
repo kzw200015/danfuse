@@ -65,7 +65,7 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 - 批量写入用数组参数加 `unnest` 一条语句写完（如 `InsertDanmaku`，`ON CONFLICT DO NOTHING` 按主键去重，`:execrows` 返回实际插入的条数）；`bindings.danmaku_count` 这类计数在同一个事务里按插入的条数维护，读取时不 COUNT。列名 `offset` 是保留字，SQL 里要加引号。
 
 **错误处理与统一响应**（贯穿两端的核心约定）：
-- 所有接口返回 `{code, message, data}`，同时保留 REST 语义的 HTTP 状态码；分页 `data = {list, total, page, pageSize}`（`response.NewPage`）。
+- 所有接口返回 `{code, message, data}`，同时保留 REST 语义的 HTTP 状态码。
   - 例外：图片接口 `GET /api/images/:id` 成功时直接返回原始字节和存下的 content-type（`c.Blob`），加 `Cache-Control: public, max-age=31536000, immutable`（海报换了会换新的图片 ID）；出错时照常 return error，由 errorHandler 输出统一结构。前端用 `src/api/images.ts` 的 `imageUrl(id)` 交给 `<img>` 加载，不经过 `request()`。
   - 例外：弹弹 API（`/dandanplay[/<token>]/api/v2` 下）按官方 Swagger 的结构输出（`comment` 只有 `{count, comments}`，其余为 ResponseBase 加数据字段；Swagger 里的字段一个不少，目录里没有的信息输出零值：不可空的为 false、0，列表任何时候都是 `[]`，其余为 null；业务上的空返回 200 加空列表；`bangumi` 找不到作品时返回 200、`success:false`、`errorCode:404`、`bangumi:null`），不用 `response` 包。服务端故障时 `dandan` 的 handler 自己返回 500 和弹弹play 结构的响应体（`comment` 为 `{"count":0,"comments":[]}`，不加 `success`、`errorCode`），不交给 errorHandler，并调用 `logger.ServerError` 记日志；前缀下路由不匹配的 404、405 仍走全局处理。
 - handler/service 出错直接 `return errcode.ErrXxx`（通用错误有 `ErrBadRequest`、`ErrNotFound`、`ErrConflict`、`ErrUnprocessable`、`ErrBadGateway`、`ErrInternal`、`ErrServiceUnavailable`），按需 `.WithMessage()` 改写提示、`.Wrap(err)` 附带底层原因（只进日志）。`server/middleware.go` 的全局 `errorHandler` 统一转换：`*errcode.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。
