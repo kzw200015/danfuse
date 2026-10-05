@@ -59,26 +59,34 @@ func (s *SeasonBindingService) scan(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		unlock, ok, err := database.TryAdvisoryLockPair(ctx, s.pool, database.LockSeasonBackfill, id)
-		if err != nil {
-			if ctx.Err() == nil {
-				s.logger.ErrorContext(ctx, "acquire backfill lock failed", "season_binding_id", id, "error", err)
-			}
-			continue
+		s.scanOne(ctx, id)
+	}
+}
+
+// scanOne 拿到季绑定的锁、确认仍然到期后补建一轮，补建完随即解锁；正在补建时跳过。
+func (s *SeasonBindingService) scanOne(ctx context.Context, id int64) {
+	unlock, ok, err := database.TryAdvisoryLockPair(ctx, s.pool, database.LockSeasonBackfill, id)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.ErrorContext(ctx, "acquire backfill lock failed", "season_binding_id", id, "error", err)
 		}
-		if !ok {
-			continue
+		return
+	}
+	if !ok {
+		return
+	}
+	defer unlock()
+
+	// 列出之后、拿到锁之前，它可能刚被手动补建或其他实例的扫描检查过
+	due, err := s.store.ListDueSeasonBindings(ctx, dueParams(&id))
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.ErrorContext(ctx, "check season binding due failed", "season_binding_id", id, "error", err)
 		}
-		// 列出之后、拿到锁之前，它可能刚被手动补建或其他实例的扫描检查过
-		switch due, err := s.store.ListDueSeasonBindings(ctx, dueParams(&id)); {
-		case err != nil:
-			if ctx.Err() == nil {
-				s.logger.ErrorContext(ctx, "check season binding due failed", "season_binding_id", id, "error", err)
-			}
-		case len(due) > 0:
-			s.backfill(ctx, id)
-		}
-		unlock()
+		return
+	}
+	if len(due) > 0 {
+		s.backfill(ctx, id)
 	}
 }
 
