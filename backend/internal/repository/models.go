@@ -11,7 +11,7 @@ import (
 type Binding struct {
 	ID              int64      `json:"id"`
 	EpisodeID       int64      `json:"episodeId"`
-	Adapter         string     `json:"adapter"`
+	Adapter         *string    `json:"adapter"`
 	Ref             []byte     `json:"ref"`
 	Offset          float64    `json:"offset"`
 	Scale           float64    `json:"scale"`
@@ -19,11 +19,23 @@ type Binding struct {
 	ContentVersion  int32      `json:"contentVersion"`
 	DanmakuCount    int32      `json:"danmakuCount"`
 	Title           string     `json:"title"`
-	Duration        int32      `json:"duration"`
+	Duration        *int32     `json:"duration"`
 	LastFetchedAt   *time.Time `json:"lastFetchedAt"`
 	CreatedAt       time.Time  `json:"createdAt"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
 	SeasonBindingID *int64     `json:"seasonBindingId"`
+	Kind            string     `json:"kind"`
+	FileCount       int32      `json:"fileCount"`
+}
+
+type BindingFile struct {
+	ID         int64     `json:"id"`
+	BindingID  int64     `json:"bindingId"`
+	Name       string    `json:"name"`
+	Sha256     []byte    `json:"sha256"`
+	Size       int32     `json:"size"`
+	Content    []byte    `json:"content"`
+	UploadedAt time.Time `json:"uploadedAt"`
 }
 
 type Danmaku struct {

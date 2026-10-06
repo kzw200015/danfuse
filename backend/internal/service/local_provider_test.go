@@ -297,6 +297,7 @@ func TestLocalComments(t *testing.T) {
 			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420, 0, 1, 'active', 3),               -- 绑定 1
 			(1, 'bilibili', '{"epId": 2}', 'B 站番剧', 1422, 10, 1, 'dead', 3),               -- 绑定 2：失效
 			(1, 'fake', '{"name": "local"}', '没有平台的弹幕源', 2840, -2, 0.5, 'active', 2); -- 绑定 3
+		INSERT INTO bindings (episode_id, kind, title, danmaku_count) VALUES (1, 'file', '弹幕文件', 1); -- 绑定 4
 		INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES
 			(1, 101, 1000, 1, 16777215, '前排'),
 			(1, 102, 61000, 6, 15138834, '逆向'),
@@ -305,7 +306,8 @@ func TestLocalComments(t *testing.T) {
 			(2, 201, 51500, 1, 0, '逆向'),       -- 校正后 61.5 秒，与绑定 1 的那条相差 0.5 秒，按文本去掉
 			(2, 202, 300000, 5, 255, '失效绑定的弹幕'),
 			(3, 1, 2000, 1, 0, '太早了'),        -- 2 × 0.5 − 2 = −1 秒
-			(3, 2, 10000, 1, 0, '没有平台');`)
+			(3, 2, 10000, 1, 0, '没有平台'),
+			(4, 103, 200000, 1, 0, '弹幕文件里的');  -- 原始 ID 与绑定 1 的那条相同，但弹幕文件不属于任何平台，不按 ID 去掉`)
 
 	const bili = danmaku.PlatformBilibili
 	tests := []struct {
@@ -314,11 +316,12 @@ func TestLocalComments(t *testing.T) {
 		want      []danmaku.Item
 	}{
 		{
-			"多个绑定按 offset 与 scale 校正、跨源去重后按时间合并；失效绑定的弹幕照常输出", 1, []danmaku.Item{
+			"多个绑定按 offset 与 scale 校正、跨源去重后按时间合并；失效绑定的弹幕照常输出，弹幕文件的弹幕不属于任何平台", 1, []danmaku.Item{
 				{TimeMs: 1000, Mode: danmaku.ModeScroll, Color: 0xFFFFFF, Text: "前排", SourceID: 101, Platform: bili},
 				{TimeMs: 3000, Mode: danmaku.ModeScroll, Text: "没有平台", SourceID: 2, Platform: danmaku.PlatformNone},
 				{TimeMs: 61000, Mode: danmaku.ModeReverse, Color: 0xE70012, Text: "逆向", SourceID: 102, Platform: bili},
 				{TimeMs: 120000, Mode: danmaku.ModeBottom, Text: "底部", SourceID: 103, Platform: bili},
+				{TimeMs: 200000, Mode: danmaku.ModeScroll, Text: "弹幕文件里的", SourceID: 103, Platform: danmaku.PlatformNone},
 				{TimeMs: 310000, Mode: danmaku.ModeTop, Color: 0xFF, Text: "失效绑定的弹幕", SourceID: 202, Platform: bili},
 			},
 		},

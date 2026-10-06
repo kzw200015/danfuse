@@ -1,3 +1,4 @@
+import type { AppendFilesResult } from '@/api/bindings'
 import type { Episode, Season, SeriesDetail, SeriesSummary } from '@/api/series'
 
 // 标题里的数字按数值比较："第2部"排在"第10部"前面
@@ -125,4 +126,25 @@ export function parseOffset(text: string) {
 /** 目录页的地址：/catalog[/剧[/季[/集]]] */
 export function catalogPath(...ids: number[]) {
   return ['/catalog', ...ids].join('/')
+}
+
+/** 选择弹幕文件时的文件类型：目前只支持 B 站的 XML 弹幕文件 */
+export const DANMAKU_FILE_ACCEPT = '.xml,text/xml,application/xml'
+
+/** 文件大小，例如 512 B、12.3 KB、1.2 MB */
+export function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** 追加文件的结果提示：新加入几份、新增几条，已在绑定里的跳过几份 */
+export function appendFilesMessage({
+  files,
+  skipped,
+  added,
+}: Pick<AppendFilesResult, 'files' | 'skipped' | 'added'>) {
+  if (files === 0) return `没有新文件：${skipped} 份都已在这个绑定里`
+  const message = `已加入 ${files} 份文件，新增 ${added.toLocaleString()} 条弹幕`
+  return skipped > 0 ? `${message}；${skipped} 份已在绑定里，跳过` : message
 }

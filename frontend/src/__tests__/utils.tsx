@@ -3,7 +3,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
-import type { Binding } from '@/api/bindings'
+import type { FileBinding, LinkBinding } from '@/api/bindings'
 import { ApiError } from '@/api/request'
 import { getSeries, listSeries, type SeriesDetail, type SeriesSummary } from '@/api/series'
 import { getSettings, type Settings } from '@/api/settings'
@@ -91,9 +91,10 @@ export function mockRootLayout() {
 }
 
 /** 一个绑定，默认是正常的 B 站投稿 */
-export function binding(id: number, patch: Partial<Binding> = {}): Binding {
+export function binding(id: number, patch: Partial<LinkBinding> = {}): LinkBinding {
   return {
     id,
+    kind: 'link',
     adapter: 'bilibili',
     sourceUrl: `https://www.bilibili.com/video/BV1xx411c7X${id}`,
     sourceLabel: `B 站投稿 BV1xx411c7X${id}`,
@@ -103,6 +104,25 @@ export function binding(id: number, patch: Partial<Binding> = {}): Binding {
     status: 'active',
     danmakuCount: 1234,
     lastFetchedAt: '2026-10-05T08:00:00Z',
+    seasonBindingId: null,
+    ...patch,
+  }
+}
+
+/** 一个用弹幕文件建的绑定：没有适配器、链接和时长 */
+export function fileBinding(id: number, patch: Partial<FileBinding> = {}): FileBinding {
+  return {
+    id,
+    kind: 'file',
+    adapter: null,
+    sourceUrl: null,
+    sourceLabel: '弹幕文件 · 2 份',
+    title: '20130709',
+    duration: null,
+    offset: 0,
+    status: 'active',
+    danmakuCount: 3000,
+    lastFetchedAt: null,
     seasonBindingId: null,
     ...patch,
   }

@@ -1,28 +1,30 @@
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { Loader2Icon, RefreshCwIcon } from 'lucide-react'
+import { useIsMutating, useMutation } from '@tanstack/react-query'
+import { Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { deleteBinding, refetchBinding, updateBindingOffset, type Binding } from '@/api/bindings'
-import { isApiStatus } from '@/api/request'
+import { deleteBinding, updateBindingOffset, type Binding } from '@/api/bindings'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useElapsed } from '@/hooks/use-elapsed'
+import { bindingKeys } from '@/hooks/use-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { formatAgo, formatDateTime, formatDuration } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
+import BindingFilesPopover from './BindingFilesPopover'
+import { FileBindingActions, LinkBindingActions } from './BindingSourceActions'
 import { durationMismatch, MAX_OFFSET, parseOffset } from './catalog'
 import { SourceLink, StatusBadge } from './shared'
 
 const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间的秒数，小数最多三位`
 
 /**
- * 一个绑定的卡片：状态、弹幕源标题（链接到原页面）、来源标签、弹幕条数、上次拉取时间、与本集时长的对比；
- * 偏移输入框，重新拉取、清空后重新拉取、删除。
+ * 一个绑定的卡片：状态、弹幕源标题、来源标签、弹幕条数、上次拉取时间、与本集时长的对比；偏移输入框、删除。
+ * 按弹幕源的形态：贴链接建的，标题链接到原页面，可以重新拉取、清空后重新拉取；
+ * 用弹幕文件建的，标签点开是文件列表，可以追加文件、重新解析，没有时长与拉取时间。
  * 操作成功用 toast；失败的提示显示在卡片下方，保留到下次操作或手动关闭。
  */
 export default function BindingCard({
@@ -39,22 +41,6 @@ export default function BindingCard({
   // 卡片显示最新的绑定
   const reload = useReloadSeries()
 
-  const refetch = useMutation({
-    mutationFn: (clear: boolean) => refetchBinding(binding.id, clear),
-    onMutate: clearError,
-    onSuccess: ({ added }, clear) => {
-      const n = added.toLocaleString()
-      toast.success(
-        clear ? `已清空并重新拉取，共 ${n} 条弹幕` : added > 0 ? `新增 ${n} 条弹幕` : '没有新弹幕',
-      )
-      return reload()
-    },
-    onError: (e) => {
-      showError(e)
-      // 弹幕源不存在时后端已把绑定标为失效，重新加载这部剧，让失效状态显示出来
-      if (isApiStatus(e, 422)) return reload()
-    },
-  })
   const saveOffset = useMutation({
     mutationFn: (offset: number) => updateBindingOffset(binding.id, offset),
     onMutate: clearError,
@@ -65,6 +51,7 @@ export default function BindingCard({
     onError: showError,
   })
   const remove = useMutation({
+    mutationKey: bindingKeys.write(binding.id),
     mutationFn: () => deleteBinding(binding.id),
     onMutate: clearError,
     onSuccess: () => {
@@ -73,10 +60,8 @@ export default function BindingCard({
     },
     onError: showError,
   })
-  const elapsed = useElapsed(refetch.isPending)
-  const busy = refetch.isPending || remove.isPending
-  const refetching = refetch.isPending && !refetch.variables
-  const clearing = refetch.isPending && refetch.variables
+  const busy = useIsMutating({ mutationKey: bindingKeys.write(binding.id) }) > 0
+  const refetching = useIsMutating({ mutationKey: bindingKeys.refetch(binding.id) }) > 0
 
   function commitOffset(text: string) {
     const offset = parseOffset(text)
@@ -87,6 +72,7 @@ export default function BindingCard({
     }
   }
 
+  const actions = { binding, busy, onStart: clearError, onError: showError }
   const dead = binding.status === 'dead'
   return (
     <article
@@ -96,8 +82,19 @@ export default function BindingCard({
       <div className="flex items-start gap-2">
         <StatusBadge dead={dead} deadTitle="上次拉取时弹幕源已不存在；已保存的弹幕仍照常输出" />
         <div className="min-w-0 flex-1">
-          <SourceLink href={binding.sourceUrl}>{binding.title}</SourceLink>
-          <div className="text-xs text-muted-foreground">{binding.sourceLabel}</div>
+          {binding.kind === 'file' ? (
+            <>
+              <span className="font-medium break-all">{binding.title}</span>
+              <div className="text-xs text-muted-foreground">
+                <BindingFilesPopover binding={binding} />
+              </div>
+            </>
+          ) : (
+            <>
+              <SourceLink href={binding.sourceUrl}>{binding.title}</SourceLink>
+              <div className="text-xs text-muted-foreground">{binding.sourceLabel}</div>
+            </>
+          )}
         </div>
         {binding.seasonBindingId !== null && (
           <Badge variant="secondary" title="由季面板上的季绑定按集号对应自动建出">
@@ -112,7 +109,9 @@ export default function BindingCard({
             上次拉取 {formatAgo(binding.lastFetchedAt)}
           </span>
         )}
-        <DurationCompare source={binding.duration} episode={episodeDuration} />
+        {binding.kind === 'link' && (
+          <DurationCompare source={binding.duration} episode={episodeDuration} />
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {/* 保存成功、重新加载后偏移变了，用新的值重新初始化输入框 */}
@@ -123,33 +122,11 @@ export default function BindingCard({
           onCommit={commitOffset}
         />
         <div className="ml-auto flex gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            title="只插入新弹幕，不删除已有的弹幕"
-            onClick={() => refetch.mutate(false)}
-          >
-            {refetching ? <Loader2Icon className="animate-spin" /> : <RefreshCwIcon />}
-            {refetching ? `拉取中 ${elapsed}s` : '重新拉取'}
-          </Button>
-          <ConfirmButton
-            trigger={
-              <Button variant="ghost" size="sm" disabled={busy}>
-                {clearing && <Loader2Icon className="animate-spin" />}
-                {clearing ? `拉取中 ${elapsed}s` : '清空后重新拉取'}
-              </Button>
-            }
-            title="清空后重新拉取？"
-            confirmLabel="清空并重新拉取"
-            onConfirm={() => refetch.mutate(true)}
-          >
-            <p>先完整拉取一遍，成功后替换现有弹幕。</p>
-            <p className="font-medium text-destructive">
-              B 站上已经删除、或已经滑出滚动窗口的弹幕会永久丢失。
-            </p>
-            <p>拉取失败时不做任何改动。</p>
-          </ConfirmButton>
+          {binding.kind === 'file' ? (
+            <FileBindingActions {...actions} />
+          ) : (
+            <LinkBindingActions {...actions} />
+          )}
           <ConfirmButton
             trigger={
               <Button variant="ghost" size="sm" className="text-destructive" disabled={busy}>
@@ -162,13 +139,13 @@ export default function BindingCard({
             onConfirm={() => remove.mutate()}
           >
             <p>
-              「{binding.title}」的 {binding.danmakuCount.toLocaleString()}{' '}
-              条弹幕会一起删除，无法恢复。
+              「{binding.title}」的 {binding.danmakuCount.toLocaleString()} 条弹幕
+              {binding.kind === 'file' && '和上传的弹幕文件'}会一起删除，无法恢复。
             </p>
           </ConfirmButton>
         </div>
       </div>
-      {refetch.isPending && (
+      {refetching && (
         <p className="text-xs text-muted-foreground">正在拉取全部弹幕，最长约 25 秒…</p>
       )}
       {error && <ErrorNote onClose={clearError}>{error}</ErrorNote>}

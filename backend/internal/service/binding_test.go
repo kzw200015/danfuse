@@ -276,15 +276,16 @@ func TestCreateBinding(t *testing.T) {
 			got.LastFetchedAt = nil
 			want := BindingView{
 				ID:           1,
-				Adapter:      "fake",
-				SourceURL:    "https://fake.test/s1",
+				Kind:         "link",
+				Adapter:      new("fake"),
+				SourceURL:    new("https://fake.test/s1"),
 				SourceLabel:  "假弹幕源 s1",
 				Title:        tt.fetched.Title,
-				Duration:     int32(tt.fetched.Duration),
+				Duration:     new(int32(tt.fetched.Duration)),
 				Status:       "active",
 				DanmakuCount: int32(len(tt.wantDanmaku)),
 			}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("Create() = %+v\nwant %+v", got, want)
 			}
 			if items := readDanmaku(t, pool, got.ID); !slices.Equal(items, tt.wantDanmaku) {
@@ -582,16 +583,17 @@ func TestRefetch(t *testing.T) {
 			got.LastFetchedAt = nil
 			want := BindingView{
 				ID:           id,
-				Adapter:      "fake",
-				SourceURL:    "https://fake.test/s1",
+				Kind:         "link",
+				Adapter:      new("fake"),
+				SourceURL:    new("https://fake.test/s1"),
 				SourceLabel:  "假弹幕源 s1",
 				Title:        step.fetched.Title,
-				Duration:     int32(step.fetched.Duration),
+				Duration:     new(int32(step.fetched.Duration)),
 				Offset:       1.5,
 				Status:       "active",
 				DanmakuCount: int32(len(step.wantIDs)),
 			}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("Refetch() = %+v\nwant %+v", got, want)
 			}
 			if ids := sourceIDs(t, pool, id); !slices.Equal(ids, step.wantIDs) {

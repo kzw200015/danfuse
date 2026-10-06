@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
@@ -20,9 +21,17 @@ var (
 	errBindingExists   = apierr.ErrConflict.WithMessage("这一集已经绑定过这个弹幕源")
 	errBindingNotFound = apierr.ErrNotFound.WithMessage("绑定不存在")
 	errBindingDeleted  = apierr.ErrNotFound.WithMessage("绑定已被删除")
+	errNotLinkBinding  = apierr.ErrBadRequest.WithMessage("用弹幕文件建的绑定不能重新拉取")
+)
+
+// 绑定的 kind：弹幕源的形态（见 docs/adr/0004）。
+const (
+	kindLink = "link" // 贴链接或补建出的，按适配器和 ref 能重新拉取
+	kindFile = "file" // 上传的一组弹幕文件，没有适配器和 ref
 )
 
 // BindingService 绑定：贴链接创建，拉取弹幕源的全部弹幕落库；重新拉取、改偏移与删除。
+// 用弹幕文件建的绑定（创建、追加文件、重新解析）见 binding_file.go。
 // 拉取（网络请求）都在事务之外，拉完才开写入事务，写入事务的第一句锁住要写的行（创建时锁集，重新拉取时锁绑定）；
 // 不加应用层的锁，并发靠行锁、外键级联和唯一约束。
 type BindingService struct {
@@ -35,16 +44,18 @@ func NewBindingService(store *repository.Store, sources *source.Registry, logger
 	return &BindingService{store: store, sources: sources, logger: logger}
 }
 
-// BindingView 绑定的 JSON。不对外暴露原始 ref 和 contentVersion，sourceUrl / sourceLabel 由适配器的 Describe 生成。
+// BindingView 绑定的 JSON。不对外暴露原始 ref 和 contentVersion。sourceUrl / sourceLabel：贴链接建的由适配器的
+// Describe 生成；用弹幕文件建的没有链接，标签写明文件的份数。
 type BindingView struct {
 	ID            int64      `json:"id"`
-	Adapter       string     `json:"adapter"`
-	SourceURL     string     `json:"sourceUrl"`
-	SourceLabel   string     `json:"sourceLabel"`
-	Title         string     `json:"title"`    // 弹幕源的标题
-	Duration      int32      `json:"duration"` // 弹幕源视频的时长，秒
-	Offset        float64    `json:"offset"`   // 秒，正数表示弹幕延后
-	Status        string     `json:"status"`   // active | dead
+	Kind          string     `json:"kind"`        // link | file
+	Adapter       *string    `json:"adapter"`     // 用弹幕文件建的为 null
+	SourceURL     *string    `json:"sourceUrl"`   // 用弹幕文件建的为 null
+	SourceLabel   string     `json:"sourceLabel"` // 例如"B 站投稿 BV1xx411c7XX P2"、"弹幕文件 · 5 份"
+	Title         string     `json:"title"`       // 弹幕源的标题
+	Duration      *int32     `json:"duration"`    // 弹幕源视频的时长，秒；用弹幕文件建的没有时长，为 null
+	Offset        float64    `json:"offset"`      // 秒，正数表示弹幕延后
+	Status        string     `json:"status"`      // active | dead
 	DanmakuCount  int32      `json:"danmakuCount"`
 	LastFetchedAt *time.Time `json:"lastFetchedAt"`
 	// SeasonBindingID 建出这个绑定的季绑定；手动贴链接建的、或季绑定已被删除的为 null
@@ -88,11 +99,8 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 	)
 	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		// 锁住这一集到提交：之后的删除要等这个事务提交，再连同绑定和弹幕一起删掉
-		if _, err := q.LockEpisode(ctx, episodeID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return errEpisodeDeleted
-			}
-			return fmt.Errorf("lock episode %d: %w", episodeID, err)
+		if err := lockEpisode(ctx, q, episodeID, errEpisodeDeleted); err != nil {
+			return err
 		}
 		id, err := q.InsertBinding(ctx, repository.InsertBindingParams{
 			EpisodeID: episodeID,
@@ -130,18 +138,18 @@ func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (B
 //     写入这次的结果；新增条数为这次的总条数。
 //
 // 拉取失败时什么都不改，只有弹幕源不存在（NotFound）时把绑定标为失效，已保存的弹幕保留；失效的绑定拉取成功后恢复正常。
-// 拉取期间绑定被删除时返回 404"绑定已被删除"，拉取结果丢弃。
+// 拉取期间绑定被删除时返回 404"绑定已被删除"，拉取结果丢弃。用弹幕文件建的绑定不能重新拉取（400）。
 func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (BindingView, int64, error) {
-	b, err := s.store.GetBinding(ctx, id)
+	b, err := s.getBinding(ctx, id)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return BindingView{}, 0, errBindingNotFound
-		}
-		return BindingView{}, 0, fmt.Errorf("get binding %d: %w", id, err)
+		return BindingView{}, 0, err
 	}
-	adapter, err := s.sources.Get(b.Adapter)
+	if b.Kind != kindLink {
+		return BindingView{}, 0, errNotLinkBinding
+	}
+	adapter, err := linkAdapter(s.sources, b)
 	if err != nil {
-		return BindingView{}, 0, fmt.Errorf("binding %d: %w", id, err)
+		return BindingView{}, 0, err
 	}
 
 	fetched, err := fetch(ctx, adapter, b.Ref)
@@ -188,11 +196,34 @@ func (s *BindingService) markDead(ctx context.Context, b repository.Binding, rea
 		return err
 	}
 	s.logger.LogAttrs(ctx, slog.LevelInfo, "binding marked dead",
-		slog.Int64("binding_id", b.ID), slog.String("adapter", b.Adapter), slog.String("reason", reason.Error()))
+		slog.Int64("binding_id", b.ID), slog.String("adapter", emptyIfNull(b.Adapter)), slog.String("reason", reason.Error()))
 	return nil
 }
 
-// lockBinding 重新拉取的写入事务的第一句：锁住这个绑定到提交，同一个绑定的写入排队执行。
+// lockEpisode 写入事务里锁住一集到提交（FOR KEY SHARE），期间删不掉它；这一集已被删除时返回 gone。
+func lockEpisode(ctx context.Context, q *repository.Queries, id int64, gone error) error {
+	if _, err := q.LockEpisode(ctx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return gone
+		}
+		return fmt.Errorf("lock episode %d: %w", id, err)
+	}
+	return nil
+}
+
+// getBinding 取出绑定，不存在时返回 404"绑定不存在"。
+func (s *BindingService) getBinding(ctx context.Context, id int64) (repository.Binding, error) {
+	b, err := s.store.GetBinding(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repository.Binding{}, errBindingNotFound
+		}
+		return repository.Binding{}, fmt.Errorf("get binding %d: %w", id, err)
+	}
+	return b, nil
+}
+
+// lockBinding 重新拉取、追加文件、重新解析的写入事务的第一句：锁住这个绑定到提交，同一个绑定的写入排队执行。
 // 绑定已被删除时返回 404"绑定已被删除"。
 func lockBinding(ctx context.Context, q *repository.Queries, id int64) error {
 	if _, err := q.LockBinding(ctx, id); err != nil {
@@ -228,27 +259,60 @@ func (s *BindingService) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// saveFetched 在写入事务里保存一次拉取的结果：replace 时先删掉这个绑定的全部弹幕；
-// 插入弹幕（按原始 ID 去重，已有的跳过），再更新绑定的计数、content_version、标题、时长与拉取时间 fetchedAt。
+// saveFetched 在写入事务里保存一次拉取的结果：更新标题、时长与拉取时间 fetchedAt，再用 writeDanmaku 写入弹幕。
 // 调用方已在同一个事务里锁住或刚插入这个绑定。返回更新后的绑定和新增条数（replace 时即这次的总条数）。
 //
 // 拉取时间取自应用的时钟（拉取完成时的 time.Now()），不用数据库的 now()：追更按它判断自动重新拉取是否已满 24 小时，
 // 与上次检查时间用同一个时钟，测试里也能用假时间推进。
 func saveFetched(ctx context.Context, q *repository.Queries, bindingID int64, f source.Fetched, replace bool, fetchedAt time.Time) (repository.Binding, int64, error) {
+	err := q.RecordFetch(ctx, repository.RecordFetchParams{
+		ID:        bindingID,
+		Title:     f.Title,
+		Duration:  int32(f.Duration),
+		FetchedAt: fetchedAt,
+	})
+	if err != nil {
+		return repository.Binding{}, 0, fmt.Errorf("record fetch of binding %d: %w", bindingID, err)
+	}
+	return writeDanmaku(ctx, q, bindingID, f.Danmaku, replace)
+}
+
+// writeDanmaku 在写入事务里写入一批弹幕并更新计数：replace 时先删掉这个绑定的全部弹幕；
+// 插入弹幕（按原始 ID 去重，已有的跳过），再用 recordDanmaku 更新计数。返回更新后的绑定和新增条数。
+func writeDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, items []danmaku.Danmaku, replace bool) (repository.Binding, int64, error) {
 	if replace {
 		if err := q.DeleteDanmaku(ctx, bindingID); err != nil {
 			return repository.Binding{}, 0, fmt.Errorf("delete danmaku of binding %d: %w", bindingID, err)
 		}
 	}
+	added, err := insertDanmaku(ctx, q, bindingID, items)
+	if err != nil {
+		return repository.Binding{}, 0, err
+	}
+	b, err := recordDanmaku(ctx, q, bindingID, replace, added)
+	return b, added, err
+}
+
+// recordDanmaku 写入弹幕之后更新绑定的 danmaku_count 与 content_version（规则见 RecordDanmaku），返回更新后的绑定。
+func recordDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, replace bool, added int64) (repository.Binding, error) {
+	b, err := q.RecordDanmaku(ctx, repository.RecordDanmakuParams{ID: bindingID, Replace: replace, Added: int32(added)})
+	if err != nil {
+		return repository.Binding{}, fmt.Errorf("record danmaku of binding %d: %w", bindingID, err)
+	}
+	return b, nil
+}
+
+// insertDanmaku 一条语句写入一批弹幕，按原始 ID 去重（已有的跳过），返回实际插入的条数。
+func insertDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, items []danmaku.Danmaku) (int64, error) {
 	p := repository.InsertDanmakuParams{
 		BindingID: bindingID,
-		SourceIds: make([]int64, len(f.Danmaku)),
-		TimeMs:    make([]int32, len(f.Danmaku)),
-		Modes:     make([]int16, len(f.Danmaku)),
-		Colors:    make([]int32, len(f.Danmaku)),
-		Texts:     make([]string, len(f.Danmaku)),
+		SourceIds: make([]int64, len(items)),
+		TimeMs:    make([]int32, len(items)),
+		Modes:     make([]int16, len(items)),
+		Colors:    make([]int32, len(items)),
+		Texts:     make([]string, len(items)),
 	}
-	for i, d := range f.Danmaku {
+	for i, d := range items {
 		p.SourceIds[i] = d.SourceID
 		p.TimeMs[i] = d.TimeMs
 		p.Modes[i] = int16(d.Mode)
@@ -257,45 +321,25 @@ func saveFetched(ctx context.Context, q *repository.Queries, bindingID int64, f 
 	}
 	added, err := q.InsertDanmaku(ctx, p)
 	if err != nil {
-		return repository.Binding{}, 0, fmt.Errorf("insert danmaku of binding %d: %w", bindingID, err)
+		return 0, fmt.Errorf("insert danmaku of binding %d: %w", bindingID, err)
 	}
-	b, err := q.RecordFetch(ctx, repository.RecordFetchParams{
-		ID:        bindingID,
-		Replace:   replace,
-		Added:     int32(added),
-		Title:     f.Title,
-		Duration:  int32(f.Duration),
-		FetchedAt: fetchedAt,
-	})
-	if err != nil {
-		return repository.Binding{}, 0, fmt.Errorf("record fetch of binding %d: %w", bindingID, err)
-	}
-	return b, added, nil
+	return added, nil
 }
 
 // logFetched 每次拉取结束记一条 info 日志：适配器自己的统计加上新增条数。
 func (s *BindingService) logFetched(ctx context.Context, b repository.Binding, f source.Fetched, added int64) {
-	attrs := []slog.Attr{slog.Int64("binding_id", b.ID), slog.String("adapter", b.Adapter)}
+	attrs := []slog.Attr{slog.Int64("binding_id", b.ID), slog.String("adapter", emptyIfNull(b.Adapter))}
 	attrs = append(attrs, f.LogAttrs...)
 	attrs = append(attrs, slog.Int64("added", added))
 	s.logger.LogAttrs(ctx, slog.LevelInfo, "danmaku fetched", attrs...)
 }
 
-// bindingView 绑定的 JSON，弹幕源的链接和标签交给它的适配器生成。
+// bindingView 绑定的 JSON：贴链接建的，弹幕源的链接和标签交给它的适配器生成；用弹幕文件建的，标签写明文件的份数。
 func bindingView(sources *source.Registry, b repository.Binding) (BindingView, error) {
-	adapter, err := sources.Get(b.Adapter)
-	if err != nil {
-		return BindingView{}, fmt.Errorf("binding %d: %w", b.ID, err)
-	}
-	d, err := adapter.Describe(b.Ref)
-	if err != nil {
-		return BindingView{}, fmt.Errorf("describe binding %d: %w", b.ID, err)
-	}
-	return BindingView{
+	v := BindingView{
 		ID:              b.ID,
+		Kind:            b.Kind,
 		Adapter:         b.Adapter,
-		SourceURL:       d.URL,
-		SourceLabel:     d.Label,
 		Title:           b.Title,
 		Duration:        b.Duration,
 		Offset:          b.Offset,
@@ -303,5 +347,44 @@ func bindingView(sources *source.Registry, b repository.Binding) (BindingView, e
 		DanmakuCount:    b.DanmakuCount,
 		LastFetchedAt:   b.LastFetchedAt,
 		SeasonBindingID: b.SeasonBindingID,
-	}, nil
+	}
+	if b.Kind == kindFile {
+		v.SourceLabel = fmt.Sprintf("弹幕文件 · %d 份", b.FileCount)
+		return v, nil
+	}
+	adapter, err := linkAdapter(sources, b)
+	if err != nil {
+		return BindingView{}, err
+	}
+	d, err := adapter.Describe(b.Ref)
+	if err != nil {
+		return BindingView{}, fmt.Errorf("describe binding %d: %w", b.ID, err)
+	}
+	v.SourceURL, v.SourceLabel = &d.URL, d.Label
+	return v, nil
+}
+
+// bindingPlatform 绑定的弹幕所在的平台：贴链接建的取自适配器；弹幕文件里的弹幕不属于任何平台（见 docs/adr/0004）。
+func bindingPlatform(sources *source.Registry, b repository.Binding) (danmaku.Platform, error) {
+	if b.Kind == kindFile {
+		return danmaku.PlatformNone, nil
+	}
+	adapter, err := linkAdapter(sources, b)
+	if err != nil {
+		return "", err
+	}
+	return adapter.Platform(), nil
+}
+
+// linkAdapter 贴链接建的绑定的适配器。用弹幕文件建的绑定没有适配器，调用方要先按 kind 分支；
+// 适配器没有注册时返回错误，调用方按服务器内部错误处理。
+func linkAdapter(sources *source.Registry, b repository.Binding) (source.Adapter, error) {
+	if b.Adapter == nil {
+		return nil, fmt.Errorf("binding %d: %s binding has no adapter", b.ID, b.Kind)
+	}
+	adapter, err := sources.Get(*b.Adapter)
+	if err != nil {
+		return nil, fmt.Errorf("binding %d: %w", b.ID, err)
+	}
+	return adapter, nil
 }

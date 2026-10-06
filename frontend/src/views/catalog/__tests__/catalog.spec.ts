@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest'
 import type { Binding, BindingStatus } from '@/api/bindings'
 import type { Episode, Season, SeriesDetail, SeriesSummary } from '@/api/series'
 import {
+  appendFilesMessage,
   bindingStats,
   defaultSeason,
   deletionImpact,
   durationMismatch,
   filterSeries,
+  formatFileSize,
   parseOffset,
   resolveSelection,
   seasonLabel,
@@ -260,5 +262,32 @@ describe('parseOffset', () => {
     '.1234',
   ])('%j 不合法', (text) => {
     expect(parseOffset(text)).toBeNull()
+  })
+})
+
+describe('formatFileSize', () => {
+  it.each([
+    [0, '0 B'],
+    [1023, '1023 B'],
+    [1024, '1.0 KB'],
+    [12_600, '12.3 KB'],
+    [1024 * 1024, '1.0 MB'],
+    [809_839, '790.9 KB'],
+  ])('%d 字节', (bytes, want) => {
+    expect(formatFileSize(bytes)).toBe(want)
+  })
+})
+
+describe('appendFilesMessage', () => {
+  it.each([
+    ['都是新的', { files: 2, skipped: 0, added: 1234 }, '已加入 2 份文件，新增 1,234 条弹幕'],
+    [
+      '有已在绑定里的',
+      { files: 1, skipped: 2, added: 0 },
+      '已加入 1 份文件，新增 0 条弹幕；2 份已在绑定里，跳过',
+    ],
+    ['全部已在绑定里', { files: 0, skipped: 3, added: 0 }, '没有新文件：3 份都已在这个绑定里'],
+  ])('%s', (_, result, want) => {
+    expect(appendFilesMessage(result)).toBe(want)
   })
 })

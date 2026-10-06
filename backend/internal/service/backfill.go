@@ -288,11 +288,8 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 			}
 			return fmt.Errorf("lock season binding %d: %w", sb.ID, err)
 		}
-		if _, err := q.LockEpisode(ctx, episodeID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return errEpisodeGone
-			}
-			return fmt.Errorf("lock episode %d: %w", episodeID, err)
+		if err := lockEpisode(ctx, q, episodeID, errEpisodeGone); err != nil {
+			return err
 		}
 		if fetched != nil {
 			id, err := q.InsertBackfilledBinding(ctx, repository.InsertBackfilledBindingParams{

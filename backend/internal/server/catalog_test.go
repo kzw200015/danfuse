@@ -111,16 +111,16 @@ func TestGetSeries(t *testing.T) {
 			"seasons": [
 				{"id": 2, "number": 0, "title": null, "seasonBindings": [], "episodes": [
 					{"id": 3, "number": 1, "title": null, "duration": null, "bindings": [
-						{"id": 3, "adapter": "fake", "sourceUrl": "https://fake.test/c", "sourceLabel": "假弹幕源 c",
+						{"id": 3, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/c", "sourceLabel": "假弹幕源 c",
 						 "title": "弹幕源 c", "duration": 600, "offset": 0, "status": "dead", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]},
 				{"id": 1, "number": 1, "title": "第 1 季", "seasonBindings": [], "episodes": [
 					{"id": 2, "number": 1, "title": "启程", "duration": 1420, "bindings": []},
 					{"id": 1, "number": 2, "title": "归航", "duration": 1440, "bindings": [
-						{"id": 1, "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
+						{"id": 1, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
 						 "title": "弹幕源 a", "duration": 1440, "offset": 1.5, "status": "active", "danmakuCount": 2, "seasonBindingId": null, "lastFetchedAt": null},
-						{"id": 2, "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假弹幕源 b",
+						{"id": 2, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假弹幕源 b",
 						 "title": "弹幕源 b", "duration": 1380, "offset": 0, "status": "dead", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]},
@@ -132,7 +132,7 @@ func TestGetSeries(t *testing.T) {
 			"seasons": [
 				{"id": 4, "number": 1, "title": null, "seasonBindings": [], "episodes": [
 					{"id": 4, "number": 1, "title": null, "duration": 5400, "bindings": [
-						{"id": 4, "adapter": "fake", "sourceUrl": "https://fake.test/d", "sourceLabel": "假弹幕源 d",
+						{"id": 4, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/d", "sourceLabel": "假弹幕源 d",
 						 "title": "弹幕源 d", "duration": 5400, "offset": -2, "status": "active", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]}

@@ -4,12 +4,22 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   binding,
   card,
+  fileBinding,
   lighthouse,
   mockCatalog,
   mockRootLayout,
   renderRoutes,
 } from '@/__tests__/utils'
-import { createBinding, deleteBinding, refetchBinding, updateBindingOffset } from '@/api/bindings'
+import {
+  appendBindingFiles,
+  createBinding,
+  createFileBinding,
+  deleteBinding,
+  listBindingFiles,
+  refetchBinding,
+  reparseBinding,
+  updateBindingOffset,
+} from '@/api/bindings'
 import { ApiError } from '@/api/request'
 import {
   deleteEpisode,
@@ -494,6 +504,129 @@ describe('维护绑定', () => {
     expect(await screen.findByText('已删除绑定')).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: '绑定（1）' })).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: '弹幕源 1' })).not.toBeInTheDocument()
+  })
+})
+
+/** 一份选中的弹幕文件，内容由 mock 的接口忽略 */
+const xml = (name: string) => new File(['<i></i>'], name, { type: 'text/xml' })
+
+describe('弹幕文件', () => {
+  /** 服务端「启程」这一集的绑定 */
+  const bindingsOf110 = () => all[0]!.seasons[1]!.episodes[0]!.bindings
+
+  it('上传：选好文件就上传，成功后用 toast 提示并显示新的绑定', async () => {
+    vi.mocked(createFileBinding).mockImplementation(async () => {
+      const created = fileBinding(9, { danmakuCount: 4321 })
+      all[0]!.seasons[1]!.episodes[1]!.bindings.push(created)
+      return created
+    })
+    renderRoutes('/catalog/1/11/111')
+    const files = [xml('20130709.xml'), xml('20130711.xml')]
+
+    fireEvent.change(await screen.findByLabelText('上传弹幕文件'), { target: { files } })
+
+    await waitFor(() => expect(createFileBinding).toHaveBeenCalledWith(111, files))
+    expect(await screen.findByText('已绑定，解析出 4,321 条弹幕')).toBeInTheDocument()
+    const created = await card('20130709')
+    // 没有链接、时长和拉取时间；标签点开是文件列表
+    expect(created.queryByRole('link')).not.toBeInTheDocument()
+    expect(created.queryByText(/^弹幕源 /)).not.toBeInTheDocument()
+    expect(created.queryByText(/上次拉取/)).not.toBeInTheDocument()
+    expect(created.getByRole('button', { name: '弹幕文件 · 2 份' })).toBeInTheDocument()
+  })
+
+  it('上传失败：提示显示在上传区下方，保留到手动关闭；换一集时不带过来', async () => {
+    vi.mocked(createFileBinding).mockRejectedValue(
+      new ApiError('无法识别「README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整', 1, 422),
+    )
+    renderRoutes('/catalog/1/11/111')
+
+    fireEvent.change(await screen.findByLabelText('上传弹幕文件'), {
+      target: { files: [xml('README.html')] },
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('无法识别「README.html」')
+    fireEvent.click(screen.getByRole('link', { name: /启程/ }))
+    expect(await screen.findByRole('heading', { name: '第 1 集启程' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('卡片：只有追加文件、重新解析，标签点开是文件列表', async () => {
+    bindingsOf110().push(fileBinding(3))
+    vi.mocked(listBindingFiles).mockResolvedValue([
+      { name: '20130709.xml', size: 12_600, uploadedAt: '2026-10-05T08:00:00Z' },
+      { name: '20130711.xml', size: 809_839, uploadedAt: '2026-10-05T08:00:00Z' },
+    ])
+    renderRoutes('/catalog/1/11/110')
+    const file = await card('20130709')
+
+    expect(file.queryByRole('button', { name: '重新拉取' })).not.toBeInTheDocument()
+    expect(file.queryByRole('button', { name: '清空后重新拉取' })).not.toBeInTheDocument()
+    expect(file.getByRole('button', { name: '追加文件' })).toBeInTheDocument()
+    expect(file.getByRole('button', { name: '重新解析' })).toBeInTheDocument()
+    // 打开时才取
+    expect(listBindingFiles).not.toHaveBeenCalled()
+
+    fireEvent.click(file.getByRole('button', { name: '弹幕文件 · 2 份' }))
+
+    const list = within(await screen.findByRole('list', { name: '弹幕文件' }))
+    expect(listBindingFiles).toHaveBeenCalledWith(3)
+    expect(list.getAllByRole('listitem').map((li) => li.firstChild?.textContent)).toEqual([
+      '20130709.xml',
+      '20130711.xml',
+    ])
+    expect(list.getByText(/^12\.3 KB · 加入于/)).toBeInTheDocument()
+  })
+
+  it('追加文件：选好就上传，成功后提示新加入与跳过的份数', async () => {
+    bindingsOf110().push(fileBinding(3))
+    vi.mocked(appendBindingFiles).mockImplementation(async (id) => {
+      const b = bindingsOf110().find((x) => x.id === id)!
+      b.danmakuCount += 120
+      b.sourceLabel = '弹幕文件 · 3 份'
+      return { binding: b, files: 1, skipped: 1, added: 120 }
+    })
+    renderRoutes('/catalog/1/11/110')
+    const file = await card('20130709')
+    const files = [xml('20150111.xml'), xml('20130709.xml')]
+
+    fireEvent.change(file.getByLabelText('追加文件'), { target: { files } })
+
+    await waitFor(() => expect(appendBindingFiles).toHaveBeenCalledWith(3, files))
+    expect(
+      await screen.findByText('已加入 1 份文件，新增 120 条弹幕；1 份已在绑定里，跳过'),
+    ).toBeInTheDocument()
+    expect(await file.findByRole('button', { name: '弹幕文件 · 3 份' })).toBeInTheDocument()
+    expect(file.getByText('弹幕 3,120 条')).toBeInTheDocument()
+  })
+
+  it('重新解析：不用确认，成功后提示前后的条数；失败的提示显示在卡片下方', async () => {
+    bindingsOf110().push(fileBinding(3))
+    vi.mocked(reparseBinding).mockImplementation(async (id) => {
+      const b = bindingsOf110().find((x) => x.id === id)!
+      b.danmakuCount = 2990
+      return b
+    })
+    renderRoutes('/catalog/1/11/110')
+    const file = await card('20130709')
+
+    fireEvent.click(file.getByRole('button', { name: '重新解析' }))
+
+    await waitFor(() => expect(reparseBinding).toHaveBeenCalledWith(3))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(
+      await screen.findByText('重新解析完成，共 2,990 条弹幕（之前 3,000 条）'),
+    ).toBeInTheDocument()
+
+    vi.mocked(reparseBinding).mockRejectedValue(
+      new ApiError(
+        '无法识别「20130709.xml」：目前只支持 B 站的 XML 弹幕文件，且文件要完整',
+        1,
+        422,
+      ),
+    )
+    fireEvent.click(file.getByRole('button', { name: '重新解析' }))
+    expect(await file.findByRole('alert')).toHaveTextContent('无法识别「20130709.xml」')
   })
 })
 

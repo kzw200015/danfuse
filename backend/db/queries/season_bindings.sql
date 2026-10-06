@@ -124,8 +124,8 @@ FOR UPDATE;
 -- name: InsertBackfilledBinding :one
 -- 补建出一个绑定，带上建出它的季绑定；建出时间由应用写入（追更按它算自动重新拉取的窗口）。
 -- 这一集已有同一个弹幕源的绑定时什么都不做，没有行。
-INSERT INTO bindings (episode_id, adapter, ref, title, duration, season_binding_id, created_at)
-VALUES (@episode_id, @adapter, @ref, @title, @duration, @season_binding_id::bigint, @created_at)
+INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, season_binding_id, created_at)
+VALUES (@episode_id, 'link', @adapter::text, @ref::jsonb, @title, @duration::int, @season_binding_id::bigint, @created_at)
 ON CONFLICT (episode_id, adapter, ref) DO NOTHING
 RETURNING id;
 

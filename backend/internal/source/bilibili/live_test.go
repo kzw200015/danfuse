@@ -45,6 +45,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/danmaku/bilifmt"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -647,7 +648,7 @@ func sanitizeElem(b []byte, text string) ([]byte, error) {
 // p 的第 7 项（发送者哈希）换成固定值，正文按 sampleText 替换；p 的其余各项原样保留。
 // 有认不出的 <d> 时不录制：原样写进样本就可能带着没脱敏的正文和发送者哈希。
 func sanitizeXML(doc []byte) ([]byte, error) {
-	elems := xmlElem.FindAllSubmatchIndex(doc, -1)
+	elems := bilifmt.XMLElem.FindAllSubmatchIndex(doc, -1)
 	if n := bytes.Count(doc, []byte("<d ")); n != len(elems) {
 		return nil, fmt.Errorf("XML 里有 %d 个 <d>，只认出 %d 条，不录制", n, len(elems))
 	}

@@ -175,8 +175,8 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 }
 
 const insertBackfilledBinding = `-- name: InsertBackfilledBinding :one
-INSERT INTO bindings (episode_id, adapter, ref, title, duration, season_binding_id, created_at)
-VALUES ($1, $2, $3, $4, $5, $6::bigint, $7)
+INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, season_binding_id, created_at)
+VALUES ($1, 'link', $2::text, $3::jsonb, $4, $5::int, $6::bigint, $7)
 ON CONFLICT (episode_id, adapter, ref) DO NOTHING
 RETURNING id
 `

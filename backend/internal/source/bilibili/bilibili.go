@@ -3,14 +3,14 @@
 //
 // 文件划分：
 //   - bilibili.go：source.Adapter 里弹幕源的方法，ref 的结构，Fetch 的编排（元数据 → protobuf 分段与 XML → 按 ID 合并），
-//     以及共用的元数据 meta 和弹幕字段的映射 newDanmaku；
+//     以及共用的元数据 meta（弹幕字段的映射在 danmaku/bilifmt，与上传的弹幕文件共用）；
 //   - collection.go：source.Adapter 里合集的方法：合集 ref 的结构，季面板链接的识别，番剧的一季、投稿合集、多 P 投稿的列出；
 //   - link.go：链接解析（集面板与季面板共用，各自决定接受哪些）、短链跳转，BV 号与 aid 互转；
 //   - client.go：HTTP 层：UA、Referer 与 SESSDATA、全局令牌桶、重试与退避、错误归类与给用户的提示；
 //   - view.go：投稿的元数据，解析出 cid、标题、时长；带 redirect_url 的转给番剧；
 //   - pgc.go：番剧单集的元数据，番剧一季的结构；
 //   - seg.go：protobuf 分段弹幕的拉取与 protowire 解码；
-//   - xml.go：XML 弹幕的拉取、解析，与 protobuf 的合并。
+//   - xml.go：XML 弹幕的拉取（解析在 danmaku/bilifmt），与 protobuf 的合并。
 //
 // 测试平时只回放 testdata/ 里脱敏后的样本，不联网；请求真实 B 站的 live 模式见 live_test.go。
 package bilibili
@@ -22,7 +22,6 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
-	"strings"
 
 	"golang.org/x/sync/errgroup"
 
@@ -186,25 +185,4 @@ func (a *Adapter) fetchDanmaku(ctx context.Context, cid int64, duration int) (pr
 		return nil, nil, err
 	}
 	return slices.Concat(parts...), xml, nil
-}
-
-// newDanmaku 把 B 站一条弹幕的字段映射成内部格式，protobuf 与 XML 共用；不是普通的文字弹幕、没有 ID 或正文为空时 ok 为 false。
-//   - 模式：1、2、3 合并为滚动，4、5、6 原样保留，7、8、9（高级、代码、BAS）和其他取值丢弃；
-//   - 颜色：只取低 24 位，大会员渐变色忽略；
-//   - 正文：只清洗非法的 UTF-8 字节和 NUL（PostgreSQL 的 text 存不了），其余原样保留；去掉空白后为空的丢弃。
-func newDanmaku(id int64, timeMs int32, mode int64, color uint64, text string) (danmaku.Danmaku, bool) {
-	d := danmaku.Danmaku{SourceID: id, TimeMs: timeMs, Color: uint32(color & 0xFFFFFF)}
-	switch mode {
-	case 1, 2, 3:
-		d.Mode = danmaku.ModeScroll
-	case 4, 5, 6:
-		d.Mode = danmaku.Mode(mode)
-	default:
-		return danmaku.Danmaku{}, false
-	}
-	d.Text = strings.ReplaceAll(strings.ToValidUTF8(text, ""), "\x00", "")
-	if d.SourceID == 0 || strings.TrimSpace(d.Text) == "" {
-		return danmaku.Danmaku{}, false
-	}
-	return d, true
 }

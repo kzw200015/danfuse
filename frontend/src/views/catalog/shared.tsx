@@ -83,6 +83,13 @@ export function StatusBadge({ dead, deadTitle }: { dead: boolean; deadTitle: str
   )
 }
 
+/** 取出文件选择框里选中的文件，并清空选择框：同样的文件可以再选一次（否则不触发 change） */
+export function takeFiles(input: HTMLInputElement) {
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  return files
+}
+
 /** 弹幕源、合集的标题，在新标签页打开它在平台上的页面 */
 export function SourceLink({ href, children }: { href: string; children: ReactNode }) {
   return (

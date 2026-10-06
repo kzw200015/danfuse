@@ -10,7 +10,7 @@ import (
 )
 
 const listBindingsByEpisode = `-- name: ListBindingsByEpisode :many
-SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id
+SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count
 FROM bindings
 WHERE episode_id = $1
 ORDER BY id
@@ -42,6 +42,8 @@ func (q *Queries) ListBindingsByEpisode(ctx context.Context, episodeID int64) ([
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.SeasonBindingID,
+			&i.Kind,
+			&i.FileCount,
 		); err != nil {
 			return nil, err
 		}

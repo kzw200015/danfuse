@@ -27,6 +27,10 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 	api.PATCH("/bindings/:id", h.Binding.Update)
 	api.DELETE("/bindings/:id", h.Binding.Delete)
 	api.POST("/bindings/:id/refetch", h.Binding.Refetch)
+	api.POST("/episodes/:id/file-bindings", h.Binding.CreateFromFiles)
+	api.POST("/bindings/:id/files", h.Binding.AppendFiles)
+	api.GET("/bindings/:id/files", h.Binding.ListFiles)
+	api.POST("/bindings/:id/reparse", h.Binding.Reparse)
 
 	api.POST("/seasons/:id/season-bindings/preview", h.SeasonBinding.Preview)
 	api.POST("/seasons/:id/season-bindings", h.SeasonBinding.Create)

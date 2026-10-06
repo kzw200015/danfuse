@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/danmaku/bilifmt"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -73,7 +74,7 @@ func decodeSegment(b []byte) ([]danmaku.Danmaku, error) {
 	return items, nil
 }
 
-// decodeElem 解码一条 DanmakuElem 并映射成内部格式，映射规则见 newDanmaku。
+// decodeElem 解码一条 DanmakuElem 并映射成内部格式，映射规则见 bilifmt.NewDanmaku。
 func decodeElem(b []byte) (d danmaku.Danmaku, ok bool, err error) {
 	var id, mode int64
 	var progress int32
@@ -99,7 +100,7 @@ func decodeElem(b []byte) (d danmaku.Danmaku, ok bool, err error) {
 			color = f.value
 		}
 	}
-	d, ok = newDanmaku(id, progress, mode, color, string(content))
+	d, ok = bilifmt.NewDanmaku(id, progress, mode, color, string(content))
 	return d, ok, nil
 }
 

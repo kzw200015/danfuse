@@ -133,15 +133,15 @@ func (p *LocalProvider) Comments(ctx context.Context, episodeID int64) ([]danmak
 	}
 	tracks := make([]danmaku.Track, len(bindings))
 	for i, b := range bindings {
-		adapter, err := p.sources.Get(b.Adapter)
+		platform, err := bindingPlatform(p.sources, b)
 		if err != nil {
-			return nil, fmt.Errorf("binding %d: %w", b.ID, err)
+			return nil, err
 		}
 		items, err := p.bindingDanmaku(ctx, b.ID)
 		if err != nil {
 			return nil, err
 		}
-		tracks[i] = danmaku.Track{BindingID: b.ID, Platform: adapter.Platform(), Offset: b.Offset, Scale: b.Scale, Items: items}
+		tracks[i] = danmaku.Track{BindingID: b.ID, Platform: platform, Offset: b.Offset, Scale: b.Scale, Items: items}
 	}
 	return danmaku.Merge(tracks), nil
 }

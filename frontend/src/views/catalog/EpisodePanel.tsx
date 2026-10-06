@@ -5,6 +5,7 @@ import AddBindingForm from './AddBindingForm'
 import BindingCard from './BindingCard'
 import { catalogPath, seasonName } from './catalog'
 import DeleteButton from './DeleteButton'
+import UploadBindingButton from './UploadBindingButton'
 
 /** 右栏：选中一集时的集面板。电影的唯一一集标题为"正片"，路径里不写季；电影只能整部删除，没有"删除这一集" */
 export default function EpisodePanel({
@@ -34,7 +35,10 @@ export default function EpisodePanel({
       </div>
 
       {/* 换一集时重新挂载，上一集的输入和失败提示不带过来 */}
-      <AddBindingForm key={episode.id} episodeId={episode.id} />
+      <div key={episode.id} className="grid gap-2">
+        <AddBindingForm episodeId={episode.id} />
+        <UploadBindingButton episodeId={episode.id} />
+      </div>
 
       <section aria-label="绑定" className="grid gap-3 border-t pt-4">
         <h3 className="text-sm font-medium">绑定（{episode.bindings.length}）</h3>
@@ -43,7 +47,7 @@ export default function EpisodePanel({
         ))}
         {episode.bindings.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            还没有绑定。粘贴一条 B 站链接，弹幕会立即拉取保存。
+            还没有绑定。粘贴一条 B 站链接、或上传弹幕文件，弹幕会立即保存。
           </p>
         )}
       </section>

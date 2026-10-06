@@ -12,22 +12,47 @@ FOR KEY SHARE;
 
 -- name: BindingExists :one
 -- 这一集是否已经绑定过这个弹幕源。只用于在拉取前省掉一次注定 409 的拉取，并发时以唯一约束为准。
-SELECT EXISTS (SELECT 1 FROM bindings WHERE episode_id = $1 AND adapter = $2 AND ref = $3);
+SELECT EXISTS (SELECT 1 FROM bindings WHERE episode_id = @episode_id AND adapter = @adapter::text AND ref = @ref::jsonb);
 
 -- name: InsertBinding :one
--- 同一集重复绑定同一个弹幕源时撞上唯一约束 (episode_id, adapter, ref)。
-INSERT INTO bindings (episode_id, adapter, ref, title, duration)
-VALUES ($1, $2, $3, $4, $5)
+-- 贴链接建出的绑定。同一集重复绑定同一个弹幕源时撞上唯一约束 (episode_id, adapter, ref)。
+INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration)
+VALUES (@episode_id, 'link', @adapter::text, @ref::jsonb, @title, @duration::int)
 RETURNING id;
 
+-- name: InsertFileBinding :one
+-- 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。
+INSERT INTO bindings (episode_id, kind, title)
+VALUES (@episode_id, 'file', @title)
+RETURNING id;
+
+-- name: InsertBindingFile :execrows
+-- 往绑定里加入一份弹幕文件。同一个绑定里已有内容相同的文件时什么都不做，返回 0。
+INSERT INTO binding_files (binding_id, name, sha256, size, content)
+VALUES (@binding_id, @name, @sha256, @size, @content)
+ON CONFLICT (binding_id, sha256) DO NOTHING;
+
+-- name: ListBindingFiles :many
+-- 绑定的弹幕文件，不含内容，按加入的顺序排列。
+SELECT id, name, size, uploaded_at
+FROM binding_files
+WHERE binding_id = $1
+ORDER BY id;
+
+-- name: GetBindingFileContent :one
+-- 重新解析时逐份读出文件内容，不一次读进全部文件。
+SELECT content
+FROM binding_files
+WHERE id = $1;
+
 -- name: GetBinding :one
--- 重新拉取之前取出适配器和 ref。
+-- 重新拉取之前取出适配器和 ref；追加文件、重新解析之前确认是用弹幕文件建的。
 SELECT *
 FROM bindings
 WHERE id = $1;
 
 -- name: LockBinding :one
--- 重新拉取、标为失效的写入事务的第一句：锁住这个绑定到提交。同一个绑定的写入因此排队执行，
+-- 重新拉取、标为失效、追加文件、重新解析的写入事务的第一句：锁住这个绑定到提交。同一个绑定的写入因此排队执行，
 -- 计数的算术准确；删除绑定也要等它提交。绑定已被删除时没有行。
 SELECT id
 FROM bindings
@@ -51,22 +76,35 @@ ON CONFLICT DO NOTHING;
 DELETE FROM danmaku
 WHERE binding_id = $1;
 
--- name: RecordFetch :one
--- 一次拉取写入弹幕之后更新绑定：
+-- name: RecordDanmaku :one
+-- 写入弹幕之后更新绑定的计数（拉取、追加文件、重新解析共用）：
 --   只增不删时，新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
---   清空后重新拉取（replace）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1。
--- 标题、时长用这次拉取的值覆盖；拉取成功即为 active。只更新拉取相关的列，不覆盖 offset。
--- 拉取时间由应用写入：追更按它判断自动重新拉取是否已满 24 小时，与上次检查时间用同一个时钟。
+--   替换（清空后重新拉取、重新解析）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1。
 UPDATE bindings
 SET danmaku_count   = CASE WHEN @replace::boolean THEN 0 ELSE danmaku_count END + @added::int,
     content_version = content_version + (@replace::boolean OR @added::int > 0)::int,
-    title           = @title,
-    duration        = @duration,
-    status          = 'active',
-    last_fetched_at = @fetched_at::timestamptz,
     updated_at      = now()
 WHERE id = @id
 RETURNING *;
+
+-- name: RecordFetch :exec
+-- 一次拉取成功后更新弹幕源的信息：标题、时长用这次拉取的值覆盖，拉取成功即为 active。
+-- 只更新拉取相关的列，不覆盖 offset；计数由 RecordDanmaku 维护。
+-- 拉取时间由应用写入：追更按它判断自动重新拉取是否已满 24 小时，与上次检查时间用同一个时钟。
+UPDATE bindings
+SET title           = @title,
+    duration        = @duration::int,
+    status          = 'active',
+    last_fetched_at = @fetched_at::timestamptz,
+    updated_at      = now()
+WHERE id = @id;
+
+-- name: AddBindingFileCount :exec
+-- 追加文件后把新加入的份数计入 file_count，与文件在同一个事务里。
+UPDATE bindings
+SET file_count = file_count + @files::int,
+    updated_at = now()
+WHERE id = @id;
 
 -- name: MarkBindingDead :exec
 -- 重新拉取时弹幕源已不存在：标为失效。已保存的弹幕、计数、标题和时长都不动；

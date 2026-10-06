@@ -37,9 +37,14 @@ func serve(t *testing.T, srv *Server, method, target, body string) *httptest.Res
 // call 用 serve 处理一个请求，检查状态码，返回解出的统一响应。
 func call(t *testing.T, srv *Server, method, target, body string, wantStatus int) (code int, message string, data json.RawMessage) {
 	t.Helper()
-	rec := serve(t, srv, method, target, body)
+	return decodeResponse(t, method+" "+target+" "+body, serve(t, srv, method, target, body), wantStatus)
+}
+
+// decodeResponse 检查状态码，返回解出的统一响应；what 写进失败信息，说明是哪个请求。
+func decodeResponse(t *testing.T, what string, rec *httptest.ResponseRecorder, wantStatus int) (code int, message string, data json.RawMessage) {
+	t.Helper()
 	if rec.Code != wantStatus {
-		t.Fatalf("%s %s %s: status = %d, want %d, body %s", method, target, body, rec.Code, wantStatus, rec.Body)
+		t.Fatalf("%s: status = %d, want %d, body %s", what, rec.Code, wantStatus, rec.Body)
 	}
 	var resp struct {
 		Code    int             `json:"code"`
@@ -47,7 +52,7 @@ func call(t *testing.T, srv *Server, method, target, body string, wantStatus int
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("%s %s: 不是统一响应：%s", method, target, rec.Body)
+		t.Fatalf("%s: 不是统一响应：%s", what, rec.Body)
 	}
 	return resp.Code, resp.Message, resp.Data
 }
