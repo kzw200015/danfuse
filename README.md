@@ -124,7 +124,7 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `server.addr` | `DANFUSE_SERVER_ADDR` | `:8080` | 监听地址 |
 | `server.graceful_timeout` | `DANFUSE_SERVER_GRACEFUL_TIMEOUT` | `10s` | 退出时等待进行中的请求结束的最长时间 |
 | `server.read_timeout` | `DANFUSE_SERVER_READ_TIMEOUT` | `30s` | 读取请求的超时 |
-| `server.write_timeout` | `DANFUSE_SERVER_WRITE_TIMEOUT` | `30s` | 写响应的超时。创建绑定和重新拉取要当场拉取弹幕，最长约 25 秒，不要改小 |
+| `server.write_timeout` | `DANFUSE_SERVER_WRITE_TIMEOUT` | `30s` | 写响应的超时，`0` 表示不限。创建绑定和重新拉取要当场拉取弹幕，最长约 25 秒，所以不能小于 `30s` |
 | `log.level` | `DANFUSE_LOG_LEVEL` | `info` | 日志级别：`debug`、`info`、`warn`、`error` |
 | `log.format` | `DANFUSE_LOG_FORMAT` | `text` | 日志格式：`text`、`json` |
 | `database.dsn` | `DANFUSE_DATABASE_DSN` | 无，必填 | PostgreSQL 连接串，例如 `postgres://user:pass@host:5432/danfuse?sslmode=disable` |
@@ -137,11 +137,17 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `catalog_source.jellyfin.url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL` | 空 | Jellyfin 的地址，`http://` 或 `https://` 开头，可以带子路径，不能带查询串；末尾的 `/` 会被去掉 |
 | `catalog_source.jellyfin.api_key` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY` | 空 | Jellyfin 的 API key，在"控制台 → API 密钥"里生成 |
 | `catalog_source.jellyfin.libraries` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES` | 空 | 要同步的媒体库名。YAML 里写成列表，环境变量里用逗号分隔，例如 `番剧,电影`。媒体库的类型必须是节目或电影，其他类型的会被跳过 |
+| `catalog_source.jellyfin.list_timeout` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT` | `2m` | 同步时列出媒体库、剧和电影、季和集，每个请求的超时。媒体库很大或 Jellyfin 很慢、同步提示"请求 Jellyfin 超时"时调大 |
 | `sync.interval` | `DANFUSE_SYNC_INTERVAL` | `0` | 定时同步的间隔，例如 `24h`；`0` 表示关闭，只手动同步。启动时不会立即同步 |
+| `sync.keep_runs` | `DANFUSE_SYNC_KEEP_RUNS` | `20` | 同步记录保留最近几次，至少 `1` |
 | `bilibili.sessdata` | `DANFUSE_BILIBILI_SESSDATA` | 空 | 可选。B 站登录 Cookie 里 SESSDATA 的值，配置后以登录身份拉取，弹幕更全 |
+| `bilibili.requests_per_second` | `DANFUSE_BILIBILI_REQUESTS_PER_SECOND` | `3` | 每秒最多请求 B 站几次，所有绑定、季绑定共用，可以是小数（例如 `0.5`）。经常提示"B 站限流"时调小；调小后拉取变慢，弹幕多的视频可能超过约 25 秒的拉取时限 |
+| `danmaku_file.max_files` | `DANFUSE_DANMAKU_FILE_MAX_FILES` | `50` | 上传弹幕文件时一次最多几份 |
+| `danmaku_file.max_file_mb` | `DANFUSE_DANMAKU_FILE_MAX_FILE_MB` | `10` | 上传弹幕文件时单份的上限，单位 MB |
+| `danmaku_file.max_upload_mb` | `DANFUSE_DANMAKU_FILE_MAX_UPLOAD_MB` | `50` | 上传弹幕文件时一次合计的上限，单位 MB。调大时注意反向代理的请求体上限（例如 nginx 的 `client_max_body_size`）；上传还受 `server.read_timeout` 和管理界面 35 秒请求超时的限制 |
 
 - `catalog_source.kind` 为 `jellyfin` 时，`url`、`api_key`、`libraries` 都必须填写；`sync.interval` 大于 0 时必须配置目录源。
-- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；token 或 SESSDATA 含不允许的字符。
+- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；`server.write_timeout` 不是 `0` 又小于 `30s`；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名，或 `list_timeout` 不大于 0；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；`sync.keep_runs` 小于 1；token 或 SESSDATA 含不允许的字符；`bilibili.requests_per_second` 不大于 0；上传弹幕文件的三个上限有小于 1 的。
 - 启动时不连接 Jellyfin，两个服务的启动顺序互不影响；媒体库存不存在、类型对不对在每次同步时检查，有问题的会出现在同步记录的警告里。
 - **SESSDATA**：在浏览器里登录 B 站，从开发者工具的 Cookie 里找到 `SESSDATA`，原样复制它的值（里面的逗号显示为 `%2C`，不要还原），不能含空格、逗号、分号、引号和反斜杠。它会过期，过期后悄悄退化成未登录的效果，需要换上新的值后重启。没有配置时以未登录的身份拉取，弹幕可能不全。
 - Jellyfin 的 API key、SESSDATA 和 token 都不会写进日志；API key 和 SESSDATA 不入库，管理界面上只显示"已配置"。
@@ -295,7 +301,7 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 
 ### 同步
 
-在"同步"页点"立即同步"，同步在后台进行，顶栏的"同步"导航项上显示进度（已完成/总数）；失败、中断或有警告时也显示在那里。配置了 `sync.interval` 时按间隔自动同步。同步页列出最近 20 次同步，选中一次可以看到新增了多少剧、季、集，以及跳过了哪些条目（媒体库不存在或类型不对、季号或集号缺失、多集文件的集号范围异常、海报下载失败）。
+在"同步"页点"立即同步"，同步在后台进行，顶栏的"同步"导航项上显示进度（已完成/总数）；失败、中断或有警告时也显示在那里。配置了 `sync.interval` 时按间隔自动同步。同步页列出最近 20 次同步（`sync.keep_runs`），选中一次可以看到新增了多少剧、季、集，以及跳过了哪些条目（媒体库不存在或类型不对、季号或集号缺失、多集文件的集号范围异常、海报下载失败）。
 
 - 同步是单向的：剧按（类型、标题、年份）、季按季号、集按集号与目录里已有的对应，对上的更新原名、季和集的标题、时长、海报，对不上的新增，**从不删除**。
 - 所以在 Jellyfin 里改文件名、换片源、补高清版本，都不会产生新的集，集上的绑定和插件、播放器缓存的 ID 一直有效；而剧的标题或年份变了会新增一部剧，见[已知限制](#目录与同步)。
@@ -320,7 +326,7 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 在集面板的上传区点击选择、或把文件拖进来，选好就上传。一次上传的几份文件合起来是一个弹幕源，建出一个绑定，例如同一个视频不同日期的几份历史快照；快照之间重复的弹幕只留一条。
 
 - 只支持 B 站的 XML 弹幕文件（`<d p="...">` 格式，旧版导出的也可以）。有一份认不出（例如混进了说明文件、JSON、压缩包）或文件不完整（下载时被截断）时，整次上传不创建绑定，提示写明是哪一份。
-- 一次最多 50 份，单份不超过 10 MB，合计不超过 50 MB。
+- 默认一次最多 50 份，单份不超过 10 MB，合计不超过 50 MB，可以用 `danmaku_file` 下的[配置项](#配置)调整。
 - 绑定的标题是第一份文件的文件名。文件里没有视频时长，卡片上不显示时长对比，需要时自己调[偏移](#偏移)。
 - 上传的弹幕不属于任何平台：插件里显示为"弹弹"来源，不是 BiliBili。同一集同时绑了在线的 B 站视频时，两边的弹幕按文本去重（校正后 5 秒内的同一句话只留一条）。
 - 卡片上的标签（"弹幕文件 · N 份"）点开能看到文件列表。**追加文件**往这个绑定里再加入文件，只增不删；已经在里面的文件（内容相同）跳过。**重新解析**按保存的全部文件重新解析一遍、替换现有弹幕，danfuse 升级改进了解析规则之后可以用它。上传的原文件保存在数据库里，删除绑定时一起删除。

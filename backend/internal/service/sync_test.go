@@ -512,7 +512,7 @@ func TestTriggerRejected(t *testing.T) {
 	t.Run("服务正在关闭", func(t *testing.T) {
 		t.Parallel()
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-			svc := NewSyncService(repository.NewStore(pool), pool, &fakeCatalog{}, config.Sync{}, testLogger(t))
+			svc := NewSyncService(repository.NewStore(pool), pool, &fakeCatalog{}, config.Sync{KeepRuns: 20}, testLogger(t))
 			stop := runInBackground(t, svc)
 			stop() // Run 已返回：不再等它接收触发
 
@@ -546,7 +546,7 @@ func TestScheduledSync(t *testing.T) {
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &fakeCatalog{items: []catalog.Item{item(tv("甲", nil, season(1, "", episode(1, "", 30))))}, gate: make(chan struct{})}
 		var logs lockedBuffer
-		svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{Interval: time.Hour}, slogTo(&logs))
+		svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{Interval: time.Hour, KeepRuns: 20}, slogTo(&logs))
 		runInBackground(t, svc)
 
 		statuses := func() []string {
@@ -592,7 +592,7 @@ func TestScheduledSync(t *testing.T) {
 func TestNoScheduleWithoutSource(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		svc := NewSyncService(repository.NewStore(pool), pool, nil, config.Sync{Interval: time.Hour}, testLogger(t))
+		svc := NewSyncService(repository.NewStore(pool), pool, nil, config.Sync{Interval: time.Hour, KeepRuns: 20}, testLogger(t))
 		runInBackground(t, svc)
 
 		time.Sleep(3 * time.Hour)
@@ -613,7 +613,7 @@ func TestSyncInterruptedOnShutdown(t *testing.T) {
 			},
 			gate: make(chan struct{}),
 		}
-		svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{}, testLogger(t))
+		svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{KeepRuns: 20}, testLogger(t))
 		stop := runInBackground(t, svc)
 		id := triggerSync(t, svc)
 		src.gate <- struct{}{}

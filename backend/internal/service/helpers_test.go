@@ -122,7 +122,7 @@ func assertInvariants(t *testing.T, pool *pgxpool.Pool) {
 // newTestService 构造不开定时同步的 SyncService 并在后台运行 Run。src 为 nil 表示未配置目录源。
 func newTestService(t *testing.T, pool *pgxpool.Pool, src catalog.Source) *SyncService {
 	t.Helper()
-	svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{}, testLogger(t))
+	svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{KeepRuns: 20}, testLogger(t))
 	runInBackground(t, svc)
 	return svc
 }

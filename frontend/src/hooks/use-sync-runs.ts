@@ -13,7 +13,7 @@ export const syncRunKeys = {
 /** 轮询间隔：最近一次同步全局一直轮询，列表、详情只在同步页轮询 */
 const pollInterval = 2000
 
-/** 最近 20 次同步，新的在前；只在同步页用，一直轮询 */
+/** 最近几次同步（后端配置 sync.keep_runs，默认 20），新的在前；只在同步页用，一直轮询 */
 export function useSyncRuns() {
   return useQuery({
     queryKey: syncRunKeys.list,

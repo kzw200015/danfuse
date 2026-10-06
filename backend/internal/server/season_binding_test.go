@@ -84,7 +84,7 @@ func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.P
 
 	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{
 		Catalog:       handler.NewCatalogHandler(service.NewCatalogService(store, sources)),
-		Binding:       handler.NewBindingHandler(bindings),
+		Binding:       handler.NewBindingHandler(bindings, uploadLimits),
 		SeasonBinding: handler.NewSeasonBindingHandler(svc),
 	}, nil), pool
 }

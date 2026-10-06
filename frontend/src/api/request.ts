@@ -34,7 +34,7 @@ export function isApiStatus(e: unknown, status: number): e is ApiError {
 
 /**
  * 后端当场请求平台的接口（创建绑定、重新拉取、预览和创建季绑定）最长约 25 秒（服务端的写超时是 30 秒）；
- * 默认的 15 秒请求超时不够，放宽到 35 秒，让服务端先给出结果。上传弹幕文件（最多 50 MB）也用它。
+ * 默认的 15 秒请求超时不够，放宽到 35 秒，让服务端先给出结果。上传弹幕文件（默认最多 50 MB，后端配置 danmaku_file.max_upload_mb）也用它。
  */
 export const slowRequestTimeout = 35_000
 

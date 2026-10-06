@@ -43,7 +43,8 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 	catalogService := service.NewCatalogService(store, registry)
 	catalogHandler := handler.NewCatalogHandler(catalogService)
 	bindingService := service.NewBindingService(store, registry, slogLogger)
-	bindingHandler := handler.NewBindingHandler(bindingService)
+	danmakuFile := configConfig.DanmakuFile
+	bindingHandler := handler.NewBindingHandler(bindingService, danmakuFile)
 	seasonBindingService := service.NewSeasonBindingService(store, pool, registry, bindingService, slogLogger)
 	seasonBindingHandler := handler.NewSeasonBindingHandler(seasonBindingService)
 	catalogSource := configConfig.CatalogSource

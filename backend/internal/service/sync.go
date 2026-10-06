@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	maxSyncRuns     = 20  // 同步记录只保留最近 20 次
 	maxSyncWarnings = 200 // 每次同步最多保存 200 条警告，另记总数
 
 	// saveResultTimeout 写入最终状态的超时。最终状态在 ctx 取消后也要写，数据库不可达时不能让关闭永远挂住。
@@ -55,6 +54,7 @@ type SyncService struct {
 	pool          *pgxpool.Pool  // 拿同步的租约
 	catalogSource catalog.Source // nil 表示未配置目录源
 	interval      time.Duration
+	keepRuns      int32 // 同步记录保留最近几次
 	logger        *slog.Logger
 	loop          *backgroundLoop // Run 的循环：定时与手动触发，进行中的同步
 }
@@ -65,6 +65,7 @@ func NewSyncService(store *repository.Store, pool *pgxpool.Pool, catalogSource c
 		pool:          pool,
 		catalogSource: catalogSource,
 		interval:      cfg.Interval,
+		keepRuns:      cfg.KeepRuns,
 		logger:        logger,
 		loop:          newBackgroundLoop(),
 	}
@@ -100,9 +101,9 @@ func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 	return runID, err
 }
 
-// ListRuns 最近 20 次同步，新的在前，不含警告正文。
+// ListRuns 最近 sync.keep_runs 次同步，新的在前，不含警告正文。
 func (s *SyncService) ListRuns(ctx context.Context) ([]repository.ListSyncRunsRow, error) {
-	runs, err := s.store.ListSyncRuns(ctx, maxSyncRuns)
+	runs, err := s.store.ListSyncRuns(ctx, s.keepRuns)
 	if err != nil {
 		return nil, fmt.Errorf("list sync runs: %w", err)
 	}
@@ -172,7 +173,7 @@ func (s *SyncService) startScheduled(ctx context.Context) {
 	}
 }
 
-// tryStart 拿租约 → 清理残留的 running → 删掉最近 20 次以前的记录 → 插入 running 记录 → 在后台执行，返回这次同步的 ID。
+// tryStart 拿租约 → 清理残留的 running → 删掉最近 sync.keep_runs 次以前的记录 → 插入 running 记录 → 在后台执行，返回这次同步的 ID。
 // 租约由执行同步的 goroutine 持有到结束；拿不到租约时返回 errSyncRunning。
 func (s *SyncService) tryStart(ctx context.Context, trigger string) (int64, error) {
 	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSync)
@@ -199,7 +200,7 @@ func (s *SyncService) createRun(ctx context.Context, trigger string) (int64, err
 	if err := s.interruptStale(ctx); err != nil {
 		return 0, err
 	}
-	if err := s.store.DeleteOldSyncRuns(ctx, maxSyncRuns-1); err != nil {
+	if err := s.store.DeleteOldSyncRuns(ctx, s.keepRuns-1); err != nil {
 		return 0, fmt.Errorf("delete old sync runs: %w", err)
 	}
 	runID, err := s.store.CreateSyncRun(ctx, trigger)

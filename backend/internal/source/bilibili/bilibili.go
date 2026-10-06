@@ -75,7 +75,7 @@ var _ source.Adapter = (*Adapter)(nil)
 
 // New 不连 B 站。同一个进程里只应有一个 Adapter：令牌桶在它里面，所有绑定共用。
 func New(cfg config.Bilibili) *Adapter {
-	return &Adapter{client: newClient(cfg.Sessdata)}
+	return &Adapter{client: newClient(cfg.Sessdata, cfg.RequestsPerSecond)}
 }
 
 // ID 存入 bindings.adapter，一经发布不能再改。

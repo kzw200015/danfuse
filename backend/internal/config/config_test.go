@@ -60,6 +60,60 @@ func TestLoadDefaultsWithoutCatalogSource(t *testing.T) {
 	}
 }
 
+func TestLoadTunableDefaults(t *testing.T) {
+	setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse"})
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.CatalogSource.Jellyfin.ListTimeout; got != 2*time.Minute {
+		t.Errorf("list_timeout = %v, want 2m", got)
+	}
+	if cfg.Sync.KeepRuns != 20 {
+		t.Errorf("keep_runs = %d, want 20", cfg.Sync.KeepRuns)
+	}
+	if cfg.Bilibili.RequestsPerSecond != 3 {
+		t.Errorf("requests_per_second = %v, want 3", cfg.Bilibili.RequestsPerSecond)
+	}
+	if want := (DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 50}); cfg.DanmakuFile != want {
+		t.Errorf("danmaku_file = %+v, want %+v", cfg.DanmakuFile, want)
+	}
+}
+
+func TestLoadTunablesFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_DSN":                         "postgres://localhost/danfuse",
+		"SERVER_WRITE_TIMEOUT":                 "0", // 不限
+		"CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT": "10m",
+		"SYNC_KEEP_RUNS":                       "1",
+		"BILIBILI_REQUESTS_PER_SECOND":         "0.5",
+		"DANMAKU_FILE_MAX_FILES":               "200",
+		"DANMAKU_FILE_MAX_FILE_MB":             "64",
+		"DANMAKU_FILE_MAX_UPLOAD_MB":           "256",
+	})
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.WriteTimeout != 0 {
+		t.Errorf("write_timeout = %v, want 0", cfg.Server.WriteTimeout)
+	}
+	if got := cfg.CatalogSource.Jellyfin.ListTimeout; got != 10*time.Minute {
+		t.Errorf("list_timeout = %v, want 10m", got)
+	}
+	if cfg.Sync.KeepRuns != 1 {
+		t.Errorf("keep_runs = %d, want 1", cfg.Sync.KeepRuns)
+	}
+	if cfg.Bilibili.RequestsPerSecond != 0.5 {
+		t.Errorf("requests_per_second = %v, want 0.5", cfg.Bilibili.RequestsPerSecond)
+	}
+	if want := (DanmakuFile{MaxFiles: 200, MaxFileMB: 64, MaxUploadMB: 256}); cfg.DanmakuFile != want {
+		t.Errorf("danmaku_file = %+v, want %+v", cfg.DanmakuFile, want)
+	}
+}
+
 func TestLoadDandanplayToken(t *testing.T) {
 	for _, token := range []string{"", "Abc-1.2_3~", "..."} {
 		t.Run(token, func(t *testing.T) {
@@ -123,6 +177,14 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"token 为 .", map[string]string{"DANDANPLAY_TOKEN": "."}, "dandanplay.token"},
 		{"token 为 ..", map[string]string{"DANDANPLAY_TOKEN": ".."}, "dandanplay.token"},
 		{"max_conns 为负", map[string]string{"DATABASE_MAX_CONNS": "-1"}, "database.max_conns"},
+		{"write_timeout 小于 30s", map[string]string{"SERVER_WRITE_TIMEOUT": "25s"}, "server.write_timeout"},
+		{"list_timeout 为 0", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT", "0"), "jellyfin.list_timeout"},
+		{"keep_runs 为 0", map[string]string{"SYNC_KEEP_RUNS": "0"}, "sync.keep_runs"},
+		{"requests_per_second 为 0", map[string]string{"BILIBILI_REQUESTS_PER_SECOND": "0"}, "bilibili.requests_per_second"},
+		{"requests_per_second 为负", map[string]string{"BILIBILI_REQUESTS_PER_SECOND": "-1"}, "bilibili.requests_per_second"},
+		{"max_files 为 0", map[string]string{"DANMAKU_FILE_MAX_FILES": "0"}, "danmaku_file"},
+		{"max_file_mb 为 0", map[string]string{"DANMAKU_FILE_MAX_FILE_MB": "0"}, "danmaku_file"},
+		{"max_upload_mb 为 0", map[string]string{"DANMAKU_FILE_MAX_UPLOAD_MB": "0"}, "danmaku_file"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

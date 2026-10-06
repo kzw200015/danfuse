@@ -18,6 +18,9 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
+// uploadLimits 上传弹幕文件的上限，与默认值一致（TestFileBindingUploadErrors 断言这几个数）。
+var uploadLimits = config.DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 50}
+
 // catalogServer 起完整的 Echo，目录与绑定接口连到 pool，源适配器只注册了 fakeAdapter。
 func catalogServer(pool *pgxpool.Pool) *Server {
 	store := repository.NewStore(pool)
@@ -25,7 +28,7 @@ func catalogServer(pool *pgxpool.Pool) *Server {
 	logger := slog.New(slog.DiscardHandler)
 	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{
 		Catalog: handler.NewCatalogHandler(service.NewCatalogService(store, sources)),
-		Binding: handler.NewBindingHandler(service.NewBindingService(store, sources, logger)),
+		Binding: handler.NewBindingHandler(service.NewBindingService(store, sources, logger), uploadLimits),
 	}, nil)
 }
 

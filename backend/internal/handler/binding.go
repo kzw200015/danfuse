@@ -6,16 +6,18 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/response"
 	"github.com/kzw200015/danfuse/backend/internal/service"
 )
 
 type BindingHandler struct {
-	svc *service.BindingService
+	svc    *service.BindingService
+	upload config.DanmakuFile // 一次上传弹幕文件的上限
 }
 
-func NewBindingHandler(svc *service.BindingService) *BindingHandler {
-	return &BindingHandler{svc: svc}
+func NewBindingHandler(svc *service.BindingService, upload config.DanmakuFile) *BindingHandler {
+	return &BindingHandler{svc: svc, upload: upload}
 }
 
 type createBindingRequest struct {

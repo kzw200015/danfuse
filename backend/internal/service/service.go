@@ -29,7 +29,8 @@ var errShuttingDown = apierr.ErrServiceUnavailable.WithMessage("服务正在关�
 const internalErrorMessage = "服务器内部错误，详见日志"
 
 // fetchTimeout 一次拉取的总时限，创建绑定时也包括解析链接（跟随短链也要联网），季绑定的预览、创建与补建也用它限定
-// 识别链接、列出合集：server.write_timeout 是 30 秒，留出写库和响应的时间。超时由适配器按 Upstream 返回。
+// 识别链接、列出合集：server.write_timeout 不小于 config.MinWriteTimeout（30 秒），留出写库和响应的时间。改它时一起改那个下限。
+// 超时由适配器按 Upstream 返回。
 const fetchTimeout = 25 * time.Second
 
 // fetch 拉取一个弹幕源的全部弹幕，总时限 fetchTimeout。调用方拉完才开写入事务。

@@ -15,11 +15,8 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 )
 
-// 单个请求的超时。
-const (
-	listTimeout   = 2 * time.Minute  // 列出条目
-	posterTimeout = 30 * time.Second // 下载一张海报
-)
+// posterTimeout 下载一张海报的超时；列出条目的超时是配置项 catalog_source.jellyfin.list_timeout。
+const posterTimeout = 30 * time.Second
 
 // posterMaxWidth 海报按这个宽度缩小后下载，够管理界面显示。
 const posterMaxWidth = "400"
@@ -27,8 +24,9 @@ const posterMaxWidth = "400"
 // client Jellyfin 的 HTTP 客户端，超时都由 ctx 控制。鉴权固定用 `Authorization: MediaBrowser Token="<api_key>"` 请求头，
 // 不用查询参数，这样错误信息里的 URL 不会带上 key。api_key 不写日志。
 type client struct {
-	baseURL string // 已去掉末尾的 /
-	apiKey  string
+	baseURL     string // 已去掉末尾的 /
+	apiKey      string
+	listTimeout time.Duration // 列出媒体库、条目时每个请求的超时
 }
 
 // virtualFolder /Library/VirtualFolders 的一项，即一个媒体库。
@@ -123,7 +121,7 @@ func (c *client) primaryImage(ctx context.Context, itemID string) (*catalog.Imag
 
 // getJSON GET 一个 JSON 接口，把响应解码进 out。
 func (c *client) getJSON(ctx context.Context, path string, query url.Values, out any) error {
-	ctx, cancel := context.WithTimeout(ctx, listTimeout)
+	ctx, cancel := context.WithTimeout(ctx, c.listTimeout)
 	defer cancel()
 
 	resp, err := c.get(ctx, path, query, "application/json")
@@ -167,7 +165,7 @@ func (c *client) get(ctx context.Context, path string, query url.Values, accept 
 	return resp, nil
 }
 
-// transportError 请求或读取响应时出的错：超时（单个请求的时限，见 listTimeout、posterTimeout）提示"请求 Jellyfin 超时"，
+// transportError 请求或读取响应时出的错：超时（单个请求的时限，见 client.listTimeout、posterTimeout）提示"请求 Jellyfin 超时"，
 // 其余用 message。ctx 被取消（关闭服务）时同步记为中断，不显示失败原因。
 func transportError(message string, err error) *catalog.Error {
 	if errors.Is(err, context.DeadlineExceeded) {

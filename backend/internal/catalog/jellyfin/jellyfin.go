@@ -29,7 +29,7 @@ var _ catalog.Source = (*Source)(nil)
 // New 只保存配置，不连 Jellyfin：Jellyfin 没开时 danfuse 也要能启动。
 func New(cfg config.Jellyfin) *Source {
 	return &Source{
-		client:    &client{baseURL: cfg.URL, apiKey: cfg.APIKey},
+		client:    &client{baseURL: cfg.URL, apiKey: cfg.APIKey, listTimeout: cfg.ListTimeout},
 		libraries: cfg.Libraries,
 	}
 }

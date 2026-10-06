@@ -23,14 +23,19 @@ type Config struct {
 	CatalogSource CatalogSource `mapstructure:"catalog_source"`
 	Sync          Sync          `mapstructure:"sync"`
 	Bilibili      Bilibili      `mapstructure:"bilibili"`
+	DanmakuFile   DanmakuFile   `mapstructure:"danmaku_file"`
 }
 
 type Server struct {
 	Addr            string        `mapstructure:"addr"`
 	GracefulTimeout time.Duration `mapstructure:"graceful_timeout"`
 	ReadTimeout     time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout    time.Duration `mapstructure:"write_timeout"`
+	WriteTimeout    time.Duration `mapstructure:"write_timeout"` // 0 表示不限；否则不能小于 MinWriteTimeout
 }
+
+// MinWriteTimeout server.write_timeout 的下限：创建绑定、重新拉取要当场拉取弹幕，最长 25 秒（service.fetchTimeout），
+// 再留出写库和响应的时间。
+const MinWriteTimeout = 30 * time.Second
 
 type Log struct {
 	Level  string `mapstructure:"level"`  // debug | info | warn | error
@@ -65,10 +70,13 @@ type Jellyfin struct {
 	URL       string   `mapstructure:"url"`       // 可带子路径，加载时去掉末尾的 /
 	APIKey    string   `mapstructure:"api_key"`   // 只作为请求头发送，不写日志
 	Libraries []string `mapstructure:"libraries"` // 要同步的媒体库名；环境变量里用逗号分隔
+	// ListTimeout 列出媒体库、剧和电影、季和集，每个请求的超时。媒体库很大或 Jellyfin 很慢时调大
+	ListTimeout time.Duration `mapstructure:"list_timeout"`
 }
 
 type Sync struct {
-	Interval time.Duration `mapstructure:"interval"` // 定时同步的间隔，0 表示关闭
+	Interval time.Duration `mapstructure:"interval"`  // 定时同步的间隔，0 表示关闭
+	KeepRuns int32         `mapstructure:"keep_runs"` // 同步记录保留最近几次，至少 1
 }
 
 // Bilibili B 站源适配器。
@@ -76,6 +84,15 @@ type Bilibili struct {
 	// Sessdata 可选的 B 站登录凭据（浏览器 Cookie 里 SESSDATA 的值），只作为 Cookie 发给 B 站，不写日志、不入库。
 	// 未配置时以未登录的身份拉取，弹幕可能不全。
 	Sessdata string `mapstructure:"sessdata"`
+	// RequestsPerSecond 请求 B 站的速率上限（全局令牌桶，所有绑定共用），可以是小数。被 B 站限流时调小
+	RequestsPerSecond float64 `mapstructure:"requests_per_second"`
+}
+
+// DanmakuFile 上传弹幕文件的上限，按一次上传计；一个绑定累计追加的文件不设上限。
+type DanmakuFile struct {
+	MaxFiles    int   `mapstructure:"max_files"`     // 一次最多几份
+	MaxFileMB   int64 `mapstructure:"max_file_mb"`   // 单份的上限，单位 MB
+	MaxUploadMB int64 `mapstructure:"max_upload_mb"` // 一次合计的上限，单位 MB
 }
 
 // tokenPattern dandanplay.token 允许的字符：RFC 3986 的 unreserved，放在 URL 路径里不需要转义。
@@ -131,10 +148,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("catalog_source.jellyfin.url", "")
 	v.SetDefault("catalog_source.jellyfin.api_key", "")
 	v.SetDefault("catalog_source.jellyfin.libraries", []string{})
+	v.SetDefault("catalog_source.jellyfin.list_timeout", 2*time.Minute)
 
 	v.SetDefault("sync.interval", time.Duration(0))
+	v.SetDefault("sync.keep_runs", 20)
 
 	v.SetDefault("bilibili.sessdata", "")
+	v.SetDefault("bilibili.requests_per_second", 3.0)
+
+	v.SetDefault("danmaku_file.max_files", 50)
+	v.SetDefault("danmaku_file.max_file_mb", 10)
+	v.SetDefault("danmaku_file.max_upload_mb", 50)
 }
 
 // normalize 规整配置值：url 去掉末尾的 /；媒体库名去掉首尾空白，丢弃空项（例如环境变量末尾多了逗号）；SESSDATA 去掉首尾空白。
@@ -152,6 +176,9 @@ func (c *Config) normalize() {
 }
 
 func (c *Config) validate() error {
+	if t := c.Server.WriteTimeout; t != 0 && t < MinWriteTimeout {
+		return fmt.Errorf("config: server.write_timeout must be 0 (no limit) or at least %v: fetching danmaku takes up to 25s", MinWriteTimeout)
+	}
 	if c.Database.DSN == "" {
 		return errors.New("config: database.dsn is required")
 	}
@@ -180,6 +207,9 @@ func (c *Config) validate() error {
 		if len(jf.Libraries) == 0 {
 			return errors.New("config: catalog_source.jellyfin.libraries is required")
 		}
+		if jf.ListTimeout <= 0 {
+			return errors.New("config: catalog_source.jellyfin.list_timeout must be positive")
+		}
 	default:
 		return fmt.Errorf("config: catalog_source.kind must be empty or %q", KindJellyfin)
 	}
@@ -190,10 +220,19 @@ func (c *Config) validate() error {
 	if c.Sync.Interval > 0 && c.CatalogSource.Kind == "" {
 		return errors.New("config: sync.interval requires catalog_source.kind")
 	}
+	if c.Sync.KeepRuns < 1 {
+		return errors.New("config: sync.keep_runs must be at least 1")
+	}
 	// 原样作为 Cookie 的值发送：只能是浏览器里看到的那一串（逗号编码成了 %2C）。
 	// 含有 Cookie 值不允许的字符时 net/http 会加引号或丢掉这些字符，登录态悄悄失效，不如启动时就报错
 	if strings.ContainsFunc(c.Bilibili.Sessdata, func(r rune) bool { return !isCookieOctet(r) }) {
 		return errors.New("config: bilibili.sessdata must be the cookie value as shown in the browser (no spaces, commas, semicolons, quotes or backslashes)")
+	}
+	if c.Bilibili.RequestsPerSecond <= 0 {
+		return errors.New("config: bilibili.requests_per_second must be positive")
+	}
+	if df := c.DanmakuFile; df.MaxFiles < 1 || df.MaxFileMB < 1 || df.MaxUploadMB < 1 {
+		return errors.New("config: danmaku_file.max_files, max_file_mb and max_upload_mb must be at least 1")
 	}
 	return nil
 }

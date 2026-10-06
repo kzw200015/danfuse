@@ -24,12 +24,11 @@ const (
 	userAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
 	referer    = "https://www.bilibili.com"
 
-	requestsPerSecond = 3                // 全局令牌桶
-	requestTimeout    = 10 * time.Second // 单个请求的超时，超时后照常重试；整次拉取的总时限由调用方的 ctx 决定
-	maxRetries        = 3                // rate_limited 与 upstream 最多重试的次数
-	firstRetryDelay   = 500 * time.Millisecond
-	maxRetryDelay     = 4 * time.Second
-	maxBodySize       = 32 << 20 // 响应体（解压后）的上限，超过时按 Upstream 处理，不截断（截断的 protobuf 可能在弹幕边界上解出部分弹幕）
+	requestTimeout  = 10 * time.Second // 单个请求的超时，超时后照常重试；整次拉取的总时限由调用方的 ctx 决定
+	maxRetries      = 3                // rate_limited 与 upstream 最多重试的次数
+	firstRetryDelay = 500 * time.Millisecond
+	maxRetryDelay   = 4 * time.Second
+	maxBodySize     = 32 << 20 // 响应体（解压后）的上限，超过时按 Upstream 处理，不截断（截断的 protobuf 可能在弹幕边界上解出部分弹幕）
 )
 
 // messages 各类错误给用户看的提示。
@@ -80,7 +79,8 @@ type client struct {
 	retryDelay time.Duration // 第一次重试前的等待，之后每次翻倍
 }
 
-func newClient(sessdata string) *client {
+// requestsPerSecond 全局令牌桶的速率（bilibili.requests_per_second）。
+func newClient(sessdata string, requestsPerSecond float64) *client {
 	return &client{
 		http: &http.Client{
 			Timeout: requestTimeout,
@@ -88,7 +88,7 @@ func newClient(sessdata string) *client {
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		sessdata:   sessdata,
-		limiter:    rate.NewLimiter(requestsPerSecond, 1),
+		limiter:    rate.NewLimiter(rate.Limit(requestsPerSecond), 1),
 		retryDelay: firstRetryDelay,
 	}
 }

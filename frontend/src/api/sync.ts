@@ -28,7 +28,7 @@ export interface SyncRunDetail extends SyncRun {
   warnings: string[]
 }
 
-/** 最近 20 次同步，新的在前 */
+/** 最近几次同步（后端配置 sync.keep_runs，默认 20），新的在前 */
 export function listSyncRuns() {
   return request<SyncRun[]>({ url: '/sync-runs' })
 }

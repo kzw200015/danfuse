@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
@@ -340,7 +341,7 @@ func TestListUnreachable(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	srv.Close()
 
-	_, err := New(config.Jellyfin{URL: srv.URL, APIKey: testAPIKey, Libraries: []string{"番剧"}}).List(t.Context())
+	_, err := New(config.Jellyfin{URL: srv.URL, APIKey: testAPIKey, Libraries: []string{"番剧"}, ListTimeout: time.Minute}).List(t.Context())
 
 	if got, want := message(t, err), "列出媒体库失败：无法连接 Jellyfin"; got != want {
 		t.Errorf("List() 的提示 = %q, want %q", got, want)
@@ -358,7 +359,7 @@ func TestListRejected(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := New(config.Jellyfin{URL: srv.URL, APIKey: "wrong", Libraries: []string{"番剧"}}).List(t.Context())
+	_, err := New(config.Jellyfin{URL: srv.URL, APIKey: "wrong", Libraries: []string{"番剧"}, ListTimeout: time.Minute}).List(t.Context())
 
 	if got, want := message(t, err), "列出媒体库失败：Jellyfin 拒绝了请求，请检查 API Key（HTTP 401）"; got != want {
 		t.Errorf("List() 的提示 = %q, want %q", got, want)
@@ -555,7 +556,7 @@ func TestURLWithSubpath(t *testing.T) {
 	proxy := httptest.NewServer(http.StripPrefix("/jellyfin", fake)) // 子路径以外的请求返回 404
 	t.Cleanup(proxy.Close)
 
-	src := New(config.Jellyfin{URL: proxy.URL + "/jellyfin", APIKey: testAPIKey, Libraries: []string{"电影"}})
+	src := New(config.Jellyfin{URL: proxy.URL + "/jellyfin", APIKey: testAPIKey, Libraries: []string{"电影"}, ListTimeout: time.Minute})
 	listing, err := src.List(t.Context())
 	if err != nil {
 		t.Fatal(err)

@@ -99,7 +99,7 @@ func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*service.
 	}
 	t.Cleanup(pool.Close)
 
-	svc := service.NewSyncService(repository.NewStore(pool), pool, src, config.Sync{}, slog.New(slog.DiscardHandler))
+	svc := service.NewSyncService(repository.NewStore(pool), pool, src, config.Sync{KeepRuns: 20}, slog.New(slog.DiscardHandler))
 	runInBackground(t, svc)
 	return svc, pool
 }
