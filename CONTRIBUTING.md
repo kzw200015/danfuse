@@ -98,6 +98,8 @@ pnpm dev
 
 提交前请跑一遍：后端 `make lint` 和 `go test ./...`，前端 `pnpm lint`、`pnpm format:check`、`pnpm build` 和 `pnpm test:unit --run`。
 
+CI（`.github/workflows/ci.yml`）在 PR 和推送 main 时跑同样的检查（前端的类型检查用 `tsc -b`，不打包）；推送 main 时检查全部通过后，用同一份 Dockerfile 构建 linux/amd64、linux/arm64 镜像，推到 `ghcr.io/kzw200015/danfuse`，标签为 `latest` 和 `sha-<短哈希>`。
+
 ## 测试
 
 ### 数据库测试
