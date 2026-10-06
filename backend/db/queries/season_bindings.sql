@@ -22,7 +22,7 @@ SELECT EXISTS (SELECT 1 FROM season_bindings WHERE season_id = $1 AND adapter = 
 
 -- name: InsertSeasonBinding :one
 -- 同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
-INSERT INTO season_bindings (season_id, adapter, ref, title, finished, mapping_from, mapping_to, episode_pattern, numbered_by_rule)
+INSERT INTO season_bindings (season_id, adapter, ref, title, finished, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id;
 
@@ -160,7 +160,7 @@ SET status           = 'active',
     numbered_by_rule = $4,
     updated_at       = now()
 WHERE id = $1
-RETURNING episode_pattern;
+RETURNING episode_patterns;
 
 -- name: FinishSeasonBindingCheck :exec
 -- 一次检查结束（正常结束，或因错误、限流结束）：上次检查时间写为这一轮的开始时间，记下结束时的错误（没有时为 null）。
@@ -176,11 +176,11 @@ WHERE id = sqlc.arg(id);
 -- 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号：改了集号规则时，同一个事务里随后重新认出条目的序号。
 -- 不存在时没有行。
 UPDATE season_bindings
-SET follow          = coalesce(sqlc.narg(follow), follow),
-    mapping_from    = coalesce(sqlc.narg(mapping_from), mapping_from),
-    mapping_to      = coalesce(sqlc.narg(mapping_to), mapping_to),
-    episode_pattern = coalesce(sqlc.narg(episode_pattern), episode_pattern),
-    updated_at      = now()
+SET follow           = coalesce(sqlc.narg(follow), follow),
+    mapping_from     = coalesce(sqlc.narg(mapping_from), mapping_from),
+    mapping_to       = coalesce(sqlc.narg(mapping_to), mapping_to),
+    episode_patterns = coalesce(sqlc.narg(episode_patterns)::text[], episode_patterns),
+    updated_at       = now()
 WHERE id = sqlc.arg(id)
 RETURNING numbered_by_rule;
 
@@ -196,10 +196,10 @@ WHERE id = $1;
 
 -- name: ListDueSeasonBindings :many
 -- 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚：
---   从没检查过；距上次检查已满 24 小时（due_before = 现在 - 24 小时）；这一季里有集的建出时间晚于上次检查时间；
---   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 24 小时（同样以 due_before 判断）、
---   而且是在上次检查开始之后才满 24 小时的（满 24 小时之前开始的那一轮已经试过拉取它，失败了等下一次每天的检查，不每分钟重试）。
--- 24 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
+--   从没检查过；距上次检查已满 12 小时（due_before = 现在 - 12 小时）；这一季里有集的建出时间晚于上次检查时间；
+--   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 12 小时（同样以 due_before 判断）、
+--   而且是在上次检查开始之后才满 12 小时的（满 12 小时之前开始的那一轮已经试过拉取它，失败了等下一次定期的检查，不每分钟重试）。
+-- 12 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
 -- id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
 SELECT sb.id
 FROM season_bindings sb

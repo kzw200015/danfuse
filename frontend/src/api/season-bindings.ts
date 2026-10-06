@@ -20,9 +20,9 @@ export interface SeasonBinding {
   mappingTo: number
   /** 合集的序号由集号规则从条目的标题认出（投稿合集、多 P 投稿） */
   numberedByRule: boolean
-  /** 集号规则：空串为内置规则，否则是正则，第一个捕获组为集号 */
-  episodePattern: string
-  /** 追更：每天检查、同步后补建、14 天内每天重新拉取 */
+  /** 集号规则：按优先级排列的正则，第一条匹配上的给出集号 */
+  episodePatterns: string[]
+  /** 追更：每 12 小时检查、同步后补建、14 天内每 12 小时重新拉取 */
   follow: boolean
   /** dead 表示上次检查时合集已不存在 */
   status: SeasonBindingStatus
@@ -97,12 +97,12 @@ export interface CollectionPreview {
   candidates: CollectionCandidate[]
 }
 
-/** 预览一季要绑定的合集，按集号规则（空串为内置规则）认出序号，不保存任何东西 */
-export function previewSeasonBinding(seasonId: number, link: string, episodePattern: string) {
+/** 预览一季要绑定的合集，按集号规则认出序号，不保存任何东西 */
+export function previewSeasonBinding(seasonId: number, link: string, episodePatterns: string[]) {
   return request<CollectionPreview>({
     url: `/seasons/${seasonId}/season-bindings/preview`,
     method: 'POST',
-    data: { link, episodePattern },
+    data: { link, episodePatterns },
     timeout: slowRequestTimeout,
   })
 }
@@ -113,8 +113,8 @@ export interface CreateSeasonBinding {
   kind?: string
   mappingFrom: number
   mappingTo: number
-  /** 集号规则，与预览时用的相同；空串为内置规则 */
-  episodePattern: string
+  /** 集号规则，与预览时用的相同 */
+  episodePatterns: string[]
 }
 
 /** 创建季绑定，返回详情；补建随即在后台进行 */
@@ -137,8 +137,7 @@ export interface SeasonBindingPatch {
   follow?: boolean
   mappingFrom?: number
   mappingTo?: number
-  /** 空串改回内置规则 */
-  episodePattern?: string
+  episodePatterns?: string[]
 }
 
 /** 开关追更、改集号对应和集号规则，只改传了的字段。改了规则时返回的条目已按新规则认出序号；打开追更或改了对应、规则时后端随即在后台补建 */
@@ -162,4 +161,9 @@ export function deleteSeasonBinding(id: number, withBindings: boolean) {
     method: 'DELETE',
     params: { withBindings },
   })
+}
+
+/** 默认的集号规则：贴链接预览时作为编辑的起点，"恢复默认"时取它 */
+export function getDefaultEpisodePatterns() {
+  return request<{ episodePatterns: string[] }>({ url: '/episode-rules/default' })
 }

@@ -15,6 +15,7 @@ import {
   backfillSeasonBinding,
   createSeasonBinding,
   deleteSeasonBinding,
+  getDefaultEpisodePatterns,
   getSeasonBinding,
   previewSeasonBinding,
   updateSeasonBinding,
@@ -31,6 +32,9 @@ vi.mock('@/api/series')
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
 
+/** 默认的集号规则（假的，只要是两条） */
+const defaultPatterns = ['第(\\d+)集', 'EP(\\d+)']
+
 function seasonBinding(id: number, patch: Partial<SeasonBinding> = {}): SeasonBinding {
   return {
     id,
@@ -43,7 +47,7 @@ function seasonBinding(id: number, patch: Partial<SeasonBinding> = {}): SeasonBi
     mappingFrom: 1,
     mappingTo: 1,
     numberedByRule: false,
-    episodePattern: '',
+    episodePatterns: defaultPatterns,
     follow: true,
     status: 'active',
     lastError: null,
@@ -101,6 +105,7 @@ beforeEach(() => {
   items = {}
   mockRootLayout()
   mockCatalog(() => all)
+  vi.mocked(getDefaultEpisodePatterns).mockResolvedValue({ episodePatterns: defaultPatterns })
   vi.mocked(getSeasonBinding).mockImplementation(async (id) => ({
     ...structuredClone(serverBinding(id)),
     items: structuredClone(items[id] ?? []),
@@ -150,7 +155,9 @@ async function previewLink(link: string) {
 describe('添加季绑定', () => {
   it('预览给出默认的集号对应，改对应时表格立即刷新；创建后卡片出现并显示补建进度，结束后刷新剧详情', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    vi.mocked(previewSeasonBinding).mockResolvedValue({ candidates: [continued] })
+    vi.mocked(previewSeasonBinding).mockResolvedValue({
+      candidates: [continued],
+    })
     vi.mocked(createSeasonBinding).mockImplementation(async () => {
       const sb = seasonBinding(2, {
         title: continued.title,
@@ -169,9 +176,11 @@ describe('添加季绑定', () => {
 
     await previewLink(' ss36429 ')
 
-    await waitFor(() => expect(previewSeasonBinding).toHaveBeenCalledWith(11, 'ss36429', ''))
+    await waitFor(() =>
+      expect(previewSeasonBinding).toHaveBeenCalledWith(11, 'ss36429', defaultPatterns),
+    )
     // 番剧的集号由平台给出，没有集号规则
-    expect(screen.queryByRole('textbox', { name: '集号规则' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '集号规则' })).not.toBeInTheDocument()
     const preview = within(await screen.findByRole('region', { name: '预览' }))
     expect(preview.getByRole('link', { name: '星海旅人 第二部分' })).toHaveAttribute(
       'href',
@@ -216,7 +225,7 @@ describe('添加季绑定', () => {
         kind: 'bangumi',
         mappingFrom: 13,
         mappingTo: 1,
-        episodePattern: '',
+        episodePatterns: defaultPatterns,
       }),
     )
     expect(await screen.findByText('已创建季绑定，正在后台补建')).toBeInTheDocument()
@@ -270,12 +279,14 @@ describe('添加季绑定', () => {
       title: '搬运合集',
       sourceLabel: 'B 站投稿合集 8597253',
       items: [
-        { label: '星海旅人 全集 / 01', number: null, reason: '名称里认不出集号' },
+        { label: '星海旅人 全集 / 01', number: null, reason: '不符合集号规则' },
         { label: '星海旅人 第1集', number: 1, reason: null },
         { label: '星海旅人 第2集 PV', number: 2, reason: null },
       ],
     }
-    vi.mocked(previewSeasonBinding).mockResolvedValue({ candidates: [pages, collection] })
+    vi.mocked(previewSeasonBinding).mockResolvedValue({
+      candidates: [pages, collection],
+    })
     vi.mocked(createSeasonBinding).mockReturnValue(new Promise(() => {}))
     renderRoutes('/catalog/1/11')
 
@@ -291,14 +302,16 @@ describe('添加季绑定', () => {
     fireEvent.click(choices.getByRole('radio', { name: /搬运合集/ }))
 
     expect(choices.getByRole('radio', { name: /搬运合集/ })).toHaveAttribute('aria-checked', 'true')
-    expect(targets()).toEqual(['对不上：名称里认不出集号', '第 1 集（已有 1 个绑定）', '第 2 集'])
+    expect(targets()).toEqual(['对不上：不符合集号规则', '第 1 集（已有 1 个绑定）', '第 2 集'])
 
-    // 改了规则：重新预览之前不能创建
+    // 改了规则：重新预览之前不能创建。编辑的起点是默认规则
     const preview = within(screen.getByRole('region', { name: '预览' }))
-    expect(preview.getByRole('textbox', { name: '集号规则' })).toHaveValue('')
-    fireEvent.change(preview.getByRole('textbox', { name: '集号规则' }), {
+    expect(preview.getByRole('textbox', { name: '集号规则第 1 条' })).toHaveValue('第(\\d+)集')
+    fireEvent.change(preview.getByRole('textbox', { name: '集号规则第 1 条' }), {
       target: { value: ' 第(\\d+)集$ ' },
     })
+    fireEvent.click(preview.getByRole('button', { name: '删除第 2 条' }))
+    expect(preview.getByRole('button', { name: '删除第 1 条' })).toBeDisabled()
     expect(preview.getByRole('button', { name: '创建' })).toBeDisabled()
     expect(preview.getByText('集号规则改了，先重新预览')).toBeInTheDocument()
 
@@ -326,7 +339,7 @@ describe('添加季绑定', () => {
     fireEvent.click(preview.getByRole('button', { name: '重新预览' }))
 
     await waitFor(() =>
-      expect(previewSeasonBinding).toHaveBeenLastCalledWith(11, 'BV17x411w7KC', '第(\\d+)集$'),
+      expect(previewSeasonBinding).toHaveBeenLastCalledWith(11, 'BV17x411w7KC', ['第(\\d+)集$']),
     )
     await waitFor(() =>
       expect(targets()).toEqual([
@@ -340,7 +353,8 @@ describe('添加季绑定', () => {
       'aria-checked',
       'true',
     )
-    expect(repreviewed.getByRole('textbox', { name: '集号规则' })).toHaveValue('第(\\d+)集$')
+    expect(repreviewed.getByRole('textbox', { name: '集号规则第 1 条' })).toHaveValue('第(\\d+)集$')
+    expect(repreviewed.queryByRole('textbox', { name: '集号规则第 2 条' })).not.toBeInTheDocument()
     expect(repreviewed.queryByRole('alert')).not.toBeInTheDocument()
 
     fireEvent.click(repreviewed.getByRole('button', { name: '创建' }))
@@ -350,7 +364,7 @@ describe('添加季绑定', () => {
         kind: 'ugcSeason',
         mappingFrom: 1,
         mappingTo: 1,
-        episodePattern: '第(\\d+)集$',
+        episodePatterns: ['第(\\d+)集$'],
       }),
     )
   })
@@ -364,7 +378,9 @@ describe('添加季绑定', () => {
     const form = screen.getByRole('form', { name: '添加季绑定' })
     expect(await within(form).findByRole('alert')).toHaveTextContent('暂不支持系列')
 
-    vi.mocked(previewSeasonBinding).mockResolvedValue({ candidates: [continued] })
+    vi.mocked(previewSeasonBinding).mockResolvedValue({
+      candidates: [continued],
+    })
     vi.mocked(createSeasonBinding).mockRejectedValue(
       new ApiError('这一季已经绑定过这个合集', 1, 409),
     )
@@ -405,7 +421,7 @@ describe('季绑定卡片', () => {
     expect(sb.getByText('上次检查：番剧不存在、已下架或不可见')).toBeInTheDocument()
     expect(sb.getByRole('switch', { name: '追更' })).toBeChecked()
     expect(sb.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')
-    expect(sb.queryByRole('textbox', { name: '集号规则' })).not.toBeInTheDocument()
+    expect(sb.queryByRole('group', { name: '集号规则' })).not.toBeInTheDocument()
     // 打开季面板不请求详情
     expect(getSeasonBinding).not.toHaveBeenCalled()
   })
@@ -510,28 +526,50 @@ describe('季绑定卡片', () => {
     await waitFor(() => expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument())
   })
 
-  it('改集号规则：只有按规则编号的合集显示，改动后才能保存', async () => {
-    Object.assign(serverBinding(1), { numberedByRule: true, episodePattern: '' })
+  it('改集号规则：只有按规则编号的合集显示；可以调整顺序、新增、恢复默认，改动后才能保存', async () => {
+    Object.assign(serverBinding(1), { numberedByRule: true })
     vi.mocked(updateSeasonBinding).mockImplementation(async (id, patch) => {
       Object.assign(serverBinding(id), patch, { running: true })
       return { ...structuredClone(serverBinding(id)), items: [] }
     })
     renderRoutes('/catalog/1/11')
     const sb = await card('星海旅人 第一季')
-    expect(sb.getByRole('textbox', { name: '集号规则' })).toHaveValue('')
+    const values = () =>
+      within(sb.getByRole('group', { name: '集号规则' }))
+        .getAllByRole('textbox')
+        .map((el) => (el as HTMLInputElement).value)
+    expect(values()).toEqual(defaultPatterns)
+    expect(sb.getByRole('button', { name: '上移第 1 条' })).toBeDisabled()
+    expect(sb.getByRole('button', { name: '下移第 2 条' })).toBeDisabled()
     expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
 
-    fireEvent.change(sb.getByRole('textbox', { name: '集号规则' }), {
+    // 调换顺序算改动，恢复默认之后又没有改动
+    fireEvent.click(sb.getByRole('button', { name: '下移第 1 条' }))
+    expect(values()).toEqual(['EP(\\d+)', '第(\\d+)集'])
+    expect(sb.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    await waitFor(() => expect(sb.getByRole('button', { name: '恢复默认' })).toBeEnabled())
+    fireEvent.click(sb.getByRole('button', { name: '恢复默认' }))
+    expect(values()).toEqual(defaultPatterns)
+    expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
+
+    // 新增一条、移到第 2 条；空着的一条提交时丢掉，每条去掉前后的空白
+    fireEvent.click(sb.getByRole('button', { name: '新增' }))
+    fireEvent.change(sb.getByRole('textbox', { name: '集号规则第 3 条' }), {
       target: { value: '第(\\d+)话 ' },
     })
+    fireEvent.click(sb.getByRole('button', { name: '上移第 3 条' }))
+    fireEvent.click(sb.getByRole('button', { name: '新增' }))
+    expect(values()).toEqual(['第(\\d+)集', '第(\\d+)话 ', 'EP(\\d+)', ''])
     fireEvent.click(sb.getByRole('button', { name: '保存' }))
 
     await waitFor(() =>
-      expect(updateSeasonBinding).toHaveBeenCalledWith(1, { episodePattern: '第(\\d+)话' }),
+      expect(updateSeasonBinding).toHaveBeenCalledWith(1, {
+        episodePatterns: ['第(\\d+)集', '第(\\d+)话', 'EP(\\d+)'],
+      }),
     )
     expect(await screen.findByText('集号规则已保存，正在后台补建')).toBeInTheDocument()
     await waitFor(() => expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument())
-    expect(sb.getByRole('textbox', { name: '集号规则' })).toHaveValue('第(\\d+)话')
+    expect(values()).toEqual(['第(\\d+)集', '第(\\d+)话', 'EP(\\d+)'])
   })
 
   it('关掉追更', async () => {

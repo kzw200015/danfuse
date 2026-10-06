@@ -38,6 +38,7 @@ func registerRoutes(e *echo.Echo, h *handler.Handlers) {
 	api.PATCH("/season-bindings/:id", h.SeasonBinding.Update)
 	api.POST("/season-bindings/:id/backfill", h.SeasonBinding.Backfill)
 	api.DELETE("/season-bindings/:id", h.SeasonBinding.Delete)
+	api.GET("/episode-rules/default", h.SeasonBinding.DefaultEpisodeRule)
 
 	api.POST("/sync-runs", h.Sync.Trigger)
 	api.GET("/sync-runs", h.Sync.List)

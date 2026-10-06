@@ -68,14 +68,14 @@ type SeasonBindingView struct {
 	MappingFrom int32  `json:"mappingFrom"` // 集号对应：合集第 mappingFrom 集为本地第 mappingTo 集
 	MappingTo   int32  `json:"mappingTo"`
 	// NumberedByRule 合集的序号由集号规则从条目的标签认出（投稿合集、多 P 投稿），上次列出时由适配器给出
-	NumberedByRule bool       `json:"numberedByRule"`
-	EpisodePattern string     `json:"episodePattern"` // 集号规则：空串为内置规则，否则是正则
-	Follow         bool       `json:"follow"`
-	Status         string     `json:"status"`        // active | dead
-	LastError      *string    `json:"lastError"`     // 上次检查结束时的错误
-	LastCheckedAt  *time.Time `json:"lastCheckedAt"` // 上次检查的开始时间
-	Running        bool       `json:"running"`       // 正在补建
-	BindingCount   int32      `json:"bindingCount"`  // 它建出的、现存的绑定数
+	NumberedByRule  bool       `json:"numberedByRule"`
+	EpisodePatterns []string   `json:"episodePatterns"` // 集号规则：按优先级排列的正则
+	Follow          bool       `json:"follow"`
+	Status          string     `json:"status"`        // active | dead
+	LastError       *string    `json:"lastError"`     // 上次检查结束时的错误
+	LastCheckedAt   *time.Time `json:"lastCheckedAt"` // 上次检查的开始时间
+	Running         bool       `json:"running"`       // 正在补建
+	BindingCount    int32      `json:"bindingCount"`  // 它建出的、现存的绑定数
 }
 
 // SeasonBindingDetail 季绑定的详情：另有条目表，显示的是上次检查时的合集内容，不实时请求平台。
@@ -247,15 +247,15 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 		}
 		var err error
 		id, err = q.InsertSeasonBinding(ctx, repository.InsertSeasonBindingParams{
-			SeasonID:       seasonID,
-			Adapter:        adapter.ID(),
-			Ref:            c.Ref,
-			Title:          col.Title,
-			Finished:       col.Finished,
-			MappingFrom:    int32(p.Mapping.From),
-			MappingTo:      int32(p.Mapping.To),
-			EpisodePattern: p.Rule.Pattern(),
-			NumberedByRule: col.NumberedByRule,
+			SeasonID:        seasonID,
+			Adapter:         adapter.ID(),
+			Ref:             c.Ref,
+			Title:           col.Title,
+			Finished:        col.Finished,
+			MappingFrom:     int32(p.Mapping.From),
+			MappingTo:       int32(p.Mapping.To),
+			EpisodePatterns: p.Rule.Patterns(),
+			NumberedByRule:  col.NumberedByRule,
 		})
 		if err != nil {
 			if database.IsUniqueViolation(err) {
@@ -412,23 +412,23 @@ func seasonBindingView(sources *source.Registry, sb repository.SeasonBinding, bi
 		return SeasonBindingView{}, fmt.Errorf("describe season binding %d: %w", sb.ID, err)
 	}
 	return SeasonBindingView{
-		ID:             sb.ID,
-		SeasonID:       sb.SeasonID,
-		Adapter:        sb.Adapter,
-		SourceURL:      d.URL,
-		SourceLabel:    d.Label,
-		Title:          sb.Title,
-		Finished:       sb.Finished,
-		MappingFrom:    sb.MappingFrom,
-		MappingTo:      sb.MappingTo,
-		NumberedByRule: sb.NumberedByRule,
-		EpisodePattern: sb.EpisodePattern,
-		Follow:         sb.Follow,
-		Status:         sb.Status,
-		LastError:      sb.LastError,
-		LastCheckedAt:  sb.LastCheckedAt,
-		Running:        running,
-		BindingCount:   bindingCount,
+		ID:              sb.ID,
+		SeasonID:        sb.SeasonID,
+		Adapter:         sb.Adapter,
+		SourceURL:       d.URL,
+		SourceLabel:     d.Label,
+		Title:           sb.Title,
+		Finished:        sb.Finished,
+		MappingFrom:     sb.MappingFrom,
+		MappingTo:       sb.MappingTo,
+		NumberedByRule:  sb.NumberedByRule,
+		EpisodePatterns: sb.EpisodePatterns,
+		Follow:          sb.Follow,
+		Status:          sb.Status,
+		LastError:       sb.LastError,
+		LastCheckedAt:   sb.LastCheckedAt,
+		Running:         running,
+		BindingCount:    bindingCount,
 	}, nil
 }
 
@@ -451,7 +451,7 @@ func (s *SeasonBindingService) Update(ctx context.Context, id int64, p UpdateSea
 	if p.Rule == nil {
 		_, err = s.store.UpdateSeasonBinding(ctx, params)
 	} else {
-		params.EpisodePattern = new(p.Rule.Pattern())
+		params.EpisodePatterns = p.Rule.Patterns()
 		err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
 			byRule, err := q.UpdateSeasonBinding(ctx, params)
 			if err != nil || !byRule {

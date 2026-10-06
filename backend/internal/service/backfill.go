@@ -17,7 +17,7 @@ import (
 // 追更的时间规则，写死在代码里，不加配置项。
 const (
 	followScanInterval  = time.Minute         // 后台扫描的间隔
-	followCheckInterval = 24 * time.Hour      // 检查合集的周期，也是每个绑定自动重新拉取的最短间隔
+	followCheckInterval = 12 * time.Hour      // 检查合集的周期，也是每个绑定自动重新拉取的最短间隔
 	followRefetchWindow = 14 * 24 * time.Hour // 自动重新拉取的窗口：绑定建出后 14 天
 )
 
@@ -105,7 +105,7 @@ type backfillRound struct {
 // backfill 补建一轮，调用方持有这个季绑定的租约，ctx 是租约的 ctx：
 //  1. 在事务之外列出合集：NotFound 标为失效、限流和其他上游错误记下原因，都结束这一轮；成功则恢复为正常，保存条目。
 //  2. 按合集顺序逐个处理还没处理过、对得上、目录里有对应的集的条目（见 backfillItem）。
-//  3. 追更开着时，自动重新拉取它建出的、建出不到 14 天、距上次拉取已满 24 小时的绑定（见 refetchRecent）。
+//  3. 追更开着时，自动重新拉取它建出的、建出不到 14 天、距上次拉取已满 12 小时的绑定（见 refetchRecent）。
 //  4. 正常结束或因错误、限流结束时，把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算"上次检查之后才有的"，
 //     一分钟后会被再扫到。被 ctx 取消（关闭服务、租约丢失）时不写，一分钟内接着做。
 func (s *SeasonBindingService) backfill(ctx context.Context, id int64) {
@@ -164,7 +164,7 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 	}
 	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		// 集号规则在锁住季绑定的这一句里读：改规则的事务要么已经提交、这里读到新规则，要么等这个事务提交再按新规则重认
-		pattern, err := q.RecordSeasonBindingListed(ctx, repository.RecordSeasonBindingListedParams{
+		patterns, err := q.RecordSeasonBindingListed(ctx, repository.RecordSeasonBindingListedParams{
 			ID: r.id, Title: col.Title, Finished: col.Finished, NumberedByRule: col.NumberedByRule,
 		})
 		if err != nil {
@@ -173,9 +173,9 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 			}
 			return fmt.Errorf("record season binding %d listed: %w", r.id, err)
 		}
-		rule, err := source.ParseEpisodeRule(pattern)
+		rule, err := source.ParseEpisodeRule(patterns)
 		if err != nil {
-			return fmt.Errorf("parse episode pattern of season binding %d: %w", r.id, err)
+			return fmt.Errorf("parse episode patterns of season binding %d: %w", r.id, err)
 		}
 		return saveItems(ctx, q, r.id, source.NumberItems(col, rule))
 	})
@@ -360,8 +360,8 @@ func (s *SeasonBindingService) setItemError(ctx context.Context, id int64, ref [
 }
 
 // refetchRecent 追更开着时（不论这一轮由什么触发），按上次拉取时间从早到晚重新拉取这个季绑定建出的、建出不到 14 天、
-// 距上次拉取已满 24 小时的绑定，复用 BindingService.refetch 的只增不删模式：NotFound 照旧标为失效，限流结束这一轮。
-// 是否满 24 小时在拉取每个绑定之前按当时的时间判断，前面的绑定拉取期间到期的也接着拉取。
+// 距上次拉取已满 12 小时的绑定，复用 BindingService.refetch 的只增不删模式：NotFound 照旧标为失效，限流结束这一轮。
+// 是否满 12 小时在拉取每个绑定之前按当时的时间判断，前面的绑定拉取期间到期的也接着拉取。
 func (s *SeasonBindingService) refetchRecent(ctx context.Context, r *backfillRound) error {
 	candidates, err := s.store.ListRecentBackfilledBindings(ctx, repository.ListRecentBackfilledBindingsParams{
 		SeasonBindingID: r.id, CreatedAfter: time.Now().Add(-followRefetchWindow),
@@ -371,7 +371,7 @@ func (s *SeasonBindingService) refetchRecent(ctx context.Context, r *backfillRou
 	}
 	for _, c := range candidates {
 		if c.LastFetchedAt != nil && c.LastFetchedAt.After(time.Now().Add(-followCheckInterval)) {
-			return nil // 按上次拉取时间排序，后面的也没到 24 小时
+			return nil // 按上次拉取时间排序，后面的也没到 12 小时
 		}
 		sb, err := s.getSeasonBinding(ctx, r.id)
 		if err != nil {

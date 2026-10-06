@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2Icon, SearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -14,12 +14,12 @@ import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useElapsed } from '@/hooks/use-elapsed'
-import { useWatchSeasonBinding } from '@/hooks/use-season-bindings'
+import { defaultEpisodePatternsOptions, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
-import EpisodeRuleInput from './EpisodeRuleInput'
+import EpisodeRuleInput, { cleanPatterns, samePatterns } from './EpisodeRuleInput'
 import MappingInputs, { useMappingDraft } from './MappingInputs'
 import { candidateText, previewTarget, previewTargetText } from './season-binding'
 import { SourceLink } from './shared'
@@ -27,7 +27,8 @@ import { SourceLink } from './shared'
 /** 显示中的预览：最近一次成功的预览（贴链接的预览，或改了集号规则之后的重新预览），重新预览进行中、失败时仍然显示 */
 interface ShownPreview {
   link: string
-  pattern: string
+  /** 这次预览用的集号规则 */
+  patterns: string[]
   candidates: CollectionCandidate[]
   /** 每次成功的预览加一，用来重新挂载，上一次改过的对应不带过来 */
   seq: number
@@ -44,12 +45,16 @@ export default function AddSeasonBindingForm({ season }: { season: Season }) {
   // 选中的候选：重新预览时保留
   const [kind, setKind] = useState<string>()
   const [shown, setShown] = useState<ShownPreview>()
-  const show = (url: string, pattern: string, candidates: CollectionCandidate[]) =>
-    setShown((prev) => ({ link: url, pattern, candidates, seq: (prev?.seq ?? 0) + 1 }))
-  // 贴链接的预览用内置规则
+  const show = (url: string, patterns: string[], candidates: CollectionCandidate[]) =>
+    setShown((prev) => ({ link: url, patterns, candidates, seq: (prev?.seq ?? 0) + 1 }))
+  // 贴链接的预览用默认规则，它也是编辑的起点；默认规则在第一次预览时取，之后用缓存
+  const queryClient = useQueryClient()
   const preview = useMutation({
-    mutationFn: (url: string) => previewSeasonBinding(season.id, url, ''),
-    onSuccess: (data, url) => show(url, '', data.candidates),
+    mutationFn: async (url: string) => {
+      const patterns = await queryClient.ensureQueryData(defaultEpisodePatternsOptions)
+      return { patterns, data: await previewSeasonBinding(season.id, url, patterns) }
+    },
+    onSuccess: ({ patterns, data }, url) => show(url, patterns, data.candidates),
   })
   const elapsed = useElapsed(preview.isPending)
   const close = () => {
@@ -92,11 +97,11 @@ export default function AddSeasonBindingForm({ season }: { season: Season }) {
           key={shown.seq}
           season={season}
           link={shown.link}
-          pattern={shown.pattern}
+          patterns={shown.patterns}
           candidates={shown.candidates}
           kind={kind}
           onKindChange={setKind}
-          onRepreviewed={(pattern, candidates) => show(shown.link, pattern, candidates)}
+          onRepreviewed={(patterns, candidates) => show(shown.link, patterns, candidates)}
           onDone={() => {
             setLink('')
             close()
@@ -112,7 +117,7 @@ export default function AddSeasonBindingForm({ season }: { season: Season }) {
 function CandidateChooser({
   season,
   link,
-  pattern,
+  patterns,
   candidates,
   kind,
   onKindChange,
@@ -123,12 +128,12 @@ function CandidateChooser({
   season: Season
   link: string
   /** 这次预览用的集号规则 */
-  pattern: string
+  patterns: string[]
   candidates: CollectionCandidate[]
   kind: string | undefined
   onKindChange: (kind: string) => void
   /** 按新的集号规则重新预览成功 */
-  onRepreviewed: (pattern: string, candidates: CollectionCandidate[]) => void
+  onRepreviewed: (patterns: string[], candidates: CollectionCandidate[]) => void
   onDone: () => void
   onCancel: () => void
 }) {
@@ -163,7 +168,7 @@ function CandidateChooser({
           key={selected.kind}
           season={season}
           link={link}
-          pattern={pattern}
+          patterns={patterns}
           candidate={selected}
           onRepreviewed={onRepreviewed}
           onDone={onDone}
@@ -187,7 +192,7 @@ function CandidateChooser({
 function CandidatePreview({
   season,
   link,
-  pattern,
+  patterns,
   candidate,
   onRepreviewed,
   onDone,
@@ -195,9 +200,9 @@ function CandidatePreview({
 }: {
   season: Season
   link: string
-  pattern: string
+  patterns: string[]
   candidate: CollectionCandidate
-  onRepreviewed: (pattern: string, candidates: CollectionCandidate[]) => void
+  onRepreviewed: (patterns: string[], candidates: CollectionCandidate[]) => void
   onDone: () => void
   onCancel: () => void
 }) {
@@ -207,11 +212,11 @@ function CandidatePreview({
     from: candidate.mappingFrom,
     to: candidate.mappingTo,
   })
-  const [rule, setRule] = useState(pattern)
-  const ruleChanged = candidate.numberedByRule && rule.trim() !== pattern
+  const [rule, setRule] = useState(patterns)
+  const ruleChanged = candidate.numberedByRule && !samePatterns(cleanPatterns(rule), patterns)
   // 用同一个链接按新规则重新预览，成功后由调用方换上新的预览（重新挂载）
   const repreview = useMutation({
-    mutationFn: (p: string) => previewSeasonBinding(season.id, link, p),
+    mutationFn: (p: string[]) => previewSeasonBinding(season.id, link, p),
     onSuccess: (data, p) => onRepreviewed(p, data.candidates),
   })
   const create = useMutation({
@@ -221,7 +226,7 @@ function CandidatePreview({
         kind: candidate.kind,
         mappingFrom: m.from,
         mappingTo: m.to,
-        episodePattern: pattern,
+        episodePatterns: patterns,
       }),
     onSuccess: async (detail) => {
       toast.success('已创建季绑定，正在后台补建')
@@ -244,7 +249,8 @@ function CandidatePreview({
         </div>
         {candidate.finished && (
           <p className="mt-1 text-xs text-amber-700">
-            已完结，可以关掉追更：新建的季绑定开着追更，建出的绑定在 14 天内每天自动重新拉取。
+            已完结，可以关掉追更：新建的季绑定开着追更，建出的绑定在 14 天内每 12
+            小时自动重新拉取一次。
           </p>
         )}
       </div>
@@ -252,19 +258,19 @@ function CandidatePreview({
       {candidate.numberedByRule && (
         <div className="grid gap-1.5">
           <form
-            className="flex items-center gap-2"
             onSubmit={(e) => {
               e.preventDefault()
-              repreview.mutate(rule.trim())
+              repreview.mutate(cleanPatterns(rule))
             }}
           >
-            <EpisodeRuleInput value={rule} onChange={setRule} disabled={busy} />
-            {ruleChanged && (
-              <Button type="submit" size="xs" variant="outline" disabled={busy}>
-                {repreview.isPending && <Loader2Icon className="animate-spin" />}
-                {repreview.isPending ? `重新预览中 ${repreviewElapsed}s` : '重新预览'}
-              </Button>
-            )}
+            <EpisodeRuleInput value={rule} onChange={setRule} disabled={busy}>
+              {ruleChanged && (
+                <Button type="submit" size="xs" variant="outline" disabled={busy}>
+                  {repreview.isPending && <Loader2Icon className="animate-spin" />}
+                  {repreview.isPending ? `重新预览中 ${repreviewElapsed}s` : '重新预览'}
+                </Button>
+              )}
+            </EpisodeRuleInput>
           </form>
           {repreview.error && (
             <ErrorNote onClose={repreview.reset}>{repreview.error.message}</ErrorNote>

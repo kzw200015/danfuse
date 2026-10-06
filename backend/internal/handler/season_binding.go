@@ -20,13 +20,27 @@ func NewSeasonBindingHandler(svc *service.SeasonBindingService) *SeasonBindingHa
 
 const invalidMapping = "集号对应必须是不小于 0 的整数"
 
-// parseRule 解析请求里的集号规则（前后的空白去掉），不合法时为 400，提示由 source.ParseEpisodeRule 给出。
-func parseRule(pattern string) (source.EpisodeRule, error) {
-	rule, err := source.ParseEpisodeRule(strings.TrimSpace(pattern))
+// parseRule 解析请求里的集号规则（每条前后的空白去掉），不合法时为 400，提示由 source.ParseEpisodeRule 给出。
+func parseRule(patterns []string) (source.EpisodeRule, error) {
+	trimmed := make([]string, len(patterns))
+	for i, p := range patterns {
+		trimmed[i] = strings.TrimSpace(p)
+	}
+	rule, err := source.ParseEpisodeRule(trimmed)
 	if err != nil {
 		return source.EpisodeRule{}, invalidParam(err.Error())
 	}
 	return rule, nil
+}
+
+type defaultEpisodeRuleResponse struct {
+	EpisodePatterns []string `json:"episodePatterns"`
+}
+
+// DefaultEpisodeRule GET /api/episode-rules/default
+// 默认的集号规则：管理界面预览时作为编辑的起点，"恢复默认"时取它。
+func (h *SeasonBindingHandler) DefaultEpisodeRule(c *echo.Context) error {
+	return response.OK(c, defaultEpisodeRuleResponse{EpisodePatterns: source.DefaultEpisodeRule().Patterns()})
 }
 
 // validMapping 集号对应的一端：没传或小于 0 时不合法。
@@ -35,9 +49,9 @@ func validMapping(v *int32) bool {
 }
 
 type previewSeasonBindingRequest struct {
-	SeasonID       int64  `param:"id"`
-	Link           string `json:"link"`
-	EpisodePattern string `json:"episodePattern"` // 集号规则，不传或为空时用内置规则
+	SeasonID        int64    `param:"id"`
+	Link            string   `json:"link"`
+	EpisodePatterns []string `json:"episodePatterns"` // 集号规则，必须传；管理界面先取默认规则
 
 	rule source.EpisodeRule
 }
@@ -51,11 +65,11 @@ func (r *previewSeasonBindingRequest) Validate() error {
 		return invalidParam("请粘贴合集的链接")
 	}
 	var err error
-	r.rule, err = parseRule(r.EpisodePattern)
+	r.rule, err = parseRule(r.EpisodePatterns)
 	return err
 }
 
-// Preview POST /api/seasons/:id/season-bindings/preview {link, episodePattern?}
+// Preview POST /api/seasons/:id/season-bindings/preview {link, episodePatterns}
 // 识别链接、列出各个候选合集（当场请求平台，最长约 25 秒），按集号规则认出序号，给出默认的集号对应。不保存任何东西。
 func (h *SeasonBindingHandler) Preview(c *echo.Context) error {
 	req, err := bind[previewSeasonBindingRequest](c)
@@ -70,12 +84,12 @@ func (h *SeasonBindingHandler) Preview(c *echo.Context) error {
 }
 
 type createSeasonBindingRequest struct {
-	SeasonID       int64  `param:"id"`
-	Link           string `json:"link"`
-	Kind           string `json:"kind"` // 链接只有一个候选时可以不传
-	MappingFrom    *int32 `json:"mappingFrom"`
-	MappingTo      *int32 `json:"mappingTo"`
-	EpisodePattern string `json:"episodePattern"` // 集号规则，不传或为空时用内置规则
+	SeasonID        int64    `param:"id"`
+	Link            string   `json:"link"`
+	Kind            string   `json:"kind"` // 链接只有一个候选时可以不传
+	MappingFrom     *int32   `json:"mappingFrom"`
+	MappingTo       *int32   `json:"mappingTo"`
+	EpisodePatterns []string `json:"episodePatterns"` // 集号规则，必须传；管理界面先取默认规则
 
 	rule source.EpisodeRule
 }
@@ -93,11 +107,11 @@ func (r *createSeasonBindingRequest) Validate() error {
 		return invalidParam(invalidMapping)
 	}
 	var err error
-	r.rule, err = parseRule(r.EpisodePattern)
+	r.rule, err = parseRule(r.EpisodePatterns)
 	return err
 }
 
-// Create POST /api/seasons/:id/season-bindings {link, kind, mappingFrom, mappingTo, episodePattern?}
+// Create POST /api/seasons/:id/season-bindings {link, kind, mappingFrom, mappingTo, episodePatterns}
 // 重新识别链接、列出合集（最长约 25 秒），保存季绑定和条目，返回 201 和季绑定的详情；补建随即在后台进行。
 func (h *SeasonBindingHandler) Create(c *echo.Context) error {
 	req, err := bind[createSeasonBindingRequest](c)
@@ -142,11 +156,11 @@ func (h *SeasonBindingHandler) Get(c *echo.Context) error {
 }
 
 type updateSeasonBindingRequest struct {
-	ID             int64   `param:"id"`
-	Follow         *bool   `json:"follow"`
-	MappingFrom    *int32  `json:"mappingFrom"`
-	MappingTo      *int32  `json:"mappingTo"`
-	EpisodePattern *string `json:"episodePattern"` // 集号规则，空串改回内置规则
+	ID              int64    `param:"id"`
+	Follow          *bool    `json:"follow"`
+	MappingFrom     *int32   `json:"mappingFrom"`
+	MappingTo       *int32   `json:"mappingTo"`
+	EpisodePatterns []string `json:"episodePatterns"` // 集号规则，不传或为 null 时不改
 
 	rule *source.EpisodeRule
 }
@@ -155,14 +169,14 @@ func (r *updateSeasonBindingRequest) Validate() error {
 	if r.ID < 1 {
 		return invalidParam("季绑定 ID 不合法")
 	}
-	if r.Follow == nil && r.MappingFrom == nil && r.MappingTo == nil && r.EpisodePattern == nil {
+	if r.Follow == nil && r.MappingFrom == nil && r.MappingTo == nil && r.EpisodePatterns == nil {
 		return invalidParam("没有要修改的内容")
 	}
 	if r.MappingFrom != nil && !validMapping(r.MappingFrom) || r.MappingTo != nil && !validMapping(r.MappingTo) {
 		return invalidParam(invalidMapping)
 	}
-	if r.EpisodePattern != nil {
-		rule, err := parseRule(*r.EpisodePattern)
+	if r.EpisodePatterns != nil {
+		rule, err := parseRule(r.EpisodePatterns)
 		if err != nil {
 			return err
 		}
@@ -171,7 +185,7 @@ func (r *updateSeasonBindingRequest) Validate() error {
 	return nil
 }
 
-// Update PATCH /api/season-bindings/:id {follow?, mappingFrom?, mappingTo?, episodePattern?}
+// Update PATCH /api/season-bindings/:id {follow?, mappingFrom?, mappingTo?, episodePatterns?}
 // 开关追更、改集号对应和集号规则，只改传了的字段，返回详情（改了集号规则时条目的序号已按新规则重新认出）。
 // 打开追更、改了对应或规则时随即在后台补建（正在补建时不另起一轮）。
 func (h *SeasonBindingHandler) Update(c *echo.Context) error {

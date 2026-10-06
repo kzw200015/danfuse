@@ -30,7 +30,7 @@ export default function MappingInputs({
   onToChange: (text: string) => void
   disabled?: boolean
 }) {
-  const input = 'h-7 w-16 text-right tabular-nums'
+  const input = 'h-7 w-12 text-right tabular-nums'
   return (
     <span
       className="flex items-center gap-1 text-xs text-muted-foreground"

@@ -160,12 +160,12 @@ var liveCollectionCases = []struct {
 	{
 		name: "投稿合集：新版合集页", link: "https://space.bilibili.com/50329118/lists/8597253?type=season",
 		candidates: []string{`{"kind":"ugcSeason","seasonId":8597253,"mid":50329118}`},
-		title:      "2026EWC", minItems: 31, first: "0|【2026EWC】7月16日 MIBR.LOS vs JDG / 第一局|名称里认不出集号",
+		title:      "2026EWC", minItems: 31, first: "0|【2026EWC】7月16日 MIBR.LOS vs JDG / 第一局|不符合集号规则",
 	},
 	{
 		name: "多 P 又属于合集的投稿", link: "https://www.bilibili.com/video/BV1kcK568Edu",
 		candidates: []string{`{"kind":"multiPage","aid":116930132313786}`, `{"kind":"ugcSeason","seasonId":8597253,"mid":50329118}`},
-		title:      "【2026EWC】7月16日 DK vs G2", minItems: 5, exact: true, first: "0|【2026EWC】7月16日 DK vs G2 / 第一局|名称里认不出集号",
+		title:      "【2026EWC】7月16日 DK vs G2", minItems: 5, exact: true, first: "0|【2026EWC】7月16日 DK vs G2 / 第一局|不符合集号规则",
 	},
 	{
 		name: "系列页被拒绝", link: "https://space.bilibili.com/37737161/lists/2800550?type=series",
@@ -356,7 +356,7 @@ func checkCollectionCases(t *testing.T, a *Adapter) {
 				}
 			}
 			// 按内置的集号规则认出序号之后再看第一个条目，与季绑定预览看到的相同
-			if items := source.NumberItems(got, source.EpisodeRule{}); len(items) > 0 {
+			if items := source.NumberItems(got, source.DefaultEpisodeRule()); len(items) > 0 {
 				first := items[0]
 				if s := fmt.Sprintf("%d|%s|%s", first.Number, first.Label, first.Unmatched); s != tc.first {
 					t.Errorf("第一个条目 = %s, want %s", s, tc.first)

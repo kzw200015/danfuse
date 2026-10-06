@@ -15,57 +15,71 @@ type ParsedName struct {
 	Episode *int   // 写明了的集号
 }
 
-var (
-	seasonEpisodePattern = regexp.MustCompile(`(?i)\bS(\d{1,4}) ?E(\d{1,4})\b`) // S01E11、s1e11、S01 E11
-	seasonPatterns       = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)\bS(\d{1,4})\b`), // S01
-		regexp.MustCompile(`第 ?(\d{1,4}) ?季`),    // 第1季
+// namePattern 名称里季号、集号的一种写法：命名捕获组 season、episode 标出季号、集号。
+// 有的写法季号是写死的（"特别篇"为第 0 季），这时正则里没有 season 组，季号为 fixedSeason。
+type namePattern struct {
+	re           *regexp.Regexp
+	fixedSeason  *int
+	seasonGroup  int // season 组的下标，没有时为 -1
+	episodeGroup int // episode 组的下标，没有时为 -1
+}
+
+func newNamePattern(expr string, fixedSeason *int) namePattern {
+	re := regexp.MustCompile(expr)
+	return namePattern{re: re, fixedSeason: fixedSeason, seasonGroup: re.SubexpIndex("season"), episodeGroup: re.SubexpIndex("episode")}
+}
+
+// namePatterns 按优先级排列的写法。ParseName 依次试：一种写法只在它给出的季号、集号都还没认出时才试。
+var namePatterns = []namePattern{
+	newNamePattern(`(?i)\bS(?P<season>\d{1,4}) ?E(?P<episode>\d{1,4})\b`, nil), // S01E11、s1e11、S01 E11
+	newNamePattern(`(?i)\bS(?P<season>\d{1,4})\b`, nil),                        // S01
+	newNamePattern(`第 ?(?P<season>\d{1,4}) ?季`, nil),                           // 第1季
+	newNamePattern(`特[别別]篇`, new(0)),                                           // 特别篇为第 0 季
+	newNamePattern(`第 ?(?P<episode>\d{1,4}) ?[话話集]`, nil),                      // 第11话、第11話、第11集
+	newNamePattern(`(?i)\bEP ?(?P<episode>\d{1,4})\b`, nil),                    // EP11
+}
+
+// EpisodePatterns 写明集号的写法（namePatterns 里带 episode 组的），按优先级排列。季绑定集号规则的默认值取自这里。
+func EpisodePatterns() []string {
+	var patterns []string
+	for _, np := range namePatterns {
+		if np.episodeGroup > 0 {
+			patterns = append(patterns, np.re.String())
+		}
 	}
-	specialPattern  = regexp.MustCompile(`特[别別]篇`)
-	episodePatterns = []*regexp.Regexp{
-		regexp.MustCompile(`第 ?(\d{1,4}) ?[话話集]`),   // 第11话、第11話、第11集
-		regexp.MustCompile(`(?i)\bEP ?(\d{1,4})\b`), // EP11
-	}
-)
+	return patterns
+}
 
 // ParseName 认出名称里写明了的季号和集号，其余部分作为标题。搜索关键词和 match 的文件名都用它，规则相同：
 //   - 季号和集号：S01E11；
 //   - 季号：S01、第1季，"特别篇"为第 0 季，与 SeasonName 输出的写法一致；
 //   - 集号：第11话（第11話、第11集）、EP11。
 //
-// 季号、集号各取第一个认出的，认出的部分从标题里去掉。先清洗为 NFKC，全角的数字、字母也能认出。
+// 按 namePatterns 的顺序认，季号、集号各取第一个认出的，认出的部分从标题里去掉。先清洗为 NFKC，全角的数字、字母也能认出。
 // 没有标注的数字（"剧名2"、"Mob Psycho 100"）不拆，分不出是标题的一部分还是季号，留给全文搜索（见 SearchVector）。
 // 其他内容（字幕组、分辨率、编码）不清理。
 func ParseName(name string) ParsedName {
 	name = norm.NFKC.String(name)
 	var p ParsedName
-	if m := seasonEpisodePattern.FindStringSubmatchIndex(name); m != nil {
-		p.Season, p.Episode = atoi(name[m[2]:m[3]]), atoi(name[m[4]:m[5]])
+	for _, np := range namePatterns {
+		givesSeason, givesEpisode := np.seasonGroup > 0 || np.fixedSeason != nil, np.episodeGroup > 0
+		if givesSeason && p.Season != nil || givesEpisode && p.Episode != nil {
+			continue
+		}
+		m := np.re.FindStringSubmatchIndex(name)
+		if m == nil {
+			continue
+		}
+		switch {
+		case np.fixedSeason != nil:
+			p.Season = new(*np.fixedSeason)
+		case givesSeason:
+			p.Season = atoi(name[m[2*np.seasonGroup]:m[2*np.seasonGroup+1]])
+		}
+		if givesEpisode {
+			p.Episode = atoi(name[m[2*np.episodeGroup]:m[2*np.episodeGroup+1]])
+		}
 		name = cut(name, m)
-	}
-	if p.Season == nil {
-		for _, re := range seasonPatterns {
-			if m := re.FindStringSubmatchIndex(name); m != nil {
-				p.Season = atoi(name[m[2]:m[3]])
-				name = cut(name, m)
-				break
-			}
-		}
-	}
-	if p.Season == nil {
-		if m := specialPattern.FindStringIndex(name); m != nil {
-			p.Season = new(0)
-			name = cut(name, m)
-		}
-	}
-	if p.Episode == nil {
-		for _, re := range episodePatterns {
-			if m := re.FindStringSubmatchIndex(name); m != nil {
-				p.Episode = atoi(name[m[2]:m[3]])
-				name = cut(name, m)
-				break
-			}
-		}
 	}
 	p.Title = strings.TrimSpace(name)
 	return p

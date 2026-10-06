@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
+  getDefaultEpisodePatterns,
   getSeasonBinding,
   type SeasonBinding,
   type SeasonBindingDetail,
@@ -11,6 +12,17 @@ import { useReloadSeries } from '@/hooks/use-series'
 /** 查询键：季绑定详情 ['season-bindings', id]。季绑定的列表在剧详情里，没有单独的查询 */
 export const seasonBindingKeys = {
   detail: (id: number) => ['season-bindings', id] as const,
+}
+
+/** 默认的集号规则，写死在后端，取一次就不再刷新；查询键 ['episode-rules', 'default'] */
+export const defaultEpisodePatternsOptions = queryOptions({
+  queryKey: ['episode-rules', 'default'],
+  queryFn: async () => (await getDefaultEpisodePatterns()).episodePatterns,
+  staleTime: Infinity,
+})
+
+export function useDefaultEpisodePatterns() {
+  return useQuery(defaultEpisodePatternsOptions)
 }
 
 /** 正在补建时轮询详情的间隔 */

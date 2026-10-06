@@ -119,7 +119,7 @@ export default function SeasonBindingCard({
         </div>
         <label
           className="flex shrink-0 items-center gap-1.5 text-xs"
-          title="开着时每天检查一次合集、目录同步进来新的集后一分钟内补建，并在绑定建出后 14 天内每天重新拉取一次"
+          title="开着时每 12 小时检查一次合集、目录同步进来新的集后一分钟内补建，并在绑定建出后 14 天内每 12 小时重新拉取一次"
         >
           <Switch
             size="sm"
@@ -157,15 +157,6 @@ export default function SeasonBindingCard({
           disabled={update.isPending || busy}
           onSave={({ from, to }) => update.mutate({ mappingFrom: from, mappingTo: to })}
         />
-        {view.numberedByRule && (
-          // 保存成功后规则变了，用新的值重新初始化输入框
-          <EpisodeRuleEditor
-            key={view.episodePattern}
-            binding={view}
-            disabled={update.isPending || busy}
-            onSave={(episodePattern) => update.mutate({ episodePattern })}
-          />
-        )}
         <div className="ml-auto flex gap-1">
           <Button
             variant="outline"
@@ -209,6 +200,16 @@ export default function SeasonBindingCard({
         </div>
       </div>
 
+      {view.numberedByRule && (
+        // 保存成功后规则变了，用新的值重新初始化输入框
+        <EpisodeRuleEditor
+          key={view.episodePatterns.join('\n')}
+          binding={view}
+          disabled={update.isPending || busy}
+          onSave={(episodePatterns) => update.mutate({ episodePatterns })}
+        />
+      )}
+
       <button
         type="button"
         aria-expanded={expanded}
@@ -232,7 +233,7 @@ export default function SeasonBindingCard({
 /** 改季绑定成功的提示：卡片上每次只改一样（追更、集号对应或集号规则） */
 function updatedText(patch: SeasonBindingPatch) {
   if (patch.follow !== undefined) return patch.follow ? '已打开追更，正在后台补建' : '已关闭追更'
-  if (patch.episodePattern !== undefined) return '集号规则已保存，正在后台补建'
+  if (patch.episodePatterns !== undefined) return '集号规则已保存，正在后台补建'
   return '集号对应已保存，正在后台补建'
 }
 

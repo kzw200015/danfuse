@@ -102,9 +102,14 @@ func TestSeasonBindingAPI(t *testing.T) {
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
 		srv, pool := seasonBindingServer(t, cfg)
+		defaultPatterns := jsonString(source.DefaultEpisodeRule().Patterns())
+
+		// 默认的集号规则
+		_, _, data := call(t, srv, http.MethodGet, "/api/episode-rules/default", "", http.StatusOK)
+		assertJSON(t, data, `{"episodePatterns": `+defaultPatterns+`}`)
 
 		// 预览：不保存，重复的序号已标出，给出默认的集号对应
-		_, _, data := call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": " fakelist/s "}`, http.StatusOK)
+		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": " fakelist/s ", "episodePatterns": `+defaultPatterns+`}`, http.StatusOK)
 		assertJSON(t, data, `{"candidates": [{
 			"kind": "list", "title": "合集 s", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"finished": false, "numberedByRule": false, "mappingFrom": 1, "mappingTo": 1,
@@ -115,9 +120,9 @@ func TestSeasonBindingAPI(t *testing.T) {
 			]
 		}]}`)
 
-		// 按集号规则编号的合集：按请求里的规则认出序号，不传时用内置规则
+		// 按集号规则编号的合集：按请求里的规则认出序号（每条去掉前后的空白）
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/preview",
-			`{"link": "fakelist/ugc", "episodePattern": " (\\d+)$ "}`, http.StatusOK)
+			`{"link": "fakelist/ugc", "episodePatterns": [" (\\d+)$ "]}`, http.StatusOK)
 		assertJSON(t, data, `{"candidates": [{
 			"kind": "list", "title": "投稿合集", "sourceUrl": "https://fake.test/list/ugc", "sourceLabel": "假合集 ugc",
 			"finished": false, "numberedByRule": true, "mappingFrom": 2, "mappingTo": 2,
@@ -129,9 +134,9 @@ func TestSeasonBindingAPI(t *testing.T) {
 
 		// 创建：201 和详情，不含原始 ref；补建在后台进行
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings",
-			`{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1}`, http.StatusCreated)
+			`{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": `+defaultPatterns+`}`, http.StatusCreated)
 		wantFields := []string{
-			"adapter", "bindingCount", "episodePattern", "finished", "follow", "id", "items", "lastCheckedAt", "lastError",
+			"adapter", "bindingCount", "episodePatterns", "finished", "follow", "id", "items", "lastCheckedAt", "lastError",
 			"mappingFrom", "mappingTo", "numberedByRule", "running", "seasonId", "sourceLabel", "sourceUrl", "status", "title",
 		}
 		if got := slices.Sorted(maps.Keys(decodeObject(t, data))); !slices.Equal(got, wantFields) {
@@ -147,7 +152,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 		delete(detail, "lastCheckedAt")
 		assertJSON(t, json.RawMessage(jsonString(detail)), `{
 			"id": 1, "seasonId": 1, "adapter": "fake", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
-			"title": "合集 s", "finished": false, "mappingFrom": 1, "mappingTo": 1, "numberedByRule": false, "episodePattern": "",
+			"title": "合集 s", "finished": false, "mappingFrom": 1, "mappingTo": 1, "numberedByRule": false, "episodePatterns": `+defaultPatterns+`,
 			"follow": true, "status": "active", "lastError": null, "running": false, "bindingCount": 2,
 			"items": [
 				{"label": "s1", "number": 1, "state": "bound", "reason": null, "episodeNumber": 1, "lastErrorAt": null},
@@ -233,24 +238,25 @@ func TestSeasonBindingAPI(t *testing.T) {
 
 		// 按集号规则编号的合集：创建时保存规则，改规则时条目随即按新规则重新认出序号
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/2/season-bindings",
-			`{"link": "fakelist/ugc", "mappingFrom": 1, "mappingTo": 1, "episodePattern": "第(\\d+)集"}`, http.StatusCreated)
+			`{"link": "fakelist/ugc", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["/ (\\d+)$"]}`, http.StatusCreated)
 		ugc := decodeObject(t, data)
-		if string(ugc["numberedByRule"]) != "true" || string(ugc["episodePattern"]) != `"第(\\d+)集"` {
-			t.Errorf("创建的季绑定 numberedByRule = %s, episodePattern = %s", ugc["numberedByRule"], ugc["episodePattern"])
+		if string(ugc["numberedByRule"]) != "true" || string(ugc["episodePatterns"]) != `["/ (\\d+)$"]` {
+			t.Errorf("创建的季绑定 numberedByRule = %s, episodePatterns = %s", ugc["numberedByRule"], ugc["episodePatterns"])
 		}
 		synctest.Wait()
-		_, _, data = call(t, srv, http.MethodPatch, "/api/season-bindings/"+string(ugc["id"]), `{"episodePattern": ""}`, http.StatusOK)
+		_, _, data = call(t, srv, http.MethodPatch, "/api/season-bindings/"+string(ugc["id"]),
+			`{"episodePatterns": `+defaultPatterns+`}`, http.StatusOK)
 		var patched struct {
-			EpisodePattern string `json:"episodePattern"`
-			Items          []struct {
+			EpisodePatterns []string `json:"episodePatterns"`
+			Items           []struct {
 				Number *int `json:"number"`
 			} `json:"items"`
 		}
 		if err := json.Unmarshal(data, &patched); err != nil {
 			t.Fatal(err)
 		}
-		if got := jsonString(patched); got != `{"episodePattern":"","items":[{"number":1},{"number":null}]}` {
-			t.Errorf("改回内置规则之后 = %s", got)
+		if got := jsonString(patched); got != `{"episodePatterns":`+defaultPatterns+`,"items":[{"number":1},{"number":null}]}` {
+			t.Errorf("改回默认规则之后 = %s", got)
 		}
 		synctest.Wait()
 
@@ -269,7 +275,7 @@ func TestSeasonBindingAPIErrors(t *testing.T) {
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
 		srv, _ := seasonBindingServer(t, cfg)
-		call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1}`, http.StatusCreated)
+		call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusCreated)
 		synctest.Wait()
 
 		for _, tt := range []struct {
@@ -280,19 +286,21 @@ func TestSeasonBindingAPIErrors(t *testing.T) {
 			{http.MethodPost, "/api/seasons/0/season-bindings/preview", `{"link": "fakelist/s"}`, http.StatusBadRequest, "季 ID 不合法"},
 			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "  "}`, http.StatusBadRequest, "请粘贴合集的链接"},
 			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": `, http.StatusBadRequest, "请求参数错误"},
-			{http.MethodPost, "/api/seasons/99/season-bindings/preview", `{"link": "fakelist/s"}`, http.StatusNotFound, "季不存在"},
-			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "https://example.com/v/1"}`, http.StatusBadRequest, "无法识别的链接"},
-			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "fakelist/gone"}`, http.StatusUnprocessableEntity, "合集不存在或已删除"},
-			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "fakelist/down"}`, http.StatusBadGateway, "B 站接口异常"},
-			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "fakelist/s", "episodePattern": "第\\d+集"}`, http.StatusBadRequest, `集号规则里要有一个捕获组，例如 第(\d+)集`},
+			{http.MethodPost, "/api/seasons/99/season-bindings/preview", `{"link": "fakelist/s", "episodePatterns": ["(\\d+)"]}`, http.StatusNotFound, "季不存在"},
+			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "https://example.com/v/1", "episodePatterns": ["(\\d+)"]}`, http.StatusBadRequest, "无法识别的链接"},
+			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "fakelist/gone", "episodePatterns": ["(\\d+)"]}`, http.StatusUnprocessableEntity, "合集不存在或已删除"},
+			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "fakelist/down", "episodePatterns": ["(\\d+)"]}`, http.StatusBadGateway, "B 站接口异常"},
+			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "fakelist/s", "episodePatterns": ["(\\d+)", "第\\d+集"]}`, http.StatusBadRequest, `第 2 条集号规则里要有一个捕获组，例如 第(\d+)集`},
+			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "fakelist/s", "episodePatterns": []}`, http.StatusBadRequest, "至少要有一条集号规则"},
+			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "fakelist/s"}`, http.StatusBadRequest, "至少要有一条集号规则"},
 
 			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/t", "mappingTo": 1}`, http.StatusBadRequest, "集号对应必须是不小于 0 的整数"},
 			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/t", "mappingFrom": 1, "mappingTo": -1}`, http.StatusBadRequest, "集号对应必须是不小于 0 的整数"},
 			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/t", "mappingFrom": 1.5, "mappingTo": 1}`, http.StatusBadRequest, "请求参数错误"},
-			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/t", "kind": "pages", "mappingFrom": 1, "mappingTo": 1}`, http.StatusBadRequest, "链接里没有这种合集，请重新预览"},
-			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/t", "mappingFrom": 1, "mappingTo": 1, "episodePattern": "(("}`, http.StatusBadRequest, "集号规则不是合法的正则：missing closing )"},
-			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1}`, http.StatusConflict, "这一季已经绑定过这个合集"},
-			{http.MethodPost, "/api/seasons/99/season-bindings", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1}`, http.StatusNotFound, "季不存在"},
+			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/t", "kind": "pages", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusBadRequest, "链接里没有这种合集，请重新预览"},
+			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/t", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(("]}`, http.StatusBadRequest, "第 1 条集号规则不是合法的正则：missing closing )"},
+			{http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusConflict, "这一季已经绑定过这个合集"},
+			{http.MethodPost, "/api/seasons/99/season-bindings", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusNotFound, "季不存在"},
 
 			{http.MethodGet, "/api/season-bindings/0", "", http.StatusBadRequest, "季绑定 ID 不合法"},
 			{http.MethodGet, "/api/season-bindings/abc", "", http.StatusBadRequest, "请求参数错误"},
@@ -300,7 +308,7 @@ func TestSeasonBindingAPIErrors(t *testing.T) {
 
 			{http.MethodPatch, "/api/season-bindings/1", `{}`, http.StatusBadRequest, "没有要修改的内容"},
 			{http.MethodPatch, "/api/season-bindings/1", `{"mappingFrom": -1}`, http.StatusBadRequest, "集号对应必须是不小于 0 的整数"},
-			{http.MethodPatch, "/api/season-bindings/1", `{"episodePattern": "x"}`, http.StatusBadRequest, `集号规则里要有一个捕获组，例如 第(\d+)集`},
+			{http.MethodPatch, "/api/season-bindings/1", `{"episodePatterns": [" "]}`, http.StatusBadRequest, "第 1 条集号规则是空的"},
 			{http.MethodPatch, "/api/season-bindings/99", `{"follow": true}`, http.StatusNotFound, "季绑定不存在"},
 
 			{http.MethodPost, "/api/season-bindings/99/backfill", "", http.StatusNotFound, "季绑定不存在"},

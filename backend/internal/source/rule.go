@@ -13,53 +13,92 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 )
 
-// maxPatternLength 集号规则（正则）最多的字符数。
-const maxPatternLength = 200
-
-// 认不出集号的原因。
 const (
-	noEpisodeInName = "名称里认不出集号"
-	notMatchPattern = "不符合集号规则"
+	maxPatterns      = 10  // 集号规则最多的条数
+	maxPatternLength = 200 // 一条正则最多的字符数
 )
 
-// trailingNumber 名称末尾的数字（前面是开头、空白或"/"），例如"某番 / 01"。
-var trailingNumber = regexp.MustCompile(`(?:^|[\s/])(\d{1,4})\s*$`)
+// notMatchPattern 每一条正则都匹配不上时对不上的原因。
+const notMatchPattern = "不符合集号规则"
 
 // EpisodeRule 集号规则：季绑定从条目名称（标签）认出合集序号的规则，只用于按规则编号的合集（Collection.NumberedByRule）。
-// 零值是内置规则：认写明的集号（catalog.ParseName 的第N话、第N集、EPN、S01E11），整个合集都没有写明集号的条目时，
-// 改认名称末尾的数字；也可以是一个正则，第一个捕获组为集号。
+// 是一组按优先级排列的正则：每个条目依次试，第一条匹配上的给出集号；有名为 episode 的捕获组时取它，否则取第一个捕获组。
+// 由 ParseEpisodeRule 或 DefaultEpisodeRule 得到，零值不可用。
 type EpisodeRule struct {
-	re *regexp.Regexp // nil 为内置规则
+	patterns []episodePattern
 }
 
-// ParseEpisodeRule 解析季绑定保存的集号规则：空串为内置规则，否则是 RE2 正则，要有捕获组、不超过 200 个字符。
+type episodePattern struct {
+	re    *regexp.Regexp
+	group int // 集号所在捕获组的下标
+}
+
+// defaultRule 默认规则：catalog.EpisodePatterns，与搜索、match 认集号的写法相同。
+var defaultRule = func() EpisodeRule {
+	r, err := ParseEpisodeRule(catalog.EpisodePatterns())
+	if err != nil {
+		panic(err)
+	}
+	return r
+}()
+
+// DefaultEpisodeRule 默认规则。季绑定保存的是创建时的副本，之后默认规则变了也不影响已有的季绑定。
+func DefaultEpisodeRule() EpisodeRule {
+	return defaultRule
+}
+
+// ParseEpisodeRule 解析一组按优先级排列的正则：至少 1 条、至多 10 条，每条是 RE2 正则，要有捕获组、不超过 200 个字符。
 // 错误的内容是给用户看的提示。
-func ParseEpisodeRule(pattern string) (EpisodeRule, error) {
+func ParseEpisodeRule(patterns []string) (EpisodeRule, error) {
+	switch {
+	case len(patterns) == 0:
+		return EpisodeRule{}, errors.New("至少要有一条集号规则")
+	case len(patterns) > maxPatterns:
+		return EpisodeRule{}, fmt.Errorf("集号规则最多 %d 条", maxPatterns)
+	}
+	r := EpisodeRule{patterns: make([]episodePattern, len(patterns))}
+	for i, pattern := range patterns {
+		p, err := parsePattern(pattern)
+		if err != nil {
+			return EpisodeRule{}, fmt.Errorf("第 %d 条集号规则%w", i+1, err)
+		}
+		r.patterns[i] = p
+	}
+	return r, nil
+}
+
+// parsePattern 解析一条正则，错误的内容接在"第 N 条集号规则"之后。
+func parsePattern(pattern string) (episodePattern, error) {
 	if pattern == "" {
-		return EpisodeRule{}, nil
+		return episodePattern{}, errors.New("是空的")
 	}
 	if utf8.RuneCountInString(pattern) > maxPatternLength {
-		return EpisodeRule{}, fmt.Errorf("集号规则不能超过 %d 个字符", maxPatternLength)
+		return episodePattern{}, fmt.Errorf("不能超过 %d 个字符", maxPatternLength)
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		if syntaxErr, ok := errors.AsType[*syntax.Error](err); ok {
-			return EpisodeRule{}, fmt.Errorf("集号规则不是合法的正则：%s", syntaxErr.Code)
+			return episodePattern{}, fmt.Errorf("不是合法的正则：%s", syntaxErr.Code)
 		}
-		return EpisodeRule{}, errors.New("集号规则不是合法的正则")
+		return episodePattern{}, errors.New("不是合法的正则")
 	}
 	if re.NumSubexp() == 0 {
-		return EpisodeRule{}, errors.New(`集号规则里要有一个捕获组，例如 第(\d+)集`)
+		return episodePattern{}, errors.New(`里要有一个捕获组，例如 第(\d+)集`)
 	}
-	return EpisodeRule{re: re}, nil
+	group := 1
+	if i := re.SubexpIndex("episode"); i > 0 {
+		group = i
+	}
+	return episodePattern{re: re, group: group}, nil
 }
 
-// Pattern 保存用的文本，内置规则为空串。
-func (r EpisodeRule) Pattern() string {
-	if r.re == nil {
-		return ""
+// Patterns 保存用的各条正则。
+func (r EpisodeRule) Patterns() []string {
+	patterns := make([]string, len(r.patterns))
+	for i, p := range r.patterns {
+		patterns[i] = p.re.String()
 	}
-	return r.re.String()
+	return patterns
 }
 
 // NumberItems 预览、保存之前整理 ListCollection 列出的条目：按规则编号的合集先用集号规则从标签认出各条目的序号
@@ -69,52 +108,42 @@ func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
 		return NormalizeItems(c.Items)
 	}
 	numbered := make([]CollectionItem, len(c.Items))
-	if r.re != nil {
-		for i, it := range c.Items {
-			numbered[i] = r.matchPattern(it)
-		}
-		return NormalizeItems(numbered)
-	}
-	written := make([]*int, len(c.Items))
-	anyWritten := false
 	for i, it := range c.Items {
-		written[i] = catalog.ParseName(it.Label).Episode
-		anyWritten = anyWritten || written[i] != nil
-	}
-	for i, it := range c.Items {
-		it.Number, it.Unmatched = 0, noEpisodeInName
-		if anyWritten {
-			if written[i] != nil {
-				it.Number, it.Unmatched = *written[i], ""
-			}
-		} else if m := trailingNumber.FindStringSubmatch(norm.NFKC.String(it.Label)); m != nil {
-			it.Number, it.Unmatched = atoi(m[1]), ""
-		}
-		numbered[i] = it
+		numbered[i] = r.match(it)
 	}
 	return NormalizeItems(numbered)
 }
 
-// matchPattern 用正则认一个条目的序号，按标签原文匹配（用户照着看到的标签写）：匹配不上、或第一个捕获组没有参与匹配时对不上；
-// 捕获到的（清洗为 NFKC 之后）不是不小于 0 的整数时，对不上的原因写明捕获到的内容。
-func (r EpisodeRule) matchPattern(it CollectionItem) CollectionItem {
+// match 认一个条目的序号：按优先级逐条试，每条先按标签原文匹配（用户照着看到的标签写），匹配不上、且清洗为 NFKC 后有变化时
+// 再按清洗后的标签匹配（全角的数字、字母也能认出）；集号的捕获组没有参与匹配时算这一条匹配不上。第一条匹配上的为准：
+// 捕获到的（清洗为 NFKC 之后）不是不小于 0 的整数时对不上，原因写明捕获到的内容，不再试后面的。
+func (r EpisodeRule) match(it CollectionItem) CollectionItem {
+	normalized := norm.NFKC.String(it.Label)
+	for _, p := range r.patterns {
+		captured, ok := p.find(it.Label)
+		if !ok && normalized != it.Label {
+			captured, ok = p.find(normalized)
+		}
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseUint(norm.NFKC.String(captured), 10, 31)
+		if err != nil {
+			it.Number, it.Unmatched = 0, fmt.Sprintf("集号「%s」不是整数", captured)
+		} else {
+			it.Number, it.Unmatched = int(n), ""
+		}
+		return it
+	}
 	it.Number, it.Unmatched = 0, notMatchPattern
-	m := r.re.FindStringSubmatchIndex(it.Label)
-	if m == nil || m[2] < 0 {
-		return it
-	}
-	captured := it.Label[m[2]:m[3]]
-	n, err := strconv.ParseUint(norm.NFKC.String(captured), 10, 31)
-	if err != nil {
-		it.Unmatched = fmt.Sprintf("集号「%s」不是整数", captured)
-		return it
-	}
-	it.Number, it.Unmatched = int(n), ""
 	return it
 }
 
-// atoi 正则只匹配 1～4 位数字，不会出错。
-func atoi(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
+// find 在 s 里匹配，返回集号的捕获组捕获到的内容。
+func (p episodePattern) find(s string) (string, bool) {
+	m := p.re.FindStringSubmatchIndex(s)
+	if m == nil || m[2*p.group] < 0 {
+		return "", false
+	}
+	return s[m[2*p.group]:m[2*p.group+1]], true
 }
