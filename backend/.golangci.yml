@@ -8,6 +8,7 @@ linters:
   enable:
     - bodyclose
     - copyloopvar
+    - depguard
     - errorlint
     - gocritic
     - misspell
@@ -21,6 +22,53 @@ linters:
     - unparam
     - whitespace
   settings:
+    # 包的依赖方向：handler → service → repository；领域包不访问数据库、不引用管理 API 的出口；只有 app 装配适配器
+    depguard:
+      rules:
+        domain:
+          files:
+            - "**/internal/catalog/**"
+            - "**/internal/source/**"
+            - "**/internal/danmaku/**"
+            - "**/internal/danmakufile/**"
+            - "**/internal/fulltext/**"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/repository
+              desc: 领域包不访问数据库，读写数据库的业务放在 service
+            - pkg: github.com/kzw200015/danfuse/backend/internal/database
+              desc: 领域包不访问数据库，读写数据库的业务放在 service
+            - pkg: github.com/jackc/pgx
+              desc: 领域包不访问数据库，读写数据库的业务放在 service
+            - pkg: github.com/kzw200015/danfuse/backend/internal/service
+              desc: 领域包不依赖 service
+            - pkg: github.com/kzw200015/danfuse/backend/internal/pkg/apierr
+              desc: apierr 只用于管理 API 的出口；领域包自己定义错误类型（如 source.Error、catalog.Error）
+        handler:
+          files:
+            - "**/internal/handler/**"
+            - "**/internal/dandan/**"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/repository
+              desc: handler 经 service 访问数据库
+        dandan:
+          files:
+            - "**/internal/dandan/**"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/pkg/response
+              desc: 弹弹 API 按官方 Swagger 的结构输出，不用统一响应
+            - pkg: github.com/kzw200015/danfuse/backend/internal/pkg/apierr
+              desc: 弹弹 API 自己返回弹弹play 结构的错误，不交给 errorHandler
+        adapters:
+          files:
+            - "$all"
+            - "!**/internal/app/**"
+            - "!**/internal/catalog/jellyfin/**"
+            - "!**/internal/source/bilibili/**"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin
+              desc: 适配器只由 internal/app 装配，业务代码依赖 catalog.Source 接口
+            - pkg: github.com/kzw200015/danfuse/backend/internal/source/bilibili
+              desc: 适配器只由 internal/app 装配，业务代码依赖 source.Adapter 接口
     misspell:
       ignore-rules:
         - relateds # 弹弹play 协议的字段名

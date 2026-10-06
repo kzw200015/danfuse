@@ -2,7 +2,7 @@
 
 danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind CSS v4）两部分组成，两端各自构建，命令要在对应目录下执行。前端的构建产物内嵌进后端二进制，发布时只有一个产物。
 
-分层、错误处理、测试写法等更细的代码约定见 [`CLAUDE.md`](CLAUDE.md)，术语见 [`GLOSSARY.md`](GLOSSARY.md)。
+代码规范见 [`CODING_STANDARDS.md`](CODING_STANDARDS.md)，各模块的架构与测试写法见 [`docs/architecture/`](docs/architecture/)，术语见 [`GLOSSARY.md`](GLOSSARY.md)。
 
 ## 环境要求
 
@@ -30,7 +30,7 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `fronten
 │       ├── router/     # 路由
 │       └── views/      # 页面
 ├── e2e/                # 端到端环境（Jellyfin 10.11、12.1，PostgreSQL 18 与 danfuse）
-├── docs/               # 架构决策（adr/）、文档用的图片
+├── docs/               # 架构决策（adr/）、各模块的架构（architecture/）、文档用的图片
 ├── Dockerfile          # 多阶段构建镜像
 └── compose.yaml        # 部署示例
 ```
@@ -150,7 +150,7 @@ docker compose up -d --build danfuse                     # 构建并启动 danfu
 - 迁移文件在 `backend/db/migrations`，用 `make migration name=<name>` 新建，写好 `-- +goose Up` 与 `-- +goose Down`。迁移内嵌进二进制，服务启动时自动执行，升级只靠它。
 - sqlc 直接把迁移文件当作 schema 读取：改表结构就是新增一个迁移，再 `make sqlc`。
 - **迁移文件推到 main 之后就算已经发布，不再修改**（推送 main 会发布镜像，用户的数据库已经执行过它）。改表结构一律新增迁移。
-- 已有数据需要用 Go 重新计算时（例如分词规则改变后重算搜索列），在同一目录按序号新增 Go 迁移，写法见 `CLAUDE.md` 的"生成代码"一节。
+- 已有数据需要用 Go 重新计算时（例如分词规则改变后重算搜索列），在同一目录按序号新增 Go 迁移，写法见 [`docs/architecture/catalog.md`](docs/architecture/catalog.md) 的"搜索列"一节。
 
 `backend/internal/repository/`（`store.go` 除外）由 sqlc 生成，不要手改；改了查询之后执行 `make generate`。依赖在 `backend/internal/app/app.go` 的 `app.New` 里手写组装，新增或修改构造函数时直接改那里。
 
