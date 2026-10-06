@@ -84,6 +84,7 @@ const row = (patch: Partial<SeasonBindingItem>): SeasonBindingItem => ({
 describe('itemStateText', () => {
   it.each([
     [row({ state: 'bound' }), '已建绑定：第 3 集'],
+    [row({ state: 'alreadyBound' }), '集上已有这个弹幕源：第 3 集'],
     [row({ state: 'bindingDeleted' }), '绑定已被删除（第 3 集）'],
     [
       row({ state: 'unmatched', number: null, episodeNumber: null, reason: '集号重复' }),

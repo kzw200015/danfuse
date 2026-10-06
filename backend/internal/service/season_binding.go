@@ -89,7 +89,8 @@ type SeasonBindingDetail struct {
 
 // 条目的状态，读取时算出，不存储。
 const (
-	itemBound          = "bound"          // 已建绑定
+	itemBound          = "bound"          // 已建绑定：它建出的绑定还在
+	itemAlreadyBound   = "alreadyBound"   // 集上已有这个弹幕源的绑定，不是它建出的（手动绑的、别的季绑定建的），补建跳过
 	itemBindingDeleted = "bindingDeleted" // 处理过，但那一集上已经没有这个弹幕源的绑定（用户删掉了）
 	itemUnmatched      = "unmatched"      // 对不上，reason 为原因
 	itemBeforeStart    = "beforeStart"    // 序号在集号对应的起点之前
@@ -104,7 +105,7 @@ type SeasonBindingItemView struct {
 	Number *int32  `json:"number"` // 合集序号；对不上时为 null
 	State  string  `json:"state"`
 	Reason *string `json:"reason"` // 对不上、失败的原因
-	// EpisodeNumber 已建绑定、绑定已被删除时为它实际所在的集；其余能算出对应的集时为对应的集号
+	// EpisodeNumber 处理过的条目为绑定建在的那一集；其余能算出对应的集时为对应的集号
 	EpisodeNumber *int32     `json:"episodeNumber"`
 	LastErrorAt   *time.Time `json:"lastErrorAt"` // 失败时为失败的时间
 }
@@ -328,35 +329,56 @@ func (s *SeasonBindingService) Get(ctx context.Context, id int64) (SeasonBinding
 	if err != nil {
 		return SeasonBindingDetail{}, fmt.Errorf("list handled of season binding %d: %w", id, err)
 	}
+	bound, err := s.store.ListBoundSources(ctx, id)
+	if err != nil {
+		return SeasonBindingDetail{}, fmt.Errorf("list bound sources of season binding %d: %w", id, err)
+	}
 	numbers, err := s.store.ListEpisodeNumbersBySeason(ctx, row.SeasonBinding.SeasonID)
 	if err != nil {
 		return SeasonBindingDetail{}, fmt.Errorf("list episodes of season %d: %w", row.SeasonBinding.SeasonID, err)
 	}
-	return SeasonBindingDetail{SeasonBindingView: view, Items: itemViews(row.SeasonBinding, items, handled, numbers)}, nil
+	return SeasonBindingDetail{SeasonBindingView: view, Items: itemViews(row.SeasonBinding, items, handled, bound, numbers)}, nil
 }
 
-// itemViews 算出各条目的状态（见 itemView）。条目与处理过的记录的 ref 都读自 jsonb 列，格式相同，可以直接比较。
-func itemViews(sb repository.SeasonBinding, items []repository.SeasonBindingItem, handled []repository.ListSeasonBindingHandledRow, numbers []int32) []SeasonBindingItemView {
-	done := make(map[string]*repository.ListSeasonBindingHandledRow, len(handled))
-	for i := range handled {
-		done[string(handled[i].Ref)] = &handled[i]
+// sourceAt 一集上的一个弹幕源，ref 是 jsonb 列输出的文本。
+type sourceAt struct {
+	episode int32
+	ref     string
+}
+
+// itemViews 算出各条目的状态（见 itemView）。条目、处理过的记录与绑定的 ref 都读自 jsonb 列，格式相同，可以直接比较。
+func itemViews(sb repository.SeasonBinding, items []repository.SeasonBindingItem, handled []repository.ListSeasonBindingHandledRow, bound []repository.ListBoundSourcesRow, numbers []int32) []SeasonBindingItemView {
+	builtAt := make(map[string]int32, len(handled)) // 处理过的弹幕源建在哪一集
+	for _, h := range handled {
+		builtAt[string(h.Ref)] = h.EpisodeNumber
+	}
+	own := make(map[sourceAt]bool, len(bound)) // 本季现有的绑定是不是这个季绑定建出的
+	for _, b := range bound {
+		own[sourceAt{b.EpisodeNumber, string(b.Ref)}] = b.Own
 	}
 	views := make([]SeasonBindingItemView, len(items))
 	for i, it := range items {
-		views[i] = itemView(sb, it, done[string(it.Ref)], numbers)
+		views[i] = itemView(sb, it, builtAt, own, numbers)
 	}
 	return views
 }
 
-// itemView 一个条目的状态。处理过的（h 不为 nil）：那一集上还有这个弹幕源的绑定为已建绑定，否则为绑定已被删除。
-// 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、最近一次失败、待补建。numbers 是本季的集号。
-func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, h *repository.ListSeasonBindingHandledRow, numbers []int32) SeasonBindingItemView {
+// itemView 一个条目的状态。处理过的（在 builtAt 里，值是绑定建在的那一集）看那一集上这个弹幕源的绑定：
+// 是它建出的为已建绑定，别人建的为集上已有，没有了为绑定已被删除。
+// 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、对应的集上已有这个弹幕源、最近一次失败、待补建。
+// own 是本季现有的绑定（见 ListBoundSources），numbers 是本季的集号。
+func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, builtAt map[string]int32, own map[sourceAt]bool, numbers []int32) SeasonBindingItemView {
 	v := SeasonBindingItemView{Label: it.Label, Number: it.Number}
-	if h != nil {
-		v.EpisodeNumber = new(h.EpisodeNumber)
-		v.State = itemBindingDeleted
-		if h.Bound {
+	ref := string(it.Ref)
+	if episode, ok := builtAt[ref]; ok {
+		v.EpisodeNumber = &episode
+		switch mine, bound := own[sourceAt{episode, ref}]; {
+		case !bound:
+			v.State = itemBindingDeleted
+		case mine:
 			v.State = itemBound
+		default:
+			v.State = itemAlreadyBound
 		}
 		return v
 	}
@@ -370,9 +392,12 @@ func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, h *r
 		return v
 	}
 	v.EpisodeNumber = new(target)
+	_, bound := own[sourceAt{target, ref}]
 	switch {
 	case !slices.Contains(numbers, target):
 		v.State = itemWaitingEpisode
+	case bound:
+		v.State = itemAlreadyBound
 	case it.LastError != nil:
 		v.State, v.Reason, v.LastErrorAt = itemFailed, it.LastError, it.LastErrorAt
 	default:

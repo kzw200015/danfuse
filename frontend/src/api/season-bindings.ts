@@ -38,6 +38,7 @@ export interface SeasonBinding {
 
 export type SeasonBindingItemState =
   | 'bound'
+  | 'alreadyBound'
   | 'bindingDeleted'
   | 'unmatched'
   | 'beforeStart'
@@ -53,7 +54,7 @@ export interface SeasonBindingItem {
   state: SeasonBindingItemState
   /** 对不上、失败的原因 */
   reason: string | null
-  /** 已建绑定、绑定已被删除时为它实际所在的集；其余能算出对应的集时为对应的集号 */
+  /** 季绑定建出过绑定的条目为绑定建在的那一集；其余能算出对应的集时为对应的集号 */
   episodeNumber: number | null
   /** 失败的时间 */
   lastErrorAt: string | null

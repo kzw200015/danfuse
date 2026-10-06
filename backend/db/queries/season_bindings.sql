@@ -95,14 +95,23 @@ WHERE season_binding_id = $1
   AND ref = $2;
 
 -- name: ListSeasonBindingHandled :many
--- 处理过的记录，连同对到的集号，以及那一集上现在还有没有这个弹幕源的绑定（不论是不是补建出来的）。
+-- 处理过的记录（季绑定建出过绑定的弹幕源），连同建在哪一集。
 SELECT h.ref,
-       e.number AS episode_number,
-       EXISTS (SELECT 1 FROM bindings b WHERE b.episode_id = h.episode_id AND b.adapter = sb.adapter AND b.ref = h.ref) AS bound
+       e.number AS episode_number
 FROM season_binding_handled h
-JOIN season_bindings sb ON sb.id = h.season_binding_id
 JOIN episodes e ON e.id = h.episode_id
 WHERE h.season_binding_id = $1;
+
+-- name: ListBoundSources :many
+-- 季绑定的季里、它的适配器现有的全部绑定：在哪一集、哪个弹幕源、是不是它建出的。
+-- 条目表据此分出已建绑定、集上已有（别人建的同一个弹幕源）和绑定已被删除。
+SELECT e.number AS episode_number,
+       b.ref,
+       (b.season_binding_id IS NOT DISTINCT FROM sb.id)::boolean AS own
+FROM season_bindings sb
+JOIN episodes e ON e.season_id = sb.season_id
+JOIN bindings b ON b.episode_id = e.id AND b.adapter = sb.adapter
+WHERE sb.id = $1;
 
 -- name: GetEpisodeIDByNumber :one
 -- 补建时按集号找本季的集。没有这一集时没有行。
@@ -135,7 +144,7 @@ ON CONFLICT (episode_id, adapter, ref) DO NOTHING
 RETURNING id;
 
 -- name: InsertSeasonBindingHandled :exec
--- 记一条处理过的记录；已经记过时什么都不做。
+-- 补建出一个绑定的同一个事务里记一条处理过的记录；已经记过时什么都不做。
 INSERT INTO season_binding_handled (season_binding_id, ref, episode_id)
 VALUES ($1, $2, $3)
 ON CONFLICT DO NOTHING;

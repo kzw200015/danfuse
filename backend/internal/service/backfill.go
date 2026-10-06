@@ -20,6 +20,8 @@ var (
 	errSeasonBindingGone = errors.New("season binding deleted")
 	// errEpisodeGone 补建一个条目期间对应的集被删除：跳过这个条目。
 	errEpisodeGone = errors.New("episode deleted")
+	// errSourceBound 补建一个条目期间有人在对应的集上绑定了同一个弹幕源：跳过这个条目。
+	errSourceBound = errors.New("source already bound")
 )
 
 // scan 追更的扫描，Run 每隔 follow.scan_interval 在后台开始一次：按上次检查时间从早到晚、一次一个地补建到期的季绑定（ListDueSeasonBindings）。
@@ -121,7 +123,7 @@ type backfillRound struct {
 
 	items          int   // 列出的合集条目数
 	created        int   // 建出的绑定
-	alreadyBound   int   // 对应的集上已有同一个弹幕源的绑定、只记为处理过的条目
+	alreadyBound   int   // 还没处理过、对应的集上已有同一个弹幕源的绑定而跳过的条目
 	unmatched      int   // 还没处理过、对不上（没有序号）的条目
 	beforeStart    int   // 还没处理过、序号在集号对应的起点之前的条目
 	waitingEpisode int   // 还没处理过、目录里还没有对应的集的条目
@@ -136,7 +138,7 @@ type backfillRound struct {
 
 // backfill 补建一轮，调用方持有这个季绑定的租约，ctx 是租约的 ctx：
 //  1. 在事务之外列出合集：NotFound 标为失效、限流和其他上游错误记下原因，都结束这一轮；成功则恢复为正常，保存条目。
-//  2. 按合集顺序逐个处理还没处理过、对得上、目录里有对应的集的条目（见 backfillItem）。
+//  2. 按合集顺序逐个处理还没处理过的条目：对得上、目录里有对应的集、那一集上还没有这个弹幕源的才建出绑定（见 backfillItem）。
 //  3. 追更开着时，自动重新拉取它建出的、在重新拉取的窗口内、距上次拉取已满一个检查周期的绑定（见 refetchRecent）。
 //  4. 正常结束或因错误、限流结束时，把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算"上次检查之后才有的"，
 //     下一次扫描会再扫到。被 ctx 取消（关闭服务、租约丢失）时不写，下一次扫描接着做。
@@ -273,9 +275,9 @@ func (s *SeasonBindingService) getSeasonBinding(ctx context.Context, id int64) (
 }
 
 // backfillItem 处理一个还没处理过的条目。处理之前重新读一次季绑定和条目的序号，补建进行中改了集号对应、集号规则时
-// 从这个条目起用新的对应和序号。对不上（没有序号）、条目已经不在、在起点之前、目录里没有对应的集时跳过；对应的集上已有同一个弹幕源的绑定时直接记为处理过，不拉取。
-// 否则在事务之外拉取，再开写入事务：锁住季绑定（没有了就结束这一轮）、锁住集（没有了就跳过这个条目），
-// 插入带来源季绑定的绑定（撞上唯一约束时视为已有同一个弹幕源，只记处理过），写入弹幕，记处理过，清掉条目的失败原因。
+// 从这个条目起用新的对应和序号。对不上（没有序号）、条目已经不在、在起点之前、目录里没有对应的集时跳过；
+// 对应的集上已有同一个弹幕源的绑定（手动绑的、别的季绑定建的）时也跳过：不拉取，不记处理过，那个绑定被删掉之后的补建再建。
+// 否则在事务之外拉取，再写入（见 saveBackfilled）。
 // 拉取失败时：限流记下原因、结束这一轮（stop 为 true）；其他错误只记在条目上，继续下一个。
 func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRound, adapter source.Adapter, it repository.SeasonBindingItem) (stop bool, err error) {
 	sb, err := s.getSeasonBinding(ctx, r.id)
@@ -311,7 +313,8 @@ func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRoun
 	case err != nil:
 		return true, fmt.Errorf("check binding of episode %d: %w", episodeID, err)
 	case bound:
-		return false, s.saveBackfilled(ctx, r, sb, episodeID, it.Ref, nil)
+		r.alreadyBound++
+		return false, nil
 	}
 
 	fetched, err := fetch(ctx, adapter, it.Ref)
@@ -332,18 +335,17 @@ func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRoun
 		r.failed++
 		return false, s.setItemError(ctx, r.id, it.Ref, &message)
 	}
-	return false, s.saveBackfilled(ctx, r, sb, episodeID, it.Ref, &fetched)
+	return false, s.saveBackfilled(ctx, r, sb, episodeID, it.Ref, fetched)
 }
 
-// saveBackfilled 补建一个条目的写入事务。fetched 为 nil 时只记处理过（对应的集上已有同一个弹幕源的绑定）；
-// 只记了处理过、没有建出绑定的（包括拉取期间有人手动绑定了同一个弹幕源）计入 alreadyBound。
-// 集在拉取期间被删除时跳过这个条目；季绑定被删除时返回 errSeasonBindingGone。
-func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRound, sb repository.SeasonBinding, episodeID int64, ref []byte, fetched *source.Fetched) error {
+// saveBackfilled 补建一个条目的写入事务：锁住季、季绑定（没有了就结束这一轮，返回 errSeasonBindingGone）、
+// 集（拉取期间被删除时跳过这个条目），插入带来源季绑定的绑定，写入弹幕，记处理过，清掉条目的失败原因。
+// 拉取期间有人绑定了同一个弹幕源（插入撞上唯一约束）时什么都不写，同样计入 alreadyBound。
+func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRound, sb repository.SeasonBinding, episodeID int64, ref []byte, fetched source.Fetched) error {
 	now := time.Now()
 	var (
 		binding repository.Binding
 		added   int64
-		created bool
 	)
 	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		// 先锁季：删季的级联先锁集、后锁季绑定，补建若先锁季绑定、后锁集就会与它死锁；先锁住季，删季在第一步就排队
@@ -362,26 +364,23 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 		if err := lockEpisode(ctx, q, episodeID, errEpisodeGone); err != nil {
 			return err
 		}
-		if fetched != nil {
-			id, err := q.InsertBackfilledBinding(ctx, repository.InsertBackfilledBindingParams{
-				EpisodeID:       episodeID,
-				Adapter:         sb.Adapter,
-				Ref:             ref,
-				Title:           fetched.Title,
-				Duration:        int32(fetched.Duration),
-				SeasonBindingID: sb.ID,
-				CreatedAt:       now,
-			})
-			switch {
-			case errors.Is(err, pgx.ErrNoRows): // 拉取期间有人手动绑定了同一个弹幕源
-			case err != nil:
-				return fmt.Errorf("insert binding of episode %d: %w", episodeID, err)
-			default:
-				if binding, added, err = saveFetched(ctx, q, id, *fetched, false, now); err != nil {
-					return err
-				}
-				created = true
-			}
+		id, err := q.InsertBackfilledBinding(ctx, repository.InsertBackfilledBindingParams{
+			EpisodeID:       episodeID,
+			Adapter:         sb.Adapter,
+			Ref:             ref,
+			Title:           fetched.Title,
+			Duration:        int32(fetched.Duration),
+			SeasonBindingID: sb.ID,
+			CreatedAt:       now,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errSourceBound
+		}
+		if err != nil {
+			return fmt.Errorf("insert binding of episode %d: %w", episodeID, err)
+		}
+		if binding, added, err = saveFetched(ctx, q, id, fetched, false, now); err != nil {
+			return err
 		}
 		if err := q.InsertSeasonBindingHandled(ctx, repository.InsertSeasonBindingHandledParams{
 			SeasonBindingID: sb.ID, Ref: ref, EpisodeID: episodeID,
@@ -393,15 +392,15 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 	switch {
 	case errors.Is(err, errEpisodeGone):
 		return nil
+	case errors.Is(err, errSourceBound):
+		r.alreadyBound++
+		return nil
 	case err != nil:
 		return err
-	case created:
-		r.created++
-		r.danmakuAdded += added
-		s.bindings.logFetched(ctx, binding, *fetched, added)
-	default:
-		r.alreadyBound++
 	}
+	r.created++
+	r.danmakuAdded += added
+	s.bindings.logFetched(ctx, binding, fetched, added)
 	return nil
 }
 

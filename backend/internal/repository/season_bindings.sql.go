@@ -280,10 +280,48 @@ type InsertSeasonBindingHandledParams struct {
 	EpisodeID       int64  `json:"episodeId"`
 }
 
-// 记一条处理过的记录；已经记过时什么都不做。
+// 补建出一个绑定的同一个事务里记一条处理过的记录；已经记过时什么都不做。
 func (q *Queries) InsertSeasonBindingHandled(ctx context.Context, arg InsertSeasonBindingHandledParams) error {
 	_, err := q.db.Exec(ctx, insertSeasonBindingHandled, arg.SeasonBindingID, arg.Ref, arg.EpisodeID)
 	return err
+}
+
+const listBoundSources = `-- name: ListBoundSources :many
+SELECT e.number AS episode_number,
+       b.ref,
+       (b.season_binding_id IS NOT DISTINCT FROM sb.id)::boolean AS own
+FROM season_bindings sb
+JOIN episodes e ON e.season_id = sb.season_id
+JOIN bindings b ON b.episode_id = e.id AND b.adapter = sb.adapter
+WHERE sb.id = $1
+`
+
+type ListBoundSourcesRow struct {
+	EpisodeNumber int32  `json:"episodeNumber"`
+	Ref           []byte `json:"ref"`
+	Own           bool   `json:"own"`
+}
+
+// 季绑定的季里、它的适配器现有的全部绑定：在哪一集、哪个弹幕源、是不是它建出的。
+// 条目表据此分出已建绑定、集上已有（别人建的同一个弹幕源）和绑定已被删除。
+func (q *Queries) ListBoundSources(ctx context.Context, id int64) ([]ListBoundSourcesRow, error) {
+	rows, err := q.db.Query(ctx, listBoundSources, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListBoundSourcesRow{}
+	for rows.Next() {
+		var i ListBoundSourcesRow
+		if err := rows.Scan(&i.EpisodeNumber, &i.Ref, &i.Own); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDueSeasonBindings = `-- name: ListDueSeasonBindings :many
@@ -430,10 +468,8 @@ func (q *Queries) ListRecentBackfilledBindings(ctx context.Context, arg ListRece
 
 const listSeasonBindingHandled = `-- name: ListSeasonBindingHandled :many
 SELECT h.ref,
-       e.number AS episode_number,
-       EXISTS (SELECT 1 FROM bindings b WHERE b.episode_id = h.episode_id AND b.adapter = sb.adapter AND b.ref = h.ref) AS bound
+       e.number AS episode_number
 FROM season_binding_handled h
-JOIN season_bindings sb ON sb.id = h.season_binding_id
 JOIN episodes e ON e.id = h.episode_id
 WHERE h.season_binding_id = $1
 `
@@ -441,10 +477,9 @@ WHERE h.season_binding_id = $1
 type ListSeasonBindingHandledRow struct {
 	Ref           []byte `json:"ref"`
 	EpisodeNumber int32  `json:"episodeNumber"`
-	Bound         bool   `json:"bound"`
 }
 
-// 处理过的记录，连同对到的集号，以及那一集上现在还有没有这个弹幕源的绑定（不论是不是补建出来的）。
+// 处理过的记录（季绑定建出过绑定的弹幕源），连同建在哪一集。
 func (q *Queries) ListSeasonBindingHandled(ctx context.Context, seasonBindingID int64) ([]ListSeasonBindingHandledRow, error) {
 	rows, err := q.db.Query(ctx, listSeasonBindingHandled, seasonBindingID)
 	if err != nil {
@@ -454,7 +489,7 @@ func (q *Queries) ListSeasonBindingHandled(ctx context.Context, seasonBindingID 
 	items := []ListSeasonBindingHandledRow{}
 	for rows.Next() {
 		var i ListSeasonBindingHandledRow
-		if err := rows.Scan(&i.Ref, &i.EpisodeNumber, &i.Bound); err != nil {
+		if err := rows.Scan(&i.Ref, &i.EpisodeNumber); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
