@@ -15,18 +15,16 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 )
 
-// posterTimeout 下载一张海报的超时；列出条目的超时是配置项 catalog_source.jellyfin.list_timeout。
-const posterTimeout = 30 * time.Second
-
 // posterMaxWidth 海报按这个宽度缩小后下载，够管理界面显示。
 const posterMaxWidth = "400"
 
 // client Jellyfin 的 HTTP 客户端，超时都由 ctx 控制。鉴权固定用 `Authorization: MediaBrowser Token="<api_key>"` 请求头，
 // 不用查询参数，这样错误信息里的 URL 不会带上 key。api_key 不写日志。
 type client struct {
-	baseURL     string // 已去掉末尾的 /
-	apiKey      string
-	listTimeout time.Duration // 列出媒体库、条目时每个请求的超时
+	baseURL       string // 已去掉末尾的 /
+	apiKey        string
+	listTimeout   time.Duration // 列出媒体库、条目时每个请求的超时
+	posterTimeout time.Duration // 下载一张海报的超时
 }
 
 // virtualFolder /Library/VirtualFolders 的一项，即一个媒体库。
@@ -96,7 +94,7 @@ func (c *client) listItems(ctx context.Context, parentID, types string, fields .
 //   - 不是 image/*：合理性检查，例如反向代理返回的登录页不能当作海报；
 //   - 是 SVG：安全考虑，图片接口原样输出存下的 content-type，从 danfuse 同源输出的 SVG 可以执行脚本。
 func (c *client) primaryImage(ctx context.Context, itemID string) (*catalog.Image, error) {
-	ctx, cancel := context.WithTimeout(ctx, posterTimeout)
+	ctx, cancel := context.WithTimeout(ctx, c.posterTimeout)
 	defer cancel()
 
 	path := "/Items/" + itemID + "/Images/Primary"

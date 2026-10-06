@@ -556,7 +556,7 @@ func TestFetchAllOrNothing(t *testing.T) {
 	}
 }
 
-// TestFetchSegmentConcurrency 单个绑定内的分段与 XML 并发请求，同时进行的请求数恰好达到上限 segmentConcurrency。
+// TestFetchSegmentConcurrency 单个绑定内的分段与 XML 并发请求，同时进行的请求数恰好达到上限 bilibili.fetch_concurrency。
 func TestFetchSegmentConcurrency(t *testing.T) {
 	samples := map[string][]response{
 		testView:  {viewResponse(t, "视频", viewPage{Page: 1, CID: 101, Duration: 7200})},
@@ -575,8 +575,8 @@ func TestFetchSegmentConcurrency(t *testing.T) {
 	if len(fake.requested()) != 22 {
 		t.Errorf("请求 = %q, want 元数据、XML 加 20 段", fake.requested())
 	}
-	if fake.maxInflight != segmentConcurrency {
-		t.Errorf("最多同时请求了 %d 个，want %d", fake.maxInflight, segmentConcurrency)
+	if want := config.Defaults().Bilibili.FetchConcurrency; fake.maxInflight != want {
+		t.Errorf("最多同时请求了 %d 个，want %d", fake.maxInflight, want)
 	}
 }
 

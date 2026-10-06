@@ -309,7 +309,7 @@ func checkRequest(t *testing.T, r *http.Request, apiKey string) {
 
 // source 连到这个假 Jellyfin 的目录源。
 func (f *fakeJellyfin) source(libraries ...string) *Source {
-	return New(config.Jellyfin{URL: f.url, APIKey: f.apiKey, Libraries: libraries, ListTimeout: time.Minute})
+	return New(config.Jellyfin{URL: f.url, APIKey: f.apiKey, Libraries: libraries, ListTimeout: time.Minute, PosterTimeout: time.Minute})
 }
 
 func (f *fakeJellyfin) requested() []string {

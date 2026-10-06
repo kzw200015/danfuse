@@ -64,6 +64,8 @@ export function itemStateText(item: SeasonBindingItem) {
   switch (item.state) {
     case 'bound':
       return `已建绑定：${episode}`
+    case 'alreadyBound':
+      return `集上已有这个弹幕源：${episode}`
     case 'bindingDeleted':
       return `绑定已被删除（${episode}）`
     case 'unmatched':

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
@@ -31,7 +32,7 @@ var (
 //
 // 生命周期同 SyncService：App.Run 运行 Run(ctx)（循环是 backgroundLoop），补建都用 Run 的 ctx（应用级），不用 HTTP 请求的 ctx；
 // 手动触发（创建、立即补建、改集号对应、打开追更）经 Run 的循环立即在后台开始，不同季绑定的补建互不等待；
-// 追更的扫描由 Run 的循环每分钟在后台开始一次、一次补建一个，不等上一次扫描做完。
+// 追更的扫描由 Run 的循环每隔 follow.scan_interval 在后台开始一次、一次补建一个，不等上一次扫描做完；时间规则见 config.Follow。
 // ctx 取消时进行中的扫描和补建停下，Run 等它们返回，之后 main 才关闭连接池。
 //
 // "补建中"以按季绑定的租约（database.LeaseSeasonBackfill）为准，多实例同样成立，季绑定上不存运行状态。
@@ -41,16 +42,18 @@ type SeasonBindingService struct {
 	pool     *pgxpool.Pool // 拿按季绑定的租约
 	sources  *source.Registry
 	bindings *BindingService // 自动重新拉取复用它的 refetch
+	follow   config.Follow   // 追更的时间规则
 	logger   *slog.Logger
 	loop     *backgroundLoop // Run 的循环：追更的扫描与手动触发，进行中的扫描和补建
 }
 
-func NewSeasonBindingService(store *repository.Store, pool *pgxpool.Pool, sources *source.Registry, bindings *BindingService, logger *slog.Logger) *SeasonBindingService {
+func NewSeasonBindingService(store *repository.Store, pool *pgxpool.Pool, sources *source.Registry, bindings *BindingService, follow config.Follow, logger *slog.Logger) *SeasonBindingService {
 	return &SeasonBindingService{
 		store:    store,
 		pool:     pool,
 		sources:  sources,
 		bindings: bindings,
+		follow:   follow,
 		logger:   logger,
 		loop:     newBackgroundLoop(),
 	}
@@ -86,7 +89,8 @@ type SeasonBindingDetail struct {
 
 // 条目的状态，读取时算出，不存储。
 const (
-	itemBound          = "bound"          // 已建绑定
+	itemBound          = "bound"          // 已建绑定：它建出的绑定还在
+	itemAlreadyBound   = "alreadyBound"   // 集上已有这个弹幕源的绑定，不是它建出的（手动绑的、别的季绑定建的），补建跳过
 	itemBindingDeleted = "bindingDeleted" // 处理过，但那一集上已经没有这个弹幕源的绑定（用户删掉了）
 	itemUnmatched      = "unmatched"      // 对不上，reason 为原因
 	itemBeforeStart    = "beforeStart"    // 序号在集号对应的起点之前
@@ -101,7 +105,7 @@ type SeasonBindingItemView struct {
 	Number *int32  `json:"number"` // 合集序号；对不上时为 null
 	State  string  `json:"state"`
 	Reason *string `json:"reason"` // 对不上、失败的原因
-	// EpisodeNumber 已建绑定、绑定已被删除时为它实际所在的集；其余能算出对应的集时为对应的集号
+	// EpisodeNumber 处理过的条目为绑定建在的那一集；其余能算出对应的集时为对应的集号
 	EpisodeNumber *int32     `json:"episodeNumber"`
 	LastErrorAt   *time.Time `json:"lastErrorAt"` // 失败时为失败的时间
 }
@@ -325,35 +329,56 @@ func (s *SeasonBindingService) Get(ctx context.Context, id int64) (SeasonBinding
 	if err != nil {
 		return SeasonBindingDetail{}, fmt.Errorf("list handled of season binding %d: %w", id, err)
 	}
+	bound, err := s.store.ListBoundSources(ctx, id)
+	if err != nil {
+		return SeasonBindingDetail{}, fmt.Errorf("list bound sources of season binding %d: %w", id, err)
+	}
 	numbers, err := s.store.ListEpisodeNumbersBySeason(ctx, row.SeasonBinding.SeasonID)
 	if err != nil {
 		return SeasonBindingDetail{}, fmt.Errorf("list episodes of season %d: %w", row.SeasonBinding.SeasonID, err)
 	}
-	return SeasonBindingDetail{SeasonBindingView: view, Items: itemViews(row.SeasonBinding, items, handled, numbers)}, nil
+	return SeasonBindingDetail{SeasonBindingView: view, Items: itemViews(row.SeasonBinding, items, handled, bound, numbers)}, nil
 }
 
-// itemViews 算出各条目的状态（见 itemView）。条目与处理过的记录的 ref 都读自 jsonb 列，格式相同，可以直接比较。
-func itemViews(sb repository.SeasonBinding, items []repository.SeasonBindingItem, handled []repository.ListSeasonBindingHandledRow, numbers []int32) []SeasonBindingItemView {
-	done := make(map[string]*repository.ListSeasonBindingHandledRow, len(handled))
-	for i := range handled {
-		done[string(handled[i].Ref)] = &handled[i]
+// sourceAt 一集上的一个弹幕源，ref 是 jsonb 列输出的文本。
+type sourceAt struct {
+	episode int32
+	ref     string
+}
+
+// itemViews 算出各条目的状态（见 itemView）。条目、处理过的记录与绑定的 ref 都读自 jsonb 列，格式相同，可以直接比较。
+func itemViews(sb repository.SeasonBinding, items []repository.SeasonBindingItem, handled []repository.ListSeasonBindingHandledRow, bound []repository.ListBoundSourcesRow, numbers []int32) []SeasonBindingItemView {
+	builtAt := make(map[string]int32, len(handled)) // 处理过的弹幕源建在哪一集
+	for _, h := range handled {
+		builtAt[string(h.Ref)] = h.EpisodeNumber
+	}
+	own := make(map[sourceAt]bool, len(bound)) // 本季现有的绑定是不是这个季绑定建出的
+	for _, b := range bound {
+		own[sourceAt{b.EpisodeNumber, string(b.Ref)}] = b.Own
 	}
 	views := make([]SeasonBindingItemView, len(items))
 	for i, it := range items {
-		views[i] = itemView(sb, it, done[string(it.Ref)], numbers)
+		views[i] = itemView(sb, it, builtAt, own, numbers)
 	}
 	return views
 }
 
-// itemView 一个条目的状态。处理过的（h 不为 nil）：那一集上还有这个弹幕源的绑定为已建绑定，否则为绑定已被删除。
-// 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、最近一次失败、待补建。numbers 是本季的集号。
-func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, h *repository.ListSeasonBindingHandledRow, numbers []int32) SeasonBindingItemView {
+// itemView 一个条目的状态。处理过的（在 builtAt 里，值是绑定建在的那一集）看那一集上这个弹幕源的绑定：
+// 是它建出的为已建绑定，别人建的为集上已有，没有了为绑定已被删除。
+// 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、对应的集上已有这个弹幕源、最近一次失败、待补建。
+// own 是本季现有的绑定（见 ListBoundSources），numbers 是本季的集号。
+func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, builtAt map[string]int32, own map[sourceAt]bool, numbers []int32) SeasonBindingItemView {
 	v := SeasonBindingItemView{Label: it.Label, Number: it.Number}
-	if h != nil {
-		v.EpisodeNumber = new(h.EpisodeNumber)
-		v.State = itemBindingDeleted
-		if h.Bound {
+	ref := string(it.Ref)
+	if episode, ok := builtAt[ref]; ok {
+		v.EpisodeNumber = &episode
+		switch mine, bound := own[sourceAt{episode, ref}]; {
+		case !bound:
+			v.State = itemBindingDeleted
+		case mine:
 			v.State = itemBound
+		default:
+			v.State = itemAlreadyBound
 		}
 		return v
 	}
@@ -367,9 +392,12 @@ func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, h *r
 		return v
 	}
 	v.EpisodeNumber = new(target)
+	_, bound := own[sourceAt{target, ref}]
 	switch {
 	case !slices.Contains(numbers, target):
 		v.State = itemWaitingEpisode
+	case bound:
+		v.State = itemAlreadyBound
 	case it.LastError != nil:
 		v.State, v.Reason, v.LastErrorAt = itemFailed, it.LastError, it.LastErrorAt
 	default:
@@ -506,10 +534,10 @@ func (s *SeasonBindingService) Delete(ctx context.Context, id int64, withBinding
 }
 
 // Run 后台循环，阻塞到 ctx 取消；返回前等进行中的扫描和补建停下。只能调用一次。
-// 每分钟在后台开始一次追更的扫描（见 scan），启动时不立即扫描；手动触发拿到租约就在后台开始补建，
+// 每隔 follow.scan_interval 在后台开始一次追更的扫描（见 scan），启动时不立即扫描；手动触发拿到租约就在后台开始补建，
 // 不同季绑定的补建互不等待（对平台的请求由适配器自己限速）。
 func (s *SeasonBindingService) Run(ctx context.Context) {
-	ticker := time.NewTicker(followScanInterval)
+	ticker := time.NewTicker(s.follow.ScanInterval)
 	defer ticker.Stop()
 	s.loop.run(ctx, ticker.C, func(ctx context.Context) {
 		s.loop.spawn(func() { s.scan(ctx) })

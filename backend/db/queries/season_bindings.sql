@@ -95,14 +95,23 @@ WHERE season_binding_id = $1
   AND ref = $2;
 
 -- name: ListSeasonBindingHandled :many
--- 处理过的记录，连同对到的集号，以及那一集上现在还有没有这个弹幕源的绑定（不论是不是补建出来的）。
+-- 处理过的记录（季绑定建出过绑定的弹幕源），连同建在哪一集。
 SELECT h.ref,
-       e.number AS episode_number,
-       EXISTS (SELECT 1 FROM bindings b WHERE b.episode_id = h.episode_id AND b.adapter = sb.adapter AND b.ref = h.ref) AS bound
+       e.number AS episode_number
 FROM season_binding_handled h
-JOIN season_bindings sb ON sb.id = h.season_binding_id
 JOIN episodes e ON e.id = h.episode_id
 WHERE h.season_binding_id = $1;
+
+-- name: ListBoundSources :many
+-- 季绑定的季里、它的适配器现有的全部绑定：在哪一集、哪个弹幕源、是不是它建出的。
+-- 条目表据此分出已建绑定、集上已有（别人建的同一个弹幕源）和绑定已被删除。
+SELECT e.number AS episode_number,
+       b.ref,
+       (b.season_binding_id IS NOT DISTINCT FROM sb.id)::boolean AS own
+FROM season_bindings sb
+JOIN episodes e ON e.season_id = sb.season_id
+JOIN bindings b ON b.episode_id = e.id AND b.adapter = sb.adapter
+WHERE sb.id = $1;
 
 -- name: GetEpisodeIDByNumber :one
 -- 补建时按集号找本季的集。没有这一集时没有行。
@@ -135,7 +144,7 @@ ON CONFLICT (episode_id, adapter, ref) DO NOTHING
 RETURNING id;
 
 -- name: InsertSeasonBindingHandled :exec
--- 记一条处理过的记录；已经记过时什么都不做。
+-- 补建出一个绑定的同一个事务里记一条处理过的记录；已经记过时什么都不做。
 INSERT INTO season_binding_handled (season_binding_id, ref, episode_id)
 VALUES ($1, $2, $3)
 ON CONFLICT DO NOTHING;
@@ -196,11 +205,11 @@ WHERE id = $1;
 
 -- name: ListDueSeasonBindings :many
 -- 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚，每个条件各是一列（到期的原因，记进日志）：
---   never_checked 从没检查过；interval_due 距上次检查已满 12 小时（due_before = 现在 - 12 小时）；
+--   never_checked 从没检查过；interval_due 距上次检查已满一个检查周期（due_before = 现在 - 检查周期）；
 --   new_episodes 这一季里有集的建出时间晚于上次检查时间；
---   refetch_due 它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 12 小时（同样以 due_before 判断）、
---   而且是在上次检查开始之后才满 12 小时的（满 12 小时之前开始的那一轮已经试过拉取它，失败了等下一次定期的检查，不每分钟重试）。
--- 12 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
+--   refetch_due 它建出的、在重新拉取的窗口内（created_after = 现在 - 窗口）的绑定里，有距上次拉取已满一个检查周期（同样以 due_before 判断）、
+--   而且是在上次检查开始之后才满的（满之前开始的那一轮已经试过拉取它，失败了等下一次定期的检查，不每次扫描都重试）。
+-- 检查周期（check_interval_seconds）与窗口由调用方按配置传入，时间规则只写在 service 里。
 -- id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
 SELECT id, never_checked, interval_due, new_episodes, refetch_due
 FROM (SELECT sb.id,
@@ -213,7 +222,7 @@ FROM (SELECT sb.id,
                      WHERE b.season_binding_id = sb.id
                        AND b.created_at > sqlc.arg(created_after)::timestamptz
                        AND b.last_fetched_at <= sqlc.arg(due_before)::timestamptz
-                       AND b.last_fetched_at > sb.last_checked_at - sqlc.arg(check_interval_seconds)::int * interval '1 second') AS refetch_due
+                       AND b.last_fetched_at > sb.last_checked_at - make_interval(secs => sqlc.arg(check_interval_seconds)::float8)) AS refetch_due
       FROM season_bindings sb
       WHERE sb.follow
         AND (sqlc.narg(id)::bigint IS NULL OR sb.id = sqlc.narg(id)::bigint)) d
@@ -221,7 +230,7 @@ WHERE never_checked OR interval_due OR new_episodes OR refetch_due
 ORDER BY last_checked_at NULLS FIRST, id;
 
 -- name: ListRecentBackfilledBindings :many
--- 自动重新拉取的候选：季绑定建出的、建出时间晚于 created_after（现在 - 14 天）的绑定，按上次拉取时间从早到晚。
+-- 自动重新拉取的候选：季绑定建出的、建出时间晚于 created_after（现在 - 重新拉取的窗口）的绑定，按上次拉取时间从早到晚。
 SELECT id, last_fetched_at
 FROM bindings
 WHERE season_binding_id = sqlc.arg(season_binding_id)::bigint

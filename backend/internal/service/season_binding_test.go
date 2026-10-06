@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -225,6 +226,9 @@ type seasonEnv struct {
 	logs lockedBuffer // 服务的日志，同时写进测试输出
 }
 
+// testFollow 追更的时间规则，取配置项的默认值。
+var testFollow = config.Defaults().Follow
+
 // newSeasonEnv 在 synctest 气泡里调用，pool 是气泡里新建的连接池。集的建出时间为现在（假时间），与追更比较的时间一致。
 func newSeasonEnv(t *testing.T, pool *pgxpool.Pool, src *fakeCollector, episodes ...int) *seasonEnv {
 	t.Helper()
@@ -247,7 +251,7 @@ func (e *seasonEnv) start() {
 	store := repository.NewStore(e.pool)
 	sources := source.NewRegistry(e.src)
 	logger := slogTo(io.MultiWriter(e.t.Output(), &e.logs))
-	e.svc = NewSeasonBindingService(store, e.pool, sources, NewBindingService(store, sources, logger), logger)
+	e.svc = NewSeasonBindingService(store, e.pool, sources, NewBindingService(store, sources, logger), testFollow, logger)
 	e.stop = runInBackground(e.t, e.svc)
 }
 
@@ -308,6 +312,33 @@ func (e *seasonEnv) bindings() []string {
 		FROM bindings b
 		JOIN episodes e ON e.id = b.episode_id
 		ORDER BY e.number, b.id`)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	got, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return got
+}
+
+// bindManually 在第 1 季的第 number 集上手动绑定弹幕源 name（没有来源季绑定）。
+func (e *seasonEnv) bindManually(number int, name string) {
+	e.t.Helper()
+	e.exec(`
+		INSERT INTO bindings (episode_id, adapter, ref, title, duration)
+		SELECT id, 'fake', jsonb_build_object('name', $2::text), '弹幕源 ' || $2, 1420
+		FROM episodes
+		WHERE season_id = 1 AND number = $1`, number, name)
+}
+
+// handled 处理过的记录："季绑定 弹幕源名字"，按季绑定、名字排序。
+func (e *seasonEnv) handled() []string {
+	e.t.Helper()
+	rows, err := e.pool.Query(e.t.Context(), `
+		SELECT format('%s %s', season_binding_id, ref->>'name')
+		FROM season_binding_handled
+		ORDER BY season_binding_id, ref->>'name'`)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -421,7 +452,7 @@ func TestPreviewSeasonBindingFailed(t *testing.T) {
 }
 
 // TestCreateSeasonBinding 创建后在后台补建：对得上、目录里有的集建出绑定，季绑定 ID 指向它；
-// 对不上、在起点之前、目录里没有的集都不建。集上已有同一个弹幕源的手动绑定时记为处理过、不拉取；集上有别的绑定时照建。
+// 对不上、在起点之前、目录里没有的集都不建。集上已有同一个弹幕源的手动绑定时跳过、不拉取；集上有别的绑定时照建。
 func TestCreateSeasonBinding(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
@@ -433,10 +464,8 @@ func TestCreateSeasonBinding(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2, 3, 4)
 		// 集 2 已经手动绑过 b，集 3 手动绑了别的弹幕源
-		env.exec(`
-			INSERT INTO bindings (episode_id, adapter, ref, title, duration) VALUES
-				(2, 'fake', '{"name": "b"}', '弹幕源 b', 1420),
-				(3, 'fake', '{"name": "other"}', '弹幕源 other', 1420)`)
+		env.bindManually(2, "b")
+		env.bindManually(3, "other")
 		start := time.Now()
 
 		created := env.create(1, 1)
@@ -461,7 +490,7 @@ func TestCreateSeasonBinding(t *testing.T) {
 			t.Errorf("Get() = %+v\nwant %+v", got.SeasonBindingView, want)
 		}
 		assertStrings(t, "条目", states(got), []string{
-			"z beforeStart -", "a bound 1", "b bound 2", "c bound 3", "sp unmatched - 集号「SP」不是整数", "e waitingEpisode 5",
+			"z beforeStart -", "a bound 1", "b alreadyBound 2", "c bound 3", "sp unmatched - 集号「SP」不是整数", "e waitingEpisode 5",
 		})
 	})
 }
@@ -584,6 +613,97 @@ func TestBackfillKeepsDeletedBinding(t *testing.T) {
 	})
 }
 
+// TestBackfillSkipsBoundSource 集上已有同一个弹幕源的绑定、不是这个季绑定建出的：跳过，不拉取、不记处理过，条目为"集上已有"；
+// 那个绑定被删掉后照常补建。补建出的绑定被删掉后又手动绑回来：条目同样为"集上已有"，再删掉也不补建。
+func TestBackfillSkipsBoundSource(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{
+			collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1), entry("b", 2)}}},
+			videos:      fakeVideos("a", "b"),
+		}
+		env := newSeasonEnv(t, pool, src, 1, 2)
+		env.bindManually(2, "b")
+		id := env.create(1, 1).ID
+
+		assertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b -"})
+		assertStrings(t, "拉取", src.fetchedNames(), []string{"a"})
+		assertStrings(t, "处理过的记录", env.handled(), []string{"1 a"})
+		assertStrings(t, "条目", states(env.get(id)), []string{"a bound 1", "b alreadyBound 2"})
+
+		env.exec(`DELETE FROM bindings WHERE ref = '{"name": "b"}'`)
+		assertStrings(t, "删掉手动绑定之后的条目", states(env.get(id)), []string{"a bound 1", "b pending 2"})
+		env.backfill(id)
+		assertStrings(t, "删掉手动绑定、再补建之后的绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
+
+		env.exec(`DELETE FROM bindings WHERE ref = '{"name": "b"}'`)
+		env.bindManually(2, "b")
+		assertStrings(t, "补建出的被删掉、又手动绑回来的条目", states(env.get(id)), []string{"a bound 1", "b alreadyBound 2"})
+		env.exec(`DELETE FROM bindings WHERE ref = '{"name": "b"}'`)
+		env.backfill(id)
+		assertStrings(t, "再删掉之后的绑定", env.bindings(), []string{"1 a 1"})
+		assertStrings(t, "再删掉之后的条目", states(env.get(id)), []string{"a bound 1", "b bindingDeleted 2"})
+		assertStrings(t, "拉取", src.fetchedNames(), []string{"a", "b"})
+	})
+}
+
+// TestBackfillSourceBoundDuringFetch 补建停在拉取上时有人手动绑定了同一个弹幕源：不建绑定，也不记处理过。
+func TestBackfillSourceBoundDuringFetch(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, videos: fakeVideos("a")}
+		env := newSeasonEnv(t, pool, src, 1)
+		src.gate()
+		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		<-src.started
+		env.bindManually(1, "a")
+		src.release <- struct{}{}
+		synctest.Wait()
+
+		assertStrings(t, "绑定", env.bindings(), []string{"1 a -"})
+		assertStrings(t, "处理过的记录", env.handled(), nil)
+		assertStrings(t, "条目", states(env.get(d.ID)), []string{"a alreadyBound 1"})
+	})
+}
+
+// TestBackfillSharedSource 两个季绑定对到同一集的同一个弹幕源：先补建的建出绑定，后来的跳过、不记处理过；
+// 绑定被删掉后由后来的补上，先前的那个记着处理过、不再补建。
+func TestBackfillSharedSource(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{
+			collections: map[string]source.Collection{
+				"s": {Items: []source.CollectionItem{entry("a", 1)}},
+				"t": {Items: []source.CollectionItem{entry("a", 1)}},
+			},
+			videos: fakeVideos("a"),
+		}
+		env := newSeasonEnv(t, pool, src, 1)
+		first := env.create(1, 1).ID
+		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/t", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		second := d.ID
+		synctest.Wait()
+
+		assertStrings(t, "绑定", env.bindings(), []string{"1 a 1"})
+		assertStrings(t, "处理过的记录", env.handled(), []string{"1 a"})
+		assertStrings(t, "后来的季绑定的条目", states(env.get(second)), []string{"a alreadyBound 1"})
+
+		env.exec(`DELETE FROM bindings`)
+		env.backfill(first)
+		env.backfill(second)
+
+		assertStrings(t, "删掉之后的绑定", env.bindings(), []string{"1 a 2"})
+		assertStrings(t, "先前的季绑定的条目", states(env.get(first)), []string{"a alreadyBound 1"})
+		assertStrings(t, "后来的季绑定的条目", states(env.get(second)), []string{"a bound 1"})
+	})
+}
+
 // TestBackfillRecreatedEpisode 删掉的集被同步用新 ID 建回来：算作新集，照常补建。
 func TestBackfillRecreatedEpisode(t *testing.T) {
 	t.Parallel()
@@ -662,6 +782,26 @@ func TestUpdateMapping(t *testing.T) {
 
 		_, err = env.svc.Update(t.Context(), 9, UpdateSeasonBinding{Follow: new(false)})
 		assertAppError(t, err, http.StatusNotFound, "季绑定不存在")
+	})
+}
+
+// TestUpdateMappingSkippedItem 因为集上已有同一个弹幕源而跳过的条目没有处理过：改集号对应后按新对应补建，手动绑定留在原来那一集。
+func TestUpdateMappingSkippedItem(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, videos: fakeVideos("a")}
+		env := newSeasonEnv(t, pool, src, 1, 2)
+		env.bindManually(1, "a")
+		id := env.create(1, 1).ID
+		assertStrings(t, "改之前的条目", states(env.get(id)), []string{"a alreadyBound 1"})
+
+		if _, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{MappingTo: new(int32(2))}); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		synctest.Wait()
+
+		assertStrings(t, "绑定", env.bindings(), []string{"1 a -", "2 a 1"})
+		assertStrings(t, "条目", states(env.get(id)), []string{"a bound 2"})
 	})
 }
 
@@ -805,6 +945,11 @@ func TestBackfillItemError(t *testing.T) {
 		if d.LastError != nil {
 			t.Errorf("lastError = %q, want 条目的失败不算这一轮的错误", *d.LastError)
 		}
+
+		// 失败过的条目被手动绑上：显示集上已有，不显示失败
+		env.bindManually(2, "b")
+		assertStrings(t, "手动绑上之后的条目", states(env.get(id)), []string{"a bound 1", "b alreadyBound 2", "c bound 3"})
+		env.exec(`DELETE FROM bindings WHERE season_binding_id IS NULL`)
 
 		delete(src.fetchErrs, "b")
 		env.backfill(id)
@@ -1130,12 +1275,12 @@ func TestFollowChecksPeriodically(t *testing.T) {
 		id := env.create(1, 1).ID
 		checks := func() int { return src.listCount() - 2 } // 创建时列出一次，随后补建又检查一次
 
-		time.Sleep(followCheckInterval - followScanInterval)
+		time.Sleep(testFollow.CheckInterval - testFollow.ScanInterval)
 		synctest.Wait()
 		if n := checks(); n != 0 {
 			t.Fatalf("不到 12 小时又检查了 %d 次", n)
 		}
-		time.Sleep(2 * followScanInterval)
+		time.Sleep(2 * testFollow.ScanInterval)
 		synctest.Wait()
 		if n := checks(); n != 1 {
 			t.Fatalf("满 12 小时后检查了 %d 次，want 1", n)
@@ -1144,7 +1289,7 @@ func TestFollowChecksPeriodically(t *testing.T) {
 		if _, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Follow: new(false)}); err != nil {
 			t.Fatalf("Update: %v", err)
 		}
-		time.Sleep(3 * followCheckInterval)
+		time.Sleep(3 * testFollow.CheckInterval)
 		synctest.Wait()
 		if n := checks(); n != 1 {
 			t.Errorf("关掉追更后又检查了 %d 次", n-1)
@@ -1183,7 +1328,7 @@ func TestFollowNewEpisode(t *testing.T) {
 				synctest.Wait()
 
 				env.addEpisode(2)
-				time.Sleep(followScanInterval)
+				time.Sleep(testFollow.ScanInterval)
 				synctest.Wait()
 
 				want := []string{"1 a 1"}
@@ -1212,7 +1357,7 @@ func TestFollowRechecksDue(t *testing.T) {
 		src.collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 1)}}
 		src.gate()
 
-		time.Sleep(followCheckInterval)
+		time.Sleep(testFollow.CheckInterval)
 		<-src.started // 扫描列出了两个季绑定，第一个停在拉取 a 上
 		lists := src.listCount()
 		env.backfill(second.ID)
@@ -1252,7 +1397,7 @@ func TestFollowResumesAfterRestart(t *testing.T) {
 
 		src.started = nil
 		env.start()
-		time.Sleep(followScanInterval)
+		time.Sleep(testFollow.ScanInterval)
 		synctest.Wait()
 
 		assertStrings(t, "重启后的绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
@@ -1287,11 +1432,11 @@ func TestAutoRefetch(t *testing.T) {
 		env.backfill(id)
 		assertStrings(t, "一小时后的拉取", src.fetchedNames(), []string{"a", "b"})
 
-		time.Sleep(followCheckInterval - time.Hour)
+		time.Sleep(testFollow.CheckInterval - time.Hour)
 		synctest.Wait()
 		assertStrings(t, "12 小时后的拉取", src.fetchedNames(), []string{"a", "b", "a", "b"})
-		if at := env.fetchedAt(2); !at.Equal(start.Add(followCheckInterval)) {
-			t.Errorf("上次拉取时间 = %v, want %v", at, start.Add(followCheckInterval))
+		if at := env.fetchedAt(2); !at.Equal(start.Add(testFollow.CheckInterval)) {
+			t.Errorf("上次拉取时间 = %v, want %v", at, start.Add(testFollow.CheckInterval))
 		}
 
 		// 刚拉取过再触发补建，不再重新拉取
@@ -1312,9 +1457,9 @@ func TestAutoRefetchWindow(t *testing.T) {
 		id := env.create(1, 1).ID
 		now := time.Now()
 		// 绑定 1～4 依次为 a～d：a 建出满 14 天；b 建出 13 天、拉取已满 12 小时；c 建出 13 天、拉取还差一小时满 12 小时；d 同 b，但弹幕源已不存在
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 1`, now.Add(-followRefetchWindow), now.Add(-followCheckInterval-time.Hour))
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id IN (2, 4)`, now.Add(-13*24*time.Hour), now.Add(-followCheckInterval-time.Hour))
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 3`, now.Add(-13*24*time.Hour), now.Add(-followCheckInterval+time.Hour))
+		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 1`, now.Add(-testFollow.RefetchWindow), now.Add(-testFollow.CheckInterval-time.Hour))
+		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id IN (2, 4)`, now.Add(-13*24*time.Hour), now.Add(-testFollow.CheckInterval-time.Hour))
+		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 3`, now.Add(-13*24*time.Hour), now.Add(-testFollow.CheckInterval+time.Hour))
 		delete(src.videos, "d")
 
 		if _, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Follow: new(false)}); err != nil {
@@ -1350,14 +1495,14 @@ func TestAutoRefetchDueAfterCheck(t *testing.T) {
 
 		checks := func() int { return src.listCount() - 2 } // 创建时列出一次，随后补建又检查一次
 
-		time.Sleep(followCheckInterval)
+		time.Sleep(testFollow.CheckInterval)
 		synctest.Wait()
 		assertStrings(t, "满 12 小时的检查", src.fetchedNames(), []string{"a"})
 		if n := checks(); n != 1 {
 			t.Fatalf("检查了 %d 次，want 1", n)
 		}
 
-		time.Sleep(followScanInterval)
+		time.Sleep(testFollow.ScanInterval)
 		synctest.Wait()
 		assertStrings(t, "一分钟后", src.fetchedNames(), []string{"a", "a"})
 

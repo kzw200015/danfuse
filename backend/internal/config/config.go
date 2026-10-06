@@ -22,6 +22,7 @@ type Config struct {
 	Dandanplay    Dandanplay    `mapstructure:"dandanplay"`
 	CatalogSource CatalogSource `mapstructure:"catalog_source"`
 	Sync          Sync          `mapstructure:"sync"`
+	Follow        Follow        `mapstructure:"follow"`
 	Bilibili      Bilibili      `mapstructure:"bilibili"`
 	DanmakuFile   DanmakuFile   `mapstructure:"danmaku_file"`
 }
@@ -48,6 +49,7 @@ type Database struct {
 	MinConns        int32         `mapstructure:"min_conns"`
 	MaxConnLifetime time.Duration `mapstructure:"max_conn_lifetime"`
 	MaxConnIdleTime time.Duration `mapstructure:"max_conn_idle_time"`
+	ConnectTimeout  time.Duration `mapstructure:"connect_timeout"` // 启动时建立连接池、检查连通性的超时
 }
 
 // Dandanplay 弹弹 API。
@@ -72,11 +74,23 @@ type Jellyfin struct {
 	Libraries []string `mapstructure:"libraries"` // 要同步的媒体库名；环境变量里用逗号分隔
 	// ListTimeout 列出媒体库、剧和电影、季和集，每个请求的超时。媒体库很大或 Jellyfin 很慢时调大
 	ListTimeout time.Duration `mapstructure:"list_timeout"`
+	// PosterTimeout 下载一张海报的超时
+	PosterTimeout time.Duration `mapstructure:"poster_timeout"`
 }
 
 type Sync struct {
 	Interval time.Duration `mapstructure:"interval"`  // 定时同步的间隔，0 表示关闭
 	KeepRuns int32         `mapstructure:"keep_runs"` // 同步记录保留最近几次，至少 1
+}
+
+// Follow 季绑定追更的时间规则。
+type Follow struct {
+	// ScanInterval 后台扫描的间隔：目录同步进来新的集后，最迟过这么久补建
+	ScanInterval time.Duration `mapstructure:"scan_interval"`
+	// CheckInterval 检查合集的周期，也是每个绑定自动重新拉取的最短间隔
+	CheckInterval time.Duration `mapstructure:"check_interval"`
+	// RefetchWindow 自动重新拉取的窗口：季绑定建出的绑定，建出后这么久之内按 CheckInterval 重新拉取；0 表示不自动重新拉取
+	RefetchWindow time.Duration `mapstructure:"refetch_window"`
 }
 
 // Bilibili B 站源适配器。
@@ -86,6 +100,12 @@ type Bilibili struct {
 	Sessdata string `mapstructure:"sessdata"`
 	// RequestsPerSecond 请求 B 站的平均速率上限（全局令牌桶，所有绑定共用，空闲之后允许连发几个请求），可以是小数。被 B 站限流时调小
 	RequestsPerSecond float64 `mapstructure:"requests_per_second"`
+	// Burst 全局令牌桶的容量：空闲之后最多连发几个请求，贴链接、重新拉取时开头几个请求不排队
+	Burst int `mapstructure:"burst"`
+	// FetchConcurrency 拉取一个弹幕源时同时进行的请求数（分段与 XML 一起算）
+	FetchConcurrency int `mapstructure:"fetch_concurrency"`
+	// RequestTimeout 单个请求的超时，超时后照常重试；整次拉取的总时限另见 service.fetchTimeout
+	RequestTimeout time.Duration `mapstructure:"request_timeout"`
 }
 
 // DanmakuFile 上传弹幕文件的上限，按一次上传计；一个绑定累计追加的文件不设上限。
@@ -97,6 +117,18 @@ type DanmakuFile struct {
 
 // tokenPattern dandanplay.token 允许的字符：RFC 3986 的 unreserved，放在 URL 路径里不需要转义。
 var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]*$`)
+
+// Defaults 全部取默认值的配置：不读配置文件和环境变量，也不校验（database.dsn 为空）。
+// 测试用它构造适配器和 service，只改关心的字段，不手抄默认值。
+func Defaults() Config {
+	v := viper.New()
+	setDefaults(v)
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		panic(fmt.Sprintf("config: unmarshal defaults: %v", err))
+	}
+	return cfg
+}
 
 // Load 读取配置。path 为空时仅使用默认值和环境变量。
 func Load(path string) (*Config, error) {
@@ -141,6 +173,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.min_conns", 1)
 	v.SetDefault("database.max_conn_lifetime", time.Hour)
 	v.SetDefault("database.max_conn_idle_time", 30*time.Minute)
+	v.SetDefault("database.connect_timeout", 10*time.Second)
 
 	v.SetDefault("dandanplay.token", "")
 
@@ -149,12 +182,20 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("catalog_source.jellyfin.api_key", "")
 	v.SetDefault("catalog_source.jellyfin.libraries", []string{})
 	v.SetDefault("catalog_source.jellyfin.list_timeout", 2*time.Minute)
+	v.SetDefault("catalog_source.jellyfin.poster_timeout", 30*time.Second)
 
 	v.SetDefault("sync.interval", time.Duration(0))
 	v.SetDefault("sync.keep_runs", 20)
 
+	v.SetDefault("follow.scan_interval", time.Minute)
+	v.SetDefault("follow.check_interval", 12*time.Hour)
+	v.SetDefault("follow.refetch_window", 14*24*time.Hour)
+
 	v.SetDefault("bilibili.sessdata", "")
 	v.SetDefault("bilibili.requests_per_second", 3.0)
+	v.SetDefault("bilibili.burst", 10)
+	v.SetDefault("bilibili.fetch_concurrency", 10)
+	v.SetDefault("bilibili.request_timeout", 10*time.Second)
 
 	v.SetDefault("danmaku_file.max_files", 50)
 	v.SetDefault("danmaku_file.max_file_mb", 10)
@@ -185,6 +226,9 @@ func (c *Config) validate() error {
 	if c.Database.MaxConns < 0 {
 		return errors.New("config: database.max_conns must not be negative (0 means the pgx default)")
 	}
+	if c.Database.ConnectTimeout <= 0 {
+		return errors.New("config: database.connect_timeout must be positive")
+	}
 
 	// "." 和 ".." 在路径里表示当前目录、上级目录，会被浏览器和反向代理改写
 	if t := c.Dandanplay.Token; !tokenPattern.MatchString(t) || t == "." || t == ".." {
@@ -210,6 +254,9 @@ func (c *Config) validate() error {
 		if jf.ListTimeout <= 0 {
 			return errors.New("config: catalog_source.jellyfin.list_timeout must be positive")
 		}
+		if jf.PosterTimeout <= 0 {
+			return errors.New("config: catalog_source.jellyfin.poster_timeout must be positive")
+		}
 	default:
 		return fmt.Errorf("config: catalog_source.kind must be empty or %q", KindJellyfin)
 	}
@@ -223,6 +270,15 @@ func (c *Config) validate() error {
 	if c.Sync.KeepRuns < 1 {
 		return errors.New("config: sync.keep_runs must be at least 1")
 	}
+	if c.Follow.ScanInterval <= 0 {
+		return errors.New("config: follow.scan_interval must be positive")
+	}
+	if c.Follow.CheckInterval <= 0 {
+		return errors.New("config: follow.check_interval must be positive")
+	}
+	if c.Follow.RefetchWindow < 0 {
+		return errors.New("config: follow.refetch_window must not be negative (0 disables automatic refetching)")
+	}
 	// 原样作为 Cookie 的值发送：只能是浏览器里看到的那一串（逗号编码成了 %2C）。
 	// 含有 Cookie 值不允许的字符时 net/http 会加引号或丢掉这些字符，登录态悄悄失效，不如启动时就报错
 	if strings.ContainsFunc(c.Bilibili.Sessdata, func(r rune) bool { return !isCookieOctet(r) }) {
@@ -230,6 +286,15 @@ func (c *Config) validate() error {
 	}
 	if c.Bilibili.RequestsPerSecond <= 0 {
 		return errors.New("config: bilibili.requests_per_second must be positive")
+	}
+	if c.Bilibili.Burst < 1 {
+		return errors.New("config: bilibili.burst must be at least 1")
+	}
+	if c.Bilibili.FetchConcurrency < 1 {
+		return errors.New("config: bilibili.fetch_concurrency must be at least 1")
+	}
+	if c.Bilibili.RequestTimeout <= 0 {
+		return errors.New("config: bilibili.request_timeout must be positive")
 	}
 	if df := c.DanmakuFile; df.MaxFiles < 1 || df.MaxFileMB < 1 || df.MaxUploadMB < 1 {
 		return errors.New("config: danmaku_file.max_files, max_file_mb and max_upload_mb must be at least 1")

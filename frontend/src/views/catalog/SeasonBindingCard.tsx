@@ -21,6 +21,8 @@ import { Switch } from '@/components/ui/switch'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { useSeasonBinding, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
+import { useSettings } from '@/hooks/use-settings'
+import { followRuleText } from '@/lib/follow'
 import { formatAgo, formatDateTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
@@ -96,6 +98,7 @@ export default function SeasonBindingCard({
   // 确认框里"同时删除建出的绑定"的勾选，每次打开时恢复成默认的不勾选
   const [withBindings, setWithBindings] = useState(false)
   const busy = remove.isPending
+  const { data: settings } = useSettings()
 
   const dead = view.status === 'dead'
   // 合集标题为空时用标签代替
@@ -119,7 +122,7 @@ export default function SeasonBindingCard({
         </div>
         <label
           className="flex shrink-0 items-center gap-1.5 text-xs"
-          title="开着时每 12 小时检查一次合集、目录同步进来新的集后一分钟内补建，并在绑定建出后 14 天内每 12 小时重新拉取一次"
+          title={settings && `开着时${followRuleText(settings.follow)}`}
         >
           <Switch
             size="sm"

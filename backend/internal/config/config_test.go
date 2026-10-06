@@ -67,14 +67,23 @@ func TestLoadTunableDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := cfg.Database.ConnectTimeout; got != 10*time.Second {
+		t.Errorf("connect_timeout = %v, want 10s", got)
+	}
 	if got := cfg.CatalogSource.Jellyfin.ListTimeout; got != 2*time.Minute {
 		t.Errorf("list_timeout = %v, want 2m", got)
+	}
+	if got := cfg.CatalogSource.Jellyfin.PosterTimeout; got != 30*time.Second {
+		t.Errorf("poster_timeout = %v, want 30s", got)
 	}
 	if cfg.Sync.KeepRuns != 20 {
 		t.Errorf("keep_runs = %d, want 20", cfg.Sync.KeepRuns)
 	}
-	if cfg.Bilibili.RequestsPerSecond != 3 {
-		t.Errorf("requests_per_second = %v, want 3", cfg.Bilibili.RequestsPerSecond)
+	if want := (Follow{ScanInterval: time.Minute, CheckInterval: 12 * time.Hour, RefetchWindow: 14 * 24 * time.Hour}); cfg.Follow != want {
+		t.Errorf("follow = %+v, want %+v", cfg.Follow, want)
+	}
+	if want := (Bilibili{RequestsPerSecond: 3, Burst: 10, FetchConcurrency: 10, RequestTimeout: 10 * time.Second}); cfg.Bilibili != want {
+		t.Errorf("bilibili = %+v, want %+v", cfg.Bilibili, want)
 	}
 	if want := (DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 50}); cfg.DanmakuFile != want {
 		t.Errorf("danmaku_file = %+v, want %+v", cfg.DanmakuFile, want)
@@ -83,14 +92,22 @@ func TestLoadTunableDefaults(t *testing.T) {
 
 func TestLoadTunablesFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{
-		"DATABASE_DSN":                         "postgres://localhost/danfuse",
-		"SERVER_WRITE_TIMEOUT":                 "0", // 不限
-		"CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT": "10m",
-		"SYNC_KEEP_RUNS":                       "1",
-		"BILIBILI_REQUESTS_PER_SECOND":         "0.5",
-		"DANMAKU_FILE_MAX_FILES":               "200",
-		"DANMAKU_FILE_MAX_FILE_MB":             "64",
-		"DANMAKU_FILE_MAX_UPLOAD_MB":           "256",
+		"DATABASE_DSN":                           "postgres://localhost/danfuse",
+		"SERVER_WRITE_TIMEOUT":                   "0", // 不限
+		"DATABASE_CONNECT_TIMEOUT":               "1m",
+		"CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT":   "10m",
+		"CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT": "2m",
+		"SYNC_KEEP_RUNS":                         "1",
+		"FOLLOW_SCAN_INTERVAL":                   "30s",
+		"FOLLOW_CHECK_INTERVAL":                  "6h",
+		"FOLLOW_REFETCH_WINDOW":                  "0", // 不自动重新拉取
+		"BILIBILI_REQUESTS_PER_SECOND":           "0.5",
+		"BILIBILI_BURST":                         "1",
+		"BILIBILI_FETCH_CONCURRENCY":             "2",
+		"BILIBILI_REQUEST_TIMEOUT":               "20s",
+		"DANMAKU_FILE_MAX_FILES":                 "200",
+		"DANMAKU_FILE_MAX_FILE_MB":               "64",
+		"DANMAKU_FILE_MAX_UPLOAD_MB":             "256",
 	})
 
 	cfg, err := Load("")
@@ -100,14 +117,23 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 	if cfg.Server.WriteTimeout != 0 {
 		t.Errorf("write_timeout = %v, want 0", cfg.Server.WriteTimeout)
 	}
+	if got := cfg.Database.ConnectTimeout; got != time.Minute {
+		t.Errorf("connect_timeout = %v, want 1m", got)
+	}
 	if got := cfg.CatalogSource.Jellyfin.ListTimeout; got != 10*time.Minute {
 		t.Errorf("list_timeout = %v, want 10m", got)
+	}
+	if got := cfg.CatalogSource.Jellyfin.PosterTimeout; got != 2*time.Minute {
+		t.Errorf("poster_timeout = %v, want 2m", got)
 	}
 	if cfg.Sync.KeepRuns != 1 {
 		t.Errorf("keep_runs = %d, want 1", cfg.Sync.KeepRuns)
 	}
-	if cfg.Bilibili.RequestsPerSecond != 0.5 {
-		t.Errorf("requests_per_second = %v, want 0.5", cfg.Bilibili.RequestsPerSecond)
+	if want := (Follow{ScanInterval: 30 * time.Second, CheckInterval: 6 * time.Hour}); cfg.Follow != want {
+		t.Errorf("follow = %+v, want %+v", cfg.Follow, want)
+	}
+	if want := (Bilibili{RequestsPerSecond: 0.5, Burst: 1, FetchConcurrency: 2, RequestTimeout: 20 * time.Second}); cfg.Bilibili != want {
+		t.Errorf("bilibili = %+v, want %+v", cfg.Bilibili, want)
 	}
 	if want := (DanmakuFile{MaxFiles: 200, MaxFileMB: 64, MaxUploadMB: 256}); cfg.DanmakuFile != want {
 		t.Errorf("danmaku_file = %+v, want %+v", cfg.DanmakuFile, want)
@@ -178,10 +204,18 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"token 为 ..", map[string]string{"DANDANPLAY_TOKEN": ".."}, "dandanplay.token"},
 		{"max_conns 为负", map[string]string{"DATABASE_MAX_CONNS": "-1"}, "database.max_conns"},
 		{"write_timeout 小于 30s", map[string]string{"SERVER_WRITE_TIMEOUT": "25s"}, "server.write_timeout"},
+		{"connect_timeout 为 0", map[string]string{"DATABASE_CONNECT_TIMEOUT": "0"}, "database.connect_timeout"},
 		{"list_timeout 为 0", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT", "0"), "jellyfin.list_timeout"},
+		{"poster_timeout 为 0", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT", "0"), "jellyfin.poster_timeout"},
 		{"keep_runs 为 0", map[string]string{"SYNC_KEEP_RUNS": "0"}, "sync.keep_runs"},
+		{"scan_interval 为 0", map[string]string{"FOLLOW_SCAN_INTERVAL": "0"}, "follow.scan_interval"},
+		{"check_interval 为 0", map[string]string{"FOLLOW_CHECK_INTERVAL": "0"}, "follow.check_interval"},
+		{"refetch_window 为负", map[string]string{"FOLLOW_REFETCH_WINDOW": "-1h"}, "follow.refetch_window"},
 		{"requests_per_second 为 0", map[string]string{"BILIBILI_REQUESTS_PER_SECOND": "0"}, "bilibili.requests_per_second"},
 		{"requests_per_second 为负", map[string]string{"BILIBILI_REQUESTS_PER_SECOND": "-1"}, "bilibili.requests_per_second"},
+		{"burst 为 0", map[string]string{"BILIBILI_BURST": "0"}, "bilibili.burst"},
+		{"fetch_concurrency 为 0", map[string]string{"BILIBILI_FETCH_CONCURRENCY": "0"}, "bilibili.fetch_concurrency"},
+		{"request_timeout 为 0", map[string]string{"BILIBILI_REQUEST_TIMEOUT": "0"}, "bilibili.request_timeout"},
 		{"max_files 为 0", map[string]string{"DANMAKU_FILE_MAX_FILES": "0"}, "danmaku_file"},
 		{"max_file_mb 为 0", map[string]string{"DANMAKU_FILE_MAX_FILE_MB": "0"}, "danmaku_file"},
 		{"max_upload_mb 为 0", map[string]string{"DANMAKU_FILE_MAX_UPLOAD_MB": "0"}, "danmaku_file"},

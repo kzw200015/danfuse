@@ -7,8 +7,35 @@
   },
   "rules": {
     // 使用新版 JSX 转换（react-jsx），无需手动引入 React
-    "react/react-in-jsx-scope": "off"
+    "react/react-in-jsx-scope": "off",
+    // 请求都经 src/api/request.ts 的 request()，统一解包响应、转换 ApiError
+    "no-restricted-imports": [
+      "error",
+      { "paths": [{ "name": "axios", "message": "请求经 @/api/request 的 request() 发出" }] }
+    ]
   },
+  "overrides": [
+    {
+      // API 模块只放请求函数和类型；查询键与 hook 放在 src/hooks，测试自动 mock @/api/* 时才不会把它们一起替换掉
+      "files": ["src/api/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "axios", "message": "请求经 @/api/request 的 request() 发出" },
+              { "name": "@tanstack/react-query", "message": "查询键与 hook 放在 src/hooks/use-<资源>.ts" }
+            ],
+            "patterns": [{ "group": ["@/hooks/*"], "message": "API 模块不依赖 hook" }]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/api/request.ts", "src/api/__tests__/request.spec.ts"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ],
   "env": {
     "builtin": true,
     "browser": true
