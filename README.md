@@ -141,7 +141,7 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `sync.interval` | `DANFUSE_SYNC_INTERVAL` | `0` | 定时同步的间隔，例如 `24h`；`0` 表示关闭，只手动同步。启动时不会立即同步 |
 | `sync.keep_runs` | `DANFUSE_SYNC_KEEP_RUNS` | `20` | 同步记录保留最近几次，至少 `1` |
 | `bilibili.sessdata` | `DANFUSE_BILIBILI_SESSDATA` | 空 | 可选。B 站登录 Cookie 里 SESSDATA 的值，配置后以登录身份拉取，弹幕更全 |
-| `bilibili.requests_per_second` | `DANFUSE_BILIBILI_REQUESTS_PER_SECOND` | `3` | 每秒最多请求 B 站几次，所有绑定、季绑定共用，可以是小数（例如 `0.5`）。经常提示"B 站限流"时调小；调小后拉取变慢，弹幕多的视频可能超过约 25 秒的拉取时限 |
+| `bilibili.requests_per_second` | `DANFUSE_BILIBILI_REQUESTS_PER_SECOND` | `3` | 平均每秒最多请求 B 站几次，所有绑定、季绑定共用（空闲之后允许一次连发几个请求），可以是小数（例如 `0.5`）。经常提示"B 站限流"时调小；调小后拉取变慢，弹幕多的视频可能超过约 25 秒的拉取时限 |
 | `danmaku_file.max_files` | `DANFUSE_DANMAKU_FILE_MAX_FILES` | `50` | 上传弹幕文件时一次最多几份 |
 | `danmaku_file.max_file_mb` | `DANFUSE_DANMAKU_FILE_MAX_FILE_MB` | `10` | 上传弹幕文件时单份的上限，单位 MB |
 | `danmaku_file.max_upload_mb` | `DANFUSE_DANMAKU_FILE_MAX_UPLOAD_MB` | `50` | 上传弹幕文件时一次合计的上限，单位 MB。调大时注意反向代理的请求体上限（例如 nginx 的 `client_max_body_size`）；上传还受 `server.read_timeout` 和管理界面 35 秒请求超时的限制 |

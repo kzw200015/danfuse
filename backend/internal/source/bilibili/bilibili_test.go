@@ -556,13 +556,13 @@ func TestFetchAllOrNothing(t *testing.T) {
 	}
 }
 
-// TestFetchSegmentConcurrency 单个绑定内的分段与 XML 并发请求，同时进行的请求数恰好达到上限 3。
+// TestFetchSegmentConcurrency 单个绑定内的分段与 XML 并发请求，同时进行的请求数恰好达到上限 segmentConcurrency。
 func TestFetchSegmentConcurrency(t *testing.T) {
 	samples := map[string][]response{
-		testView:  {viewResponse(t, "视频", viewPage{Page: 1, CID: 101, Duration: 3600})},
+		testView:  {viewResponse(t, "视频", viewPage{Page: 1, CID: 101, Duration: 7200})},
 		"xml-101": {emptyXML(t)},
 	}
-	for n := 1; n <= 10; n++ {
+	for n := 1; n <= 20; n++ {
 		samples[fmt.Sprintf("seg-101-%d", n)] = []response{segResponse()}
 	}
 	fake := newFake(t, samples)
@@ -572,11 +572,11 @@ func TestFetchSegmentConcurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(fake.requested()) != 12 {
-		t.Errorf("请求 = %q, want 元数据、XML 加 10 段", fake.requested())
+	if len(fake.requested()) != 22 {
+		t.Errorf("请求 = %q, want 元数据、XML 加 20 段", fake.requested())
 	}
-	if fake.maxInflight != 3 {
-		t.Errorf("最多同时请求了 %d 个，want 3", fake.maxInflight)
+	if fake.maxInflight != segmentConcurrency {
+		t.Errorf("最多同时请求了 %d 个，want %d", fake.maxInflight, segmentConcurrency)
 	}
 }
 

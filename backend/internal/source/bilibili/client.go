@@ -28,6 +28,7 @@ const (
 	maxRetries      = 3                // rate_limited 与 upstream 最多重试的次数
 	firstRetryDelay = 500 * time.Millisecond
 	maxRetryDelay   = 4 * time.Second
+	limiterBurst    = 10       // 全局令牌桶的容量：空闲之后最多连发几个请求，贴链接、重新拉取时开头几个请求不排队
 	maxBodySize     = 32 << 20 // 响应体（解压后）的上限，超过时按 Upstream 处理，不截断（截断的 protobuf 可能在弹幕边界上解出部分弹幕）
 )
 
@@ -79,7 +80,7 @@ type client struct {
 	retryDelay time.Duration // 第一次重试前的等待，之后每次翻倍
 }
 
-// requestsPerSecond 全局令牌桶的速率（bilibili.requests_per_second）。
+// requestsPerSecond 全局令牌桶的平均速率（bilibili.requests_per_second），桶的容量为 limiterBurst。
 func newClient(sessdata string, requestsPerSecond float64) *client {
 	return &client{
 		http: &http.Client{
@@ -88,7 +89,7 @@ func newClient(sessdata string, requestsPerSecond float64) *client {
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		sessdata:   sessdata,
-		limiter:    rate.NewLimiter(rate.Limit(requestsPerSecond), 1),
+		limiter:    rate.NewLimiter(rate.Limit(requestsPerSecond), limiterBurst),
 		retryDelay: firstRetryDelay,
 	}
 }

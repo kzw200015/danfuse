@@ -14,7 +14,7 @@ import (
 
 const (
 	segmentSeconds     = 360 // 每段 6 分钟
-	segmentConcurrency = 3   // 单个绑定内同时进行的请求数：分段与 XML 一起算
+	segmentConcurrency = 10  // 单个绑定内同时进行的请求数：分段与 XML 一起算
 )
 
 // segment 拉取 cid 的第 n 段（从 1 开始）。304 为空段；响应是 JSON 时是 B 站的错误，见 binaryError。

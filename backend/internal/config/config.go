@@ -84,7 +84,7 @@ type Bilibili struct {
 	// Sessdata 可选的 B 站登录凭据（浏览器 Cookie 里 SESSDATA 的值），只作为 Cookie 发给 B 站，不写日志、不入库。
 	// 未配置时以未登录的身份拉取，弹幕可能不全。
 	Sessdata string `mapstructure:"sessdata"`
-	// RequestsPerSecond 请求 B 站的速率上限（全局令牌桶，所有绑定共用），可以是小数。被 B 站限流时调小
+	// RequestsPerSecond 请求 B 站的平均速率上限（全局令牌桶，所有绑定共用，空闲之后允许连发几个请求），可以是小数。被 B 站限流时调小
 	RequestsPerSecond float64 `mapstructure:"requests_per_second"`
 }
 
