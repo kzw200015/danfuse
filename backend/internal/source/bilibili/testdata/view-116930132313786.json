@@ -47,16 +47,20 @@
               "title": "【2026EWC】7月16日 MIBR.LOS vs JDG",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -65,19 +69,24 @@
               "title": "【2026EWC】7月16日 DK vs G2",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "抽签仪式"
                 },
                 {
-                  "page": 5
+                  "page": 5,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -86,13 +95,16 @@
               "title": "【2026EWC】7月16日 KC vs SEN",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -101,16 +113,20 @@
               "title": "【2026EWC】7月16日 GAM vs T1",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -119,16 +135,20 @@
               "title": "【2026EWC】7月16日 G2 vs AG.AL",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访-Tarzan"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛后采访-Shanks"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -137,10 +157,12 @@
               "title": "【2026EWC】7月16日 HLE vs JDG",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 }
               ]
             },
@@ -149,13 +171,16 @@
               "title": "【2026EWC】7月16日 SEN vs GEN",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -164,13 +189,16 @@
               "title": "【2026EWC】7月16日 BLG vs T1",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -179,10 +207,12 @@
               "title": "【2026EWC】7月15日 MIBR.LOS vs LYON",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 }
               ]
             },
@@ -191,16 +221,20 @@
               "title": "【2026EWC】7月15日 FUR vs DK",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -209,19 +243,24 @@
               "title": "【2026EWC】7月15日 KC vs TSW",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "第三局"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 5
+                  "page": 5,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -230,13 +269,16 @@
               "title": "【2026EWC】7月15日 GAM vs MKOI",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "第三局"
                 }
               ]
             },
@@ -245,13 +287,16 @@
               "title": "【2026EWC】7月15日 LYON vs JDG",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛后采访-Tabe"
                 }
               ]
             },
@@ -260,13 +305,16 @@
               "title": "【2026EWC】7月15日 HLE vs MIBR.LOS",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -275,13 +323,16 @@
               "title": "【2026EWC】7月15日 AG.AL vs DK",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -290,10 +341,12 @@
               "title": "【2026EWC】7月15日 G2 vs FUR",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 }
               ]
             },
@@ -302,16 +355,20 @@
               "title": "【2026EWC】7月15日 BLG vs MKOI",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访-Knight"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛后采访-Xun"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -320,13 +377,16 @@
               "title": "【2026EWC】7月15日 T1 vs GAM",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -335,13 +395,16 @@
               "title": "【2026EWC】7月15日 TSW vs SEN",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛前评论"
                 }
               ]
             },
@@ -350,13 +413,16 @@
               "title": "【2026EWC】7月15日 GEN vs KC",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "赛后采访"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "赛前评论+开幕式"
                 }
               ]
             },
@@ -365,19 +431,24 @@
               "title": "【2026EWC】5月22日 JDG vs WBG",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "第三局"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "第四局"
                 },
                 {
-                  "page": 5
+                  "page": 5,
+                  "part": "第五局"
                 }
               ]
             },
@@ -386,16 +457,20 @@
               "title": "【2026EWC】5月21日 JDG vs AL",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 },
                 {
-                  "page": 3
+                  "page": 3,
+                  "part": "第三局"
                 },
                 {
-                  "page": 4
+                  "page": 4,
+                  "part": "第四局"
                 }
               ]
             },
@@ -404,10 +479,12 @@
               "title": "【2026EWC】5月21日 WBG vs BLG",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "第一局"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "第二局"
                 }
               ]
             },
@@ -416,10 +493,12 @@
               "title": "【2026EWC】4月20日 预选赛第二阶段",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "OMG VS WBG"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "IG VS BLG"
                 }
               ]
             },
@@ -428,10 +507,12 @@
               "title": "【2026EWC】4月14日 预选赛第二阶段",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "WE VS OMG"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "IG VS TES"
                 }
               ]
             },
@@ -440,10 +521,12 @@
               "title": "【2026EWC】4月13日 预选赛第二阶段",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "BLG VS JDG"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "WBG VS AL"
                 }
               ]
             },
@@ -452,10 +535,12 @@
               "title": "【2026EWC】3月31日 预选赛第二阶段",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "BLG VS WE"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "JDG VS OMG"
                 }
               ]
             },
@@ -464,10 +549,12 @@
               "title": "【2026EWC】3月30日 预选赛第二阶段",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "WBG VS IG"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "AL VS TES"
                 }
               ]
             },
@@ -476,10 +563,12 @@
               "title": "【2026EWC】3月29日 预选赛第一阶段",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "NIP VS OMG"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "WE VS TT"
                 }
               ]
             },
@@ -488,10 +577,12 @@
               "title": "【2026EWC】3月28日 预选赛第一阶段",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "OMG vs UP"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "LNG vs TT"
                 }
               ]
             },
@@ -500,10 +591,12 @@
               "title": "【2026EWC】3月27日 预选赛第一阶段",
               "pages": [
                 {
-                  "page": 1
+                  "page": 1,
+                  "part": "EDG vs UP"
                 },
                 {
-                  "page": 2
+                  "page": 2,
+                  "part": "TT vs LGD"
                 }
               ]
             }

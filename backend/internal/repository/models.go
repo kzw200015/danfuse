@@ -82,20 +82,22 @@ type Season struct {
 }
 
 type SeasonBinding struct {
-	ID            int64      `json:"id"`
-	SeasonID      int64      `json:"seasonId"`
-	Adapter       string     `json:"adapter"`
-	Ref           []byte     `json:"ref"`
-	Title         string     `json:"title"`
-	Finished      bool       `json:"finished"`
-	MappingFrom   int32      `json:"mappingFrom"`
-	MappingTo     int32      `json:"mappingTo"`
-	Follow        bool       `json:"follow"`
-	Status        string     `json:"status"`
-	LastError     *string    `json:"lastError"`
-	LastCheckedAt *time.Time `json:"lastCheckedAt"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
+	ID             int64      `json:"id"`
+	SeasonID       int64      `json:"seasonId"`
+	Adapter        string     `json:"adapter"`
+	Ref            []byte     `json:"ref"`
+	Title          string     `json:"title"`
+	Finished       bool       `json:"finished"`
+	MappingFrom    int32      `json:"mappingFrom"`
+	MappingTo      int32      `json:"mappingTo"`
+	EpisodePattern string     `json:"episodePattern"`
+	NumberedByRule bool       `json:"numberedByRule"`
+	Follow         bool       `json:"follow"`
+	Status         string     `json:"status"`
+	LastError      *string    `json:"lastError"`
+	LastCheckedAt  *time.Time `json:"lastCheckedAt"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 type SeasonBindingHandled struct {
@@ -112,7 +114,6 @@ type SeasonBindingItem struct {
 	Number          *int32     `json:"number"`
 	UnmatchedReason *string    `json:"unmatchedReason"`
 	Label           string     `json:"label"`
-	Note            *string    `json:"note"`
 	LastError       *string    `json:"lastError"`
 	LastErrorAt     *time.Time `json:"lastErrorAt"`
 }

@@ -42,6 +42,8 @@ function seasonBinding(id: number, patch: Partial<SeasonBinding> = {}): SeasonBi
     finished: false,
     mappingFrom: 1,
     mappingTo: 1,
+    numberedByRule: false,
+    episodePattern: '',
     follow: true,
     status: 'active',
     lastError: null,
@@ -117,14 +119,15 @@ const continued: CollectionCandidate = {
   sourceUrl: 'https://www.bilibili.com/bangumi/play/ss36429',
   sourceLabel: 'B 站番剧 ss36429',
   finished: true,
+  numberedByRule: false,
   mappingFrom: 14,
   mappingTo: 1,
   items: [
-    { label: '第13话 回顾', note: null, number: 13, reason: null },
-    { label: '第14话 再出发', note: null, number: 14, reason: null },
-    { label: '第15话 归途', note: null, number: 15, reason: null },
-    { label: '第16话 终章', note: null, number: 16, reason: null },
-    { label: 'SP 总集篇', note: null, number: null, reason: '集号「SP」不是整数' },
+    { label: '第13话 回顾', number: 13, reason: null },
+    { label: '第14话 再出发', number: 14, reason: null },
+    { label: '第15话 归途', number: 15, reason: null },
+    { label: '第16话 终章', number: 16, reason: null },
+    { label: 'SP 总集篇', number: null, reason: '集号「SP」不是整数' },
   ],
 }
 
@@ -166,7 +169,9 @@ describe('添加季绑定', () => {
 
     await previewLink(' ss36429 ')
 
-    await waitFor(() => expect(previewSeasonBinding).toHaveBeenCalledWith(11, 'ss36429'))
+    await waitFor(() => expect(previewSeasonBinding).toHaveBeenCalledWith(11, 'ss36429', ''))
+    // 番剧的集号由平台给出，没有集号规则
+    expect(screen.queryByRole('textbox', { name: '集号规则' })).not.toBeInTheDocument()
     const preview = within(await screen.findByRole('region', { name: '预览' }))
     expect(preview.getByRole('link', { name: '星海旅人 第二部分' })).toHaveAttribute(
       'href',
@@ -211,6 +216,7 @@ describe('添加季绑定', () => {
         kind: 'bangumi',
         mappingFrom: 13,
         mappingTo: 1,
+        episodePattern: '',
       }),
     )
     expect(await screen.findByText('已创建季绑定，正在后台补建')).toBeInTheDocument()
@@ -246,16 +252,17 @@ describe('添加季绑定', () => {
     expect(getSeasonBinding).toHaveBeenCalledTimes(stopped)
   })
 
-  it('链接对应多个合集：先选一个再显示对应表', async () => {
+  it('链接对应多个合集：先选一个再显示对应表；改集号规则后重新预览才能创建，选中的候选保留', async () => {
     const pages: CollectionCandidate = {
       kind: 'multiPage',
       title: '星海旅人 全集',
       sourceUrl: 'https://www.bilibili.com/video/BV17x411w7KC',
       sourceLabel: 'B 站多 P 投稿 BV17x411w7KC',
       finished: false,
+      numberedByRule: true,
       mappingFrom: 1,
       mappingTo: 1,
-      items: [{ label: 'P1 第一集', note: null, number: 1, reason: null }],
+      items: [{ label: '星海旅人 全集 / 01', number: 1, reason: null }],
     }
     const collection: CollectionCandidate = {
       ...pages,
@@ -263,8 +270,9 @@ describe('添加季绑定', () => {
       title: '搬运合集',
       sourceLabel: 'B 站投稿合集 8597253',
       items: [
-        { label: '第一集', note: '共 2 个分 P，只用 P1', number: 1, reason: null },
-        { label: '第二集', note: null, number: 2, reason: null },
+        { label: '星海旅人 全集 / 01', number: null, reason: '名称里认不出集号' },
+        { label: '星海旅人 第1集', number: 1, reason: null },
+        { label: '星海旅人 第2集 PV', number: 2, reason: null },
       ],
     }
     vi.mocked(previewSeasonBinding).mockResolvedValue({ candidates: [pages, collection] })
@@ -276,22 +284,73 @@ describe('添加季绑定', () => {
     const choices = within(await screen.findByRole('radiogroup', { name: '选择要绑定的合集' }))
     expect(choices.getAllByRole('radio').map((r) => r.textContent)).toEqual([
       '这个稿件《星海旅人 全集》的 1 个分 PB 站多 P 投稿 BV17x411w7KC',
-      '它所在的合集《搬运合集》共 2 条B 站投稿合集 8597253',
+      '它所在的合集《搬运合集》共 3 条B 站投稿合集 8597253',
     ])
     expect(screen.queryByRole('table', { name: '对应表' })).not.toBeInTheDocument()
 
     fireEvent.click(choices.getByRole('radio', { name: /搬运合集/ }))
 
     expect(choices.getByRole('radio', { name: /搬运合集/ })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByText('共 2 个分 P，只用 P1')).toBeInTheDocument()
-    expect(targets()).toEqual(['第 1 集（已有 1 个绑定）', '第 2 集'])
-    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+    expect(targets()).toEqual(['对不上：名称里认不出集号', '第 1 集（已有 1 个绑定）', '第 2 集'])
+
+    // 改了规则：重新预览之前不能创建
+    const preview = within(screen.getByRole('region', { name: '预览' }))
+    expect(preview.getByRole('textbox', { name: '集号规则' })).toHaveValue('')
+    fireEvent.change(preview.getByRole('textbox', { name: '集号规则' }), {
+      target: { value: ' 第(\\d+)集$ ' },
+    })
+    expect(preview.getByRole('button', { name: '创建' })).toBeDisabled()
+    expect(preview.getByText('集号规则改了，先重新预览')).toBeInTheDocument()
+
+    // 规则不合法：提示显示在规则下方，预览还在
+    vi.mocked(previewSeasonBinding).mockRejectedValueOnce(
+      new ApiError('集号规则不是合法的正则：missing closing )', 1, 400),
+    )
+    fireEvent.click(preview.getByRole('button', { name: '重新预览' }))
+    expect(await preview.findByRole('alert')).toHaveTextContent('集号规则不是合法的正则')
+    expect(screen.getByRole('table', { name: '对应表' })).toBeInTheDocument()
+
+    vi.mocked(previewSeasonBinding).mockResolvedValue({
+      candidates: [
+        pages,
+        {
+          ...collection,
+          items: [
+            { label: '星海旅人 全集 / 01', number: null, reason: '不符合集号规则' },
+            { label: '星海旅人 第1集', number: 1, reason: null },
+            { label: '星海旅人 第2集 PV', number: null, reason: '不符合集号规则' },
+          ],
+        },
+      ],
+    })
+    fireEvent.click(preview.getByRole('button', { name: '重新预览' }))
+
+    await waitFor(() =>
+      expect(previewSeasonBinding).toHaveBeenLastCalledWith(11, 'BV17x411w7KC', '第(\\d+)集$'),
+    )
+    await waitFor(() =>
+      expect(targets()).toEqual([
+        '对不上：不符合集号规则',
+        '第 1 集（已有 1 个绑定）',
+        '对不上：不符合集号规则',
+      ]),
+    )
+    const repreviewed = within(screen.getByRole('region', { name: '预览' }))
+    expect(repreviewed.getByRole('radio', { name: /搬运合集/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(repreviewed.getByRole('textbox', { name: '集号规则' })).toHaveValue('第(\\d+)集$')
+    expect(repreviewed.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(repreviewed.getByRole('button', { name: '创建' }))
     await waitFor(() =>
       expect(createSeasonBinding).toHaveBeenCalledWith(11, {
         link: 'BV17x411w7KC',
         kind: 'ugcSeason',
         mappingFrom: 1,
         mappingTo: 1,
+        episodePattern: '第(\\d+)集$',
       }),
     )
   })
@@ -346,6 +405,7 @@ describe('季绑定卡片', () => {
     expect(sb.getByText('上次检查：番剧不存在、已下架或不可见')).toBeInTheDocument()
     expect(sb.getByRole('switch', { name: '追更' })).toBeChecked()
     expect(sb.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')
+    expect(sb.queryByRole('textbox', { name: '集号规则' })).not.toBeInTheDocument()
     // 打开季面板不请求详情
     expect(getSeasonBinding).not.toHaveBeenCalled()
   })
@@ -354,7 +414,6 @@ describe('季绑定卡片', () => {
     items[1] = [
       {
         label: '第1话',
-        note: null,
         number: 1,
         state: 'bound',
         reason: null,
@@ -363,7 +422,6 @@ describe('季绑定卡片', () => {
       },
       {
         label: '第2话',
-        note: null,
         number: 2,
         state: 'failed',
         reason: 'B 站接口异常',
@@ -372,7 +430,6 @@ describe('季绑定卡片', () => {
       },
       {
         label: '第3话',
-        note: null,
         number: 3,
         state: 'waitingEpisode',
         reason: null,
@@ -381,7 +438,6 @@ describe('季绑定卡片', () => {
       },
       {
         label: 'SP',
-        note: null,
         number: null,
         state: 'unmatched',
         reason: '集号「SP」不是整数',
@@ -452,6 +508,30 @@ describe('季绑定卡片', () => {
     expect(await screen.findByText('集号对应已保存，正在后台补建')).toBeInTheDocument()
     expect(await sb.findByText(/^补建中/)).toBeInTheDocument()
     await waitFor(() => expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument())
+  })
+
+  it('改集号规则：只有按规则编号的合集显示，改动后才能保存', async () => {
+    Object.assign(serverBinding(1), { numberedByRule: true, episodePattern: '' })
+    vi.mocked(updateSeasonBinding).mockImplementation(async (id, patch) => {
+      Object.assign(serverBinding(id), patch, { running: true })
+      return { ...structuredClone(serverBinding(id)), items: [] }
+    })
+    renderRoutes('/catalog/1/11')
+    const sb = await card('星海旅人 第一季')
+    expect(sb.getByRole('textbox', { name: '集号规则' })).toHaveValue('')
+    expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
+
+    fireEvent.change(sb.getByRole('textbox', { name: '集号规则' }), {
+      target: { value: '第(\\d+)话 ' },
+    })
+    fireEvent.click(sb.getByRole('button', { name: '保存' }))
+
+    await waitFor(() =>
+      expect(updateSeasonBinding).toHaveBeenCalledWith(1, { episodePattern: '第(\\d+)话' }),
+    )
+    expect(await screen.findByText('集号规则已保存，正在后台补建')).toBeInTheDocument()
+    await waitFor(() => expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument())
+    expect(sb.getByRole('textbox', { name: '集号规则' })).toHaveValue('第(\\d+)话')
   })
 
   it('关掉追更', async () => {

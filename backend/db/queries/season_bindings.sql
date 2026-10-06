@@ -22,28 +22,26 @@ SELECT EXISTS (SELECT 1 FROM season_bindings WHERE season_id = $1 AND adapter = 
 
 -- name: InsertSeasonBinding :one
 -- 同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
-INSERT INTO season_bindings (season_id, adapter, ref, title, finished, mapping_from, mapping_to)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO season_bindings (season_id, adapter, ref, title, finished, mapping_from, mapping_to, episode_pattern, numbered_by_rule)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id;
 
 -- name: UpsertSeasonBindingItems :exec
--- 写入一次检查列出的条目，各数组按下标一一对应，ref 是 JSON 文本。序号为 -1、原因与提示为空串时存为 null。
--- 按 (季绑定, 弹幕源) upsert：已有的条目更新位置、序号、标签与提示，上次失败的原因保留。调用方保证 ref 不重复。
--- 同 InsertDanmaku，SELECT 列表里的多个 unnest 同步展开。
-INSERT INTO season_binding_items (season_binding_id, ref, position, number, unmatched_reason, label, note)
+-- 写入一次检查列出的条目（或改集号规则之后重新认出的序号），各数组按下标一一对应，ref 是 JSON 文本。
+-- 序号为 -1、原因为空串时存为 null。按 (季绑定, 弹幕源) upsert：已有的条目更新位置、序号与标签，上次失败的原因保留。
+-- 调用方保证 ref 不重复。同 InsertDanmaku，SELECT 列表里的多个 unnest 同步展开。
+INSERT INTO season_binding_items (season_binding_id, ref, position, number, unmatched_reason, label)
 SELECT @season_binding_id::bigint,
        unnest(@refs::text[])::jsonb,
        unnest(@positions::int[]),
        nullif(unnest(@numbers::int[]), -1),
        nullif(unnest(@reasons::text[]), ''),
-       unnest(@labels::text[]),
-       nullif(unnest(@notes::text[]), '')
+       unnest(@labels::text[])
 ON CONFLICT (season_binding_id, ref) DO UPDATE
 SET position         = excluded.position,
     number           = excluded.number,
     unmatched_reason = excluded.unmatched_reason,
-    label            = excluded.label,
-    note             = excluded.note;
+    label            = excluded.label;
 
 -- name: DeleteStaleSeasonBindingItems :exec
 -- 删掉合集里已经没有的条目。refs 是这次列出的全部 ref（JSON 文本），按 jsonb 比较。
@@ -88,6 +86,13 @@ SELECT *
 FROM season_binding_items
 WHERE season_binding_id = $1
 ORDER BY position;
+
+-- name: GetSeasonBindingItemNumber :one
+-- 补建处理一个条目之前重新读它的序号：补建进行中改了集号规则时用新认出的序号。条目已经不在时没有行，对不上时为 null。
+SELECT number
+FROM season_binding_items
+WHERE season_binding_id = $1
+  AND ref = $2;
 
 -- name: ListSeasonBindingHandled :many
 -- 处理过的记录，连同对到的集号，以及那一集上现在还有没有这个弹幕源的绑定（不论是不是补建出来的）。
@@ -144,16 +149,18 @@ WHERE season_binding_id = sqlc.arg(season_binding_id)
   AND ref = sqlc.arg(ref);
 
 -- name: RecordSeasonBindingListed :one
--- 一次检查成功列出合集：季绑定恢复为正常、清掉错误，更新合集标题与完结标志。同一个事务里随后写入条目。
+-- 一次检查成功列出合集：季绑定恢复为正常、清掉错误，更新合集标题、完结标志与是否按集号规则编号。
+-- 返回集号规则：同一个事务里随后按它认出序号、写入条目；行锁让改集号规则的事务排在前面或后面，不会用旧规则覆盖新规则认出的序号。
 -- 季绑定已被删除时没有行。
 UPDATE season_bindings
-SET status     = 'active',
-    last_error = NULL,
-    title      = $2,
-    finished   = $3,
-    updated_at = now()
+SET status           = 'active',
+    last_error       = NULL,
+    title            = $2,
+    finished         = $3,
+    numbered_by_rule = $4,
+    updated_at       = now()
 WHERE id = $1
-RETURNING id;
+RETURNING episode_pattern;
 
 -- name: FinishSeasonBindingCheck :exec
 -- 一次检查结束（正常结束，或因错误、限流结束）：上次检查时间写为这一轮的开始时间，记下结束时的错误（没有时为 null）。
@@ -166,14 +173,16 @@ SET last_checked_at = sqlc.arg(checked_at)::timestamptz,
 WHERE id = sqlc.arg(id);
 
 -- name: UpdateSeasonBinding :one
--- 改集号对应、开关追更：只改传了的字段，单条语句。不存在时没有行。
+-- 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号：改了集号规则时，同一个事务里随后重新认出条目的序号。
+-- 不存在时没有行。
 UPDATE season_bindings
-SET follow       = coalesce(sqlc.narg(follow), follow),
-    mapping_from = coalesce(sqlc.narg(mapping_from), mapping_from),
-    mapping_to   = coalesce(sqlc.narg(mapping_to), mapping_to),
-    updated_at   = now()
+SET follow          = coalesce(sqlc.narg(follow), follow),
+    mapping_from    = coalesce(sqlc.narg(mapping_from), mapping_from),
+    mapping_to      = coalesce(sqlc.narg(mapping_to), mapping_to),
+    episode_pattern = coalesce(sqlc.narg(episode_pattern), episode_pattern),
+    updated_at      = now()
 WHERE id = sqlc.arg(id)
-RETURNING id;
+RETURNING numbered_by_rule;
 
 -- name: DeleteBindingsBySeasonBinding :exec
 -- 删除季绑定时"一起删"：它建出的绑定，弹幕随外键级联删除。

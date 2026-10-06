@@ -170,9 +170,11 @@ func (a *Adapter) videoCandidates(ctx context.Context, aid int64) ([]source.Coll
 // ListCollection 列出合集：
 //   - 番剧：一次取出这一季的全部单集，只取正片（section_type 为 0），混在里面的预告与 section 里的 PV、OP 等都不是条目；
 //     集号是整数时为序号，否则对不上；标签用 show_title；完结标志取 publish.is_finish；
-//   - 投稿合集：按条目列表的顺序（各小节按 UP 主排的顺序连起来）取位置为序号，标签用稿件标题；
-//     再取第一个稿件的 view，从合集信息里得到每个稿件的分 P 数，多于一个时提示只用 P1；没有完结标志；
-//   - 多 P 投稿：分 P 号为序号，标签为"P{n} 分 P 标题"；没有完结标志。
+//   - 投稿合集：展开到分 P，按条目列表的顺序（各小节按 UP 主排的顺序连起来）、每个稿件按分 P 号排列；
+//     分 P 取自合集里一个稿件的 view（它带着整个合集各稿件的分 P）；没有完结标志；
+//   - 多 P 投稿：各个分 P；没有完结标志。
+//
+// 投稿合集和多 P 投稿的标签为"稿件标题 / 分 P 标题"（见 pageLabel），序号由季绑定的集号规则从标签认出（NumberedByRule）。
 func (a *Adapter) ListCollection(ctx context.Context, r source.CollectionRef) (source.Collection, error) {
 	v, err := decodeCollectionRef(r)
 	if err != nil {
@@ -237,36 +239,78 @@ func (a *Adapter) listUGCSeason(ctx context.Context, seasonID int64) (source.Col
 		entries = append(entries, next.Archives...)
 	}
 
-	// 条目列表里没有分 P，合集里任何一个稿件的 view 都带着整个合集各稿件的分 P
-	pages := make(map[int64]int)
-	if len(entries) > 0 {
-		v, err := a.view(ctx, entries[0].Aid)
-		srcErr, _ := errors.AsType[*source.Error](err)
-		switch {
-		case srcErr != nil && srcErr.Kind == source.NotFound: // 第一个稿件刚被删除：不提示分 P 数
-		case err != nil:
-			return source.Collection{}, err
-		case v.UGCSeason != nil && v.UGCSeason.ID == seasonID:
-			for _, sec := range v.UGCSeason.Sections {
-				for _, e := range sec.Episodes {
-					pages[e.Aid] = len(e.Pages)
-				}
-			}
-		}
+	pages, err := a.seasonPages(ctx, seasonID, entries)
+	if err != nil {
+		return source.Collection{}, err
 	}
 
-	c := source.Collection{Title: strings.TrimSpace(first.Meta.Title)}
-	for i, e := range entries {
+	c := source.Collection{Title: strings.TrimSpace(first.Meta.Title), NumberedByRule: true}
+	for _, e := range entries {
 		if e.Aid <= 0 || e.Aid >= maxAid {
 			continue
 		}
-		item := source.CollectionItem{Ref: ref{Kind: kindVideo, Aid: e.Aid, Page: 1}.encode(), Number: i + 1, Label: strings.TrimSpace(e.Title)}
-		if n := pages[e.Aid]; n > 1 {
-			item.Note = fmt.Sprintf("共 %d 个分 P，只用 P1", n)
+		ps, ok := pages[e.Aid]
+		if !ok { // 刚加进合集、view 里还没有：只有 P1
+			ps = []ugcPage{{Page: 1}}
 		}
-		c.Items = append(c.Items, item)
+		for _, p := range ps {
+			if p.Page >= 1 {
+				c.Items = append(c.Items, source.CollectionItem{
+					Ref: ref{Kind: kindVideo, Aid: e.Aid, Page: p.Page}.encode(), Label: pageLabel(e.Title, p.Part),
+				})
+			}
+		}
 	}
 	return c, nil
+}
+
+// maxViewAttempts 列投稿合集时最多取几个稿件的 view 来找各稿件的分 P。
+const maxViewAttempts = 3
+
+// seasonPages 投稿合集各稿件的分 P，按 aid。条目列表里没有分 P，合集里任何一个稿件的 view 都带着整个合集各稿件的分 P：
+// 按顺序取 view，稿件刚被删除（NotFound）、或 view 里已经不是这个合集时换下一个，最多取 maxViewAttempts 个；
+// 都取不到时为上游错误。合集为空时不请求。
+func (a *Adapter) seasonPages(ctx context.Context, seasonID int64, entries []archive) (map[int64][]ugcPage, error) {
+	attempts := 0
+	for _, e := range entries {
+		if e.Aid <= 0 || e.Aid >= maxAid {
+			continue
+		}
+		if attempts == maxViewAttempts {
+			break
+		}
+		attempts++
+		v, err := a.view(ctx, e.Aid)
+		srcErr, _ := errors.AsType[*source.Error](err)
+		switch {
+		case srcErr != nil && srcErr.Kind == source.NotFound:
+			continue
+		case err != nil:
+			return nil, err
+		case v.UGCSeason == nil || v.UGCSeason.ID != seasonID:
+			continue
+		}
+		pages := make(map[int64][]ugcPage)
+		for _, sec := range v.UGCSeason.Sections {
+			for _, ep := range sec.Episodes {
+				pages[ep.Aid] = ep.Pages
+			}
+		}
+		return pages, nil
+	}
+	if attempts == 0 {
+		return nil, nil
+	}
+	return nil, sourceError(source.Upstream, fmt.Errorf("合集 %d 的前 %d 个稿件都取不到带合集信息的 view", seasonID, attempts))
+}
+
+// pageLabel 投稿合集、多 P 投稿条目的标签"稿件标题 / 分 P 标题"；分 P 标题为空或与稿件标题相同时只有稿件标题。
+func pageLabel(title, part string) string {
+	title, part = strings.TrimSpace(title), strings.TrimSpace(part)
+	if part == "" || part == title {
+		return title
+	}
+	return title + " / " + part
 }
 
 // archivesData x/polymer/web-space/seasons_archives_list 的 data：合集的一页条目，顺序与 view 里各小节展开后的顺序一致。
@@ -304,13 +348,11 @@ func (a *Adapter) listPages(ctx context.Context, aid int64) (source.Collection, 
 	if err != nil {
 		return source.Collection{}, err
 	}
-	c := source.Collection{Title: strings.TrimSpace(v.Title)}
+	c := source.Collection{Title: strings.TrimSpace(v.Title), NumberedByRule: true}
 	for _, p := range v.Pages {
-		if p.Page < 1 {
-			continue
+		if p.Page >= 1 {
+			c.Items = append(c.Items, source.CollectionItem{Ref: ref{Kind: kindVideo, Aid: aid, Page: p.Page}.encode(), Label: pageLabel(v.Title, p.Part)})
 		}
-		label := strings.TrimSpace(fmt.Sprintf("P%d %s", p.Page, strings.TrimSpace(p.Part)))
-		c.Items = append(c.Items, source.CollectionItem{Ref: ref{Kind: kindVideo, Aid: aid, Page: p.Page}.encode(), Number: p.Page, Label: label})
 	}
 	return c, nil
 }

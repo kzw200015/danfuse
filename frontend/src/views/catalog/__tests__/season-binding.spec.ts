@@ -12,7 +12,7 @@ import {
 } from '../season-binding'
 
 function item(number: number | null, reason: string | null = null): PreviewItem {
-  return { label: '条目', note: null, number, reason }
+  return { label: '条目', number, reason }
 }
 
 /** 本季：第 1、2 集，第 2 集已有两个绑定 */
@@ -73,7 +73,6 @@ describe('previewTarget', () => {
 /** 一个条目，默认是待补建到第 3 集的 */
 const row = (patch: Partial<SeasonBindingItem>): SeasonBindingItem => ({
   label: '条目',
-  note: null,
   number: 3,
   state: 'pending',
   reason: null,
@@ -106,6 +105,7 @@ describe('candidateText', () => {
     sourceUrl: 'https://example.com',
     sourceLabel: '标签',
     finished: false,
+    numberedByRule: false,
     mappingFrom: 1,
     mappingTo: 1,
     items: [item(1), item(2)],

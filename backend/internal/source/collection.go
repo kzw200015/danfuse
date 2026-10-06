@@ -20,7 +20,10 @@ type CollectionCandidate struct {
 type Collection struct {
 	Title    string
 	Finished bool // 平台上已完结；取不到时为否
-	Items    []CollectionItem
+	// NumberedByRule 条目的序号由季绑定的集号规则从标签认出（见 NumberItems），适配器不填 Number、Unmatched；
+	// 为否时序号由适配器给出（例如番剧的集号）
+	NumberedByRule bool
+	Items          []CollectionItem
 }
 
 // CollectionItem 合集里的一个条目，即一个弹幕源。
@@ -28,8 +31,7 @@ type CollectionItem struct {
 	Ref       Ref    // 弹幕源 ref，与单集绑定同一套格式，手动绑过的同一个弹幕源能被认出来
 	Number    int    // 合集序号，Unmatched 为空时才有意义
 	Unmatched string // 非空表示对不上，内容是原因，例如"集号「SP」不是整数"
-	Label     string // 展示标签
-	Note      string // 可选的提示，例如"共 5 个分 P，只用 P1"
+	Label     string // 展示标签，也是集号规则认集号的名称
 }
 
 // ParseCollectionLink 依次交给各个适配器，返回第一个认识这个链接的适配器和它给出的候选。

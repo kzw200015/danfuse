@@ -98,7 +98,7 @@ func (q *Queries) GetEpisodeIDByNumber(ctx context.Context, arg GetEpisodeIDByNu
 }
 
 const getSeasonBinding = `-- name: GetSeasonBinding :one
-SELECT id, season_id, adapter, ref, title, finished, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, updated_at
+SELECT id, season_id, adapter, ref, title, finished, mapping_from, mapping_to, episode_pattern, numbered_by_rule, follow, status, last_error, last_checked_at, created_at, updated_at
 FROM season_bindings
 WHERE id = $1
 `
@@ -116,6 +116,8 @@ func (q *Queries) GetSeasonBinding(ctx context.Context, id int64) (SeasonBinding
 		&i.Finished,
 		&i.MappingFrom,
 		&i.MappingTo,
+		&i.EpisodePattern,
+		&i.NumberedByRule,
 		&i.Follow,
 		&i.Status,
 		&i.LastError,
@@ -126,8 +128,28 @@ func (q *Queries) GetSeasonBinding(ctx context.Context, id int64) (SeasonBinding
 	return i, err
 }
 
+const getSeasonBindingItemNumber = `-- name: GetSeasonBindingItemNumber :one
+SELECT number
+FROM season_binding_items
+WHERE season_binding_id = $1
+  AND ref = $2
+`
+
+type GetSeasonBindingItemNumberParams struct {
+	SeasonBindingID int64  `json:"seasonBindingId"`
+	Ref             []byte `json:"ref"`
+}
+
+// 补建处理一个条目之前重新读它的序号：补建进行中改了集号规则时用新认出的序号。条目已经不在时没有行，对不上时为 null。
+func (q *Queries) GetSeasonBindingItemNumber(ctx context.Context, arg GetSeasonBindingItemNumberParams) (*int32, error) {
+	row := q.db.QueryRow(ctx, getSeasonBindingItemNumber, arg.SeasonBindingID, arg.Ref)
+	var number *int32
+	err := row.Scan(&number)
+	return number, err
+}
+
 const getSeasonBindingSummary = `-- name: GetSeasonBindingSummary :one
-SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at,
+SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.episode_pattern, sb.numbered_by_rule, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
                FROM leases l
@@ -162,6 +184,8 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 		&i.SeasonBinding.Finished,
 		&i.SeasonBinding.MappingFrom,
 		&i.SeasonBinding.MappingTo,
+		&i.SeasonBinding.EpisodePattern,
+		&i.SeasonBinding.NumberedByRule,
 		&i.SeasonBinding.Follow,
 		&i.SeasonBinding.Status,
 		&i.SeasonBinding.LastError,
@@ -209,19 +233,21 @@ func (q *Queries) InsertBackfilledBinding(ctx context.Context, arg InsertBackfil
 }
 
 const insertSeasonBinding = `-- name: InsertSeasonBinding :one
-INSERT INTO season_bindings (season_id, adapter, ref, title, finished, mapping_from, mapping_to)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO season_bindings (season_id, adapter, ref, title, finished, mapping_from, mapping_to, episode_pattern, numbered_by_rule)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id
 `
 
 type InsertSeasonBindingParams struct {
-	SeasonID    int64  `json:"seasonId"`
-	Adapter     string `json:"adapter"`
-	Ref         []byte `json:"ref"`
-	Title       string `json:"title"`
-	Finished    bool   `json:"finished"`
-	MappingFrom int32  `json:"mappingFrom"`
-	MappingTo   int32  `json:"mappingTo"`
+	SeasonID       int64  `json:"seasonId"`
+	Adapter        string `json:"adapter"`
+	Ref            []byte `json:"ref"`
+	Title          string `json:"title"`
+	Finished       bool   `json:"finished"`
+	MappingFrom    int32  `json:"mappingFrom"`
+	MappingTo      int32  `json:"mappingTo"`
+	EpisodePattern string `json:"episodePattern"`
+	NumberedByRule bool   `json:"numberedByRule"`
 }
 
 // 同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
@@ -234,6 +260,8 @@ func (q *Queries) InsertSeasonBinding(ctx context.Context, arg InsertSeasonBindi
 		arg.Finished,
 		arg.MappingFrom,
 		arg.MappingTo,
+		arg.EpisodePattern,
+		arg.NumberedByRule,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -420,7 +448,7 @@ func (q *Queries) ListSeasonBindingHandled(ctx context.Context, seasonBindingID 
 }
 
 const listSeasonBindingItems = `-- name: ListSeasonBindingItems :many
-SELECT season_binding_id, ref, position, number, unmatched_reason, label, note, last_error, last_error_at
+SELECT season_binding_id, ref, position, number, unmatched_reason, label, last_error, last_error_at
 FROM season_binding_items
 WHERE season_binding_id = $1
 ORDER BY position
@@ -443,7 +471,6 @@ func (q *Queries) ListSeasonBindingItems(ctx context.Context, seasonBindingID in
 			&i.Number,
 			&i.UnmatchedReason,
 			&i.Label,
-			&i.Note,
 			&i.LastError,
 			&i.LastErrorAt,
 		); err != nil {
@@ -458,7 +485,7 @@ func (q *Queries) ListSeasonBindingItems(ctx context.Context, seasonBindingID in
 }
 
 const listSeasonBindingSummariesBySeries = `-- name: ListSeasonBindingSummariesBySeries :many
-SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at,
+SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.episode_pattern, sb.numbered_by_rule, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
                FROM leases l
@@ -500,6 +527,8 @@ func (q *Queries) ListSeasonBindingSummariesBySeries(ctx context.Context, arg Li
 			&i.SeasonBinding.Finished,
 			&i.SeasonBinding.MappingFrom,
 			&i.SeasonBinding.MappingTo,
+			&i.SeasonBinding.EpisodePattern,
+			&i.SeasonBinding.NumberedByRule,
 			&i.SeasonBinding.Follow,
 			&i.SeasonBinding.Status,
 			&i.SeasonBinding.LastError,
@@ -567,28 +596,36 @@ func (q *Queries) LockSeasonBindingShared(ctx context.Context, id int64) (int64,
 
 const recordSeasonBindingListed = `-- name: RecordSeasonBindingListed :one
 UPDATE season_bindings
-SET status     = 'active',
-    last_error = NULL,
-    title      = $2,
-    finished   = $3,
-    updated_at = now()
+SET status           = 'active',
+    last_error       = NULL,
+    title            = $2,
+    finished         = $3,
+    numbered_by_rule = $4,
+    updated_at       = now()
 WHERE id = $1
-RETURNING id
+RETURNING episode_pattern
 `
 
 type RecordSeasonBindingListedParams struct {
-	ID       int64  `json:"id"`
-	Title    string `json:"title"`
-	Finished bool   `json:"finished"`
+	ID             int64  `json:"id"`
+	Title          string `json:"title"`
+	Finished       bool   `json:"finished"`
+	NumberedByRule bool   `json:"numberedByRule"`
 }
 
-// 一次检查成功列出合集：季绑定恢复为正常、清掉错误，更新合集标题与完结标志。同一个事务里随后写入条目。
+// 一次检查成功列出合集：季绑定恢复为正常、清掉错误，更新合集标题、完结标志与是否按集号规则编号。
+// 返回集号规则：同一个事务里随后按它认出序号、写入条目；行锁让改集号规则的事务排在前面或后面，不会用旧规则覆盖新规则认出的序号。
 // 季绑定已被删除时没有行。
-func (q *Queries) RecordSeasonBindingListed(ctx context.Context, arg RecordSeasonBindingListedParams) (int64, error) {
-	row := q.db.QueryRow(ctx, recordSeasonBindingListed, arg.ID, arg.Title, arg.Finished)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+func (q *Queries) RecordSeasonBindingListed(ctx context.Context, arg RecordSeasonBindingListedParams) (string, error) {
+	row := q.db.QueryRow(ctx, recordSeasonBindingListed,
+		arg.ID,
+		arg.Title,
+		arg.Finished,
+		arg.NumberedByRule,
+	)
+	var episode_pattern string
+	err := row.Scan(&episode_pattern)
+	return episode_pattern, err
 }
 
 const seasonBindingExists = `-- name: SeasonBindingExists :one
@@ -649,49 +686,51 @@ func (q *Queries) SetSeasonBindingItemError(ctx context.Context, arg SetSeasonBi
 
 const updateSeasonBinding = `-- name: UpdateSeasonBinding :one
 UPDATE season_bindings
-SET follow       = coalesce($1, follow),
-    mapping_from = coalesce($2, mapping_from),
-    mapping_to   = coalesce($3, mapping_to),
-    updated_at   = now()
-WHERE id = $4
-RETURNING id
+SET follow          = coalesce($1, follow),
+    mapping_from    = coalesce($2, mapping_from),
+    mapping_to      = coalesce($3, mapping_to),
+    episode_pattern = coalesce($4, episode_pattern),
+    updated_at      = now()
+WHERE id = $5
+RETURNING numbered_by_rule
 `
 
 type UpdateSeasonBindingParams struct {
-	Follow      *bool  `json:"follow"`
-	MappingFrom *int32 `json:"mappingFrom"`
-	MappingTo   *int32 `json:"mappingTo"`
-	ID          int64  `json:"id"`
+	Follow         *bool   `json:"follow"`
+	MappingFrom    *int32  `json:"mappingFrom"`
+	MappingTo      *int32  `json:"mappingTo"`
+	EpisodePattern *string `json:"episodePattern"`
+	ID             int64   `json:"id"`
 }
 
-// 改集号对应、开关追更：只改传了的字段，单条语句。不存在时没有行。
-func (q *Queries) UpdateSeasonBinding(ctx context.Context, arg UpdateSeasonBindingParams) (int64, error) {
+// 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号：改了集号规则时，同一个事务里随后重新认出条目的序号。
+// 不存在时没有行。
+func (q *Queries) UpdateSeasonBinding(ctx context.Context, arg UpdateSeasonBindingParams) (bool, error) {
 	row := q.db.QueryRow(ctx, updateSeasonBinding,
 		arg.Follow,
 		arg.MappingFrom,
 		arg.MappingTo,
+		arg.EpisodePattern,
 		arg.ID,
 	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+	var numbered_by_rule bool
+	err := row.Scan(&numbered_by_rule)
+	return numbered_by_rule, err
 }
 
 const upsertSeasonBindingItems = `-- name: UpsertSeasonBindingItems :exec
-INSERT INTO season_binding_items (season_binding_id, ref, position, number, unmatched_reason, label, note)
+INSERT INTO season_binding_items (season_binding_id, ref, position, number, unmatched_reason, label)
 SELECT $1::bigint,
        unnest($2::text[])::jsonb,
        unnest($3::int[]),
        nullif(unnest($4::int[]), -1),
        nullif(unnest($5::text[]), ''),
-       unnest($6::text[]),
-       nullif(unnest($7::text[]), '')
+       unnest($6::text[])
 ON CONFLICT (season_binding_id, ref) DO UPDATE
 SET position         = excluded.position,
     number           = excluded.number,
     unmatched_reason = excluded.unmatched_reason,
-    label            = excluded.label,
-    note             = excluded.note
+    label            = excluded.label
 `
 
 type UpsertSeasonBindingItemsParams struct {
@@ -701,12 +740,11 @@ type UpsertSeasonBindingItemsParams struct {
 	Numbers         []int32  `json:"numbers"`
 	Reasons         []string `json:"reasons"`
 	Labels          []string `json:"labels"`
-	Notes           []string `json:"notes"`
 }
 
-// 写入一次检查列出的条目，各数组按下标一一对应，ref 是 JSON 文本。序号为 -1、原因与提示为空串时存为 null。
-// 按 (季绑定, 弹幕源) upsert：已有的条目更新位置、序号、标签与提示，上次失败的原因保留。调用方保证 ref 不重复。
-// 同 InsertDanmaku，SELECT 列表里的多个 unnest 同步展开。
+// 写入一次检查列出的条目（或改集号规则之后重新认出的序号），各数组按下标一一对应，ref 是 JSON 文本。
+// 序号为 -1、原因为空串时存为 null。按 (季绑定, 弹幕源) upsert：已有的条目更新位置、序号与标签，上次失败的原因保留。
+// 调用方保证 ref 不重复。同 InsertDanmaku，SELECT 列表里的多个 unnest 同步展开。
 func (q *Queries) UpsertSeasonBindingItems(ctx context.Context, arg UpsertSeasonBindingItemsParams) error {
 	_, err := q.db.Exec(ctx, upsertSeasonBindingItems,
 		arg.SeasonBindingID,
@@ -715,7 +753,6 @@ func (q *Queries) UpsertSeasonBindingItems(ctx context.Context, arg UpsertSeason
 		arg.Numbers,
 		arg.Reasons,
 		arg.Labels,
-		arg.Notes,
 	)
 	return err
 }

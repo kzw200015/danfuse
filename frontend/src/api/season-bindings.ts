@@ -18,6 +18,10 @@ export interface SeasonBinding {
   /** 集号对应：合集第 mappingFrom 集为本地第 mappingTo 集，之后一一顺延 */
   mappingFrom: number
   mappingTo: number
+  /** 合集的序号由集号规则从条目的标题认出（投稿合集、多 P 投稿） */
+  numberedByRule: boolean
+  /** 集号规则：空串为内置规则，否则是正则，第一个捕获组为集号 */
+  episodePattern: string
   /** 追更：每天检查、同步后补建、14 天内每天重新拉取 */
   follow: boolean
   /** dead 表示上次检查时合集已不存在 */
@@ -44,7 +48,6 @@ export type SeasonBindingItemState =
 /** 条目表的一行：上次检查时合集里的一个条目 */
 export interface SeasonBindingItem {
   label: string
-  note: string | null
   /** 合集序号；对不上时为 null */
   number: number | null
   state: SeasonBindingItemState
@@ -69,7 +72,6 @@ export interface Mapping {
 /** 预览的条目，字段与季绑定的条目相同；重复的序号已标为对不上 */
 export interface PreviewItem {
   label: string
-  note: string | null
   number: number | null
   /** 对不上的原因 */
   reason: string | null
@@ -83,6 +85,8 @@ export interface CollectionCandidate {
   sourceUrl: string
   sourceLabel: string
   finished: boolean
+  /** 序号由集号规则认出：预览按请求里的规则认，创建时传同一个规则 */
+  numberedByRule: boolean
   /** 默认的集号对应，字段与季绑定的相同 */
   mappingFrom: number
   mappingTo: number
@@ -93,12 +97,12 @@ export interface CollectionPreview {
   candidates: CollectionCandidate[]
 }
 
-/** 预览一季要绑定的合集，不保存任何东西 */
-export function previewSeasonBinding(seasonId: number, link: string) {
+/** 预览一季要绑定的合集，按集号规则（空串为内置规则）认出序号，不保存任何东西 */
+export function previewSeasonBinding(seasonId: number, link: string, episodePattern: string) {
   return request<CollectionPreview>({
     url: `/seasons/${seasonId}/season-bindings/preview`,
     method: 'POST',
-    data: { link },
+    data: { link, episodePattern },
     timeout: slowRequestTimeout,
   })
 }
@@ -109,6 +113,8 @@ export interface CreateSeasonBinding {
   kind?: string
   mappingFrom: number
   mappingTo: number
+  /** 集号规则，与预览时用的相同；空串为内置规则 */
+  episodePattern: string
 }
 
 /** 创建季绑定，返回详情；补建随即在后台进行 */
@@ -131,9 +137,11 @@ export interface SeasonBindingPatch {
   follow?: boolean
   mappingFrom?: number
   mappingTo?: number
+  /** 空串改回内置规则 */
+  episodePattern?: string
 }
 
-/** 开关追更、改集号对应，只改传了的字段。打开追更或改了对应时后端随即在后台补建 */
+/** 开关追更、改集号对应和集号规则，只改传了的字段。改了规则时返回的条目已按新规则认出序号；打开追更或改了对应、规则时后端随即在后台补建 */
 export function updateSeasonBinding(id: number, patch: SeasonBindingPatch) {
   return request<SeasonBindingDetail>({
     url: `/season-bindings/${id}`,

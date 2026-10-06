@@ -58,21 +58,24 @@ func NewSeasonBindingService(store *repository.Store, pool *pgxpool.Pool, source
 
 // SeasonBindingView 季绑定的 JSON。不对外暴露原始的合集 ref，sourceUrl / sourceLabel 由适配器的 DescribeCollection 生成。
 type SeasonBindingView struct {
-	ID            int64      `json:"id"`
-	SeasonID      int64      `json:"seasonId"`
-	Adapter       string     `json:"adapter"`
-	SourceURL     string     `json:"sourceUrl"`
-	SourceLabel   string     `json:"sourceLabel"` // 例如"B 站番剧 ss41410"，含合集的种类
-	Title         string     `json:"title"`       // 合集标题，每次检查更新
-	Finished      bool       `json:"finished"`    // 平台上已完结
-	MappingFrom   int32      `json:"mappingFrom"` // 集号对应：合集第 mappingFrom 集为本地第 mappingTo 集
-	MappingTo     int32      `json:"mappingTo"`
-	Follow        bool       `json:"follow"`
-	Status        string     `json:"status"`        // active | dead
-	LastError     *string    `json:"lastError"`     // 上次检查结束时的错误
-	LastCheckedAt *time.Time `json:"lastCheckedAt"` // 上次检查的开始时间
-	Running       bool       `json:"running"`       // 正在补建
-	BindingCount  int32      `json:"bindingCount"`  // 它建出的、现存的绑定数
+	ID          int64  `json:"id"`
+	SeasonID    int64  `json:"seasonId"`
+	Adapter     string `json:"adapter"`
+	SourceURL   string `json:"sourceUrl"`
+	SourceLabel string `json:"sourceLabel"` // 例如"B 站番剧 ss41410"，含合集的种类
+	Title       string `json:"title"`       // 合集标题，每次检查更新
+	Finished    bool   `json:"finished"`    // 平台上已完结
+	MappingFrom int32  `json:"mappingFrom"` // 集号对应：合集第 mappingFrom 集为本地第 mappingTo 集
+	MappingTo   int32  `json:"mappingTo"`
+	// NumberedByRule 合集的序号由集号规则从条目的标签认出（投稿合集、多 P 投稿），上次列出时由适配器给出
+	NumberedByRule bool       `json:"numberedByRule"`
+	EpisodePattern string     `json:"episodePattern"` // 集号规则：空串为内置规则，否则是正则
+	Follow         bool       `json:"follow"`
+	Status         string     `json:"status"`        // active | dead
+	LastError      *string    `json:"lastError"`     // 上次检查结束时的错误
+	LastCheckedAt  *time.Time `json:"lastCheckedAt"` // 上次检查的开始时间
+	Running        bool       `json:"running"`       // 正在补建
+	BindingCount   int32      `json:"bindingCount"`  // 它建出的、现存的绑定数
 }
 
 // SeasonBindingDetail 季绑定的详情：另有条目表，显示的是上次检查时的合集内容，不实时请求平台。
@@ -95,7 +98,6 @@ const (
 // SeasonBindingItemView 条目表的一行。
 type SeasonBindingItemView struct {
 	Label  string  `json:"label"`
-	Note   *string `json:"note"`
 	Number *int32  `json:"number"` // 合集序号；对不上时为 null
 	State  string  `json:"state"`
 	Reason *string `json:"reason"` // 对不上、失败的原因
@@ -110,27 +112,28 @@ type CollectionPreview struct {
 }
 
 type PreviewCandidate struct {
-	Kind        string        `json:"kind"` // 创建时传回，用来选候选
-	Title       string        `json:"title"`
-	SourceURL   string        `json:"sourceUrl"`
-	SourceLabel string        `json:"sourceLabel"`
-	Finished    bool          `json:"finished"`
-	MappingFrom int           `json:"mappingFrom"` // 默认的集号对应，字段与季绑定的相同：合集第 mappingFrom 集为本地第 mappingTo 集
-	MappingTo   int           `json:"mappingTo"`
-	Items       []PreviewItem `json:"items"`
+	Kind        string `json:"kind"` // 创建时传回，用来选候选
+	Title       string `json:"title"`
+	SourceURL   string `json:"sourceUrl"`
+	SourceLabel string `json:"sourceLabel"`
+	Finished    bool   `json:"finished"`
+	// NumberedByRule 序号由集号规则从条目的标签认出：预览按请求里的集号规则认，创建时传同一个规则
+	NumberedByRule bool          `json:"numberedByRule"`
+	MappingFrom    int           `json:"mappingFrom"` // 默认的集号对应，字段与季绑定的相同：合集第 mappingFrom 集为本地第 mappingTo 集
+	MappingTo      int           `json:"mappingTo"`
+	Items          []PreviewItem `json:"items"`
 }
 
 // PreviewItem 预览的条目，字段与季绑定的条目相同；重复的序号已标为对不上（number 为 null、reason 为"集号重复"）。
 type PreviewItem struct {
 	Label  string  `json:"label"`
-	Note   *string `json:"note"`
 	Number *int    `json:"number"`
 	Reason *string `json:"reason"` // 对不上的原因
 }
 
-// Preview 识别链接、列出每个候选合集，给出默认的集号对应。不写库。识别与列出共用 fetchTimeout。
+// Preview 识别链接、列出每个候选合集，按集号规则认出按规则编号的合集的序号，给出默认的集号对应。不写库。识别与列出共用 fetchTimeout。
 // 季不存在为 404；链接无法识别、不能作为合集绑定为 400；合集不存在为 422；上游故障、限流、超时为 502。
-func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link string) (CollectionPreview, error) {
+func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link string, rule source.EpisodeRule) (CollectionPreview, error) {
 	if err := s.checkSeason(ctx, seasonID); err != nil {
 		return CollectionPreview{}, err
 	}
@@ -159,20 +162,21 @@ func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link
 		if err != nil {
 			return CollectionPreview{}, fmt.Errorf("describe collection %s: %w", c.Ref, err)
 		}
-		items := source.NormalizeItems(col.Items)
+		items := source.NumberItems(col, rule)
 		m := source.DefaultMapping(items, episodes)
 		pc := PreviewCandidate{
-			Kind:        c.Kind,
-			Title:       col.Title,
-			SourceURL:   d.URL,
-			SourceLabel: d.Label,
-			Finished:    col.Finished,
-			MappingFrom: m.From,
-			MappingTo:   m.To,
-			Items:       make([]PreviewItem, len(items)),
+			Kind:           c.Kind,
+			Title:          col.Title,
+			SourceURL:      d.URL,
+			SourceLabel:    d.Label,
+			Finished:       col.Finished,
+			NumberedByRule: col.NumberedByRule,
+			MappingFrom:    m.From,
+			MappingTo:      m.To,
+			Items:          make([]PreviewItem, len(items)),
 		}
 		for i, it := range items {
-			pi := PreviewItem{Label: it.Label, Note: nullIfEmpty(it.Note), Reason: nullIfEmpty(it.Unmatched)}
+			pi := PreviewItem{Label: it.Label, Reason: nullIfEmpty(it.Unmatched)}
 			if it.Unmatched == "" {
 				pi.Number = new(it.Number)
 			}
@@ -199,6 +203,7 @@ type CreateSeasonBinding struct {
 	Link    string
 	Kind    string // 选哪个候选；链接只有一个候选时可以为空
 	Mapping source.Mapping
+	Rule    source.EpisodeRule // 集号规则；合集不按规则编号时也照样保存，不起作用
 }
 
 // Create 创建季绑定：重新识别链接、按 kind 选候选、查重（409）、列出合集，保存季绑定和条目，随即在后台补建，返回详情。
@@ -242,13 +247,15 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 		}
 		var err error
 		id, err = q.InsertSeasonBinding(ctx, repository.InsertSeasonBindingParams{
-			SeasonID:    seasonID,
-			Adapter:     adapter.ID(),
-			Ref:         c.Ref,
-			Title:       col.Title,
-			Finished:    col.Finished,
-			MappingFrom: int32(p.Mapping.From),
-			MappingTo:   int32(p.Mapping.To),
+			SeasonID:       seasonID,
+			Adapter:        adapter.ID(),
+			Ref:            c.Ref,
+			Title:          col.Title,
+			Finished:       col.Finished,
+			MappingFrom:    int32(p.Mapping.From),
+			MappingTo:      int32(p.Mapping.To),
+			EpisodePattern: p.Rule.Pattern(),
+			NumberedByRule: col.NumberedByRule,
 		})
 		if err != nil {
 			if database.IsUniqueViolation(err) {
@@ -256,7 +263,7 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 			}
 			return fmt.Errorf("insert season binding of season %d: %w", seasonID, err)
 		}
-		return saveItems(ctx, q, id, source.NormalizeItems(col.Items))
+		return saveItems(ctx, q, id, source.NumberItems(col, p.Rule))
 	})
 	if err != nil {
 		return SeasonBindingDetail{}, err
@@ -289,7 +296,6 @@ func saveItems(ctx context.Context, q *repository.Queries, id int64, items []sou
 		Numbers:         make([]int32, len(items)),
 		Reasons:         make([]string, len(items)),
 		Labels:          make([]string, len(items)),
-		Notes:           make([]string, len(items)),
 	}
 	for i, it := range items {
 		p.Refs[i] = string(it.Ref)
@@ -298,7 +304,7 @@ func saveItems(ctx context.Context, q *repository.Queries, id int64, items []sou
 		if it.Unmatched != "" {
 			p.Numbers[i] = -1 // 存为 null
 		}
-		p.Reasons[i], p.Labels[i], p.Notes[i] = it.Unmatched, it.Label, it.Note
+		p.Reasons[i], p.Labels[i] = it.Unmatched, it.Label
 	}
 	if err := q.DeleteStaleSeasonBindingItems(ctx, repository.DeleteStaleSeasonBindingItemsParams{SeasonBindingID: id, Refs: p.Refs}); err != nil {
 		return fmt.Errorf("delete stale items of season binding %d: %w", id, err)
@@ -355,7 +361,7 @@ func itemViews(sb repository.SeasonBinding, items []repository.SeasonBindingItem
 // itemView 一个条目的状态。处理过的（h 不为 nil）：那一集上还有这个弹幕源的绑定为已建绑定，否则为绑定已被删除。
 // 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、最近一次失败、待补建。numbers 是本季的集号。
 func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, h *repository.ListSeasonBindingHandledRow, numbers []int32) SeasonBindingItemView {
-	v := SeasonBindingItemView{Label: it.Label, Note: it.Note, Number: it.Number}
+	v := SeasonBindingItemView{Label: it.Label, Number: it.Number}
 	if h != nil {
 		v.EpisodeNumber = new(h.EpisodeNumber)
 		v.State = itemBindingDeleted
@@ -406,21 +412,23 @@ func seasonBindingView(sources *source.Registry, sb repository.SeasonBinding, bi
 		return SeasonBindingView{}, fmt.Errorf("describe season binding %d: %w", sb.ID, err)
 	}
 	return SeasonBindingView{
-		ID:            sb.ID,
-		SeasonID:      sb.SeasonID,
-		Adapter:       sb.Adapter,
-		SourceURL:     d.URL,
-		SourceLabel:   d.Label,
-		Title:         sb.Title,
-		Finished:      sb.Finished,
-		MappingFrom:   sb.MappingFrom,
-		MappingTo:     sb.MappingTo,
-		Follow:        sb.Follow,
-		Status:        sb.Status,
-		LastError:     sb.LastError,
-		LastCheckedAt: sb.LastCheckedAt,
-		Running:       running,
-		BindingCount:  bindingCount,
+		ID:             sb.ID,
+		SeasonID:       sb.SeasonID,
+		Adapter:        sb.Adapter,
+		SourceURL:      d.URL,
+		SourceLabel:    d.Label,
+		Title:          sb.Title,
+		Finished:       sb.Finished,
+		MappingFrom:    sb.MappingFrom,
+		MappingTo:      sb.MappingTo,
+		NumberedByRule: sb.NumberedByRule,
+		EpisodePattern: sb.EpisodePattern,
+		Follow:         sb.Follow,
+		Status:         sb.Status,
+		LastError:      sb.LastError,
+		LastCheckedAt:  sb.LastCheckedAt,
+		Running:        running,
+		BindingCount:   bindingCount,
 	}, nil
 }
 
@@ -429,24 +437,52 @@ type UpdateSeasonBinding struct {
 	Follow      *bool
 	MappingFrom *int32
 	MappingTo   *int32
+	Rule        *source.EpisodeRule
 }
 
-// Update 改集号对应、开关追更：单条 UPDATE，不锁其他行。打开追更或传了集号对应时随即在后台补建一次，
-// 正在补建时不另起一轮（进行中的那一轮处理每个条目之前都重新读季绑定，会用上新的对应）。不存在时返回 404。
+// Update 改集号对应、集号规则，开关追更。只改了追更、集号对应时是单条 UPDATE，不锁其他行；
+// 改了集号规则时在同一个事务里按保存的标签重新认出条目的序号（不请求平台）：UPDATE 锁住季绑定的行，
+// 与补建保存条目的事务前后排队，不会被旧规则认出的序号覆盖。
+// 打开追更、传了集号对应或集号规则时随即在后台补建一次，正在补建时不另起一轮
+// （进行中的那一轮处理每个条目之前都重新读季绑定和条目的序号，会用上新的对应和规则）。不存在时返回 404。
 func (s *SeasonBindingService) Update(ctx context.Context, id int64, p UpdateSeasonBinding) (SeasonBindingDetail, error) {
-	_, err := s.store.UpdateSeasonBinding(ctx, repository.UpdateSeasonBindingParams{
-		ID: id, Follow: p.Follow, MappingFrom: p.MappingFrom, MappingTo: p.MappingTo,
-	})
+	params := repository.UpdateSeasonBindingParams{ID: id, Follow: p.Follow, MappingFrom: p.MappingFrom, MappingTo: p.MappingTo}
+	var err error
+	if p.Rule == nil {
+		_, err = s.store.UpdateSeasonBinding(ctx, params)
+	} else {
+		params.EpisodePattern = new(p.Rule.Pattern())
+		err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
+			byRule, err := q.UpdateSeasonBinding(ctx, params)
+			if err != nil || !byRule {
+				return err
+			}
+			return renumberItems(ctx, q, id, *p.Rule)
+		})
+	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SeasonBindingDetail{}, errSeasonBindingNotFound
 		}
 		return SeasonBindingDetail{}, fmt.Errorf("update season binding %d: %w", id, err)
 	}
-	if p.Follow != nil && *p.Follow || p.MappingFrom != nil || p.MappingTo != nil {
+	if p.Follow != nil && *p.Follow || p.MappingFrom != nil || p.MappingTo != nil || p.Rule != nil {
 		s.startBackfill(ctx, id)
 	}
 	return s.Get(ctx, id)
+}
+
+// renumberItems 在改集号规则的事务里，按保存的标签用新规则重新认出各条目的序号。
+func renumberItems(ctx context.Context, q *repository.Queries, id int64, rule source.EpisodeRule) error {
+	rows, err := q.ListSeasonBindingItems(ctx, id)
+	if err != nil {
+		return fmt.Errorf("list items of season binding %d: %w", id, err)
+	}
+	col := source.Collection{NumberedByRule: true, Items: make([]source.CollectionItem, len(rows))}
+	for i, it := range rows {
+		col.Items[i] = source.CollectionItem{Ref: it.Ref, Label: it.Label}
+	}
+	return saveItems(ctx, q, id, source.NumberItems(col, rule))
 }
 
 // Backfill 立即在后台补建一次，追更关着时也能用。不存在时返回 404；这个季绑定正在补建时返回 409"正在补建"，不排第二次。

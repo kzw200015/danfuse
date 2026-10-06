@@ -19,21 +19,43 @@ import { useReloadSeries } from '@/hooks/use-series'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
+import EpisodeRuleInput from './EpisodeRuleInput'
 import MappingInputs, { useMappingDraft } from './MappingInputs'
 import { candidateText, previewTarget, previewTargetText } from './season-binding'
 import { SourceLink } from './shared'
 
+/** 显示中的预览：最近一次成功的预览（贴链接的预览，或改了集号规则之后的重新预览），重新预览进行中、失败时仍然显示 */
+interface ShownPreview {
+  link: string
+  pattern: string
+  candidates: CollectionCandidate[]
+  /** 每次成功的预览加一，用来重新挂载，上一次改过的对应不带过来 */
+  seq: number
+}
+
 /**
- * 季面板里添加季绑定：贴链接 → 预览（后端当场识别链接、列出合集）→ 有多个候选时先选一个 → 看对应表、改集号对应 → 创建。
+ * 季面板里添加季绑定：贴链接 → 预览（后端当场识别链接、列出合集）→ 有多个候选时先选一个 → 看对应表、改集号对应
+ * （投稿合集和多 P 投稿还可以改集号规则、重新预览）→ 创建。
  * 预览不保存任何东西，取消就当没发生过。点"创建"后预览收起，新的季绑定卡片出现并显示补建进度。
  * 换一季时由调用方用 key 重新挂载，输入和预览不会带到别的季。
  */
 export default function AddSeasonBindingForm({ season }: { season: Season }) {
   const [link, setLink] = useState('')
+  // 选中的候选：重新预览时保留
+  const [kind, setKind] = useState<string>()
+  const [shown, setShown] = useState<ShownPreview>()
+  const show = (url: string, pattern: string, candidates: CollectionCandidate[]) =>
+    setShown((prev) => ({ link: url, pattern, candidates, seq: (prev?.seq ?? 0) + 1 }))
+  // 贴链接的预览用内置规则
   const preview = useMutation({
-    mutationFn: (url: string) => previewSeasonBinding(season.id, url),
+    mutationFn: (url: string) => previewSeasonBinding(season.id, url, ''),
+    onSuccess: (data, url) => show(url, '', data.candidates),
   })
   const elapsed = useElapsed(preview.isPending)
+  const close = () => {
+    setShown(undefined)
+    preview.reset()
+  }
 
   return (
     <div className="grid gap-2">
@@ -42,6 +64,8 @@ export default function AddSeasonBindingForm({ season }: { season: Season }) {
         className="grid gap-1.5"
         onSubmit={(e) => {
           e.preventDefault()
+          setShown(undefined)
+          setKind(undefined)
           preview.mutate(link.trim())
         }}
       >
@@ -63,18 +87,21 @@ export default function AddSeasonBindingForm({ season }: { season: Season }) {
         )}
         {preview.error && <ErrorNote onClose={preview.reset}>{preview.error.message}</ErrorNote>}
       </form>
-      {preview.data && preview.variables !== undefined && (
+      {shown && (
         <CandidateChooser
-          // 每次预览重新挂载，上一次的选择和改过的对应不带过来
-          key={preview.submittedAt}
+          key={shown.seq}
           season={season}
-          link={preview.variables}
-          candidates={preview.data.candidates}
+          link={shown.link}
+          pattern={shown.pattern}
+          candidates={shown.candidates}
+          kind={kind}
+          onKindChange={setKind}
+          onRepreviewed={(pattern, candidates) => show(shown.link, pattern, candidates)}
           onDone={() => {
             setLink('')
-            preview.reset()
+            close()
           }}
-          onCancel={preview.reset}
+          onCancel={close}
         />
       )}
     </div>
@@ -85,18 +112,28 @@ export default function AddSeasonBindingForm({ season }: { season: Season }) {
 function CandidateChooser({
   season,
   link,
+  pattern,
   candidates,
+  kind,
+  onKindChange,
+  onRepreviewed,
   onDone,
   onCancel,
 }: {
   season: Season
   link: string
+  /** 这次预览用的集号规则 */
+  pattern: string
   candidates: CollectionCandidate[]
+  kind: string | undefined
+  onKindChange: (kind: string) => void
+  /** 按新的集号规则重新预览成功 */
+  onRepreviewed: (pattern: string, candidates: CollectionCandidate[]) => void
   onDone: () => void
   onCancel: () => void
 }) {
-  const [kind, setKind] = useState(candidates.length === 1 ? candidates[0]!.kind : undefined)
-  const selected = candidates.find((c) => c.kind === kind)
+  const selectedKind = candidates.length === 1 ? candidates[0]!.kind : kind
+  const selected = candidates.find((c) => c.kind === selectedKind)
 
   return (
     <section aria-label="预览" className="grid gap-3 rounded-lg border bg-muted/30 p-3">
@@ -108,12 +145,12 @@ function CandidateChooser({
               key={c.kind}
               type="button"
               role="radio"
-              aria-checked={c.kind === kind}
+              aria-checked={c.kind === selectedKind}
               className={cn(
                 'rounded-md border px-3 py-2 text-left text-sm hover:bg-muted',
-                c.kind === kind && 'border-primary bg-muted',
+                c.kind === selectedKind && 'border-primary bg-muted',
               )}
-              onClick={() => setKind(c.kind)}
+              onClick={() => onKindChange(c.kind)}
             >
               {candidateText(c)}
               <span className="block text-xs text-muted-foreground">{c.sourceLabel}</span>
@@ -126,7 +163,9 @@ function CandidateChooser({
           key={selected.kind}
           season={season}
           link={link}
+          pattern={pattern}
           candidate={selected}
+          onRepreviewed={onRepreviewed}
           onDone={onDone}
           onCancel={onCancel}
         />
@@ -141,17 +180,24 @@ function CandidateChooser({
   )
 }
 
-/** 一个候选合集的预览：合集信息、完结提示、可改的集号对应，以及按对应现算的对应表 */
+/**
+ * 一个候选合集的预览：合集信息、完结提示、集号规则（按规则编号的合集，改了之后重新预览才能创建）、可改的集号对应，
+ * 以及按对应现算的对应表
+ */
 function CandidatePreview({
   season,
   link,
+  pattern,
   candidate,
+  onRepreviewed,
   onDone,
   onCancel,
 }: {
   season: Season
   link: string
+  pattern: string
   candidate: CollectionCandidate
+  onRepreviewed: (pattern: string, candidates: CollectionCandidate[]) => void
   onDone: () => void
   onCancel: () => void
 }) {
@@ -161,6 +207,13 @@ function CandidatePreview({
     from: candidate.mappingFrom,
     to: candidate.mappingTo,
   })
+  const [rule, setRule] = useState(pattern)
+  const ruleChanged = candidate.numberedByRule && rule.trim() !== pattern
+  // 用同一个链接按新规则重新预览，成功后由调用方换上新的预览（重新挂载）
+  const repreview = useMutation({
+    mutationFn: (p: string) => previewSeasonBinding(season.id, link, p),
+    onSuccess: (data, p) => onRepreviewed(p, data.candidates),
+  })
   const create = useMutation({
     mutationFn: (m: Mapping) =>
       createSeasonBinding(season.id, {
@@ -168,6 +221,7 @@ function CandidatePreview({
         kind: candidate.kind,
         mappingFrom: m.from,
         mappingTo: m.to,
+        episodePattern: pattern,
       }),
     onSuccess: async (detail) => {
       toast.success('已创建季绑定，正在后台补建')
@@ -178,6 +232,8 @@ function CandidatePreview({
     },
   })
   const elapsed = useElapsed(create.isPending)
+  const repreviewElapsed = useElapsed(repreview.isPending)
+  const busy = create.isPending || repreview.isPending
 
   return (
     <div className="grid gap-3">
@@ -193,6 +249,29 @@ function CandidatePreview({
         )}
       </div>
 
+      {candidate.numberedByRule && (
+        <div className="grid gap-1.5">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              repreview.mutate(rule.trim())
+            }}
+          >
+            <EpisodeRuleInput value={rule} onChange={setRule} disabled={busy} />
+            {ruleChanged && (
+              <Button type="submit" size="xs" variant="outline" disabled={busy}>
+                {repreview.isPending && <Loader2Icon className="animate-spin" />}
+                {repreview.isPending ? `重新预览中 ${repreviewElapsed}s` : '重新预览'}
+              </Button>
+            )}
+          </form>
+          {repreview.error && (
+            <ErrorNote onClose={repreview.reset}>{repreview.error.message}</ErrorNote>
+          )}
+        </div>
+      )}
+
       <MappingInputs from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
 
       {candidate.items.length === 0 ? (
@@ -206,7 +285,6 @@ function CandidatePreview({
             return {
               number: it.number,
               label: it.label,
-              note: it.note,
               text: target ? previewTargetText(target) : '—',
               className: cn(
                 target?.kind === 'episode' ? 'text-foreground' : 'text-muted-foreground',
@@ -217,9 +295,9 @@ function CandidatePreview({
         />
       )}
 
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <Button
-          disabled={create.isPending || mapping === null}
+          disabled={busy || mapping === null || ruleChanged}
           onClick={() => mapping && create.mutate(mapping)}
         >
           {create.isPending && <Loader2Icon className="animate-spin" />}
@@ -228,6 +306,9 @@ function CandidatePreview({
         <Button variant="ghost" disabled={create.isPending} onClick={onCancel}>
           取消
         </Button>
+        {ruleChanged && (
+          <span className="text-xs text-muted-foreground">集号规则改了，先重新预览</span>
+        )}
       </div>
       {create.error && <ErrorNote onClose={create.reset}>{create.error.message}</ErrorNote>}
     </div>

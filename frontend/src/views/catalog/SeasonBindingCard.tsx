@@ -25,13 +25,14 @@ import { formatAgo, formatDateTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
+import { EpisodeRuleEditor } from './EpisodeRuleInput'
 import { MappingEditor } from './MappingInputs'
 import { itemStateText } from './season-binding'
 import { SourceLink, StatusBadge } from './shared'
 
 /**
  * 一个季绑定的卡片：状态、合集标题（链接到原页面）与标签、建出的绑定数、上次检查的时间与错误、补建中的已用秒数；
- * 集号对应（保存后后台补建）、追更开关、立即补建、删除，以及可展开的条目表。
+ * 集号对应与集号规则（投稿合集、多 P 投稿；保存后后台补建）、追更开关、立即补建、删除，以及可展开的条目表。
  * 操作成功用 toast（立即补建被拒绝的 409 也用 toast）；其余失败的提示显示在卡片下方，保留到下次操作或手动关闭。
  */
 export default function SeasonBindingCard({
@@ -58,13 +59,7 @@ export default function SeasonBindingCard({
     mutationFn: (patch: SeasonBindingPatch) => updateSeasonBinding(binding.id, patch),
     onMutate: clearError,
     onSuccess: async (d, patch) => {
-      toast.success(
-        patch.follow === undefined
-          ? '集号对应已保存，正在后台补建'
-          : patch.follow
-            ? '已打开追更，正在后台补建'
-            : '已关闭追更',
-      )
+      toast.success(updatedText(patch))
       await watch(d.id, d)
       return reload()
     },
@@ -162,6 +157,15 @@ export default function SeasonBindingCard({
           disabled={update.isPending || busy}
           onSave={({ from, to }) => update.mutate({ mappingFrom: from, mappingTo: to })}
         />
+        {view.numberedByRule && (
+          // 保存成功后规则变了，用新的值重新初始化输入框
+          <EpisodeRuleEditor
+            key={view.episodePattern}
+            binding={view}
+            disabled={update.isPending || busy}
+            onSave={(episodePattern) => update.mutate({ episodePattern })}
+          />
+        )}
         <div className="ml-auto flex gap-1">
           <Button
             variant="outline"
@@ -225,6 +229,13 @@ export default function SeasonBindingCard({
   )
 }
 
+/** 改季绑定成功的提示：卡片上每次只改一样（追更、集号对应或集号规则） */
+function updatedText(patch: SeasonBindingPatch) {
+  if (patch.follow !== undefined) return patch.follow ? '已打开追更，正在后台补建' : '已关闭追更'
+  if (patch.episodePattern !== undefined) return '集号规则已保存，正在后台补建'
+  return '集号对应已保存，正在后台补建'
+}
+
 const stateClass: Partial<Record<SeasonBindingItemState, string>> = {
   bound: 'text-emerald-700',
   failed: 'text-destructive',
@@ -250,7 +261,6 @@ function ItemTable({ detail, error }: { detail?: SeasonBindingDetail; error: Err
       rows={detail.items.map((it) => ({
         number: it.number,
         label: it.label,
-        note: it.note,
         text: itemStateText(it),
         className: stateClass[it.state],
         title: it.lastErrorAt ? formatDateTime(it.lastErrorAt) : undefined,

@@ -163,15 +163,21 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 		return nil
 	}
 	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
-		if _, err := q.RecordSeasonBindingListed(ctx, repository.RecordSeasonBindingListedParams{
-			ID: r.id, Title: col.Title, Finished: col.Finished,
-		}); err != nil {
+		// 集号规则在锁住季绑定的这一句里读：改规则的事务要么已经提交、这里读到新规则，要么等这个事务提交再按新规则重认
+		pattern, err := q.RecordSeasonBindingListed(ctx, repository.RecordSeasonBindingListedParams{
+			ID: r.id, Title: col.Title, Finished: col.Finished, NumberedByRule: col.NumberedByRule,
+		})
+		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return errSeasonBindingGone
 			}
 			return fmt.Errorf("record season binding %d listed: %w", r.id, err)
 		}
-		return saveItems(ctx, q, r.id, source.NormalizeItems(col.Items))
+		rule, err := source.ParseEpisodeRule(pattern)
+		if err != nil {
+			return fmt.Errorf("parse episode pattern of season binding %d: %w", r.id, err)
+		}
+		return saveItems(ctx, q, r.id, source.NumberItems(col, rule))
 	})
 	if err != nil {
 		return err
@@ -191,7 +197,7 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 		done[string(h.Ref)] = true
 	}
 	for _, it := range items {
-		if done[string(it.Ref)] || it.Number == nil {
+		if done[string(it.Ref)] {
 			continue
 		}
 		if stop, err := s.backfillItem(ctx, r, adapter, it); stop || err != nil {
@@ -213,8 +219,8 @@ func (s *SeasonBindingService) getSeasonBinding(ctx context.Context, id int64) (
 	return sb, nil
 }
 
-// backfillItem 处理一个还没处理过、有序号的条目。处理之前重新读一次季绑定，补建进行中改了集号对应时从这个条目起用新的对应。
-// 在起点之前、目录里没有对应的集时跳过；对应的集上已有同一个弹幕源的绑定时直接记为处理过，不拉取。
+// backfillItem 处理一个还没处理过的条目。处理之前重新读一次季绑定和条目的序号，补建进行中改了集号对应、集号规则时
+// 从这个条目起用新的对应和序号。对不上（没有序号）、条目已经不在、在起点之前、目录里没有对应的集时跳过；对应的集上已有同一个弹幕源的绑定时直接记为处理过，不拉取。
 // 否则在事务之外拉取，再开写入事务：锁住季绑定（没有了就结束这一轮）、锁住集（没有了就跳过这个条目），
 // 插入带来源季绑定的绑定（撞上唯一约束时视为已有同一个弹幕源，只记处理过），写入弹幕，记处理过，清掉条目的失败原因。
 // 拉取失败时：限流记下原因、结束这一轮（stop 为 true）；其他错误只记在条目上，继续下一个。
@@ -223,7 +229,16 @@ func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRoun
 	if err != nil {
 		return true, err
 	}
-	target, ok := mappedEpisode(sb, *it.Number)
+	number, err := s.store.GetSeasonBindingItemNumber(ctx, repository.GetSeasonBindingItemNumberParams{SeasonBindingID: r.id, Ref: it.Ref})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows): // 季绑定刚被删除，条目随之删除；下一个条目读季绑定时结束这一轮
+		return false, nil
+	case err != nil:
+		return true, fmt.Errorf("get item number of season binding %d: %w", r.id, err)
+	case number == nil:
+		return false, nil
+	}
+	target, ok := mappedEpisode(sb, *number)
 	if !ok {
 		return false, nil
 	}

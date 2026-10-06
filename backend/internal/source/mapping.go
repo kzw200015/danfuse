@@ -38,7 +38,7 @@ func MarkDuplicateNumbers(items []CollectionItem) []CollectionItem {
 	return marked
 }
 
-// NormalizeItems 预览、保存之前整理 ListCollection 列出的条目：ref 相同的条目只保留第一个
+// NormalizeItems 整理条目（NumberItems 的最后一步）：ref 相同的条目只保留第一个
 // （季绑定的条目与处理过的记录都按弹幕源区分），再用 MarkDuplicateNumbers 标出重复的序号。不改动传入的切片。
 func NormalizeItems(items []CollectionItem) []CollectionItem {
 	seen := make(map[string]bool, len(items))

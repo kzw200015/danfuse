@@ -144,7 +144,7 @@ var liveCollectionCases = []struct {
 	finished   bool
 	minItems   int    // 条目至少这么多：连载中的会越来越多
 	exact      bool   // 条目恰好 minItems 条
-	first      string // 第一个条目的"序号|标签|提示"
+	first      string // 按内置的集号规则认出序号之后，第一个条目的"序号|标签|对不上的原因"
 }{
 	{
 		// 完结的番剧：episodes 里混着 10 个预告，与正片同号，不是条目
@@ -160,12 +160,12 @@ var liveCollectionCases = []struct {
 	{
 		name: "投稿合集：新版合集页", link: "https://space.bilibili.com/50329118/lists/8597253?type=season",
 		candidates: []string{`{"kind":"ugcSeason","seasonId":8597253,"mid":50329118}`},
-		title:      "2026EWC", minItems: 31, first: "1|【2026EWC】7月16日 MIBR.LOS vs JDG|共 4 个分 P，只用 P1",
+		title:      "2026EWC", minItems: 31, first: "0|【2026EWC】7月16日 MIBR.LOS vs JDG / 第一局|名称里认不出集号",
 	},
 	{
 		name: "多 P 又属于合集的投稿", link: "https://www.bilibili.com/video/BV1kcK568Edu",
 		candidates: []string{`{"kind":"multiPage","aid":116930132313786}`, `{"kind":"ugcSeason","seasonId":8597253,"mid":50329118}`},
-		title:      "【2026EWC】7月16日 DK vs G2", minItems: 5, exact: true, first: "1|P1 第一局|",
+		title:      "【2026EWC】7月16日 DK vs G2", minItems: 5, exact: true, first: "0|【2026EWC】7月16日 DK vs G2 / 第一局|名称里认不出集号",
 	},
 	{
 		name: "系列页被拒绝", link: "https://space.bilibili.com/37737161/lists/2800550?type=series",
@@ -345,20 +345,21 @@ func checkCollectionCases(t *testing.T, a *Adapter) {
 			if n := len(got.Items); n < tc.minItems || tc.exact && n != tc.minItems {
 				t.Errorf("%d 条，want %d 条", n, tc.minItems)
 			}
-			if len(got.Items) > 0 {
-				first := got.Items[0]
-				if s := fmt.Sprintf("%d|%s|%s", first.Number, first.Label, first.Note); s != tc.first {
-					t.Errorf("第一个条目 = %s, want %s", s, tc.first)
-				}
-			}
 			seen := map[string]bool{}
 			for _, it := range got.Items {
 				if _, err := decodeRef(it.Ref); err != nil || seen[string(it.Ref)] {
 					t.Errorf("条目的弹幕源 ref 不合法或重复：%+v", it)
 				}
 				seen[string(it.Ref)] = true
-				if it.Label == "" || it.Unmatched == "" && it.Number < 1 {
+				if it.Label == "" || !got.NumberedByRule && it.Unmatched == "" && it.Number < 1 {
 					t.Errorf("条目没有标签或序号：%+v", it)
+				}
+			}
+			// 按内置的集号规则认出序号之后再看第一个条目，与季绑定预览看到的相同
+			if items := source.NumberItems(got, source.EpisodeRule{}); len(items) > 0 {
+				first := items[0]
+				if s := fmt.Sprintf("%d|%s|%s", first.Number, first.Label, first.Unmatched); s != tc.first {
+					t.Errorf("第一个条目 = %s, want %s", s, tc.first)
 				}
 			}
 		})

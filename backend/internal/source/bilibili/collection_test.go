@@ -1,7 +1,9 @@
 package bilibili
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"slices"
@@ -20,23 +22,35 @@ const (
 )
 
 // collectionView 属于合集 8597253 的稿件 av170001 的 view：pages 个分 P；合集有两个小节，
-// 第一节是它自己和一个 3 P 的稿件，第二节是一个单 P 的稿件。
+// 第一节是它自己和一个 3 P 的稿件，第二节是一个单 P 的稿件（分 P 标题与稿件标题相同）。
 func collectionView(t *testing.T, pages int) response {
 	t.Helper()
-	data := viewData{Title: "合集里的稿件", UGCSeason: &ugcSeason{
-		ID: 8597253, Title: "2026EWC", Mid: 50329118,
-		Sections: []ugcSection{
-			{Episodes: []ugcEpisode{
-				{Aid: 170001, Title: "合集里的稿件", Pages: make([]ugcPage, pages)},
-				{Aid: 170002, Title: "第二个", Pages: make([]ugcPage, 3)},
-			}},
-			{Episodes: []ugcEpisode{{Aid: 170003, Title: "下一节", Pages: make([]ugcPage, 1)}}},
-		},
-	}}
+	data := viewData{Title: "合集里的稿件", UGCSeason: ewcSeason(pages)}
 	for i := range pages {
 		data.Pages = append(data.Pages, viewPage{Page: i + 1, CID: int64(101 + i), Part: fmt.Sprintf("第 %d 局", i+1), Duration: 10})
 	}
 	return dataResponse(t, data)
+}
+
+// ewcSeason 合集 8597253 的合集信息，第一个稿件有 pages 个分 P。
+func ewcSeason(pages int) *ugcSeason {
+	parts := func(prefix string, n int) []ugcPage {
+		p := make([]ugcPage, n)
+		for i := range n {
+			p[i] = ugcPage{Page: i + 1, Part: fmt.Sprintf(" %s %d ", prefix, i+1)}
+		}
+		return p
+	}
+	return &ugcSeason{
+		ID: 8597253, Title: "2026EWC", Mid: 50329118,
+		Sections: []ugcSection{
+			{Episodes: []ugcEpisode{
+				{Aid: 170001, Title: "合集里的稿件", Pages: parts("第", pages)},
+				{Aid: 170002, Title: "第二个", Pages: append(parts("局", 3), ugcPage{Page: 0, Part: "坏的分 P"})},
+			}},
+			{Episodes: []ugcEpisode{{Aid: 170003, Title: "下一节", Pages: []ugcPage{{Page: 1, Part: "下一节"}}}}},
+		},
+	}
 }
 
 // ewcArchives 合集 8597253 的条目列表，与 collectionView 里的合集一致。
@@ -180,14 +194,14 @@ func TestParseCollectionLink(t *testing.T) {
 
 // item 期望的合集条目，ref 写成 JSON 字符串。
 type item struct {
-	ref, label, note, unmatched string
-	number                      int
+	ref, label, unmatched string
+	number                int
 }
 
 func items(c source.Collection) []item {
 	got := make([]item, len(c.Items))
 	for i, it := range c.Items {
-		got[i] = item{ref: string(it.Ref), label: it.Label, note: it.Note, unmatched: it.Unmatched, number: it.Number}
+		got[i] = item{ref: string(it.Ref), label: it.Label, unmatched: it.Unmatched, number: it.Number}
 	}
 	return got
 }
@@ -235,47 +249,74 @@ func TestListBangumi(t *testing.T) {
 	}
 }
 
-// TestListUGCSeason 投稿合集按条目列表的顺序取位置为序号（跨小节连续），分 P 数取自第一个稿件的 view。
+// TestListUGCSeason 投稿合集展开到分 P：按条目列表的顺序、每个稿件按分 P 号，标签为"稿件标题 / 分 P 标题"
+// （分 P 标题为空或与稿件标题相同时只有稿件标题），序号留给集号规则；分 P 取自合集里稿件的 view，第一个取不到时换下一个。
 func TestListUGCSeason(t *testing.T) {
-	video := func(aid int) string { return fmt.Sprintf(`{"kind":"video","aid":%d,"page":1}`, aid) }
+	video := func(aid, page int) string { return fmt.Sprintf(`{"kind":"video","aid":%d,"page":%d}`, aid, page) }
+	all := []item{
+		{ref: video(170001, 1), label: "合集里的稿件 / 第 1"},
+		{ref: video(170001, 2), label: "合集里的稿件 / 第 2"},
+		{ref: video(170002, 1), label: "第二个 / 局 1"},
+		{ref: video(170002, 2), label: "第二个 / 局 2"},
+		{ref: video(170002, 3), label: "第二个 / 局 3"},
+		{ref: video(170003, 1), label: "下一节"},
+	}
+	otherSeason := ewcSeason(2)
+	otherSeason.ID = 1
 	tests := []struct {
 		name     string
-		view     response // 第一个稿件 av170001 的 view
+		views    map[string][]response
 		want     []item
+		wantErr  source.Kind
 		requests []string
 	}{
 		{
-			name: "多 P 的稿件提示只用 P1",
-			view: collectionView(t, 5),
-			want: []item{
-				{ref: video(170001), label: "合集里的稿件", note: "共 5 个分 P，只用 P1", number: 1},
-				{ref: video(170002), label: "第二个", note: "共 3 个分 P，只用 P1", number: 2},
-				{ref: video(170003), label: "下一节", number: 3},
-			},
+			name:     "展开各稿件的分 P",
+			views:    map[string][]response{testView: {collectionView(t, 2)}},
+			want:     all,
 			requests: []string{"archives-8597253-1", testView},
 		},
 		{
-			name: "第一个稿件刚被删除：照常列出，不提示分 P 数",
-			view: codeResponse(-404),
-			want: []item{
-				{ref: video(170001), label: "合集里的稿件", number: 1},
-				{ref: video(170002), label: "第二个", number: 2},
-				{ref: video(170003), label: "下一节", number: 3},
+			name: "第一个稿件刚被删除、第二个的 view 里不是这个合集：换下一个稿件取 view",
+			views: map[string][]response{
+				testView:      {codeResponse(-404)},
+				"view-170002": {dataResponse(t, viewData{Title: "第二个", UGCSeason: otherSeason})},
+				"view-170003": {dataResponse(t, viewData{Title: "下一节", UGCSeason: ewcSeason(2)})},
 			},
-			requests: []string{"archives-8597253-1", testView},
+			want:     all,
+			requests: []string{"archives-8597253-1", testView, "view-170002", "view-170003"},
+		},
+		{
+			name: "合集里的稿件都取不到 view：上游错误",
+			views: map[string][]response{
+				testView:      {codeResponse(-404)},
+				"view-170002": {codeResponse(-404)},
+				"view-170003": {dataResponse(t, viewData{Title: "下一节"})},
+			},
+			wantErr:  source.Upstream,
+			requests: []string{"archives-8597253-1", testView, "view-170002", "view-170003"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fake := newFake(t, map[string][]response{"archives-8597253-1": {ewcArchives(t)}, testView: {tt.view}})
+			samples := map[string][]response{"archives-8597253-1": {ewcArchives(t)}}
+			maps.Copy(samples, tt.views)
+			fake := newFake(t, samples)
 
 			got, err := fake.adapter().ListCollection(t.Context(), source.CollectionRef(ugcSeasonRef))
 
-			if err != nil || got.Title != "2026EWC" || got.Finished {
-				t.Fatalf("ListCollection() = (%q, 完结 %v, %v), want (2026EWC, 没有完结标志)", got.Title, got.Finished, err)
-			}
-			if !reflect.DeepEqual(items(got), tt.want) {
-				t.Errorf("条目 = %+v\nwant %+v", items(got), tt.want)
+			if tt.wantErr != 0 {
+				if srcErr, ok := errors.AsType[*source.Error](err); !ok || srcErr.Kind != tt.wantErr {
+					t.Fatalf("ListCollection() error = %v, want Kind %v", err, tt.wantErr)
+				}
+			} else {
+				if err != nil || got.Title != "2026EWC" || got.Finished || !got.NumberedByRule {
+					t.Fatalf("ListCollection() = (%q, 完结 %v, 按规则编号 %v, %v), want (2026EWC, 没有完结标志, 按规则编号)",
+						got.Title, got.Finished, got.NumberedByRule, err)
+				}
+				if !reflect.DeepEqual(items(got), tt.want) {
+					t.Errorf("条目 = %+v\nwant %+v", items(got), tt.want)
+				}
 			}
 			if req := fake.requested(); !slices.Equal(req, tt.requests) {
 				t.Errorf("请求 = %q, want %q", req, tt.requests)
@@ -284,7 +325,7 @@ func TestListUGCSeason(t *testing.T) {
 	}
 }
 
-// TestListUGCSeasonPaging 条目超过一页（100 条）时翻页列全，顺序接着上一页。
+// TestListUGCSeasonPaging 条目超过一页（100 条）时翻页列全，顺序接着上一页；view 里没有的稿件只有 P1，标签为稿件标题。
 func TestListUGCSeasonPaging(t *testing.T) {
 	page := func(from, to, total int) response {
 		data := archivesData{Meta: archivesMeta{Mid: 1, Title: "大合集"}, Page: archivesPager{Total: total}}
@@ -293,11 +334,12 @@ func TestListUGCSeasonPaging(t *testing.T) {
 		}
 		return dataResponse(t, data)
 	}
+	season := &ugcSeason{ID: 8597253, Mid: 1, Sections: []ugcSection{{Episodes: []ugcEpisode{{Aid: 1, Pages: []ugcPage{{Page: 1}}}}}}}
 	fake := newFake(t, map[string][]response{
 		"archives-8597253-1": {page(1, 100, 230)},
 		"archives-8597253-2": {page(101, 200, 230)},
 		"archives-8597253-3": {page(201, 230, 230)},
-		"view-1":             {viewResponse(t, "第 1 期", viewPage{Page: 1, CID: 1})}, // 不带合集信息：不提示分 P 数
+		"view-1":             {dataResponse(t, viewData{Title: "第 1 期", UGCSeason: season})},
 	})
 
 	got, err := fake.adapter().ListCollection(t.Context(), source.CollectionRef(ugcSeasonRef))
@@ -306,7 +348,7 @@ func TestListUGCSeasonPaging(t *testing.T) {
 		t.Fatalf("ListCollection() = (%d 条, %v), want 230 条", len(got.Items), err)
 	}
 	for i, it := range got.Items {
-		if it.Number != i+1 || string(it.Ref) != fmt.Sprintf(`{"kind":"video","aid":%d,"page":1}`, i+1) || it.Note != "" {
+		if string(it.Ref) != fmt.Sprintf(`{"kind":"video","aid":%d,"page":1}`, i+1) || it.Label != fmt.Sprintf("第 %d 期", i+1) {
 			t.Fatalf("第 %d 条 = %+v", i+1, it)
 		}
 	}
@@ -316,24 +358,25 @@ func TestListUGCSeasonPaging(t *testing.T) {
 	}
 }
 
-// TestListMultiPage 多 P 投稿按分 P 号为序号，标签为"P{n} 分 P 标题"。
+// TestListMultiPage 多 P 投稿的各个分 P 是条目，标签为"稿件标题 / 分 P 标题"，序号留给集号规则。
 func TestListMultiPage(t *testing.T) {
 	fake := newFake(t, map[string][]response{testView: {viewResponse(t, " 合辑 ",
 		viewPage{Page: 1, CID: 101, Part: "第一首"},
 		viewPage{Page: 2, CID: 102, Part: " "},
-		viewPage{Page: 3, CID: 103, Part: "第三首"},
+		viewPage{Page: 3, CID: 103, Part: "合辑"},
+		viewPage{Page: 0, CID: 104, Part: "坏的分 P"},
 	)}})
 
 	got, err := fake.adapter().ListCollection(t.Context(), source.CollectionRef(multiPageRef))
 
 	page := func(p int) string { return fmt.Sprintf(`{"kind":"video","aid":170001,"page":%d}`, p) }
 	want := []item{
-		{ref: page(1), label: "P1 第一首", number: 1},
-		{ref: page(2), label: "P2", number: 2},
-		{ref: page(3), label: "P3 第三首", number: 3},
+		{ref: page(1), label: "合辑 / 第一首"},
+		{ref: page(2), label: "合辑"},
+		{ref: page(3), label: "合辑"},
 	}
-	if err != nil || got.Title != "合辑" || got.Finished || !reflect.DeepEqual(items(got), want) {
-		t.Errorf("ListCollection() = (%q, %+v, %v)\nwant (合辑, %+v)", got.Title, items(got), err, want)
+	if err != nil || got.Title != "合辑" || got.Finished || !got.NumberedByRule || !reflect.DeepEqual(items(got), want) {
+		t.Errorf("ListCollection() = (%q, 按规则编号 %v, %+v, %v)\nwant (合辑, 按规则编号, %+v)", got.Title, got.NumberedByRule, items(got), err, want)
 	}
 }
 

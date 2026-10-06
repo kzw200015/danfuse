@@ -39,7 +39,8 @@ type ugcEpisode struct {
 }
 
 type ugcPage struct {
-	Page int `json:"page"`
+	Page int    `json:"page"` // 从 1 开始
+	Part string `json:"part"` // 分 P 标题
 }
 
 // viewPage 一个分 P。时长取这里，不取 data.duration：那是所有分 P 的总时长。

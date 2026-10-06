@@ -182,6 +182,21 @@ func entry(name string, n int) source.CollectionItem {
 	return source.CollectionItem{Ref: source.Ref(`{"name":"` + name + `"}`), Number: n, Label: name}
 }
 
+// titled 按集号规则编号的合集里的条目：弹幕源名字为 name，标签为 label。
+func titled(name, label string) source.CollectionItem {
+	return source.CollectionItem{Ref: source.Ref(`{"name":"` + name + `"}`), Label: label}
+}
+
+// mustRule 解析集号规则，不合法时测试失败。
+func mustRule(t *testing.T, pattern string) source.EpisodeRule {
+	t.Helper()
+	r, err := source.ParseEpisodeRule(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 // odd 对不上的条目。
 func odd(name, reason string) source.CollectionItem {
 	return source.CollectionItem{Ref: source.Ref(`{"name":"` + name + `"}`), Unmatched: reason, Label: name}
@@ -330,12 +345,12 @@ func TestPreviewSeasonBinding(t *testing.T) {
 			// B 站第二部分接着编号，从 14 开始；本季是第 1～3 集
 			"re0": {Title: "Re:0 后半", Finished: true, Items: []source.CollectionItem{
 				entry("e14", 14), entry("e15", 15), odd("sp", "集号「SP」不是整数"), entry("d1", 16), entry("d2", 16),
-				{Ref: source.Ref(`{"name":"e17"}`), Number: 17, Label: "e17", Note: "共 2 个分 P，只用 P1"},
+				entry("e17", 17),
 			}},
 		}}
 		env := newSeasonEnv(t, pool, src, 1, 2, 3)
 
-		got, err := env.svc.Preview(t.Context(), 1, "list/re0")
+		got, err := env.svc.Preview(t.Context(), 1, "list/re0", source.EpisodeRule{})
 		if err != nil {
 			t.Fatalf("Preview: %v", err)
 		}
@@ -348,7 +363,7 @@ func TestPreviewSeasonBinding(t *testing.T) {
 				{Label: "sp", Reason: new("集号「SP」不是整数")},
 				{Label: "d1", Reason: new("集号重复")},
 				{Label: "d2", Reason: new("集号重复")},
-				{Label: "e17", Number: new(17), Note: new("共 2 个分 P，只用 P1")},
+				{Label: "e17", Number: new(17)},
 			},
 		}}}
 		if !reflect.DeepEqual(got, want) {
@@ -356,7 +371,7 @@ func TestPreviewSeasonBinding(t *testing.T) {
 		}
 
 		// 多个候选按适配器给的顺序
-		got, err = env.svc.Preview(t.Context(), 1, "both/re0")
+		got, err = env.svc.Preview(t.Context(), 1, "both/re0", source.EpisodeRule{})
 		if err != nil || len(got.Candidates) != 2 || got.Candidates[0].Kind != "pages" || got.Candidates[1].Kind != "list" {
 			t.Errorf("Preview(both) = (%+v, %v), want pages、list 两个候选", got, err)
 		}
@@ -395,7 +410,7 @@ func TestPreviewSeasonBindingFailed(t *testing.T) {
 				src := &fakeCollector{collections: map[string]source.Collection{"s": {Title: "合集"}}, listErr: tt.listErr}
 				env := newSeasonEnv(t, pool, src, 1)
 
-				_, err := env.svc.Preview(t.Context(), tt.seasonID, tt.link)
+				_, err := env.svc.Preview(t.Context(), tt.seasonID, tt.link, source.EpisodeRule{})
 
 				assertAppError(t, err, tt.wantStatus, tt.wantMessage)
 				if n := src.listCount(); n != tt.wantLists {
@@ -648,6 +663,125 @@ func TestUpdateMapping(t *testing.T) {
 
 		_, err = env.svc.Update(t.Context(), 9, UpdateSeasonBinding{Follow: new(false)})
 		assertAppError(t, err, http.StatusNotFound, "季绑定不存在")
+	})
+}
+
+// TestPreviewEpisodeRule 按规则编号的合集：预览按传入的集号规则认出序号，默认对应按认出的序号算；番剧这类不按规则编号的合集不受影响。
+func TestPreviewEpisodeRule(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{collections: map[string]source.Collection{
+			"ugc": {Title: "投稿合集", NumberedByRule: true, Items: []source.CollectionItem{
+				titled("x1", "【合辑】全12集 周更 / 01"), titled("x2", "【合辑】全12集 周更 / 周更"), titled("e1", "正式版 第1集 / 01"),
+			}},
+		}}
+		env := newSeasonEnv(t, pool, src, 1, 2)
+
+		got, err := env.svc.Preview(t.Context(), 1, "list/ugc", source.EpisodeRule{})
+		if err != nil {
+			t.Fatalf("Preview: %v", err)
+		}
+		want := []PreviewItem{
+			{Label: "【合辑】全12集 周更 / 01", Reason: new("名称里认不出集号")},
+			{Label: "【合辑】全12集 周更 / 周更", Reason: new("名称里认不出集号")},
+			{Label: "正式版 第1集 / 01", Number: new(1)},
+		}
+		c := got.Candidates[0]
+		if !c.NumberedByRule || c.MappingFrom != 1 || c.MappingTo != 1 || !reflect.DeepEqual(c.Items, want) {
+			t.Errorf("Preview(内置规则) = %+v\nwant 按规则编号、1 = 1、%+v", c, want)
+		}
+
+		got, err = env.svc.Preview(t.Context(), 1, "list/ugc", mustRule(t, `/ (\d+)$`))
+		if err != nil {
+			t.Fatalf("Preview: %v", err)
+		}
+		want = []PreviewItem{
+			{Label: "【合辑】全12集 周更 / 01", Reason: new("集号重复")},
+			{Label: "【合辑】全12集 周更 / 周更", Reason: new("不符合集号规则")},
+			{Label: "正式版 第1集 / 01", Reason: new("集号重复")},
+		}
+		if c := got.Candidates[0]; !reflect.DeepEqual(c.Items, want) {
+			t.Errorf("Preview(正则) = %+v\nwant %+v", c.Items, want)
+		}
+	})
+}
+
+// TestUpdateEpisodeRule 改集号规则：同一个请求里按保存的标签重新认出序号（不请求平台），已处理过的不动，
+// 新认出序号的条目随即在后台补建；之后每次检查都按新规则认。
+func TestUpdateEpisodeRule(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{
+			collections: map[string]source.Collection{"s": {NumberedByRule: true, Items: []source.CollectionItem{
+				titled("x", "合辑 / 03"), titled("a", "第1集"), titled("b", "第2集"),
+			}}},
+			videos: fakeVideos("x", "a", "b"),
+		}
+		env := newSeasonEnv(t, pool, src, 1, 2, 3)
+		d := env.create(1, 1)
+		if !d.NumberedByRule || d.EpisodePattern != "" {
+			t.Errorf("创建的季绑定 = %+v, want 按规则编号、内置规则", d.SeasonBindingView)
+		}
+		id := d.ID
+		assertStrings(t, "改之前的条目", states(env.get(id)), []string{"合辑 / 03 unmatched - 名称里认不出集号", "第1集 bound 1", "第2集 bound 2"})
+		lists := src.listCount()
+
+		got, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Rule: new(mustRule(t, `/ (\d+)`))})
+		if err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		if got.EpisodePattern != `/ (\d+)` || !got.Running {
+			t.Errorf("Update() = %+v, want 新规则、正在补建", got.SeasonBindingView)
+		}
+		assertStrings(t, "返回的条目", states(got), []string{"合辑 / 03 pending 3", "第1集 bound 1", "第2集 bound 2"})
+		synctest.Wait()
+
+		assertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 x 1"})
+		assertStrings(t, "条目", states(env.get(id)), []string{"合辑 / 03 bound 3", "第1集 bound 1", "第2集 bound 2"})
+		if n := src.listCount(); n != lists+1 {
+			t.Errorf("列出合集 %d 次, want 只有后台补建的 1 次", n-lists)
+		}
+
+		// 改回内置规则
+		if _, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Rule: new(mustRule(t, ""))}); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		synctest.Wait()
+		if d := env.get(id); d.EpisodePattern != "" || d.Items[0].Number != nil {
+			t.Errorf("改回内置规则之后 = %+v", d)
+		}
+	})
+}
+
+// TestUpdateEpisodeRuleDuringBackfill 补建进行中改集号规则：正在拉取的条目照旧写入，之后的条目按新认出的序号补建。
+func TestUpdateEpisodeRuleDuringBackfill(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCollector{
+			collections: map[string]source.Collection{"s": {NumberedByRule: true, Items: []source.CollectionItem{
+				titled("a", "第1集 / 3"), titled("b", "第2集 / 1"), titled("c", "第3集 / 2"),
+			}}},
+			videos: fakeVideos("a", "b", "c"),
+		}
+		env := newSeasonEnv(t, pool, src, 1, 2, 3)
+		src.gate()
+		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		<-src.started // a，按内置规则对到第 1 集
+		if _, err := env.svc.Update(t.Context(), d.ID, UpdateSeasonBinding{Rule: new(mustRule(t, `/ (\d+)`))}); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		src.release <- struct{}{}
+		assertStrings(t, "接着拉取", []string{<-src.started}, []string{"b"}) // 新规则下 b 是第 1 集
+		src.release <- struct{}{}
+		assertStrings(t, "接着拉取", []string{<-src.started}, []string{"c"}) // c 是第 2 集
+		src.release <- struct{}{}
+		synctest.Wait()
+
+		assertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "1 b 1", "2 c 1"})
+		assertStrings(t, "条目", states(env.get(d.ID)), []string{"第1集 / 3 bound 1", "第2集 / 1 bound 1", "第3集 / 2 bound 2"})
 	})
 }
 
