@@ -1,7 +1,5 @@
 package source
 
-import "slices"
-
 // duplicateNumber 同一个合集里序号相同的条目对不上的原因。
 const duplicateNumber = "集号重复"
 
@@ -50,26 +48,4 @@ func NormalizeItems(items []CollectionItem) []CollectionItem {
 		}
 	}
 	return MarkDuplicateNumbers(unique)
-}
-
-// DefaultMapping 预览给出的默认集号对应。取合集里最小的有效序号 m（没有有效序号时为 1）：
-// 本季有第 m 集时同号对应，否则对到本季最小的集号；本季没有集时对到第 1 集。episodes 是本季的集号，顺序不限。
-func DefaultMapping(items []CollectionItem, episodes []int) Mapping {
-	m, found := 0, false
-	for _, it := range MarkDuplicateNumbers(items) {
-		if it.Unmatched == "" && (!found || it.Number < m) {
-			m, found = it.Number, true
-		}
-	}
-	if !found {
-		m = 1
-	}
-	switch {
-	case len(episodes) == 0:
-		return Mapping{From: m, To: 1}
-	case slices.Contains(episodes, m):
-		return Mapping{From: m, To: m}
-	default:
-		return Mapping{From: m, To: slices.Min(episodes)}
-	}
 }

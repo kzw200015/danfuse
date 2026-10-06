@@ -87,9 +87,6 @@ export interface CollectionCandidate {
   finished: boolean
   /** 序号由集号规则认出：预览按请求里的规则认，创建时传同一个规则 */
   numberedByRule: boolean
-  /** 默认的集号对应，字段与季绑定的相同 */
-  mappingFrom: number
-  mappingTo: number
   items: PreviewItem[]
 }
 

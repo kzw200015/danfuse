@@ -110,29 +110,3 @@ func TestNormalizeItems(t *testing.T) {
 		})
 	}
 }
-
-func TestDefaultMapping(t *testing.T) {
-	tests := []struct {
-		name     string
-		items    []CollectionItem
-		episodes []int // 本季的集号
-		want     Mapping
-	}{
-		{"合集从 1 起，本季有第 1 集：同号", []CollectionItem{numbered("a", 1), numbered("b", 2)}, []int{1, 2, 3}, Mapping{1, 1}},
-		{"合集从 14 起，本季没有第 14 集：最小对最小", []CollectionItem{numbered("a", 14), numbered("b", 15)}, []int{2, 1, 3}, Mapping{14, 1}},
-		{"合集从 14 起，本季是第 13～24 集：同号", []CollectionItem{numbered("a", 14), numbered("b", 15)}, []int{13, 14, 24}, Mapping{14, 14}},
-		{"最小的序号不在第一条", []CollectionItem{numbered("a", 25), numbered("b", 24)}, []int{24, 25}, Mapping{24, 24}},
-		{"对不上的条目不参与", []CollectionItem{unmatched("a", "集号「24.9」不是整数"), numbered("b", 25)}, []int{1}, Mapping{25, 1}},
-		{"重复的序号也不参与", []CollectionItem{numbered("a", 1), numbered("b", 1), numbered("c", 2)}, []int{1, 2}, Mapping{2, 2}},
-		{"本季没有集：对到第 1 集", []CollectionItem{numbered("a", 14)}, nil, Mapping{14, 1}},
-		{"合集没有有效的序号：按 1 算", []CollectionItem{unmatched("a", "集号「SP」不是整数")}, []int{3, 4}, Mapping{1, 3}},
-		{"都没有", nil, nil, Mapping{1, 1}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := DefaultMapping(tt.items, tt.episodes); got != tt.want {
-				t.Errorf("DefaultMapping() = %+v, want %+v", got, tt.want)
-			}
-		})
-	}
-}

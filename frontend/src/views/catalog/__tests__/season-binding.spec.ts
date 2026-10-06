@@ -106,8 +106,6 @@ describe('candidateText', () => {
     sourceLabel: '标签',
     finished: false,
     numberedByRule: false,
-    mappingFrom: 1,
-    mappingTo: 1,
     items: [item(1), item(2)],
   })
   it.each([

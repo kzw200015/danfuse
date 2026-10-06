@@ -70,7 +70,7 @@ func (r *previewSeasonBindingRequest) Validate() error {
 }
 
 // Preview POST /api/seasons/:id/season-bindings/preview {link, episodePatterns}
-// 识别链接、列出各个候选合集（当场请求平台，最长约 25 秒），按集号规则认出序号，给出默认的集号对应。不保存任何东西。
+// 识别链接、列出各个候选合集（当场请求平台，最长约 25 秒），按集号规则认出序号。不保存任何东西。
 func (h *SeasonBindingHandler) Preview(c *echo.Context) error {
 	req, err := bind[previewSeasonBindingRequest](c)
 	if err != nil {

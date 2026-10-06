@@ -125,8 +125,6 @@ const continued: CollectionCandidate = {
   sourceLabel: 'B 站番剧 ss36429',
   finished: true,
   numberedByRule: false,
-  mappingFrom: 14,
-  mappingTo: 1,
   items: [
     { label: '第13话 回顾', number: 13, reason: null },
     { label: '第14话 再出发', number: 14, reason: null },
@@ -153,7 +151,7 @@ async function previewLink(link: string) {
 }
 
 describe('添加季绑定', () => {
-  it('预览给出默认的集号对应，改对应时表格立即刷新；创建后卡片出现并显示补建进度，结束后刷新剧详情', async () => {
+  it('预览预填 1 = 1 的集号对应，改对应时表格立即刷新；创建后卡片出现并显示补建进度，结束后刷新剧详情', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.mocked(previewSeasonBinding).mockResolvedValue({
       candidates: [continued],
@@ -188,8 +186,12 @@ describe('添加季绑定', () => {
     )
     expect(preview.getByText('B 站番剧 ss36429 · 共 5 条')).toBeInTheDocument()
     expect(preview.getByText(/已完结，可以关掉追更/)).toBeInTheDocument()
-    expect(preview.getByRole('textbox', { name: '合集第几集' })).toHaveValue('14')
+    expect(preview.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')
     expect(preview.getByRole('textbox', { name: '本地第几集' })).toHaveValue('1')
+    // 接着编号的番剧：手动改成合集第 14 集 = 本地第 1 集
+    fireEvent.change(preview.getByRole('textbox', { name: '合集第几集' }), {
+      target: { value: '14' },
+    })
     expect(targets()).toEqual([
       '在起点之前',
       '第 1 集（已有 1 个绑定）',
@@ -269,8 +271,6 @@ describe('添加季绑定', () => {
       sourceLabel: 'B 站多 P 投稿 BV17x411w7KC',
       finished: false,
       numberedByRule: true,
-      mappingFrom: 1,
-      mappingTo: 1,
       items: [{ label: '星海旅人 全集 / 01', number: 1, reason: null }],
     }
     const collection: CollectionCandidate = {

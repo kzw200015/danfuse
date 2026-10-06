@@ -108,11 +108,11 @@ func TestSeasonBindingAPI(t *testing.T) {
 		_, _, data := call(t, srv, http.MethodGet, "/api/episode-rules/default", "", http.StatusOK)
 		assertJSON(t, data, `{"episodePatterns": `+defaultPatterns+`}`)
 
-		// 预览：不保存，重复的序号已标出，给出默认的集号对应
+		// 预览：不保存，重复的序号已标出
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": " fakelist/s ", "episodePatterns": `+defaultPatterns+`}`, http.StatusOK)
 		assertJSON(t, data, `{"candidates": [{
 			"kind": "list", "title": "合集 s", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
-			"finished": false, "numberedByRule": false, "mappingFrom": 1, "mappingTo": 1,
+			"finished": false, "numberedByRule": false,
 			"items": [
 				{"label": "s1", "number": 1, "reason": null},
 				{"label": "s2", "number": 2, "reason": null},
@@ -125,7 +125,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 			`{"link": "fakelist/ugc", "episodePatterns": [" (\\d+)$ "]}`, http.StatusOK)
 		assertJSON(t, data, `{"candidates": [{
 			"kind": "list", "title": "投稿合集", "sourceUrl": "https://fake.test/list/ugc", "sourceLabel": "假合集 ugc",
-			"finished": false, "numberedByRule": true, "mappingFrom": 2, "mappingTo": 2,
+			"finished": false, "numberedByRule": true,
 			"items": [
 				{"label": "某番 第1集", "number": null, "reason": "不符合集号规则"},
 				{"label": "某番 / 02", "number": 2, "reason": null}

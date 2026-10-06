@@ -119,8 +119,6 @@ type PreviewCandidate struct {
 	Finished    bool   `json:"finished"`
 	// NumberedByRule 序号由集号规则从条目的标签认出：预览按请求里的集号规则认，创建时传同一个规则
 	NumberedByRule bool          `json:"numberedByRule"`
-	MappingFrom    int           `json:"mappingFrom"` // 默认的集号对应，字段与季绑定的相同：合集第 mappingFrom 集为本地第 mappingTo 集
-	MappingTo      int           `json:"mappingTo"`
 	Items          []PreviewItem `json:"items"`
 }
 
@@ -131,19 +129,11 @@ type PreviewItem struct {
 	Reason *string `json:"reason"` // 对不上的原因
 }
 
-// Preview 识别链接、列出每个候选合集，按集号规则认出按规则编号的合集的序号，给出默认的集号对应。不写库。识别与列出共用 fetchTimeout。
+// Preview 识别链接、列出每个候选合集，按集号规则认出按规则编号的合集的序号。不写库。识别与列出共用 fetchTimeout。
 // 季不存在为 404；链接无法识别、不能作为合集绑定为 400；合集不存在为 422；上游故障、限流、超时为 502。
 func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link string, rule source.EpisodeRule) (CollectionPreview, error) {
 	if err := s.checkSeason(ctx, seasonID); err != nil {
 		return CollectionPreview{}, err
-	}
-	numbers, err := s.store.ListEpisodeNumbersBySeason(ctx, seasonID)
-	if err != nil {
-		return CollectionPreview{}, fmt.Errorf("list episodes of season %d: %w", seasonID, err)
-	}
-	episodes := make([]int, len(numbers))
-	for i, n := range numbers {
-		episodes[i] = int(n)
 	}
 	netCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
@@ -163,7 +153,6 @@ func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link
 			return CollectionPreview{}, fmt.Errorf("describe collection %s: %w", c.Ref, err)
 		}
 		items := source.NumberItems(col, rule)
-		m := source.DefaultMapping(items, episodes)
 		pc := PreviewCandidate{
 			Kind:           c.Kind,
 			Title:          col.Title,
@@ -171,8 +160,6 @@ func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link
 			SourceLabel:    d.Label,
 			Finished:       col.Finished,
 			NumberedByRule: col.NumberedByRule,
-			MappingFrom:    m.From,
-			MappingTo:      m.To,
 			Items:          make([]PreviewItem, len(items)),
 		}
 		for i, it := range items {

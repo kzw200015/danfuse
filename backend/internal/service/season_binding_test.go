@@ -342,7 +342,7 @@ func TestPreviewSeasonBinding(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &fakeCollector{collections: map[string]source.Collection{
-			// B 站第二部分接着编号，从 14 开始；本季是第 1～3 集
+			// B 站第二部分接着编号，从 14 开始
 			"re0": {Title: "Re:0 后半", Finished: true, Items: []source.CollectionItem{
 				entry("e14", 14), entry("e15", 15), odd("sp", "集号「SP」不是整数"), entry("d1", 16), entry("d2", 16),
 				entry("e17", 17),
@@ -356,7 +356,6 @@ func TestPreviewSeasonBinding(t *testing.T) {
 		}
 		want := CollectionPreview{Candidates: []PreviewCandidate{{
 			Kind: "list", Title: "Re:0 后半", SourceURL: "https://fake.test/list/re0", SourceLabel: "假合集 re0", Finished: true,
-			MappingFrom: 14, MappingTo: 1,
 			Items: []PreviewItem{
 				{Label: "e14", Number: new(14)},
 				{Label: "e15", Number: new(15)},
@@ -666,7 +665,7 @@ func TestUpdateMapping(t *testing.T) {
 	})
 }
 
-// TestPreviewEpisodeRule 按规则编号的合集：预览按传入的集号规则认出序号，默认对应按认出的序号算；番剧这类不按规则编号的合集不受影响。
+// TestPreviewEpisodeRule 按规则编号的合集：预览按传入的集号规则认出序号。
 func TestPreviewEpisodeRule(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
@@ -687,8 +686,8 @@ func TestPreviewEpisodeRule(t *testing.T) {
 			{Label: "正式版 第1集 / 01", Number: new(1)},
 		}
 		c := got.Candidates[0]
-		if !c.NumberedByRule || c.MappingFrom != 1 || c.MappingTo != 1 || !reflect.DeepEqual(c.Items, want) {
-			t.Errorf("Preview(默认规则) = %+v\nwant 按规则编号、1 = 1、%+v", c, want)
+		if !c.NumberedByRule || !reflect.DeepEqual(c.Items, want) {
+			t.Errorf("Preview(默认规则) = %+v\nwant 按规则编号、%+v", c, want)
 		}
 
 		got, err = env.svc.Preview(t.Context(), 1, "list/ugc", mustRule(t, `/ (\d+)$`))

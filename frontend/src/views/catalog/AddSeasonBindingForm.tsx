@@ -208,10 +208,8 @@ function CandidatePreview({
 }) {
   const reload = useReloadSeries()
   const watch = useWatchSeasonBinding()
-  const { from, to, setFrom, setTo, mapping } = useMappingDraft({
-    from: candidate.mappingFrom,
-    to: candidate.mappingTo,
-  })
+  // 集号对应预填"合集第 1 集 = 本地第 1 集"，不按合集内容猜：接着上一季编号的番剧在对应表里一眼能看出来，手动改
+  const { from, to, setFrom, setTo, mapping } = useMappingDraft({ from: 1, to: 1 })
   const [rule, setRule] = useState(patterns)
   const ruleChanged = candidate.numberedByRule && !samePatterns(cleanPatterns(rule), patterns)
   // 用同一个链接按新规则重新预览，成功后由调用方换上新的预览（重新挂载）
