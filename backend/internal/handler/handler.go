@@ -3,20 +3,9 @@
 package handler
 
 import (
-	"github.com/google/wire"
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
-)
-
-var ProviderSet = wire.NewSet(
-	NewHealthHandler,
-	NewCatalogHandler,
-	NewBindingHandler,
-	NewSeasonBindingHandler,
-	NewSyncHandler,
-	NewSettingsHandler,
-	wire.Struct(new(Handlers), "*"),
 )
 
 // Handlers 汇总所有 handler，供路由注册使用。

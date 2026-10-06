@@ -16,24 +16,8 @@ import (
 
 const connectTimeout = 10 * time.Second
 
-// NewPool 创建连接池、检查连通性并自动执行数据库迁移，返回的 cleanup 用于关闭连接池。
-func NewPool(ctx context.Context, cfg config.Database, logger *slog.Logger) (*pgxpool.Pool, func(), error) {
-	pool, err := connect(ctx, cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	connCfg := pool.Config().ConnConfig
-	logger.Info("database connected", "host", connCfg.Host, "port", connCfg.Port, "database", connCfg.Database)
-
-	if err := migrate(ctx, pool, logger); err != nil {
-		pool.Close()
-		return nil, nil, err
-	}
-	return pool, pool.Close, nil
-}
-
-func connect(ctx context.Context, cfg config.Database) (*pgxpool.Pool, error) {
+// Connect 创建连接池并检查连通性，不执行迁移（见 Migrate）。用完由调用方关闭。
+func Connect(ctx context.Context, cfg config.Database, logger *slog.Logger) (*pgxpool.Pool, error) {
 	poolCfg, err := pgxpool.ParseConfig(cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("parse database dsn: %w", err)
@@ -62,5 +46,8 @@ func connect(ctx context.Context, cfg config.Database) (*pgxpool.Pool, error) {
 		pool.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
+
+	connCfg := pool.Config().ConnConfig
+	logger.Info("database connected", "host", connCfg.Host, "port", connCfg.Port, "database", connCfg.Database)
 	return pool, nil
 }

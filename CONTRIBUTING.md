@@ -1,6 +1,6 @@
 # 参与开发
 
-danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind CSS v4）两部分组成，两端各自构建，命令要在对应目录下执行。前端的构建产物内嵌进后端二进制，发布时只有一个产物。
+danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind CSS v4）两部分组成，两端各自构建，命令要在对应目录下执行。前端的构建产物内嵌进后端二进制，发布时只有一个产物。
 
 分层、错误处理、测试写法等更细的代码约定见 [`CLAUDE.md`](CLAUDE.md)，术语见 [`GLOSSARY.md`](GLOSSARY.md)。
 
@@ -10,7 +10,7 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 
 - Node.js 22.18+ 或 24.12+，pnpm 12（版本由 `frontend/package.json` 的 `packageManager` 固定，`corepack enable` 后自动使用）
 - PostgreSQL 18，本地没有时用 Docker 起一个（见下文）
 - Docker：后端的数据库测试和端到端环境都要用
-- 修改 SQL 查询需要 [sqlc](https://docs.sqlc.dev)，代码检查与格式化需要 [golangci-lint](https://golangci-lint.run) v2；wire 和 goose 不用单独安装，分别通过 `go tool` 和 `go run` 调用
+- 修改 SQL 查询需要 [sqlc](https://docs.sqlc.dev)，代码检查与格式化需要 [golangci-lint](https://golangci-lint.run) v2；goose 不用单独安装，通过 `go run` 调用
 
 ## 项目结构
 
@@ -77,7 +77,7 @@ pnpm dev
 | --- | --- |
 | `make run` | 启动服务 |
 | `make build` | 编译到 `bin/server` |
-| `make generate` | 重新生成 sqlc 与 wire 代码（`make sqlc` + `make wire`） |
+| `make generate` | 重新生成 sqlc 代码（`make sqlc`） |
 | `make migration name=<name>` | 新建数据库迁移文件 |
 | `make lint` / `make fmt` | 代码检查 / 格式化（gofumpt + goimports） |
 | `go test ./...` | 运行全部测试，数据库测试需要 Docker |
@@ -150,7 +150,7 @@ docker compose up -d --build danfuse                     # 构建并启动 danfu
 - **迁移文件推到 main 之后就算已经发布，不再修改**（推送 main 会发布镜像，用户的数据库已经执行过它）。改表结构一律新增迁移。
 - 已有数据需要用 Go 重新计算时（例如分词规则改变后重算搜索列），在同一目录按序号新增 Go 迁移，写法见 `CLAUDE.md` 的"生成代码"一节。
 
-`backend/internal/repository/`（`store.go` 除外）由 sqlc 生成，`backend/internal/app/wire_gen.go` 由 wire 生成，不要手改；改了查询或构造函数之后执行 `make generate`。
+`backend/internal/repository/`（`store.go` 除外）由 sqlc 生成，不要手改；改了查询之后执行 `make generate`。依赖在 `backend/internal/app/app.go` 的 `app.New` 里手写组装，新增或修改构造函数时直接改那里。
 
 ## 文档
 

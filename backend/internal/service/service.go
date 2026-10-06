@@ -7,18 +7,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/google/wire"
-
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/source"
-)
-
-var ProviderSet = wire.NewSet(
-	NewCatalogService,
-	NewBindingService,
-	NewSyncService,
-	NewSeasonBindingService,
-	NewLocalProvider,
 )
 
 // errShuttingDown 后台循环（SyncService、SeasonBindingService 的 Run）已经返回、服务正在关闭时，手动触发返回 503。

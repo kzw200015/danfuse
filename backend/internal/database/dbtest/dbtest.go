@@ -90,11 +90,15 @@ func setup(ctx context.Context, ctr *postgres.PostgresContainer) error {
 	}
 
 	// 与服务启动走同一条路径执行迁移。完成后立即关闭连接：模板库上有连接时不能复制
-	_, closeTemplate, err := database.NewPool(ctx, config.Database{DSN: dsn}, slog.New(slog.DiscardHandler))
+	template, err := database.Connect(ctx, config.Database{DSN: dsn}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		return fmt.Errorf("connect template database: %w", err)
+	}
+	err = database.Migrate(ctx, template, slog.New(slog.DiscardHandler))
+	template.Close()
 	if err != nil {
 		return fmt.Errorf("migrate template database: %w", err)
 	}
-	closeTemplate()
 
 	base, err = pgxpool.ParseConfig(dsn)
 	if err != nil {

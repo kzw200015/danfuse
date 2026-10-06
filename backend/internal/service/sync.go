@@ -45,7 +45,7 @@ var (
 //
 // 生命周期：App.Run 运行 Run(ctx)；手动触发经 Trigger 交给 Run 的循环（backgroundLoop），同步开始后返回。每次同步在独立的 goroutine 里执行，
 // 用的是 Run 的 ctx（应用级），不是 HTTP 请求的 ctx。ctx 取消时这次同步记为 interrupted，Run 等它写完记录再返回，
-// 之后 wire 的 cleanup 才关闭连接池。
+// 之后 main 才关闭连接池。
 //
 // 互斥靠同步的租约（database.LeaseSync），多实例同样成立：每次同步持有租约直到结束，用租约的 ctx 执行，
 // 租约丢失时这次同步同样记为 interrupted。已有同步在跑时，定时的触发被丢弃、只记日志，手动的触发返回 409。

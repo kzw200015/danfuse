@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-danfuse 是自托管的弹幕聚合服务：从目录源（目前只有 Jellyfin）同步出目录，在集上绑定 B 站弹幕源（或在季上绑定合集，补建出各集的绑定），通过弹弹 API（弹弹play 协议，供 jellyfin-danmaku 插件和支持自定义弹幕 API 的播放器使用）提供弹幕（术语见 `GLOSSARY.md`）。代码分 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose · wire）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind v4）。两端各自构建，命令需在对应目录下执行；前端的构建产物由后端 embed 托管，发布时只有一个二进制（见"前端托管"）。
+danfuse 是自托管的弹幕聚合服务：从目录源（目前只有 Jellyfin）同步出目录，在集上绑定 B 站弹幕源（或在季上绑定合集，补建出各集的绑定），通过弹弹 API（弹弹play 协议，供 jellyfin-danmaku 插件和支持自定义弹幕 API 的播放器使用）提供弹幕（术语见 `GLOSSARY.md`）。代码分 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `frontend/`（React 19 · Vite · React Router · TanStack Query · shadcn/ui on Base UI · Tailwind v4）。两端各自构建，命令需在对应目录下执行；前端的构建产物由后端 embed 托管，发布时只有一个二进制（见"前端托管"）。
 
 ## 常用命令
 
@@ -12,7 +12,7 @@ danfuse 是自托管的弹幕聚合服务：从目录源（目前只有 Jellyfin
 cp configs/config.example.yaml configs/config.yaml   # 首次使用；config.yaml 已被 git 忽略
 make run                         # 启动（-config configs/config.yaml），启动时自动执行未应用的迁移，默认 :8080
 make build                       # 编译到 bin/server
-make generate                    # = make sqlc + make wire
+make generate                    # = make sqlc
 make migration name=create_xxx   # 用与 go.mod 同版本的 goose CLI 新建 db/migrations 下的迁移
 make lint / make fmt             # golangci-lint v2 检查 / 格式化（gofumpt + goimports）
 go test ./...                    # Makefile 没有 test 目标；数据库测试需要 Docker，没有 Docker 时直接失败
@@ -45,10 +45,10 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 ## 后端架构
 
-**分层与依赖方向**：`handler` → `service` → `repository.Store` → PostgreSQL。所有组件由 wire 在 `internal/app/wire.go` 组装，`wire_gen.go` 是生成文件。新增/修改构造函数后需加入对应包的 `ProviderSet`（handler 还要加进 `Handlers` 结构体），再执行 `make wire`。
+**分层与依赖方向**：`handler` → `service` → `repository.Store` → PostgreSQL。所有组件在 `internal/app/app.go` 的 `app.New` 里手写组装（不用 DI 框架）：新增 service 在那里构造，handler 还要加进 `Handlers` 结构体。`app.New` 只构造对象、不做 IO，构造函数都不连外部系统。
 - 凡是读写数据库的业务都在 `service`（例如同步核心在 `SyncService`）。
 - 领域包（包名取自 `GLOSSARY.md`，如 `catalog`、`source`）只放接口、类型、纯计算与外部适配，不访问数据库；外部系统的适配器放在领域包的子包里（如 `catalog/jellyfin` 实现 `catalog.Source`，`source/bilibili` 实现 `source.Adapter`）。
-- 适配器由 `app` 装配（`internal/app/providers.go`：按配置的 `kind` 选目录源，未配置时为 nil；源适配器注册进 `source.Registry`），只有 `app` 引用适配器子包；业务代码只依赖领域包的接口。绑定存的是适配器 ID 加适配器自己的 ref（jsonb），ref 只交给适配器解析：绑定 JSON 里的 `sourceUrl`/`sourceLabel` 一律经适配器的 `Describe` 生成（`service.bindingView`），原始 ref 不对外输出。
+- 适配器由 `app` 装配（`internal/app/app.go`：按配置的 `kind` 选目录源，未配置时为 nil；源适配器注册进 `source.Registry`），只有 `app` 引用适配器子包；业务代码只依赖领域包的接口。绑定存的是适配器 ID 加适配器自己的 ref（jsonb），ref 只交给适配器解析：绑定 JSON 里的 `sourceUrl`/`sourceLabel` 一律经适配器的 `Describe` 生成（`service.bindingView`），原始 ref 不对外输出。
 - 实现接口的类型（包括测试里的假实现）都在类型定义旁边写编译期断言 `var _ catalog.Source = (*Source)(nil)`：签名不对时在实现处报错，也能用 `= (*` 搜出所有实现。只是嵌入了接口、不实现方法的假类型（如 `platformAdapter`）不写。
 - 源适配器只有 `source.Adapter` 一个接口，一个平台一个实现，方法都要实现，业务代码不做类型断言：弹幕源的 `ParseLink`（集面板贴链接得到弹幕源 ref）、`Describe`、`Fetch`，合集的 `ParseCollectionLink`（识别季面板的链接给出候选）、`ListCollection`（按合集 ref 列出条目）、`DescribeCollection`（生成展示的链接和标签）；没有合集的平台 `ParseCollectionLink` 一律返回 `source.ErrUnrecognized`。它只适用于按 ref 能重新拉取的弹幕源，弹幕文件不实现它。合集 ref（`source.CollectionRef`）与弹幕源 ref 是两种类型；合集条目的弹幕源 ref 与单集绑定同一套格式，所以手动绑过的同一个弹幕源能被认出来。集号对应（`source.Mapping`）、条目的整理（`source.NormalizeItems`：按 ref 去重、标出重复序号）、默认对应是 `source` 包里的纯计算，不在适配器里做。B 站适配器的链接解析（`bilibili/link.go`）只做字符串分类（短链先跳转一次再分类），集面板与季面板各自决定接受哪些（集面板遇到合集的链接时提示到季面板）。
 - 弹幕文件（ADR 0004）：上传的 B 站 XML 弹幕文件建绑定，不实现 `source.Adapter`。`danmakufile` 领域包只做解析（XML 的解码与字段映射在 `danmaku/bilifmt`，B 站适配器共用）；业务在 `service/binding_file.go`（创建、追加文件、重新解析、文件列表）。绑定的 `kind` 区分 `link` / `file`：文件绑定的 `adapter`、`ref`、`duration` 为空（CHECK 约束守住，唯一约束因此只作用于链接绑定），原文件存 `binding_files`（按 sha256 在绑定内去重），份数 `file_count` 与 `danmaku_count` 一样在事务里维护；弹幕不属于任何平台，原始 ID 直接用 dmid。`bindingView`、`bindingPlatform` 按 kind 分支，只对一种绑定有效的操作用在另一种上时返回 400。上传的 handler 先给请求体套 `http.MaxBytesReader` 再解析 multipart，然后才 `bind`。
@@ -57,9 +57,9 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 - 名称里的季号、集号：搜索关键词和 match 的文件名都用 `catalog.ParseName` 认出写明了的季号、集号（`S01E11`、`S01`、`第2季`、`特别篇`、`第11话`、`EP11`），按季号、集号在 SQL 里精确过滤，集号以 `search/episodes` 的 `episode` 参数优先；按集号过滤时只返回有这一集的季，每季只带这一集（`Season.EpisodeCount` 仍是总集数）。没有标注的数字（"剧名2"、"Mob Psycho 100"）分不出是标题的一部分还是季号，不拆，交给全文搜索：搜索列里季号只以数字出现在最后（`catalog.SearchVector`），不挪动剧名、原名的位置。`SeasonName` 输出的名称（"剧名 第2季""剧名 特别篇"）能被 `ParseName` 拆回剧名和季号。`provider` 的类型是内部结构，不含任何协议格式。本地 Provider 取弹幕时逐个绑定读出落库的弹幕（播放时不向平台现取，不做 live 存储模式，见 `docs/adr/0002`），平台取自绑定的适配器（弹幕文件为无平台），交给 `danmaku.Merge` 做校正和跨源去重；cid 由 `danmaku.CID` 在输出时现算，不存储。
 - 目录搜索：`fulltext` 包在 Go 里生成 tsvector、tsquery 的文本（NFKC + 小写，中日韩字符串二元切分），不经过 PostgreSQL 的分词器；`catalog.SearchVector` 拼出一季的搜索列，同步写入一部剧时在同一个事务里重算它所有季的搜索列。
 
-**启动流程**：`app.Init` 在依赖构造阶段完成 配置加载 → 日志 → 连接池 + 自动迁移（`database.NewPool`），不连接外部系统；`App.Run` 用 errgroup 同时运行 HTTP 服务、后台同步（`SyncService.Run`）与季绑定的补建（`SeasonBindingService.Run`；两个 Run 的循环共用 `service/background.go` 的 `backgroundLoop`：定时与手动触发都在循环里处理，后台任务用循环的 ctx，循环返回前等它们结束），HTTP 服务出错（例如端口被占用）时同步与补建也随之退出；Run 等进行中的同步写完最终状态、补建停下才返回，之后 wire 的 cleanup 才关闭连接池。迁移文件通过 `db/embed.go` embed 进二进制，用 goose 自带的表锁（`goose_lock` 表里的租约）保证多实例只有一个执行迁移；应用自己的锁是 `leases` 表里的租约（ADR 0003，`database.TryLease`，键集中登记在 `internal/database/lease.go`）：持锁期间不占用连接，后台每 10 秒续约、30 秒过期，丢失租约时取消 `Lease.Context()`（持锁做的事都用它），用完调用 `Release`。
+**启动流程**：`cmd/server/main.go` 依次做 配置加载 → 日志 → 连接数据库（`database.Connect`）→ 自动迁移（`database.Migrate`），再用 `app.New` 组装、`App.Run` 运行，不连目录源和 B 站；`App.Run` 用 errgroup 同时运行 HTTP 服务、后台同步（`SyncService.Run`）与季绑定的补建（`SeasonBindingService.Run`；两个 Run 的循环共用 `service/background.go` 的 `backgroundLoop`：定时与手动触发都在循环里处理，后台任务用循环的 ctx，循环返回前等它们结束），HTTP 服务出错（例如端口被占用）时同步与补建也随之退出；Run 等进行中的同步写完最终状态、补建停下才返回，之后 main 才关闭连接池（`defer pool.Close()`）。迁移文件通过 `db/embed.go` embed 进二进制，用 goose 自带的表锁（`goose_lock` 表里的租约）保证多实例只有一个执行迁移；应用自己的锁是 `leases` 表里的租约（ADR 0003，`database.TryLease`，键集中登记在 `internal/database/lease.go`）：持锁期间不占用连接，后台每 10 秒续约、30 秒过期，丢失租约时取消 `Lease.Context()`（持锁做的事都用它），用完调用 `Release`。
 
-**生成代码，勿手改**：`internal/repository/` 下除 `store.go` 外均为 sqlc 生成；`internal/app/wire_gen.go` 为 wire 生成。
+**生成代码，勿手改**：`internal/repository/` 下除 `store.go` 外均为 sqlc 生成。
 - sqlc 直接把 `db/migrations`（goose 迁移文件）当作 schema 读取，所以改表结构 = 新增迁移，再 `make sqlc`。迁移文件推到 main 之后就算已经发布（推送 main 即发布镜像），不再修改，改表结构一律新增迁移。
 - sqlc 配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`；个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型（如 jsonb 的 `sync_runs.warnings` 为 `[]string`，tsvector 的 `seasons.search_vector` 为 `string`）。
 - Go 迁移：分词规则（`fulltext`）或搜索列的组成（`catalog.SearchVector`）改变时，已有的搜索列靠 goose 的 Go 迁移重算，不设版本列。目前还没有 Go 迁移，第一次需要时：在 `db/migrations` 下按序号新增 `000NN_xxx.go`（`package migrations`），在 `init` 里用 `goose.AddMigrationContext` 注册一个函数，在迁移的事务里读出所有季和所属的剧，用 `catalog.SearchVector` 算出搜索列写回（goose 从注册它的文件名取版本号）；再在 `database` 包（`migrate.go`）空导入 `db/migrations`，Go 迁移与 SQL 迁移按版本号一起执行。
@@ -96,10 +96,10 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 1. `make migration name=create_xxx`，编写建表 SQL（`-- +goose Up` / `-- +goose Down`）
 2. 在 `db/queries/xxx.sql` 写查询，`make sqlc`
-3. `internal/service` 写 service（依赖 `*repository.Store`，以及领域包的接口），加入 `service.ProviderSet`；要对接外部系统时，接口与交换类型放在领域包，适配器放在它的子包，在 `internal/app/providers.go` 里装配
-4. `internal/handler` 写 handler，加入 `handler.ProviderSet` 与 `Handlers`
+3. `internal/service` 写 service（依赖 `*repository.Store`，以及领域包的接口）；要对接外部系统时，接口与交换类型放在领域包，适配器放在它的子包
+4. `internal/handler` 写 handler，加入 `Handlers`
 5. `internal/server/router.go` 注册路由
-6. `make wire`；如有需要前端分支处理的错误，在 `codes.go` 与 `src/api/errcode.ts` 同步新增业务码
+6. 在 `internal/app/app.go` 的 `app.New` 里构造 service、handler（适配器也在这里装配）；如有需要前端分支处理的错误，在 `codes.go` 与 `src/api/errcode.ts` 同步新增业务码
 
 ## 前端架构
 
