@@ -11,7 +11,6 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/provider"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
@@ -45,8 +44,8 @@ func searchCatalog() []catalog.Item {
 }
 
 // describe 把一季写成一行，便于整体比较："名称 · 类别 年份 · 共 N 集 · 集号 集标题, …"，N 是总集数。
-func describe(s provider.Season) string {
-	kinds := map[provider.SeasonKind]string{provider.KindSeries: "剧集", provider.KindSpecial: "特别篇", provider.KindMovie: "电影"}
+func describe(s DandanSeason) string {
+	kinds := map[catalog.SeasonKind]string{catalog.KindSeries: "剧集", catalog.KindSpecial: "特别篇", catalog.KindMovie: "电影"}
 	year := "-"
 	if s.Year != nil {
 		year = fmt.Sprint(*s.Year)
@@ -58,9 +57,9 @@ func describe(s provider.Season) string {
 	return fmt.Sprintf("%s · %s %s · 共 %d 集 · %s", s.Name, kinds[s.Kind], year, s.EpisodeCount, strings.Join(episodes, ", "))
 }
 
-func searchSeasons(t *testing.T, pool *pgxpool.Pool, q provider.SearchQuery) (seasons []string, hasMore bool) {
+func searchSeasons(t *testing.T, pool *pgxpool.Pool, q DandanSearchQuery) (seasons []string, hasMore bool) {
 	t.Helper()
-	result, err := NewLocalProvider(repository.NewStore(pool), source.NewRegistry()).Search(t.Context(), q)
+	result, err := NewDandanService(repository.NewStore(pool), source.NewRegistry()).Search(t.Context(), q)
 	if err != nil {
 		t.Fatalf("Search(%+v): %v", q, err)
 	}
@@ -70,7 +69,7 @@ func searchSeasons(t *testing.T, pool *pgxpool.Pool, q provider.SearchQuery) (se
 	return seasons, result.HasMore
 }
 
-func TestLocalSearch(t *testing.T) {
+func TestSearch(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		syncOnce(t, newTestService(t, pool, &fakeCatalog{items: searchCatalog()}))
@@ -123,7 +122,7 @@ func TestLocalSearch(t *testing.T) {
 			{"切不出词", "・！", nil},
 		}
 		for _, tt := range tests {
-			got, hasMore := searchSeasons(t, pool, provider.SearchQuery{Keyword: tt.keyword, MaxSeasons: 50})
+			got, hasMore := searchSeasons(t, pool, DandanSearchQuery{Keyword: tt.keyword, MaxSeasons: 50})
 			if !slices.Equal(got, tt.want) || hasMore {
 				t.Errorf("%s：Search(%q) = %q, hasMore %v\nwant %q", tt.name, tt.keyword, got, hasMore, tt.want)
 			}
@@ -131,7 +130,7 @@ func TestLocalSearch(t *testing.T) {
 	})
 }
 
-func TestLocalSearchHasMore(t *testing.T) {
+func TestSearchHasMore(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		seasons := make([]catalog.Season, 51)
@@ -148,7 +147,7 @@ func TestLocalSearchHasMore(t *testing.T) {
 			{50, 50, true},
 			{51, 51, false},
 		} {
-			got, hasMore := searchSeasons(t, pool, provider.SearchQuery{Keyword: "长篇连载", MaxSeasons: tt.maxSeasons})
+			got, hasMore := searchSeasons(t, pool, DandanSearchQuery{Keyword: "长篇连载", MaxSeasons: tt.maxSeasons})
 			if len(got) != tt.wantLen || hasMore != tt.wantHasMore {
 				t.Errorf("最多 %d 季：返回 %d 季，hasMore %v；want %d 季，hasMore %v", tt.maxSeasons, len(got), hasMore, tt.wantLen, tt.wantHasMore)
 			}
@@ -159,9 +158,9 @@ func TestLocalSearchHasMore(t *testing.T) {
 	})
 }
 
-// TestLocalSearchSeasonEpisode 关键词里写明的季号、集号（catalog.ParseName）按季号、集号精确过滤，集号以参数优先；
+// TestSearchSeasonEpisode 关键词里写明的季号、集号（catalog.ParseName）按季号、集号精确过滤，集号以参数优先；
 // 按集号过滤时只返回有这一集的季，每季只带这一集，过滤在截断之前。季带着所属剧的标题，有原名时加上原名。
-func TestLocalSearchSeasonEpisode(t *testing.T) {
+func TestSearchSeasonEpisode(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		syncOnce(t, newTestService(t, pool, &fakeCatalog{items: searchCatalog()}))
@@ -176,28 +175,28 @@ func TestLocalSearchSeasonEpisode(t *testing.T) {
 		secondSeason := "星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程, 14"
 		tests := []struct {
 			name    string
-			q       provider.SearchQuery
+			q       DandanSearchQuery
 			want    []string
 			hasMore bool
 		}{
-			{"集号参数", provider.SearchQuery{Keyword: "星海旅人", Episode: new(1)}, episodeOne, false},
-			{"截断之前过滤", provider.SearchQuery{Keyword: "星海旅人", Episode: new(13), MaxSeasons: 1}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
-			{"截断之后还有", provider.SearchQuery{Keyword: "星海旅人", Episode: new(1), MaxSeasons: 2}, episodeOne[:2], true},
-			{"没有这一集", provider.SearchQuery{Keyword: "星海旅人", Episode: new(99)}, nil, false},
-			{"关键词里的集号", provider.SearchQuery{Keyword: "星海旅人 第13话"}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
-			{"集号参数优先", provider.SearchQuery{Keyword: "星海旅人 第13话", Episode: new(1)}, episodeOne, false},
-			{"关键词里的季号", provider.SearchQuery{Keyword: "星海旅人 第2季"}, []string{secondSeason}, false},
-			{"关键词里的季号和集号", provider.SearchQuery{Keyword: "星海旅人 S02E13"}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
-			{"这一季没有这一集", provider.SearchQuery{Keyword: "星海旅人 第2季 第1话"}, nil, false},
+			{"集号参数", DandanSearchQuery{Keyword: "星海旅人", Episode: new(1)}, episodeOne, false},
+			{"截断之前过滤", DandanSearchQuery{Keyword: "星海旅人", Episode: new(13), MaxSeasons: 1}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
+			{"截断之后还有", DandanSearchQuery{Keyword: "星海旅人", Episode: new(1), MaxSeasons: 2}, episodeOne[:2], true},
+			{"没有这一集", DandanSearchQuery{Keyword: "星海旅人", Episode: new(99)}, nil, false},
+			{"关键词里的集号", DandanSearchQuery{Keyword: "星海旅人 第13话"}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
+			{"集号参数优先", DandanSearchQuery{Keyword: "星海旅人 第13话", Episode: new(1)}, episodeOne, false},
+			{"关键词里的季号", DandanSearchQuery{Keyword: "星海旅人 第2季"}, []string{secondSeason}, false},
+			{"关键词里的季号和集号", DandanSearchQuery{Keyword: "星海旅人 S02E13"}, []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}, false},
+			{"这一季没有这一集", DandanSearchQuery{Keyword: "星海旅人 第2季 第1话"}, nil, false},
 			// 电影唯一的一季也是第 1 季
-			{"只写季号", provider.SearchQuery{Keyword: "星海旅人 S01"}, []string{
+			{"只写季号", DandanSearchQuery{Keyword: "星海旅人 S01"}, []string{
 				"星海旅人 · 剧集 2023 · 共 1 集 · 1",
 				"星海旅人 · 电影 2019 · 共 1 集 · 1",
 				"星海旅人 · 剧集 2019 · 共 2 集 · 1, 2",
 				"星海旅人 · 剧集 - · 共 1 集 · 1",
 				"星海旅人外传 · 剧集 2021 · 共 1 集 · 1",
 			}, false},
-			{"没有标题", provider.SearchQuery{Keyword: "第2季 第13话"}, nil, false},
+			{"没有标题", DandanSearchQuery{Keyword: "第2季 第13话"}, nil, false},
 		}
 		for _, tt := range tests {
 			if tt.q.MaxSeasons == 0 {
@@ -210,8 +209,8 @@ func TestLocalSearchSeasonEpisode(t *testing.T) {
 		}
 
 		// 按集号过滤时总集数不变
-		p := NewLocalProvider(repository.NewStore(pool), source.NewRegistry())
-		result, err := p.Search(t.Context(), provider.SearchQuery{Keyword: "星海旅人 S02E13", MaxSeasons: 50})
+		svc := NewDandanService(repository.NewStore(pool), source.NewRegistry())
+		result, err := svc.Search(t.Context(), DandanSearchQuery{Keyword: "星海旅人 S02E13", MaxSeasons: 50})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -223,7 +222,7 @@ func TestLocalSearchSeasonEpisode(t *testing.T) {
 			"长夜灯塔":   {"长夜灯塔", "Night Lighthouse"},
 			"星海旅人外传": {"星海旅人外传"},
 		} {
-			result, err := p.Search(t.Context(), provider.SearchQuery{Keyword: keyword, MaxSeasons: 50})
+			result, err := svc.Search(t.Context(), DandanSearchQuery{Keyword: keyword, MaxSeasons: 50})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -234,14 +233,14 @@ func TestLocalSearchSeasonEpisode(t *testing.T) {
 	})
 }
 
-// TestLocalSeason 按 ID 取到的季与搜索结果里的同一季相同（剧集、电影、特别篇、没有年份）；季不存在时 found 为 false。
-func TestLocalSeason(t *testing.T) {
+// TestSeason 按 ID 取到的季与搜索结果里的同一季相同（剧集、电影、特别篇、没有年份）；季不存在时 found 为 false。
+func TestSeason(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		syncOnce(t, newTestService(t, pool, &fakeCatalog{items: searchCatalog()}))
-		p := NewLocalProvider(repository.NewStore(pool), source.NewRegistry())
+		svc := NewDandanService(repository.NewStore(pool), source.NewRegistry())
 
-		result, err := p.Search(t.Context(), provider.SearchQuery{Keyword: "星海旅人", MaxSeasons: 50})
+		result, err := svc.Search(t.Context(), DandanSearchQuery{Keyword: "星海旅人", MaxSeasons: 50})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -249,7 +248,7 @@ func TestLocalSeason(t *testing.T) {
 			t.Fatalf("搜到 %d 季，want 7", len(result.Seasons))
 		}
 		for _, want := range result.Seasons {
-			got, found, err := p.Season(t.Context(), want.ID)
+			got, found, err := svc.Season(t.Context(), want.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -258,7 +257,7 @@ func TestLocalSeason(t *testing.T) {
 			}
 		}
 
-		if got, found, err := p.Season(t.Context(), 999999); err != nil || found {
+		if got, found, err := svc.Season(t.Context(), 999999); err != nil || found {
 			t.Errorf("Season(999999) = %q, found %v, err %v; want 不存在", describe(got), found, err)
 		}
 	})
@@ -274,9 +273,9 @@ type platformAdapter struct {
 func (a platformAdapter) ID() string                 { return a.id }
 func (a platformAdapter) Platform() danmaku.Platform { return a.platform }
 
-// newCommentsProvider 新库里写入两集（seedEpisodes）和 sql 里的绑定与弹幕，构造本地 Provider。
+// newCommentsService 新库里写入两集（seedEpisodes）和 sql 里的绑定与弹幕，构造 DandanService。
 // 注册的适配器：bilibili 在 B 站平台，fake 没有平台。
-func newCommentsProvider(t *testing.T, sql string) *LocalProvider {
+func newCommentsService(t *testing.T, sql string) *DandanService {
 	t.Helper()
 	pool := dbtest.Pool(t)
 	seedEpisodes(t, pool)
@@ -287,12 +286,12 @@ func newCommentsProvider(t *testing.T, sql string) *LocalProvider {
 		platformAdapter{id: "bilibili", platform: danmaku.PlatformBilibili},
 		platformAdapter{id: "fake", platform: danmaku.PlatformNone},
 	)
-	return NewLocalProvider(repository.NewStore(pool), sources)
+	return NewDandanService(repository.NewStore(pool), sources)
 }
 
-func TestLocalComments(t *testing.T) {
+func TestComments(t *testing.T) {
 	t.Parallel()
-	p := newCommentsProvider(t, `
+	svc := newCommentsService(t, `
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", scale, status, danmaku_count) VALUES
 			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420, 0, 1, 'active', 3),               -- 绑定 1
 			(1, 'bilibili', '{"epId": 2}', 'B 站番剧', 1422, 10, 1, 'dead', 3),               -- 绑定 2：失效
@@ -329,7 +328,7 @@ func TestLocalComments(t *testing.T) {
 		{"集不存在", 99, nil},
 	}
 	for _, tt := range tests {
-		got, err := p.Comments(t.Context(), tt.episodeID)
+		got, err := svc.Comments(t.Context(), tt.episodeID)
 		if err != nil {
 			t.Fatalf("%s：Comments(%d): %v", tt.name, tt.episodeID, err)
 		}
@@ -339,15 +338,15 @@ func TestLocalComments(t *testing.T) {
 	}
 }
 
-// TestLocalCommentsUnknownAdapter 绑定的适配器没有注册：不知道弹幕在哪个平台，跨源去重和 cid 都无从谈起，按服务器内部错误返回。
-func TestLocalCommentsUnknownAdapter(t *testing.T) {
+// TestCommentsUnknownAdapter 绑定的适配器没有注册：不知道弹幕在哪个平台，跨源去重和 cid 都无从谈起，按服务器内部错误返回。
+func TestCommentsUnknownAdapter(t *testing.T) {
 	t.Parallel()
-	p := newCommentsProvider(t, `
+	svc := newCommentsService(t, `
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration) VALUES
 			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420),
 			(1, 'gone', '{"id": 1}', '没有注册的适配器', 1420);`)
 
-	if got, err := p.Comments(t.Context(), 1); err == nil || !strings.Contains(err.Error(), `"gone"`) {
+	if got, err := svc.Comments(t.Context(), 1); err == nil || !strings.Contains(err.Error(), `"gone"`) {
 		t.Errorf("Comments() = %+v, %v；want 指出没有注册的适配器 gone 的错误", got, err)
 	}
 }

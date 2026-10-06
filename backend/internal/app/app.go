@@ -14,7 +14,6 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/provider"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/server"
 	"github.com/kzw200015/danfuse/backend/internal/service"
@@ -41,8 +40,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	bindings := service.NewBindingService(store, sources, logger)
 	seasonBindings := service.NewSeasonBindingService(store, pool, sources, bindings, logger)
 	syncs := service.NewSyncService(store, pool, catalogSource, cfg.Sync, logger)
-	// 弹弹 API 用的聚合层，现在只注册了本地 Provider
-	aggregator := provider.NewAggregator(service.NewLocalProvider(store, sources))
+	dandanService := service.NewDandanService(store, sources)
 
 	handlers := &handler.Handlers{
 		Health:        handler.NewHealthHandler(pool),
@@ -53,7 +51,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Settings:      handler.NewSettingsHandler(cfg.Dandanplay, cfg.CatalogSource, cfg.Sync, cfg.Bilibili),
 	}
 	return &App{
-		server:         server.New(cfg.Server, cfg.Dandanplay, logger, handlers, dandan.NewHandler(aggregator)),
+		server:         server.New(cfg.Server, cfg.Dandanplay, logger, handlers, dandan.NewHandler(dandanService)),
 		sync:           syncs,
 		seasonBindings: seasonBindings,
 	}

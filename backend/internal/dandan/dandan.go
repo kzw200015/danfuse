@@ -2,7 +2,7 @@
 // 实现了从识别、搜索到取弹幕的接口：match 按文件名识别到集；search/episodes 一步搜到季和集，
 // search/anime 搜到季再用 bangumi 取集；comment 取弹幕。
 // 这里只做协议参数的转换和响应的格式化（type、typeDescription、"第N话"、p、cid、平台前缀），
-// 识别、搜索、取季与取弹幕交给 provider 的聚合层；名称里的季号、集号怎么认，见 catalog.ParseName。
+// 识别、搜索、取季与取弹幕交给 service.DandanService；名称里的季号、集号怎么认，见 catalog.ParseName。
 //
 // 它是统一响应约定的例外：响应按官方 Swagger 的结构输出，不用 response 包。handler 自己把错误转成弹弹play 的
 // 结构返回 500，不交给全局 errorHandler，并按 errorHandler 的字段记一条日志；前缀下路由不匹配的 404、405 仍走全局处理。
@@ -23,7 +23,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/pkg/logger"
-	"github.com/kzw200015/danfuse/backend/internal/provider"
+	"github.com/kzw200015/danfuse/backend/internal/service"
 )
 
 const (
@@ -32,11 +32,11 @@ const (
 )
 
 type Handler struct {
-	provider *provider.Aggregator
+	dandan *service.DandanService
 }
 
-func NewHandler(p *provider.Aggregator) *Handler {
-	return &Handler{provider: p}
+func NewHandler(s *service.DandanService) *Handler {
+	return &Handler{dandan: s}
 }
 
 // responseBase 弹弹play 除弹幕列表外各接口响应的公共字段（ResponseBase）。
@@ -95,7 +95,7 @@ func (h *Handler) SearchEpisodes(c *echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	result, err := h.provider.Search(c.Request().Context(), provider.SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons, Episode: episode})
+	result, err := h.dandan.Search(c.Request().Context(), service.DandanSearchQuery{Keyword: keyword, MaxSeasons: maxSeasons, Episode: episode})
 	if err != nil {
 		return serverError(c, err, searchEpisodesResponse{responseBase: failed, Animes: []anime{}})
 	}
@@ -141,7 +141,7 @@ func (h *Handler) SearchAnime(c *echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	result, err := h.provider.Search(c.Request().Context(), provider.SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons})
+	result, err := h.dandan.Search(c.Request().Context(), service.DandanSearchQuery{Keyword: keyword, MaxSeasons: maxSeasons})
 	if err != nil {
 		return serverError(c, err, searchAnimeResponse{responseBase: failed, Animes: []searchAnime{}})
 	}
@@ -227,7 +227,7 @@ type bangumiEpisode struct {
 
 // Bangumi GET bangumi/:bangumiId
 // 作品详情：bangumiId 按季 ID 解析（search/anime 给出的 bangumiId、animeId 都可以），返回这一季和它的全部集。
-// 不是整数、不在本地号段内或季不存在时，按协议的"资源未找到"返回：HTTP 200、success 为 false、bangumi 为 null。
+// 不是整数或季不存在时，按协议的"资源未找到"返回：HTTP 200、success 为 false、bangumi 为 null。
 func (h *Handler) Bangumi(c *echo.Context) error {
 	start := time.Now()
 	notFound := bangumiResponse{responseBase: animeNotFound}
@@ -237,7 +237,7 @@ func (h *Handler) Bangumi(c *echo.Context) error {
 		return c.JSON(http.StatusOK, notFound)
 	}
 
-	season, found, err := h.provider.Season(c.Request().Context(), id)
+	season, found, err := h.dandan.Season(c.Request().Context(), id)
 	if err != nil {
 		return serverError(c, err, bangumiResponse{responseBase: failed})
 	}
@@ -273,7 +273,7 @@ func (h *Handler) Comment(c *echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	items, err := h.provider.Comments(c.Request().Context(), episodeID)
+	items, err := h.dandan.Comments(c.Request().Context(), episodeID)
 	if err != nil {
 		return serverError(c, err, resp) // 官方没有为 comment 定义错误响应，响应体沿用它的 schema
 	}

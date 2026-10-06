@@ -25,7 +25,6 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/provider"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -95,8 +94,7 @@ func dandanServer(pool *pgxpool.Pool, token string, logs io.Writer) *Server {
 	if logs == nil {
 		logs = io.Discard
 	}
-	local := service.NewLocalProvider(repository.NewStore(pool), source.NewRegistry(biliAdapter{}, fakeAdapter{}))
-	dh := dandan.NewHandler(provider.NewAggregator(local))
+	dh := dandan.NewHandler(service.NewDandanService(repository.NewStore(pool), source.NewRegistry(biliAdapter{}, fakeAdapter{})))
 	return New(config.Server{}, config.Dandanplay{Token: token}, slog.New(slog.NewJSONHandler(logs, nil)),
 		&handler.Handlers{Health: handler.NewHealthHandler(pool)}, dh)
 }
@@ -652,7 +650,6 @@ func TestCommentResponse(t *testing.T) {
 		{"没有参数", "/comment/1", full},
 		{"没有绑定的集", "/comment/2", empty},
 		{"不存在的集", "/comment/999999", empty},
-		{"本地号段以外的 ID", "/comment/10000000000000", empty},
 		{"不是整数的 ID", "/comment/abc", empty},
 	}
 	for _, tt := range tests {

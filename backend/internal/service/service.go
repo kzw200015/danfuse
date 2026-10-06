@@ -48,7 +48,7 @@ func sourceAPIError(err error) error {
 	return base.WithMessage(srcErr.Message).Wrap(srcErr.Err)
 }
 
-// 以下为可空的列与 Go 类型之间的转换，同步写入、本地 Provider 读取与季绑定共用。
+// 以下为可空的列与 Go 类型之间的转换，同步写入、弹弹 API 的读取与季绑定共用。
 
 // nullIfEmpty 空串存为 null。
 func nullIfEmpty(s string) *string {

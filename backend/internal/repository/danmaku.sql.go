@@ -55,32 +55,25 @@ func (q *Queries) ListBindingsByEpisode(ctx context.Context, episodeID int64) ([
 	return items, nil
 }
 
-const listDanmakuByBinding = `-- name: ListDanmakuByBinding :many
-SELECT source_id, time_ms, mode, color, text
+const listDanmakuByBindings = `-- name: ListDanmakuByBindings :many
+SELECT binding_id, source_id, time_ms, mode, color, text
 FROM danmaku
-WHERE binding_id = $1
+WHERE binding_id = ANY($1::bigint[])
 `
 
-type ListDanmakuByBindingRow struct {
-	SourceID int64  `json:"sourceId"`
-	TimeMs   int32  `json:"timeMs"`
-	Mode     int16  `json:"mode"`
-	Color    int32  `json:"color"`
-	Text     string `json:"text"`
-}
-
-// 一个绑定落库的弹幕，时间未校正。合并时重新排序，这里不排。
-// 一条 SELECT 读完：清空后重新拉取在一个事务里完成，读到的要么全旧、要么全新。
-func (q *Queries) ListDanmakuByBinding(ctx context.Context, bindingID int64) ([]ListDanmakuByBindingRow, error) {
-	rows, err := q.db.Query(ctx, listDanmakuByBinding, bindingID)
+// 这些绑定落库的弹幕，时间未校正，带上所属的绑定。合并时重新排序，这里不排。
+// 一条 SELECT 读完：清空后重新拉取在一个事务里完成，每个绑定读到的要么全旧、要么全新。
+func (q *Queries) ListDanmakuByBindings(ctx context.Context, bindingIds []int64) ([]Danmaku, error) {
+	rows, err := q.db.Query(ctx, listDanmakuByBindings, bindingIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListDanmakuByBindingRow{}
+	items := []Danmaku{}
 	for rows.Next() {
-		var i ListDanmakuByBindingRow
+		var i Danmaku
 		if err := rows.Scan(
+			&i.BindingID,
 			&i.SourceID,
 			&i.TimeMs,
 			&i.Mode,

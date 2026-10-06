@@ -157,6 +157,27 @@ func SeasonName(t SeriesType, seriesTitle string, number int) string {
 	return seriesTitle + " " + seasonLabel(t, number)
 }
 
+// SeasonKind 季的类别。
+type SeasonKind int
+
+const (
+	KindSeries  SeasonKind = iota + 1 // 剧集的第 1 季及以后
+	KindSpecial                       // 剧集的第 0 季
+	KindMovie
+)
+
+// KindOf 季的类别：电影的季为电影，剧集的第 0 季为特别篇，其余为剧集。
+func KindOf(t SeriesType, number int) SeasonKind {
+	switch {
+	case t == TypeMovie:
+		return KindMovie
+	case number == 0:
+		return KindSpecial
+	default:
+		return KindSeries
+	}
+}
+
 // SearchVector 一季的搜索列（tsvector 文本）：A 档为剧名和季号，B 档为原名，C 档为目录源给的季标题。
 // 季号只以数字出现（剧集的第 1 季起，特别篇和电影没有），给"剧名2"这种没有标注的写法用：光看数字分不出是标题的一部分
 // 还是季号，交给全文搜索，数字在标题里、季号里都能命中。写明了的季号（"第2季"、"S02"、"特别篇"）由 ParseName 拆出，
