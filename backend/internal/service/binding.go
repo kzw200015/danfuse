@@ -26,12 +26,12 @@ var (
 // 拉取（网络请求）都在事务之外，拉完才开写入事务，写入事务的第一句锁住要写的行（创建时锁集，重新拉取时锁绑定）；
 // 不加应用层的锁，并发靠行锁、外键级联和唯一约束。
 type BindingService struct {
-	store   repository.Store
+	store   *repository.Store
 	sources *source.Registry
 	logger  *slog.Logger
 }
 
-func NewBindingService(store repository.Store, sources *source.Registry, logger *slog.Logger) *BindingService {
+func NewBindingService(store *repository.Store, sources *source.Registry, logger *slog.Logger) *BindingService {
 	return &BindingService{store: store, sources: sources, logger: logger}
 }
 
@@ -86,7 +86,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 		binding repository.Binding
 		added   int64
 	)
-	err = s.store.ExecTx(ctx, func(q repository.Querier) error {
+	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		// 锁住这一集到提交：之后的删除要等这个事务提交，再连同绑定和弹幕一起删掉
 		if _, err := q.LockEpisode(ctx, episodeID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -156,7 +156,7 @@ func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (B
 	fetchedAt := time.Now()
 
 	var added int64
-	err = s.store.ExecTx(ctx, func(q repository.Querier) error {
+	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		if err := lockBinding(ctx, q, id); err != nil {
 			return err
 		}
@@ -175,7 +175,7 @@ func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (B
 // markDead 重新拉取时弹幕源已不存在：把绑定标为失效，已保存的弹幕保留。
 // 成功后记一条 info 日志，连同适配器给的原因：422 不经过 errorHandler 的日志，追更自动重新拉取时也能看出绑定失效了。
 func (s *BindingService) markDead(ctx context.Context, b repository.Binding, reason error) error {
-	err := s.store.ExecTx(ctx, func(q repository.Querier) error {
+	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		if err := lockBinding(ctx, q, b.ID); err != nil {
 			return err
 		}
@@ -194,7 +194,7 @@ func (s *BindingService) markDead(ctx context.Context, b repository.Binding, rea
 
 // lockBinding 重新拉取的写入事务的第一句：锁住这个绑定到提交，同一个绑定的写入排队执行。
 // 绑定已被删除时返回 404"绑定已被删除"。
-func lockBinding(ctx context.Context, q repository.Querier, id int64) error {
+func lockBinding(ctx context.Context, q *repository.Queries, id int64) error {
 	if _, err := q.LockBinding(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errBindingDeleted
@@ -234,7 +234,7 @@ func (s *BindingService) Delete(ctx context.Context, id int64) error {
 //
 // 拉取时间取自应用的时钟（拉取完成时的 time.Now()），不用数据库的 now()：追更按它判断自动重新拉取是否已满 24 小时，
 // 与上次检查时间用同一个时钟，测试里也能用假时间推进。
-func saveFetched(ctx context.Context, q repository.Querier, bindingID int64, f source.Fetched, replace bool, fetchedAt time.Time) (repository.Binding, int64, error) {
+func saveFetched(ctx context.Context, q *repository.Queries, bindingID int64, f source.Fetched, replace bool, fetchedAt time.Time) (repository.Binding, int64, error) {
 	if replace {
 		if err := q.DeleteDanmaku(ctx, bindingID); err != nil {
 			return repository.Binding{}, 0, fmt.Errorf("delete danmaku of binding %d: %w", bindingID, err)

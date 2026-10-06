@@ -9,7 +9,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 )
 
-// fakeAdapter 只有 Adapter 的能力。
+// fakeAdapter 什么链接都不认识的适配器。
 type fakeAdapter struct{ id string }
 
 var _ Adapter = (*fakeAdapter)(nil)
@@ -24,14 +24,28 @@ func (a *fakeAdapter) Fetch(context.Context, Ref) (Fetched, error) {
 	return Fetched{}, nil
 }
 
-// fakeLinker 认识以 prefix 开头的链接；链接里带 "bad" 时返回 InvalidLink。
+func (a *fakeAdapter) ParseLink(context.Context, string) (Ref, error) {
+	return nil, ErrUnrecognized
+}
+
+func (a *fakeAdapter) ParseCollectionLink(context.Context, string) ([]CollectionCandidate, error) {
+	return nil, ErrUnrecognized
+}
+
+func (a *fakeAdapter) ListCollection(context.Context, CollectionRef) (Collection, error) {
+	return Collection{}, nil
+}
+
+func (a *fakeAdapter) DescribeCollection(CollectionRef) (Display, error) {
+	return Display{}, nil
+}
+
+// fakeLinker 认识以 prefix 开头的弹幕源链接；链接里带 "bad" 时返回 InvalidLink。合集的链接都不认识。
 type fakeLinker struct {
 	fakeAdapter
 	prefix string
 	asked  int
 }
-
-var _ Linker = (*fakeLinker)(nil)
 
 func (l *fakeLinker) ParseLink(_ context.Context, link string) (Ref, error) {
 	l.asked++
@@ -65,9 +79,9 @@ func TestRegistryParseLink(t *testing.T) {
 		wantAdapter string // 为空表示期望出错
 		wantRef     string
 		wantMessage string
-		wantAsked   [2]int // 两个 Linker 各被问了几次
+		wantAsked   [2]int // 两个适配器各被问了几次
 	}{
-		{name: "第一个 Linker 认识", link: "a:1", wantAdapter: "a", wantRef: `"1"`, wantAsked: [2]int{1, 0}},
+		{name: "第一个适配器认识", link: "a:1", wantAdapter: "a", wantRef: `"1"`, wantAsked: [2]int{1, 0}},
 		{name: "第一个不认识时交给下一个", link: "b:2", wantAdapter: "b", wantRef: `"2"`, wantAsked: [2]int{1, 1}},
 		{name: "都不认识", link: "c:3", wantMessage: "无法识别的链接", wantAsked: [2]int{1, 1}},
 		{name: "认识但不能绑定：直接返回适配器的错误", link: "a:bad", wantMessage: "请打开具体某一集再复制链接", wantAsked: [2]int{1, 0}},
@@ -97,14 +111,12 @@ func TestRegistryParseLink(t *testing.T) {
 	}
 }
 
-// fakeCollector 认识以 prefix 开头的链接，给出一个候选；链接里带 "series" 时返回 InvalidLink。
+// fakeCollector 认识以 prefix 开头的合集链接，给出一个候选；链接里带 "series" 时返回 InvalidLink。弹幕源的链接都不认识。
 type fakeCollector struct {
 	fakeAdapter
 	prefix string
 	asked  int
 }
-
-var _ Collector = (*fakeCollector)(nil)
 
 func (c *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]CollectionCandidate, error) {
 	c.asked++
@@ -117,14 +129,6 @@ func (c *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]C
 	return []CollectionCandidate{{Kind: "list", Ref: CollectionRef(`"` + strings.TrimPrefix(link, c.prefix) + `"`)}}, nil
 }
 
-func (c *fakeCollector) ListCollection(context.Context, CollectionRef) (Collection, error) {
-	return Collection{}, nil
-}
-
-func (c *fakeCollector) DescribeCollection(CollectionRef) (Display, error) {
-	return Display{}, nil
-}
-
 func TestRegistryParseCollectionLink(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -132,9 +136,9 @@ func TestRegistryParseCollectionLink(t *testing.T) {
 		wantAdapter string // 为空表示期望出错
 		wantRef     string
 		wantMessage string
-		wantAsked   [2]int // 两个 Collector 各被问了几次
+		wantAsked   [2]int // 两个适配器各被问了几次
 	}{
-		{name: "第一个 Collector 认识", link: "a:1", wantAdapter: "a", wantRef: `"1"`, wantAsked: [2]int{1, 0}},
+		{name: "第一个适配器认识", link: "a:1", wantAdapter: "a", wantRef: `"1"`, wantAsked: [2]int{1, 0}},
 		{name: "第一个不认识时交给下一个", link: "b:2", wantAdapter: "b", wantRef: `"2"`, wantAsked: [2]int{1, 1}},
 		{name: "都不认识", link: "c:3", wantMessage: "无法识别的链接", wantAsked: [2]int{1, 1}},
 		{name: "认识但不能绑定：直接返回适配器的错误", link: "a:series", wantMessage: "暂不支持系列", wantAsked: [2]int{1, 0}},
@@ -143,7 +147,7 @@ func TestRegistryParseCollectionLink(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			a := &fakeCollector{id: "a", prefix: "a:"}
 			b := &fakeCollector{id: "b", prefix: "b:"}
-			// 只实现了 Linker 的适配器不参与
+			// 只认识弹幕源链接的适配器不认识合集的链接，跳过
 			r := NewRegistry(&fakeLinker{id: "l", prefix: "a:"}, a, b)
 
 			adapter, candidates, err := r.ParseCollectionLink(t.Context(), tt.link)

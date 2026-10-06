@@ -37,8 +37,6 @@ const archivesPageSize = 100
 // maxArchivePages 列合集条目最多翻的页数，防止接口异常时一直翻下去。
 const maxArchivePages = 200
 
-var _ source.Collector = (*Adapter)(nil)
-
 // decodeCollectionRef 解析并校验 season_bindings.ref。
 func decodeCollectionRef(r source.CollectionRef) (collectionRef, error) {
 	var v collectionRef

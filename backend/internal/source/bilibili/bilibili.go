@@ -2,9 +2,9 @@
 // 拉弹幕都按 cid 请求同样的接口，弹幕 ID 在同一个空间里；令牌桶、SESSDATA 与重试策略共用；链接解析会跨类型。
 //
 // 文件划分：
-//   - bilibili.go：Adapter / Linker 的实现，ref 的结构，Fetch 的编排（元数据 → protobuf 分段与 XML → 按 ID 合并），
+//   - bilibili.go：source.Adapter 里弹幕源的方法，ref 的结构，Fetch 的编排（元数据 → protobuf 分段与 XML → 按 ID 合并），
 //     以及共用的元数据 meta 和弹幕字段的映射 newDanmaku；
-//   - collection.go：Collector 的实现：合集 ref 的结构，季面板链接的识别，番剧的一季、投稿合集、多 P 投稿的列出；
+//   - collection.go：source.Adapter 里合集的方法：合集 ref 的结构，季面板链接的识别，番剧的一季、投稿合集、多 P 投稿的列出；
 //   - link.go：链接解析（集面板与季面板共用，各自决定接受哪些）、短链跳转，BV 号与 aid 互转；
 //   - client.go：HTTP 层：UA、Referer 与 SESSDATA、全局令牌桶、重试与退避、错误归类与给用户的提示；
 //   - view.go：投稿的元数据，解析出 cid、标题、时长；带 redirect_url 的转给番剧；
@@ -72,10 +72,7 @@ type Adapter struct {
 	client *client
 }
 
-var (
-	_ source.Adapter = (*Adapter)(nil)
-	_ source.Linker  = (*Adapter)(nil)
-)
+var _ source.Adapter = (*Adapter)(nil)
 
 // New 不连 B 站。同一个进程里只应有一个 Adapter：令牌桶在它里面，所有绑定共用。
 func New(cfg config.Bilibili) *Adapter {

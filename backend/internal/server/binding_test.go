@@ -15,15 +15,11 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// fakeAdapter 假的源适配器：链接 "fake/<名字>" 的 ref 为 {"name":"<名字>"}。
+// fakeAdapter 假的源适配器：链接 "fake/<名字>" 的 ref 为 {"name":"<名字>"}。合集的方法在 season_binding_test.go。
 // Fetch 对名字 gone 返回 NotFound、对 down 返回 Upstream，其余返回两条弹幕。
 type fakeAdapter struct{}
 
-var (
-	_ source.Adapter   = fakeAdapter{}
-	_ source.Linker    = fakeAdapter{}
-	_ source.Collector = fakeAdapter{} // 合集的方法在 season_binding_test.go
-)
+var _ source.Adapter = fakeAdapter{}
 
 type fakeRef struct {
 	Name string `json:"name"`

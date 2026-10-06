@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,45 +44,35 @@ var (
 
 // SyncService 同步：触发、定时、互斥、同步核心（按剧写入目录）、同步记录。
 //
-// 生命周期：App.Run 运行 Run(ctx)；手动触发经 Trigger 交给 Run 的循环，同步开始后返回。每次同步在独立的 goroutine 里执行，
+// 生命周期：App.Run 运行 Run(ctx)；手动触发经 Trigger 交给 Run 的循环（backgroundLoop），同步开始后返回。每次同步在独立的 goroutine 里执行，
 // 用的是 Run 的 ctx（应用级），不是 HTTP 请求的 ctx。ctx 取消时这次同步记为 interrupted，Run 等它写完记录再返回，
 // 之后 wire 的 cleanup 才关闭连接池。
 //
 // 互斥靠同步的租约（database.LeaseSync），多实例同样成立：每次同步持有租约直到结束，用租约的 ctx 执行，
 // 租约丢失时这次同步同样记为 interrupted。已有同步在跑时，定时的触发被丢弃、只记日志，手动的触发返回 409。
 type SyncService struct {
-	store         repository.Store
+	store         *repository.Store
 	pool          *pgxpool.Pool  // 拿同步的租约
 	catalogSource catalog.Source // nil 表示未配置目录源
 	interval      time.Duration
 	logger        *slog.Logger
-
-	triggers chan chan triggerResult // 手动触发：Run 的循环收到后开始同步，把结果送回
-	stopped  chan struct{}           // Run 返回时关闭，之后的手动触发不再等它
-	wg       sync.WaitGroup          // 进行中的同步
+	loop          *backgroundLoop // Run 的循环：定时与手动触发，进行中的同步
 }
 
-type triggerResult struct {
-	runID int64
-	err   error
-}
-
-func NewSyncService(store repository.Store, pool *pgxpool.Pool, catalogSource catalog.Source, cfg config.Sync, logger *slog.Logger) *SyncService {
+func NewSyncService(store *repository.Store, pool *pgxpool.Pool, catalogSource catalog.Source, cfg config.Sync, logger *slog.Logger) *SyncService {
 	return &SyncService{
 		store:         store,
 		pool:          pool,
 		catalogSource: catalogSource,
 		interval:      cfg.Interval,
 		logger:        logger,
-		triggers:      make(chan chan triggerResult),
-		stopped:       make(chan struct{}),
+		loop:          newBackgroundLoop(),
 	}
 }
 
 // Run 后台循环，阻塞到 ctx 取消；返回前等进行中的同步写完最终状态。只能调用一次。
 // 启动时先清理残留的 running；配置了目录源且 interval > 0 时每隔一个间隔触发一次，启动时不立即同步。
 func (s *SyncService) Run(ctx context.Context) {
-	defer close(s.stopped)
 	s.cleanupStale(ctx)
 
 	var tick <-chan time.Time
@@ -92,18 +81,7 @@ func (s *SyncService) Run(ctx context.Context) {
 		defer ticker.Stop()
 		tick = ticker.C
 	}
-	for {
-		select {
-		case <-ctx.Done():
-			s.wg.Wait()
-			return
-		case <-tick:
-			s.startScheduled(ctx)
-		case reply := <-s.triggers:
-			runID, err := s.tryStart(ctx, triggerManual)
-			reply <- triggerResult{runID: runID, err: err}
-		}
-	}
+	s.loop.run(ctx, tick, s.startScheduled)
 }
 
 // Trigger 手动触发一次同步，同步开始后立即返回它的 ID，同步在后台进行。
@@ -113,16 +91,13 @@ func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 	if s.catalogSource == nil {
 		return 0, errNoCatalogSource
 	}
-	reply := make(chan triggerResult, 1)
-	select {
-	case s.triggers <- reply:
-	case <-s.stopped:
-		return 0, errShuttingDown
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	}
-	r := <-reply
-	return r.runID, r.err
+	var runID int64
+	err := s.loop.call(ctx, func(ctx context.Context) error {
+		var err error
+		runID, err = s.tryStart(ctx, triggerManual)
+		return err
+	})
+	return runID, err
 }
 
 // ListRuns 最近 20 次同步，新的在前，不含警告正文。
@@ -213,7 +188,7 @@ func (s *SyncService) tryStart(ctx context.Context, trigger string) (int64, erro
 		lease.Release()
 		return 0, err
 	}
-	s.wg.Go(func() {
+	s.loop.spawn(func() {
 		defer lease.Release()
 		s.execute(lease.Context(), runID)
 	})

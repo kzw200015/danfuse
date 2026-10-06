@@ -1,4 +1,4 @@
-// Package source 源适配器的接口：与某个平台通信，或解析某种本地弹幕文件。
+// Package source 源适配器的接口：与某个平台通信，把用户贴的链接认成弹幕源或合集，拉取弹幕、列出合集。
 // 适配器只负责请求、限速、重试、解析，不含匹配、缓存和存储决策，不访问数据库。
 // 各平台的适配器在子包里（bilibili），由 app 注册进 Registry；业务代码只依赖这里的接口。
 package source
@@ -17,26 +17,36 @@ import (
 // 参与唯一约束 (episode_id, adapter, ref)。适配器之外的代码不解析它。
 type Ref []byte
 
-// Adapter 所有源适配器都有的能力。
+// Adapter 源适配器，一个平台一个，方法都要实现：弹幕源的三个（ParseLink、Describe、Fetch）和合集的三个
+// （ParseCollectionLink、ListCollection、DescribeCollection，类型见 collection.go）。
+// 没有合集的平台，ParseCollectionLink 一律返回 ErrUnrecognized，另外两个不会被调用。
+// 只适用于按 ref 能重新拉取的弹幕源：弹幕文件没有链接、不能重新拉取，不是这个接口的实现。
 type Adapter interface {
-	// ID 存入 bindings.adapter，一经发布不能再改。
+	// ID 存入 bindings.adapter、season_bindings.adapter，一经发布不能再改。
 	ID() string
 	// Platform 弹幕所在的平台；没有平台的弹幕源返回 danmaku.PlatformNone。
 	Platform() danmaku.Platform
+
+	// ParseLink 识别集面板贴的链接并返回规范化的 ref：同一个弹幕源不论链接怎么写，ref 都相同。
+	// 不是本平台的链接返回 ErrUnrecognized；是本平台的但不能绑定（例如番剧一季的链接）返回 Kind 为 InvalidLink 的 *Error。
+	// 可能联网，例如跟随短链跳转。
+	ParseLink(ctx context.Context, link string) (Ref, error)
 	// Describe 由 ref 生成展示用的弹幕源链接和标签，纯计算，不联网。
 	Describe(ref Ref) (Display, error)
 	// Fetch 按 ref 重新解析出当前的弹幕源（例如 B 站每次重新取 cid），取标题、时长和全部弹幕。
 	// 全有或全无：任何一个请求最终失败，整次返回 *Error，不返回部分弹幕。
 	// 重试已在内部做完；总时限由调用方的 ctx 决定，超时也返回 Kind 为 Upstream 的 *Error。
 	Fetch(ctx context.Context, ref Ref) (Fetched, error)
-}
 
-// Linker 可选能力：从用户贴的链接得到 ref。
-type Linker interface {
-	// ParseLink 识别链接并返回规范化的 ref：同一个弹幕源不论链接怎么写，ref 都相同。
-	// 不是本平台的链接返回 ErrUnrecognized；是本平台的但不能绑定（例如番剧一季的链接）返回 Kind 为 InvalidLink 的 *Error。
-	// 可能联网，例如跟随短链跳转。
-	ParseLink(ctx context.Context, link string) (Ref, error)
+	// ParseCollectionLink 识别季面板贴的链接，返回一个或多个候选合集，按适配器认为合适的顺序排列。
+	// 同一个合集不论链接怎么写，候选的 ref 都相同。不是本平台的链接返回 ErrUnrecognized；
+	// 是本平台的但不能作为合集绑定的，返回 Kind 为 InvalidLink 的 *Error，提示由适配器写。可能联网。
+	ParseCollectionLink(ctx context.Context, link string) ([]CollectionCandidate, error)
+	// ListCollection 按合集 ref 列出合集的标题、是否完结（取不到时为否）和全部条目，条目按合集里的顺序排列。
+	// 合集不存在时返回 Kind 为 NotFound 的 *Error。重复序号不在这里判定，见 NormalizeItems。
+	ListCollection(ctx context.Context, ref CollectionRef) (Collection, error)
+	// DescribeCollection 由合集 ref 生成展示用的链接和标签，纯计算，不联网。
+	DescribeCollection(ref CollectionRef) (Display, error)
 }
 
 // Display 弹幕源在管理界面上的展示：链接和标签。
@@ -83,7 +93,7 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// ErrUnrecognized Linker 不认识这个链接，Registry 会接着交给下一个适配器。
+// ErrUnrecognized 适配器不认识这个链接（ParseLink、ParseCollectionLink），Registry 会接着交给下一个适配器。
 var ErrUnrecognized = errors.New("source: unrecognized link")
 
 // Registry 已注册的源适配器。
@@ -105,15 +115,11 @@ func (r *Registry) Get(id string) (Adapter, error) {
 	return r.adapters[i], nil
 }
 
-// ParseLink 依次交给实现了 Linker 的适配器，返回第一个认识这个链接的适配器和规范化的 ref。
+// ParseLink 依次交给各个适配器，返回第一个认识这个链接的适配器和规范化的 ref。
 // 适配器返回 ErrUnrecognized 以外的错误时直接返回；都不认识时返回 Kind 为 InvalidLink 的 *Error（"无法识别的链接"）。
 func (r *Registry) ParseLink(ctx context.Context, link string) (Adapter, Ref, error) {
 	for _, a := range r.adapters {
-		linker, ok := a.(Linker)
-		if !ok {
-			continue
-		}
-		ref, err := linker.ParseLink(ctx, link)
+		ref, err := a.ParseLink(ctx, link)
 		switch {
 		case errors.Is(err, ErrUnrecognized):
 			continue

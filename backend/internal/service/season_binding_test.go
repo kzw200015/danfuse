@@ -23,7 +23,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// fakeCollector 实现 source.Adapter 与 source.Collector 的假适配器，不联网，ID 为 fake。
+// fakeCollector 有合集的假适配器，不联网，ID 为 fake；集面板的链接都不认识。
 //   - 合集链接 "list/<名字>" 与 "alias-list/<名字>" 是同一个合集的两种写法，识别为一个种类为 list 的候选 {"list":"<名字>"}；
 //     "both/<名字>" 识别为两个候选：种类 pages 的 {"pages":"<名字>"} 在前，种类 list 的 {"list":"<名字>"} 在后；
 //     "series/<名字>" 为 InvalidLink"暂不支持系列"；其他链接认不出。
@@ -49,10 +49,7 @@ type fakeCollector struct {
 	fetched []string // Fetch 过的弹幕源名字，按调用顺序
 }
 
-var (
-	_ source.Adapter   = (*fakeCollector)(nil)
-	_ source.Collector = (*fakeCollector)(nil)
-)
+var _ source.Adapter = (*fakeCollector)(nil)
 
 type fakeCollectionRef struct {
 	List  string `json:"list,omitempty"`
@@ -68,6 +65,10 @@ func (f *fakeCollector) Describe(ref source.Ref) (source.Display, error) {
 		return source.Display{}, err
 	}
 	return source.Display{URL: "https://fake.test/" + r.Name, Label: "假弹幕源 " + r.Name}, nil
+}
+
+func (f *fakeCollector) ParseLink(context.Context, string) (source.Ref, error) {
+	return nil, source.ErrUnrecognized
 }
 
 func (f *fakeCollector) Fetch(ctx context.Context, ref source.Ref) (source.Fetched, error) {

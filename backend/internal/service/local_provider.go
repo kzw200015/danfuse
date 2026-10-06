@@ -18,13 +18,13 @@ import (
 
 // LocalProvider 本地 Provider：在目录里搜索季、按 ID 取季，读取一集所有绑定的弹幕。
 type LocalProvider struct {
-	store   repository.Store
+	store   *repository.Store
 	sources *source.Registry // 绑定的适配器决定弹幕在哪个平台
 }
 
 var _ provider.Provider = (*LocalProvider)(nil)
 
-func NewLocalProvider(store repository.Store, sources *source.Registry) *LocalProvider {
+func NewLocalProvider(store *repository.Store, sources *source.Registry) *LocalProvider {
 	return &LocalProvider{store: store, sources: sources}
 }
 

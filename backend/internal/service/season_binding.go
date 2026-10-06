@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -30,7 +29,7 @@ var (
 
 // SeasonBindingService 季绑定：在季上绑定一个合集，按集号对应为各集补建出普通的绑定；追更时定时补建、自动重新拉取。
 //
-// 生命周期同 SyncService：App.Run 运行 Run(ctx)，补建都用 Run 的 ctx（应用级），不用 HTTP 请求的 ctx；
+// 生命周期同 SyncService：App.Run 运行 Run(ctx)（循环是 backgroundLoop），补建都用 Run 的 ctx（应用级），不用 HTTP 请求的 ctx；
 // 手动触发（创建、立即补建、改集号对应、打开追更）经 Run 的循环立即在后台开始，不同季绑定的补建互不等待；
 // 追更的扫描由 Run 的循环每分钟在后台开始一次、一次补建一个，不等上一次扫描做完。
 // ctx 取消时进行中的扫描和补建停下，Run 等它们返回，之后 wire 的 cleanup 才关闭连接池。
@@ -38,31 +37,22 @@ var (
 // "补建中"以按季绑定的租约（database.LeaseSeasonBackfill）为准，多实例同样成立，季绑定上不存运行状态。
 // 网络请求都在事务之外；写入事务先锁季、再锁季绑定，删除季绑定时排队，之后补建再也锁不到它，随即结束。
 type SeasonBindingService struct {
-	store    repository.Store
+	store    *repository.Store
 	pool     *pgxpool.Pool // 拿按季绑定的租约
 	sources  *source.Registry
 	bindings *BindingService // 自动重新拉取复用它的 refetch
 	logger   *slog.Logger
-
-	triggers chan backfillTrigger // 手动触发：Run 的循环收到后拿租约开始补建，把结果送回
-	stopped  chan struct{}        // Run 返回时关闭，之后的手动触发不再等它
-	wg       sync.WaitGroup       // 进行中的扫描和手动补建
+	loop     *backgroundLoop // Run 的循环：追更的扫描与手动触发，进行中的扫描和补建
 }
 
-type backfillTrigger struct {
-	id    int64
-	reply chan error
-}
-
-func NewSeasonBindingService(store repository.Store, pool *pgxpool.Pool, sources *source.Registry, bindings *BindingService, logger *slog.Logger) *SeasonBindingService {
+func NewSeasonBindingService(store *repository.Store, pool *pgxpool.Pool, sources *source.Registry, bindings *BindingService, logger *slog.Logger) *SeasonBindingService {
 	return &SeasonBindingService{
 		store:    store,
 		pool:     pool,
 		sources:  sources,
 		bindings: bindings,
 		logger:   logger,
-		triggers: make(chan backfillTrigger),
-		stopped:  make(chan struct{}),
+		loop:     newBackgroundLoop(),
 	}
 }
 
@@ -158,15 +148,14 @@ func (s *SeasonBindingService) Preview(ctx context.Context, seasonID int64, link
 	if err != nil {
 		return CollectionPreview{}, sourceAPIError(err)
 	}
-	collector := adapter.(source.Collector) // ParseCollectionLink 只交给实现了 Collector 的适配器
 
 	preview := CollectionPreview{Candidates: make([]PreviewCandidate, 0, len(candidates))}
 	for _, c := range candidates {
-		col, err := collector.ListCollection(netCtx, c.Ref)
+		col, err := adapter.ListCollection(netCtx, c.Ref)
 		if err != nil {
 			return CollectionPreview{}, sourceAPIError(err)
 		}
-		d, err := collector.DescribeCollection(c.Ref)
+		d, err := adapter.DescribeCollection(c.Ref)
 		if err != nil {
 			return CollectionPreview{}, fmt.Errorf("describe collection %s: %w", c.Ref, err)
 		}
@@ -237,13 +226,13 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 	case exists:
 		return SeasonBindingDetail{}, errSeasonBindingExists
 	}
-	col, err := adapter.(source.Collector).ListCollection(netCtx, c.Ref)
+	col, err := adapter.ListCollection(netCtx, c.Ref)
 	if err != nil {
 		return SeasonBindingDetail{}, sourceAPIError(err)
 	}
 
 	var id int64
-	err = s.store.ExecTx(ctx, func(q repository.Querier) error {
+	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		// 锁住这一季到提交：之后的删除要等这个事务提交，再连同季绑定一起删掉
 		if _, err := q.LockSeason(ctx, seasonID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -292,7 +281,7 @@ func chooseCandidate(candidates []source.CollectionCandidate, kind string) (sour
 }
 
 // saveItems 在写入事务里保存一次列出的条目：按弹幕源 upsert（位置从 1 开始），删掉合集里已经没有的。
-func saveItems(ctx context.Context, q repository.Querier, id int64, items []source.CollectionItem) error {
+func saveItems(ctx context.Context, q *repository.Queries, id int64, items []source.CollectionItem) error {
 	p := repository.UpsertSeasonBindingItemsParams{
 		SeasonBindingID: id,
 		Refs:            make([]string, len(items)),
@@ -412,11 +401,7 @@ func seasonBindingView(sources *source.Registry, sb repository.SeasonBinding, bi
 	if err != nil {
 		return SeasonBindingView{}, fmt.Errorf("season binding %d: %w", sb.ID, err)
 	}
-	collector, err := collectorOf(adapter)
-	if err != nil {
-		return SeasonBindingView{}, fmt.Errorf("season binding %d: %w", sb.ID, err)
-	}
-	d, err := collector.DescribeCollection(sb.Ref)
+	d, err := adapter.DescribeCollection(sb.Ref)
 	if err != nil {
 		return SeasonBindingView{}, fmt.Errorf("describe season binding %d: %w", sb.ID, err)
 	}
@@ -437,15 +422,6 @@ func seasonBindingView(sources *source.Registry, sb repository.SeasonBinding, bi
 		Running:       running,
 		BindingCount:  bindingCount,
 	}, nil
-}
-
-// collectorOf 季绑定的适配器的合集能力；没有时按服务器内部错误处理。
-func collectorOf(a source.Adapter) (source.Collector, error) {
-	c, ok := a.(source.Collector)
-	if !ok {
-		return nil, fmt.Errorf("source: adapter %q has no collections", a.ID())
-	}
-	return c, nil
 }
 
 // UpdateSeasonBinding 改季绑定的参数，为 nil 的字段不改。
@@ -487,7 +463,7 @@ func (s *SeasonBindingService) Backfill(ctx context.Context, id int64) error {
 // Delete 删除季绑定：一个事务里先锁住它（进行中的补建写入事务先提交，之后补建再也锁不到它，随即结束），
 // withBindings 时先删它建出的绑定（弹幕随之级联），再删季绑定；否则它建出的绑定变成普通绑定。不存在时返回 404。
 func (s *SeasonBindingService) Delete(ctx context.Context, id int64, withBindings bool) error {
-	return s.store.ExecTx(ctx, func(q repository.Querier) error {
+	return s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		if _, err := q.LockSeasonBindingForDelete(ctx, id); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return errSeasonBindingNotFound
@@ -510,34 +486,17 @@ func (s *SeasonBindingService) Delete(ctx context.Context, id int64, withBinding
 // 每分钟在后台开始一次追更的扫描（见 scan），启动时不立即扫描；手动触发拿到租约就在后台开始补建，
 // 不同季绑定的补建互不等待（对平台的请求由适配器自己限速）。
 func (s *SeasonBindingService) Run(ctx context.Context) {
-	defer close(s.stopped)
 	ticker := time.NewTicker(followScanInterval)
 	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			s.wg.Wait()
-			return
-		case <-ticker.C:
-			s.wg.Go(func() { s.scan(ctx) })
-		case t := <-s.triggers:
-			t.reply <- s.start(ctx, t.id)
-		}
-	}
+	s.loop.run(ctx, ticker.C, func(ctx context.Context) {
+		s.loop.spawn(func() { s.scan(ctx) })
+	})
 }
 
 // trigger 请 Run 的循环立即在后台补建一次。正在补建时返回 errBackfillRunning；
 // Run 已经返回（服务正在关闭）时返回 503。
 func (s *SeasonBindingService) trigger(ctx context.Context, id int64) error {
-	t := backfillTrigger{id: id, reply: make(chan error, 1)}
-	select {
-	case s.triggers <- t:
-	case <-s.stopped:
-		return errShuttingDown
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	return <-t.reply
+	return s.loop.call(ctx, func(ctx context.Context) error { return s.start(ctx, id) })
 }
 
 // startBackfill 创建、改集号对应、打开追更之后随即在后台补建一次：正在补建时不另起一轮；服务正在关闭时不补建，
@@ -558,7 +517,7 @@ func (s *SeasonBindingService) start(ctx context.Context, id int64) error {
 	if !ok {
 		return errBackfillRunning
 	}
-	s.wg.Go(func() {
+	s.loop.spawn(func() {
 		defer lease.Release()
 		s.backfill(lease.Context(), id)
 	})

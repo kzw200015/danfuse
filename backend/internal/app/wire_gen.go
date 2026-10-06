@@ -37,19 +37,19 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		return nil, nil, err
 	}
 	healthHandler := handler.NewHealthHandler(pool)
-	sqlStore := repository.NewStore(pool)
+	store := repository.NewStore(pool)
 	bilibili := configConfig.Bilibili
 	registry := newSourceRegistry(bilibili)
-	catalogService := service.NewCatalogService(sqlStore, registry)
+	catalogService := service.NewCatalogService(store, registry)
 	catalogHandler := handler.NewCatalogHandler(catalogService)
-	bindingService := service.NewBindingService(sqlStore, registry, slogLogger)
+	bindingService := service.NewBindingService(store, registry, slogLogger)
 	bindingHandler := handler.NewBindingHandler(bindingService)
-	seasonBindingService := service.NewSeasonBindingService(sqlStore, pool, registry, bindingService, slogLogger)
+	seasonBindingService := service.NewSeasonBindingService(store, pool, registry, bindingService, slogLogger)
 	seasonBindingHandler := handler.NewSeasonBindingHandler(seasonBindingService)
 	catalogSource := configConfig.CatalogSource
 	source := newCatalogSource(catalogSource)
 	sync := configConfig.Sync
-	syncService := service.NewSyncService(sqlStore, pool, source, sync, slogLogger)
+	syncService := service.NewSyncService(store, pool, source, sync, slogLogger)
 	syncHandler := handler.NewSyncHandler(syncService)
 	settingsHandler := handler.NewSettingsHandler(dandanplay, catalogSource, sync, bilibili)
 	handlers := &handler.Handlers{
@@ -60,7 +60,7 @@ func Init(ctx context.Context, configPath string) (*App, func(), error) {
 		Sync:          syncHandler,
 		Settings:      settingsHandler,
 	}
-	localProvider := service.NewLocalProvider(sqlStore, registry)
+	localProvider := service.NewLocalProvider(store, registry)
 	aggregator := newAggregator(localProvider)
 	dandanHandler := dandan.NewHandler(aggregator)
 	serverServer := server.New(configServer, dandanplay, slogLogger, handlers, dandanHandler)

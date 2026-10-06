@@ -83,7 +83,7 @@ type createdCounts struct{ series, seasons, episodes int32 }
 // 网络请求都在事务之外：适配在交出这部剧之前已经取完了它的季和集、下载完了海报。
 func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (createdCounts, error) {
 	var created createdCounts
-	err := s.store.ExecTx(ctx, func(q repository.Querier) error {
+	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		seriesRow, err := q.UpsertSeries(ctx, repository.UpsertSeriesParams{
 			Type:          string(series.Type),
 			Title:         series.Title,
@@ -144,7 +144,7 @@ func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (c
 
 // writeSearchVectors 重算一部剧所有季的搜索列，在这部剧的事务里调用。包括这次目录源没有给出的季：
 // 剧名、原名是每一季搜索列的一部分，原名变了每一季都要重算。
-func writeSearchVectors(ctx context.Context, q repository.Querier, seriesID int64, series catalog.Series) error {
+func writeSearchVectors(ctx context.Context, q *repository.Queries, seriesID int64, series catalog.Series) error {
 	seasons, err := q.ListSeasonsBySeries(ctx, seriesID)
 	if err != nil {
 		return fmt.Errorf("list seasons: %w", err)
@@ -163,7 +163,7 @@ func writeSearchVectors(ctx context.Context, q repository.Querier, seriesID int6
 //   - 与旧图的 sha256 相同：不写；
 //   - 不同（或原来没有海报）：插入新图 → 剧指向新图 → 删除旧图；
 //   - 没有图：清空剧的海报 → 删除旧图。
-func writePoster(ctx context.Context, q repository.Querier, seriesID int64, oldID *int64, poster *catalog.Image) error {
+func writePoster(ctx context.Context, q *repository.Queries, seriesID int64, oldID *int64, poster *catalog.Image) error {
 	if poster == nil && oldID == nil {
 		return nil
 	}

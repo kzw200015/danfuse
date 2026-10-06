@@ -24,7 +24,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// fakeAdapter 实现 source.Adapter 与 source.Linker 的假适配器，不联网。
+// fakeAdapter 只有弹幕源的假适配器，不联网；合集的链接都不认识。
 // 链接 "fake/<名字>" 与 "alias/<名字>" 是同一个弹幕源的两种写法（像 B 站的 BV 号与 av 号），ref 都是 {"name":"<名字>"}。
 // Fetch 返回 sources 里这个名字的结果，没有这个名字时返回 NotFound；err 不为 nil 时一律返回 err。
 // started 不为 nil 时，Fetch 开始时先在 started 上报到，再等 release 关闭，用来在拉取期间插入别的操作。
@@ -41,10 +41,7 @@ type fakeAdapter struct {
 	fetches    atomic.Int32 // Fetch 被调用的次数
 }
 
-var (
-	_ source.Adapter = (*fakeAdapter)(nil)
-	_ source.Linker  = (*fakeAdapter)(nil)
-)
+var _ source.Adapter = (*fakeAdapter)(nil)
 
 // errNoDeadline 一直等待的 Fetch、ParseLink 收到的 ctx 没有截止时间：总时限没有生效。立即返回，免得测试一直挂着。
 var errNoDeadline = errors.New("ctx 没有截止时间")
@@ -116,6 +113,18 @@ func (a *fakeAdapter) Fetch(ctx context.Context, ref source.Ref) (source.Fetched
 		return source.Fetched{}, &source.Error{Kind: source.NotFound, Message: "视频不存在、已删除或不可见"}
 	}
 	return f, nil
+}
+
+func (a *fakeAdapter) ParseCollectionLink(context.Context, string) ([]source.CollectionCandidate, error) {
+	return nil, source.ErrUnrecognized
+}
+
+func (a *fakeAdapter) ListCollection(context.Context, source.CollectionRef) (source.Collection, error) {
+	return source.Collection{}, errors.New("fakeAdapter 没有合集")
+}
+
+func (a *fakeAdapter) DescribeCollection(source.CollectionRef) (source.Display, error) {
+	return source.Display{}, errors.New("fakeAdapter 没有合集")
 }
 
 // gate 让之后的 Fetch 停在 channel 上：在 started 上报到，等 release 关闭再继续。

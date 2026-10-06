@@ -26,11 +26,11 @@ var (
 // 同步正在写这部剧时，删除等它的事务提交，再连同刚写入的内容一起删掉；目录源里还在的条目，之后的同步（包括正在进行的这次）
 // 按自然键找不到它，会用新 ID 重新建出来，绑定不会恢复。
 type CatalogService struct {
-	store   repository.Store
+	store   *repository.Store
 	sources *source.Registry // 剧详情里绑定的弹幕源链接和标签由适配器生成
 }
 
-func NewCatalogService(store repository.Store, sources *source.Registry) *CatalogService {
+func NewCatalogService(store *repository.Store, sources *source.Registry) *CatalogService {
 	return &CatalogService{store: store, sources: sources}
 }
 
@@ -165,7 +165,7 @@ func (s *CatalogService) GetImage(ctx context.Context, id int64) (repository.Get
 
 // DeleteSeries 删除一部剧，连同它的海报：同一个事务里先删剧、再删图。剧不存在时返回 404。
 func (s *CatalogService) DeleteSeries(ctx context.Context, id int64) error {
-	return s.store.ExecTx(ctx, func(q repository.Querier) error {
+	return s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		posterID, err := q.DeleteSeries(ctx, id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {

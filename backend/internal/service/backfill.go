@@ -150,13 +150,9 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 	if err != nil {
 		return err
 	}
-	collector, err := collectorOf(adapter)
-	if err != nil {
-		return err
-	}
 
 	listCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	col, err := collector.ListCollection(listCtx, sb.Ref)
+	col, err := adapter.ListCollection(listCtx, sb.Ref)
 	cancel()
 	if err != nil {
 		srcErr, ok := errors.AsType[*source.Error](err)
@@ -166,7 +162,7 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 		r.lastError, r.dead, r.rateLimited = &srcErr.Message, srcErr.Kind == source.NotFound, srcErr.Kind == source.RateLimited
 		return nil
 	}
-	err = s.store.ExecTx(ctx, func(q repository.Querier) error {
+	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		if _, err := q.RecordSeasonBindingListed(ctx, repository.RecordSeasonBindingListedParams{
 			ID: r.id, Title: col.Title, Finished: col.Finished,
 		}); err != nil {
@@ -278,7 +274,7 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 		added   int64
 		created bool
 	)
-	err := s.store.ExecTx(ctx, func(q repository.Querier) error {
+	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		// 先锁季：删季的级联先锁集、后锁季绑定，补建若先锁季绑定、后锁集就会与它死锁；先锁住季，删季在第一步就排队
 		if _, err := q.LockSeason(ctx, sb.SeasonID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
