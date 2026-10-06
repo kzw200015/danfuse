@@ -22,7 +22,7 @@ export interface SeasonBinding {
   numberedByRule: boolean
   /** 集号规则：按优先级排列的正则，第一条匹配上的给出集号 */
   episodePatterns: string[]
-  /** 追更：每 12 小时检查、同步后补建、14 天内每 12 小时重新拉取 */
+  /** 追更：定期检查合集、同步后补建、新建出的绑定定期重新拉取，时间规则见 Settings.follow */
   follow: boolean
   /** dead 表示上次检查时合集已不存在 */
   status: SeasonBindingStatus

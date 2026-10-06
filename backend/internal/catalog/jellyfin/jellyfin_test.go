@@ -556,7 +556,7 @@ func TestURLWithSubpath(t *testing.T) {
 	proxy := httptest.NewServer(http.StripPrefix("/jellyfin", fake)) // 子路径以外的请求返回 404
 	t.Cleanup(proxy.Close)
 
-	src := New(config.Jellyfin{URL: proxy.URL + "/jellyfin", APIKey: testAPIKey, Libraries: []string{"电影"}, ListTimeout: time.Minute})
+	src := New(config.Jellyfin{URL: proxy.URL + "/jellyfin", APIKey: testAPIKey, Libraries: []string{"电影"}, ListTimeout: time.Minute, PosterTimeout: time.Minute})
 	listing, err := src.List(t.Context())
 	if err != nil {
 		t.Fatal(err)

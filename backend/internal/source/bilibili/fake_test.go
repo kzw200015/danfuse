@@ -156,7 +156,9 @@ var sampleTypes = map[string]func(t *testing.T, body []byte) response{
 
 // adapter 连到这个假 B 站的适配器。令牌桶不限速、重试不等待，测试不因时间参数变慢。
 func (f *fakeBilibili) adapter() *Adapter {
-	a := New(config.Bilibili{Sessdata: f.sessdata}, discardLogger)
+	cfg := config.Defaults().Bilibili
+	cfg.Sessdata = f.sessdata
+	a := New(cfg, discardLogger)
 	a.client.http.Transport = f.transport()
 	a.client.limiter = rate.NewLimiter(rate.Inf, 0)
 	a.client.retryDelay = 0

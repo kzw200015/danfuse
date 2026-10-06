@@ -16,6 +16,8 @@ import { Input } from '@/components/ui/input'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { defaultEpisodePatternsOptions, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
+import { useSettings } from '@/hooks/use-settings'
+import { followCostText } from '@/lib/follow'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
@@ -208,6 +210,7 @@ function CandidatePreview({
 }) {
   const reload = useReloadSeries()
   const watch = useWatchSeasonBinding()
+  const { data: settings } = useSettings()
   // 集号对应预填"合集第 1 集 = 本地第 1 集"，不按合集内容猜：接着上一季编号的番剧在对应表里一眼能看出来，手动改
   const { from, to, setFrom, setTo, mapping } = useMappingDraft({ from: 1, to: 1 })
   const [rule, setRule] = useState(patterns)
@@ -247,8 +250,8 @@ function CandidatePreview({
         </div>
         {candidate.finished && (
           <p className="mt-1 text-xs text-amber-700">
-            已完结，可以关掉追更：新建的季绑定开着追更，建出的绑定在 14 天内每 12
-            小时自动重新拉取一次。
+            已完结，可以关掉追更
+            {settings && `：新建的季绑定开着追更，${followCostText(settings.follow)}`}。
           </p>
         )}
       </div>

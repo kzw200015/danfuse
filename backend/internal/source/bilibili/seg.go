@@ -12,10 +12,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-const (
-	segmentSeconds     = 360 // 每段 6 分钟
-	segmentConcurrency = 10  // 单个绑定内同时进行的请求数：分段与 XML 一起算
-)
+const segmentSeconds = 360 // 每段 6 分钟
 
 // segment 拉取 cid 的第 n 段（从 1 开始）。304 为空段；响应是 JSON 时是 B 站的错误，见 binaryError。
 // 弹幕已关闭的视频返回只有 state=1 的响应，解码结果为空，算成功。

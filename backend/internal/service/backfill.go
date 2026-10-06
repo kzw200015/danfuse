@@ -15,13 +15,6 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// 追更的时间规则，写死在代码里，不加配置项。
-const (
-	followScanInterval  = time.Minute         // 后台扫描的间隔
-	followCheckInterval = 12 * time.Hour      // 检查合集的周期，也是每个绑定自动重新拉取的最短间隔
-	followRefetchWindow = 14 * 24 * time.Hour // 自动重新拉取的窗口：绑定建出后 14 天
-)
-
 var (
 	// errSeasonBindingGone 补建期间季绑定被删除：这一轮随即结束，什么都不再写。
 	errSeasonBindingGone = errors.New("season binding deleted")
@@ -29,14 +22,14 @@ var (
 	errEpisodeGone = errors.New("episode deleted")
 )
 
-// scan 追更的扫描，Run 每分钟在后台开始一次：按上次检查时间从早到晚、一次一个地补建到期的季绑定（ListDueSeasonBindings）。
+// scan 追更的扫描，Run 每隔 follow.scan_interval 在后台开始一次：按上次检查时间从早到晚、一次一个地补建到期的季绑定（ListDueSeasonBindings）。
 // 上一次扫描还没做完时两次扫描同时进行：正在补建的（另一次扫描、手动触发或其他实例）跳过，
 // 列出之后才检查过的（拿到租约之后再确认一次）也跳过，同一个季绑定不会重复补建。
-// 与同步不耦合：新集靠"这一季里有集晚于上次检查时间建出"在一分钟内被发现。
-// 有到期的季绑定时，扫描做完记一条 "follow scan finished"：到期几个、补建了几个、跳过了几个；没有到期的不记，免得每分钟一条。
+// 与同步不耦合：新集靠"这一季里有集晚于上次检查时间建出"在一个扫描间隔内被发现。
+// 有到期的季绑定时，扫描做完记一条 "follow scan finished"：到期几个、补建了几个、跳过了几个；没有到期的不记，免得每次扫描一条。
 func (s *SeasonBindingService) scan(ctx context.Context) {
 	start := time.Now()
-	due, err := s.store.ListDueSeasonBindings(ctx, dueParams(nil))
+	due, err := s.store.ListDueSeasonBindings(ctx, s.dueParams(nil))
 	if err != nil {
 		if ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "list due season bindings failed", "error", err)
@@ -75,7 +68,7 @@ func (s *SeasonBindingService) scanOne(ctx context.Context, id int64) bool {
 	ctx = lease.Context()
 
 	// 列出之后、拿到租约之前，它可能刚被手动补建或其他实例的扫描检查过
-	due, err := s.store.ListDueSeasonBindings(ctx, dueParams(&id))
+	due, err := s.store.ListDueSeasonBindings(ctx, s.dueParams(&id))
 	if err != nil {
 		if ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "check season binding due failed", "season_binding_id", id, "error", err)
@@ -108,14 +101,15 @@ func dueReasons(d repository.ListDueSeasonBindingsRow) []string {
 	return reasons
 }
 
-// dueParams 按现在的时间判定追更是否到期的参数；id 不为 nil 时只判定这一个季绑定。
-func dueParams(id *int64) repository.ListDueSeasonBindingsParams {
+// dueParams 按现在的时间和追更的时间规则（follow.check_interval、follow.refetch_window）判定追更是否到期的参数；
+// id 不为 nil 时只判定这一个季绑定。
+func (s *SeasonBindingService) dueParams(id *int64) repository.ListDueSeasonBindingsParams {
 	now := time.Now()
 	return repository.ListDueSeasonBindingsParams{
 		ID:                   id,
-		DueBefore:            now.Add(-followCheckInterval),
-		CreatedAfter:         now.Add(-followRefetchWindow),
-		CheckIntervalSeconds: int32(followCheckInterval / time.Second),
+		DueBefore:            now.Add(-s.follow.CheckInterval),
+		CreatedAfter:         now.Add(-s.follow.RefetchWindow),
+		CheckIntervalSeconds: s.follow.CheckInterval.Seconds(),
 	}
 }
 
@@ -143,9 +137,9 @@ type backfillRound struct {
 // backfill 补建一轮，调用方持有这个季绑定的租约，ctx 是租约的 ctx：
 //  1. 在事务之外列出合集：NotFound 标为失效、限流和其他上游错误记下原因，都结束这一轮；成功则恢复为正常，保存条目。
 //  2. 按合集顺序逐个处理还没处理过、对得上、目录里有对应的集的条目（见 backfillItem）。
-//  3. 追更开着时，自动重新拉取它建出的、建出不到 14 天、距上次拉取已满 12 小时的绑定（见 refetchRecent）。
+//  3. 追更开着时，自动重新拉取它建出的、在重新拉取的窗口内、距上次拉取已满一个检查周期的绑定（见 refetchRecent）。
 //  4. 正常结束或因错误、限流结束时，把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算"上次检查之后才有的"，
-//     一分钟后会被再扫到。被 ctx 取消（关闭服务、租约丢失）时不写，一分钟内接着做。
+//     下一次扫描会再扫到。被 ctx 取消（关闭服务、租约丢失）时不写，下一次扫描接着做。
 //
 // trigger、due 只用于日志：trigger 取值同同步（triggerSchedule 为追更的扫描，triggerManual 为创建、立即补建、改集号对应、打开追更），
 // due 是追更的扫描触发时到期的原因（dueReasons），手动触发时为 nil。
@@ -422,19 +416,20 @@ func (s *SeasonBindingService) setItemError(ctx context.Context, id int64, ref [
 	return nil
 }
 
-// refetchRecent 追更开着时（不论这一轮由什么触发），按上次拉取时间从早到晚重新拉取这个季绑定建出的、建出不到 14 天、
-// 距上次拉取已满 12 小时的绑定，复用 BindingService.refetch 的只增不删模式：NotFound 照旧标为失效，限流结束这一轮。
-// 是否满 12 小时在拉取每个绑定之前按当时的时间判断，前面的绑定拉取期间到期的也接着拉取。
+// refetchRecent 追更开着时（不论这一轮由什么触发），按上次拉取时间从早到晚重新拉取这个季绑定建出的、
+// 建出不到 follow.refetch_window、距上次拉取已满 follow.check_interval 的绑定，
+// 复用 BindingService.refetch 的只增不删模式：NotFound 照旧标为失效，限流结束这一轮。
+// 是否满一个检查周期在拉取每个绑定之前按当时的时间判断，前面的绑定拉取期间到期的也接着拉取。
 func (s *SeasonBindingService) refetchRecent(ctx context.Context, r *backfillRound) error {
 	candidates, err := s.store.ListRecentBackfilledBindings(ctx, repository.ListRecentBackfilledBindingsParams{
-		SeasonBindingID: r.id, CreatedAfter: time.Now().Add(-followRefetchWindow),
+		SeasonBindingID: r.id, CreatedAfter: time.Now().Add(-s.follow.RefetchWindow),
 	})
 	if err != nil {
 		return fmt.Errorf("list recent bindings of season binding %d: %w", r.id, err)
 	}
 	for _, c := range candidates {
-		if c.LastFetchedAt != nil && c.LastFetchedAt.After(time.Now().Add(-followCheckInterval)) {
-			return nil // 按上次拉取时间排序，后面的也没到 12 小时
+		if c.LastFetchedAt != nil && c.LastFetchedAt.After(time.Now().Add(-s.follow.CheckInterval)) {
+			return nil // 按上次拉取时间排序，后面的也没满一个检查周期
 		}
 		sb, err := s.getSeasonBinding(ctx, r.id)
 		if err != nil {

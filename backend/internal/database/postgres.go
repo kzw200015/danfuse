@@ -7,16 +7,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
 )
 
-const connectTimeout = 10 * time.Second
-
-// Connect 创建连接池并检查连通性，不执行迁移（见 Migrate）。用完由调用方关闭。
+// Connect 创建连接池并检查连通性，总时限 cfg.ConnectTimeout（0 表示不限），不执行迁移（见 Migrate）。用完由调用方关闭。
 func Connect(ctx context.Context, cfg config.Database, logger *slog.Logger) (*pgxpool.Pool, error) {
 	poolCfg, err := pgxpool.ParseConfig(cfg.DSN)
 	if err != nil {
@@ -35,8 +32,11 @@ func Connect(ctx context.Context, cfg config.Database, logger *slog.Logger) (*pg
 		poolCfg.MaxConnIdleTime = cfg.MaxConnIdleTime
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
+	if cfg.ConnectTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.ConnectTimeout)
+		defer cancel()
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {

@@ -90,7 +90,7 @@ RETURNING *;
 -- name: RecordFetch :exec
 -- 一次拉取成功后更新弹幕源的信息：标题、时长用这次拉取的值覆盖，拉取成功即为 active。
 -- 只更新拉取相关的列，不覆盖 offset；计数由 RecordDanmaku 维护。
--- 拉取时间由应用写入：追更按它判断自动重新拉取是否已满 12 小时，与上次检查时间用同一个时钟。
+-- 拉取时间由应用写入：追更按它判断自动重新拉取是否已满一个检查周期，与上次检查时间用同一个时钟。
 UPDATE bindings
 SET title           = @title,
     duration        = @duration::int,

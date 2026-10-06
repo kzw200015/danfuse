@@ -38,7 +38,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 
 	catalogs := service.NewCatalogService(store, sources)
 	bindings := service.NewBindingService(store, sources, logger)
-	seasonBindings := service.NewSeasonBindingService(store, pool, sources, bindings, logger)
+	seasonBindings := service.NewSeasonBindingService(store, pool, sources, bindings, cfg.Follow, logger)
 	syncs := service.NewSyncService(store, pool, catalogSource, cfg.Sync, logger)
 	dandanService := service.NewDandanService(store, sources)
 
@@ -48,7 +48,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Binding:       handler.NewBindingHandler(bindings, cfg.DanmakuFile),
 		SeasonBinding: handler.NewSeasonBindingHandler(seasonBindings),
 		Sync:          handler.NewSyncHandler(syncs),
-		Settings:      handler.NewSettingsHandler(cfg.Dandanplay, cfg.CatalogSource, cfg.Sync, cfg.Bilibili),
+		Settings:      handler.NewSettingsHandler(cfg),
 	}
 	return &App{
 		server:         server.New(cfg.Server, cfg.Dandanplay, logger, handlers, dandan.NewHandler(dandanService)),

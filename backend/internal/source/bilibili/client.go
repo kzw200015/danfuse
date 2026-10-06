@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -25,11 +26,9 @@ const (
 	userAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
 	referer    = "https://www.bilibili.com"
 
-	requestTimeout  = 10 * time.Second // 单个请求的超时，超时后照常重试；整次拉取的总时限由调用方的 ctx 决定
-	maxRetries      = 3                // rate_limited 与 upstream 最多重试的次数
+	maxRetries      = 3 // rate_limited 与 upstream 最多重试的次数
 	firstRetryDelay = 500 * time.Millisecond
 	maxRetryDelay   = 4 * time.Second
-	limiterBurst    = 10          // 全局令牌桶的容量：空闲之后最多连发几个请求，贴链接、重新拉取时开头几个请求不排队
 	slowLimiterWait = time.Second // 在令牌桶前等了这么久以上才记 debug 日志
 	maxBodySize     = 32 << 20    // 响应体（解压后）的上限，超过时按 Upstream 处理，不截断（截断的 protobuf 可能在弹幕边界上解出部分弹幕）
 )
@@ -84,16 +83,16 @@ type client struct {
 	logger     *slog.Logger
 }
 
-// requestsPerSecond 全局令牌桶的平均速率（bilibili.requests_per_second），桶的容量为 limiterBurst。
-func newClient(sessdata string, requestsPerSecond float64, logger *slog.Logger) *client {
+// newClient 按 cfg 建出 HTTP 客户端与全局令牌桶；整次拉取的总时限由调用方的 ctx 决定。
+func newClient(cfg config.Bilibili, logger *slog.Logger) *client {
 	return &client{
 		http: &http.Client{
-			Timeout: requestTimeout,
+			Timeout: cfg.RequestTimeout,
 			// 不自动跟随跳转：短链只读 Location 再自己解析，其他接口本来就不跳转
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
-		sessdata:   sessdata,
-		limiter:    rate.NewLimiter(rate.Limit(requestsPerSecond), limiterBurst),
+		sessdata:   cfg.Sessdata,
+		limiter:    rate.NewLimiter(rate.Limit(cfg.RequestsPerSecond), cfg.Burst),
 		retryDelay: firstRetryDelay,
 		logger:     logger,
 	}

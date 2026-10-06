@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -225,6 +226,9 @@ type seasonEnv struct {
 	logs lockedBuffer // 服务的日志，同时写进测试输出
 }
 
+// testFollow 追更的时间规则，取配置项的默认值。
+var testFollow = config.Defaults().Follow
+
 // newSeasonEnv 在 synctest 气泡里调用，pool 是气泡里新建的连接池。集的建出时间为现在（假时间），与追更比较的时间一致。
 func newSeasonEnv(t *testing.T, pool *pgxpool.Pool, src *fakeCollector, episodes ...int) *seasonEnv {
 	t.Helper()
@@ -247,7 +251,7 @@ func (e *seasonEnv) start() {
 	store := repository.NewStore(e.pool)
 	sources := source.NewRegistry(e.src)
 	logger := slogTo(io.MultiWriter(e.t.Output(), &e.logs))
-	e.svc = NewSeasonBindingService(store, e.pool, sources, NewBindingService(store, sources, logger), logger)
+	e.svc = NewSeasonBindingService(store, e.pool, sources, NewBindingService(store, sources, logger), testFollow, logger)
 	e.stop = runInBackground(e.t, e.svc)
 }
 
@@ -1130,12 +1134,12 @@ func TestFollowChecksPeriodically(t *testing.T) {
 		id := env.create(1, 1).ID
 		checks := func() int { return src.listCount() - 2 } // 创建时列出一次，随后补建又检查一次
 
-		time.Sleep(followCheckInterval - followScanInterval)
+		time.Sleep(testFollow.CheckInterval - testFollow.ScanInterval)
 		synctest.Wait()
 		if n := checks(); n != 0 {
 			t.Fatalf("不到 12 小时又检查了 %d 次", n)
 		}
-		time.Sleep(2 * followScanInterval)
+		time.Sleep(2 * testFollow.ScanInterval)
 		synctest.Wait()
 		if n := checks(); n != 1 {
 			t.Fatalf("满 12 小时后检查了 %d 次，want 1", n)
@@ -1144,7 +1148,7 @@ func TestFollowChecksPeriodically(t *testing.T) {
 		if _, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Follow: new(false)}); err != nil {
 			t.Fatalf("Update: %v", err)
 		}
-		time.Sleep(3 * followCheckInterval)
+		time.Sleep(3 * testFollow.CheckInterval)
 		synctest.Wait()
 		if n := checks(); n != 1 {
 			t.Errorf("关掉追更后又检查了 %d 次", n-1)
@@ -1183,7 +1187,7 @@ func TestFollowNewEpisode(t *testing.T) {
 				synctest.Wait()
 
 				env.addEpisode(2)
-				time.Sleep(followScanInterval)
+				time.Sleep(testFollow.ScanInterval)
 				synctest.Wait()
 
 				want := []string{"1 a 1"}
@@ -1212,7 +1216,7 @@ func TestFollowRechecksDue(t *testing.T) {
 		src.collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 1)}}
 		src.gate()
 
-		time.Sleep(followCheckInterval)
+		time.Sleep(testFollow.CheckInterval)
 		<-src.started // 扫描列出了两个季绑定，第一个停在拉取 a 上
 		lists := src.listCount()
 		env.backfill(second.ID)
@@ -1252,7 +1256,7 @@ func TestFollowResumesAfterRestart(t *testing.T) {
 
 		src.started = nil
 		env.start()
-		time.Sleep(followScanInterval)
+		time.Sleep(testFollow.ScanInterval)
 		synctest.Wait()
 
 		assertStrings(t, "重启后的绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
@@ -1287,11 +1291,11 @@ func TestAutoRefetch(t *testing.T) {
 		env.backfill(id)
 		assertStrings(t, "一小时后的拉取", src.fetchedNames(), []string{"a", "b"})
 
-		time.Sleep(followCheckInterval - time.Hour)
+		time.Sleep(testFollow.CheckInterval - time.Hour)
 		synctest.Wait()
 		assertStrings(t, "12 小时后的拉取", src.fetchedNames(), []string{"a", "b", "a", "b"})
-		if at := env.fetchedAt(2); !at.Equal(start.Add(followCheckInterval)) {
-			t.Errorf("上次拉取时间 = %v, want %v", at, start.Add(followCheckInterval))
+		if at := env.fetchedAt(2); !at.Equal(start.Add(testFollow.CheckInterval)) {
+			t.Errorf("上次拉取时间 = %v, want %v", at, start.Add(testFollow.CheckInterval))
 		}
 
 		// 刚拉取过再触发补建，不再重新拉取
@@ -1312,9 +1316,9 @@ func TestAutoRefetchWindow(t *testing.T) {
 		id := env.create(1, 1).ID
 		now := time.Now()
 		// 绑定 1～4 依次为 a～d：a 建出满 14 天；b 建出 13 天、拉取已满 12 小时；c 建出 13 天、拉取还差一小时满 12 小时；d 同 b，但弹幕源已不存在
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 1`, now.Add(-followRefetchWindow), now.Add(-followCheckInterval-time.Hour))
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id IN (2, 4)`, now.Add(-13*24*time.Hour), now.Add(-followCheckInterval-time.Hour))
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 3`, now.Add(-13*24*time.Hour), now.Add(-followCheckInterval+time.Hour))
+		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 1`, now.Add(-testFollow.RefetchWindow), now.Add(-testFollow.CheckInterval-time.Hour))
+		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id IN (2, 4)`, now.Add(-13*24*time.Hour), now.Add(-testFollow.CheckInterval-time.Hour))
+		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 3`, now.Add(-13*24*time.Hour), now.Add(-testFollow.CheckInterval+time.Hour))
 		delete(src.videos, "d")
 
 		if _, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Follow: new(false)}); err != nil {
@@ -1350,14 +1354,14 @@ func TestAutoRefetchDueAfterCheck(t *testing.T) {
 
 		checks := func() int { return src.listCount() - 2 } // 创建时列出一次，随后补建又检查一次
 
-		time.Sleep(followCheckInterval)
+		time.Sleep(testFollow.CheckInterval)
 		synctest.Wait()
 		assertStrings(t, "满 12 小时的检查", src.fetchedNames(), []string{"a"})
 		if n := checks(); n != 1 {
 			t.Fatalf("检查了 %d 次，want 1", n)
 		}
 
-		time.Sleep(followScanInterval)
+		time.Sleep(testFollow.ScanInterval)
 		synctest.Wait()
 		assertStrings(t, "一分钟后", src.fetchedNames(), []string{"a", "a"})
 

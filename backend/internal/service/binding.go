@@ -262,7 +262,7 @@ func (s *BindingService) Delete(ctx context.Context, id int64) error {
 // saveFetched 在写入事务里保存一次拉取的结果：更新标题、时长与拉取时间 fetchedAt，再用 writeDanmaku 写入弹幕。
 // 调用方已在同一个事务里锁住或刚插入这个绑定。返回更新后的绑定和新增条数（replace 时即这次的总条数）。
 //
-// 拉取时间取自应用的时钟（拉取完成时的 time.Now()），不用数据库的 now()：追更按它判断自动重新拉取是否已满 12 小时，
+// 拉取时间取自应用的时钟（拉取完成时的 time.Now()），不用数据库的 now()：追更按它判断自动重新拉取是否已满一个检查周期，
 // 与上次检查时间用同一个时钟，测试里也能用假时间推进。
 func saveFetched(ctx context.Context, q *repository.Queries, bindingID int64, f source.Fetched, replace bool, fetchedAt time.Time) (repository.Binding, int64, error) {
 	err := q.RecordFetch(ctx, repository.RecordFetchParams{

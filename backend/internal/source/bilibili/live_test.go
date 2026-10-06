@@ -181,7 +181,7 @@ func TestLive(t *testing.T) {
 	if !*live {
 		t.Skip("live 模式默认关闭，用 -args -live 打开")
 	}
-	a := New(config.Bilibili{RequestsPerSecond: 3}, discardLogger) // 与默认值一致
+	a := New(config.Defaults().Bilibili, discardLogger)
 	if *update {
 		a.client.http.Transport = recordFake(t).transport()
 	}

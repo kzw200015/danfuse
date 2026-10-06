@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
@@ -31,7 +32,7 @@ var (
 //
 // 生命周期同 SyncService：App.Run 运行 Run(ctx)（循环是 backgroundLoop），补建都用 Run 的 ctx（应用级），不用 HTTP 请求的 ctx；
 // 手动触发（创建、立即补建、改集号对应、打开追更）经 Run 的循环立即在后台开始，不同季绑定的补建互不等待；
-// 追更的扫描由 Run 的循环每分钟在后台开始一次、一次补建一个，不等上一次扫描做完。
+// 追更的扫描由 Run 的循环每隔 follow.scan_interval 在后台开始一次、一次补建一个，不等上一次扫描做完；时间规则见 config.Follow。
 // ctx 取消时进行中的扫描和补建停下，Run 等它们返回，之后 main 才关闭连接池。
 //
 // "补建中"以按季绑定的租约（database.LeaseSeasonBackfill）为准，多实例同样成立，季绑定上不存运行状态。
@@ -41,16 +42,18 @@ type SeasonBindingService struct {
 	pool     *pgxpool.Pool // 拿按季绑定的租约
 	sources  *source.Registry
 	bindings *BindingService // 自动重新拉取复用它的 refetch
+	follow   config.Follow   // 追更的时间规则
 	logger   *slog.Logger
 	loop     *backgroundLoop // Run 的循环：追更的扫描与手动触发，进行中的扫描和补建
 }
 
-func NewSeasonBindingService(store *repository.Store, pool *pgxpool.Pool, sources *source.Registry, bindings *BindingService, logger *slog.Logger) *SeasonBindingService {
+func NewSeasonBindingService(store *repository.Store, pool *pgxpool.Pool, sources *source.Registry, bindings *BindingService, follow config.Follow, logger *slog.Logger) *SeasonBindingService {
 	return &SeasonBindingService{
 		store:    store,
 		pool:     pool,
 		sources:  sources,
 		bindings: bindings,
+		follow:   follow,
 		logger:   logger,
 		loop:     newBackgroundLoop(),
 	}
@@ -506,10 +509,10 @@ func (s *SeasonBindingService) Delete(ctx context.Context, id int64, withBinding
 }
 
 // Run 后台循环，阻塞到 ctx 取消；返回前等进行中的扫描和补建停下。只能调用一次。
-// 每分钟在后台开始一次追更的扫描（见 scan），启动时不立即扫描；手动触发拿到租约就在后台开始补建，
+// 每隔 follow.scan_interval 在后台开始一次追更的扫描（见 scan），启动时不立即扫描；手动触发拿到租约就在后台开始补建，
 // 不同季绑定的补建互不等待（对平台的请求由适配器自己限速）。
 func (s *SeasonBindingService) Run(ctx context.Context) {
-	ticker := time.NewTicker(followScanInterval)
+	ticker := time.NewTicker(s.follow.ScanInterval)
 	defer ticker.Stop()
 	s.loop.run(ctx, ticker.C, func(ctx context.Context) {
 		s.loop.spawn(func() { s.scan(ctx) })

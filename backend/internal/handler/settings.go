@@ -8,15 +8,13 @@ import (
 )
 
 // SettingsHandler 只读的配置。没有业务逻辑，直接读配置，不设 service。
+// 拿整份配置：多返回一项配置时只改 Get，不改构造函数；不该返回的（API key、SESSDATA 的值）由 Get 自己挑出去。
 type SettingsHandler struct {
-	dandanplay    config.Dandanplay
-	catalogSource config.CatalogSource
-	sync          config.Sync
-	bilibili      config.Bilibili
+	cfg *config.Config
 }
 
-func NewSettingsHandler(dandanplay config.Dandanplay, catalogSource config.CatalogSource, sync config.Sync, bilibili config.Bilibili) *SettingsHandler {
-	return &SettingsHandler{dandanplay: dandanplay, catalogSource: catalogSource, sync: sync, bilibili: bilibili}
+func NewSettingsHandler(cfg *config.Config) *SettingsHandler {
+	return &SettingsHandler{cfg: cfg}
 }
 
 type settingsResponse struct {
@@ -29,6 +27,15 @@ type settingsResponse struct {
 	SyncInterval float64 `json:"syncInterval"`
 	// BilibiliSessdataConfigured 是否配置了 B 站的 SESSDATA。只给出是否配置，不返回值：它就是账号的登录凭据。
 	BilibiliSessdataConfigured bool `json:"bilibiliSessdataConfigured"`
+	// Follow 追更的时间规则，管理界面据此写出追更的说明。
+	Follow followSettings `json:"follow"`
+}
+
+// followSettings 追更的时间规则，单位秒。
+type followSettings struct {
+	ScanInterval  float64 `json:"scanInterval"`
+	CheckInterval float64 `json:"checkInterval"`
+	RefetchWindow float64 `json:"refetchWindow"` // 0 表示不自动重新拉取
 }
 
 // catalogSourceSettings 目录源的配置，不含 API key。
@@ -40,17 +47,23 @@ type catalogSourceSettings struct {
 
 // Get GET /api/settings
 func (h *SettingsHandler) Get(c *echo.Context) error {
+	cfg := h.cfg
 	resp := settingsResponse{
-		SyncInterval:               h.sync.Interval.Seconds(),
-		BilibiliSessdataConfigured: h.bilibili.Sessdata != "",
+		SyncInterval:               cfg.Sync.Interval.Seconds(),
+		BilibiliSessdataConfigured: cfg.Bilibili.Sessdata != "",
+		Follow: followSettings{
+			ScanInterval:  cfg.Follow.ScanInterval.Seconds(),
+			CheckInterval: cfg.Follow.CheckInterval.Seconds(),
+			RefetchWindow: cfg.Follow.RefetchWindow.Seconds(),
+		},
 	}
-	if h.dandanplay.Token != "" {
-		resp.DandanplayToken = &h.dandanplay.Token
+	if cfg.Dandanplay.Token != "" {
+		resp.DandanplayToken = &cfg.Dandanplay.Token
 	}
 	// 只读取选中那一种的设置块；kind 为空表示未配置目录源（config 已校验，只能为空或 jellyfin）
-	if h.catalogSource.Kind == config.KindJellyfin {
-		jf := h.catalogSource.Jellyfin
-		resp.CatalogSource = &catalogSourceSettings{Kind: h.catalogSource.Kind, URL: jf.URL, Libraries: jf.Libraries}
+	if cfg.CatalogSource.Kind == config.KindJellyfin {
+		jf := cfg.CatalogSource.Jellyfin
+		resp.CatalogSource = &catalogSourceSettings{Kind: cfg.CatalogSource.Kind, URL: jf.URL, Libraries: jf.Libraries}
 	}
 	return response.OK(c, resp)
 }

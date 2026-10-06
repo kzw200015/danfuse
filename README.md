@@ -132,22 +132,30 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `database.min_conns` | `DANFUSE_DATABASE_MIN_CONNS` | `1` | 连接池保持的最少连接数 |
 | `database.max_conn_lifetime` | `DANFUSE_DATABASE_MAX_CONN_LIFETIME` | `1h` | 单个连接的最长使用时间 |
 | `database.max_conn_idle_time` | `DANFUSE_DATABASE_MAX_CONN_IDLE_TIME` | `30m` | 连接空闲多久后关闭 |
+| `database.connect_timeout` | `DANFUSE_DATABASE_CONNECT_TIMEOUT` | `10s` | 启动时连接数据库的超时，超时后服务退出 |
 | `dandanplay.token` | `DANFUSE_DANDANPLAY_TOKEN` | 空 | 可选。设置后弹弹 API 挂在 `/dandanplay/<token>/api/v2`，否则为 `/dandanplay/api/v2`。只能含字母、数字和 `-` `.` `_` `~`，不能是 `.` 或 `..` |
 | `catalog_source.kind` | `DANFUSE_CATALOG_SOURCE_KIND` | 空 | 目录源的种类。为空表示不启用同步；目前只支持 `jellyfin` |
 | `catalog_source.jellyfin.url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL` | 空 | Jellyfin 的地址，`http://` 或 `https://` 开头，可以带子路径，不能带查询串；末尾的 `/` 会被去掉 |
 | `catalog_source.jellyfin.api_key` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY` | 空 | Jellyfin 的 API key，在"控制台 → API 密钥"里生成 |
 | `catalog_source.jellyfin.libraries` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES` | 空 | 要同步的媒体库名。YAML 里写成列表，环境变量里用逗号分隔，例如 `番剧,电影`。媒体库的类型必须是节目或电影，其他类型的会被跳过 |
 | `catalog_source.jellyfin.list_timeout` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT` | `2m` | 同步时列出媒体库、剧和电影、季和集，每个请求的超时。媒体库很大或 Jellyfin 很慢、同步提示"请求 Jellyfin 超时"时调大 |
+| `catalog_source.jellyfin.poster_timeout` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT` | `30s` | 同步时下载一张海报的超时 |
 | `sync.interval` | `DANFUSE_SYNC_INTERVAL` | `0` | 定时同步的间隔，例如 `24h`；`0` 表示关闭，只手动同步。启动时不会立即同步 |
 | `sync.keep_runs` | `DANFUSE_SYNC_KEEP_RUNS` | `20` | 同步记录保留最近几次，至少 `1` |
+| `follow.scan_interval` | `DANFUSE_FOLLOW_SCAN_INTERVAL` | `1m` | 追更的后台扫描间隔：目录同步进来新的集后，最迟过这么久补建 |
+| `follow.check_interval` | `DANFUSE_FOLLOW_CHECK_INTERVAL` | `12h` | 追更检查合集的周期，也是季绑定建出的绑定自动重新拉取的最短间隔 |
+| `follow.refetch_window` | `DANFUSE_FOLLOW_REFETCH_WINDOW` | `336h` | 季绑定建出的绑定在建出后多久之内自动重新拉取（默认 14 天）；`0` 表示不自动重新拉取。调大或把 `check_interval` 调小都会增加 B 站请求量，见[追更](#追更)的请求量 |
 | `bilibili.sessdata` | `DANFUSE_BILIBILI_SESSDATA` | 空 | 可选。B 站登录 Cookie 里 SESSDATA 的值，配置后以登录身份拉取，弹幕更全 |
 | `bilibili.requests_per_second` | `DANFUSE_BILIBILI_REQUESTS_PER_SECOND` | `3` | 平均每秒最多请求 B 站几次，所有绑定、季绑定共用（空闲之后允许一次连发几个请求），可以是小数（例如 `0.5`）。经常提示"B 站限流"时调小；调小后拉取变慢，弹幕多的视频可能超过约 25 秒的拉取时限 |
+| `bilibili.burst` | `DANFUSE_BILIBILI_BURST` | `10` | 空闲之后最多连发几个请求，不受 `requests_per_second` 限制，贴链接、重新拉取时开头的几个请求不排队。至少 `1` |
+| `bilibili.fetch_concurrency` | `DANFUSE_BILIBILI_FETCH_CONCURRENCY` | `10` | 拉取一个视频的弹幕时同时进行的请求数，至少 `1`。总速率仍受 `requests_per_second` 限制 |
+| `bilibili.request_timeout` | `DANFUSE_BILIBILI_REQUEST_TIMEOUT` | `10s` | 请求 B 站时单个请求的超时，超时后照常重试；整次拉取另有约 25 秒的总时限 |
 | `danmaku_file.max_files` | `DANFUSE_DANMAKU_FILE_MAX_FILES` | `50` | 上传弹幕文件时一次最多几份 |
 | `danmaku_file.max_file_mb` | `DANFUSE_DANMAKU_FILE_MAX_FILE_MB` | `10` | 上传弹幕文件时单份的上限，单位 MB |
 | `danmaku_file.max_upload_mb` | `DANFUSE_DANMAKU_FILE_MAX_UPLOAD_MB` | `50` | 上传弹幕文件时一次合计的上限，单位 MB。调大时注意反向代理的请求体上限（例如 nginx 的 `client_max_body_size`）；上传还受 `server.read_timeout` 和管理界面 35 秒请求超时的限制 |
 
 - `catalog_source.kind` 为 `jellyfin` 时，`url`、`api_key`、`libraries` 都必须填写；`sync.interval` 大于 0 时必须配置目录源。
-- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；`server.write_timeout` 不是 `0` 又小于 `30s`；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名，或 `list_timeout` 不大于 0；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；`sync.keep_runs` 小于 1；token 或 SESSDATA 含不允许的字符；`bilibili.requests_per_second` 不大于 0；上传弹幕文件的三个上限有小于 1 的。
+- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；`database.connect_timeout` 不大于 0；`server.write_timeout` 不是 `0` 又小于 `30s`；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名，或 `list_timeout`、`poster_timeout` 不大于 0；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；`sync.keep_runs` 小于 1；`follow.scan_interval`、`follow.check_interval` 不大于 0 或 `follow.refetch_window` 为负；token 或 SESSDATA 含不允许的字符；`bilibili.requests_per_second`、`bilibili.request_timeout` 不大于 0，或 `bilibili.burst`、`bilibili.fetch_concurrency` 小于 1；上传弹幕文件的三个上限有小于 1 的。
 - 启动时不连接 Jellyfin，两个服务的启动顺序互不影响；媒体库存不存在、类型对不对在每次同步时检查，有问题的会出现在同步记录的警告里。
 - **SESSDATA**：在浏览器里登录 B 站，从开发者工具的 Cookie 里找到 `SESSDATA`，原样复制它的值（里面的逗号显示为 `%2C`，不要还原），不能含空格、逗号、分号、引号和反斜杠。它会过期，过期后悄悄退化成未登录的效果，需要换上新的值后重启。没有配置时以未登录的身份拉取，弹幕可能不全。
 - Jellyfin 的 API key、SESSDATA 和 token 都不会写进日志；API key 和 SESSDATA 不入库，管理界面上只显示"已配置"。
@@ -382,7 +390,7 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 
 ### 追更
 
-季绑定上的"追更"开关，新建时默认打开，不需要任何配置。开着时：
+季绑定上的"追更"开关，新建时默认打开，不需要任何配置。下面写的时间是默认值，可以用 `follow` 下的[配置项](#配置)调整，管理界面上追更开关的说明按实际配置显示。开着时：
 
 - danfuse 每隔 12 小时（按每个季绑定上次检查的时间算，服务重启不会推迟，也不会多检查）检查一次合集，为新出的集补建绑定；
 - 目录同步进来新的集后一分钟内，这一季开着追更的季绑定会去合集里找这一集，刚下载好的新集很快就有弹幕；
@@ -390,7 +398,7 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 
 关掉追更后，以上自动动作都停止，季绑定和它建出的绑定都保留，随时可以点"立即补建"。打开追更时立即在后台补建一次。剧列表里追更中的剧带一个标记，筛选框旁的按钮可以只看追更中的剧。
 
-**请求量**：重新拉取一个绑定大约要 6～10 次 B 站请求，danfuse 对 B 站限速每秒 3 次。一部 24 集的番新绑时开着追更，接下来 14 天里每天约 400 次请求；1000 多集的长篇（例如名侦探柯南）首次补建约 1 万次请求、一个小时左右，之后 14 天里每天约 2 万次请求、两个小时左右。**完结的番建议在补建完成后关掉追更**，只留下需要追新集的。
+**请求量**（按默认配置）：重新拉取一个绑定大约要 6～10 次 B 站请求，danfuse 对 B 站限速每秒 3 次。一部 24 集的番新绑时开着追更，接下来 14 天里每天约 400 次请求；1000 多集的长篇（例如名侦探柯南）首次补建约 1 万次请求、一个小时左右，之后 14 天里每天约 2 万次请求、两个小时左右。**完结的番建议在补建完成后关掉追更**，只留下需要追新集的。
 
 ### 重新拉取与清空后重新拉取
 
@@ -449,7 +457,7 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 - 不支持港澳台限定的番剧（单集和季绑定都不支持）。从中国大陆的网络请求时，B 站对这类番剧的返回与不存在的番剧相同，贴链接时提示的是"视频不存在"或"番剧不存在"。
 - 季绑定不支持系列（UP 主空间里的"系列"、老的"视频列表"）、收藏夹和课程，只支持番剧的一季、投稿合集和多 P 投稿。
 - 投稿合集和多 P 投稿的集号只能从条目标题里认：UP 主的标题没写集号、或者写法不统一时，要自己填[集号规则](#季绑定)；预告、PV 标题里也写了"第N话"时会和正片撞号，同样要用规则排除。UP 主改了标题之后，下次检查按新标题重新认集号，已经建出的绑定不受影响；认错了就改规则，或者删掉建错的绑定、在集面板上手动绑定。
-- 投稿合集没有完结标志，追更一直开着时会一直每 12 小时检查一次，完结后请手动关掉。
+- 投稿合集没有完结标志，追更一直开着时会一直定期检查（默认每 12 小时一次），完结后请手动关掉。
 - 手机 App 分享出来的整段文字（例如"【标题】 https://b23.tv/xxx"）不能直接贴，只贴其中的链接。
 - 只支持 B 站的弹幕源。
 

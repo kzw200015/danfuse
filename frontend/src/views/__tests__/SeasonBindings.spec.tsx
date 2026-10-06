@@ -185,7 +185,12 @@ describe('添加季绑定', () => {
       'https://www.bilibili.com/bangumi/play/ss36429',
     )
     expect(preview.getByText('B 站番剧 ss36429 · 共 5 条')).toBeInTheDocument()
-    expect(preview.getByText(/已完结，可以关掉追更/)).toBeInTheDocument()
+    // 追更的说明按配置的时间规则写出
+    expect(
+      await preview.findByText(
+        '已完结，可以关掉追更：新建的季绑定开着追更，建出的绑定在 336 小时内每 12 小时自动重新拉取一次。',
+      ),
+    ).toBeInTheDocument()
     expect(preview.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')
     expect(preview.getByRole('textbox', { name: '本地第几集' })).toHaveValue('1')
     // 接着编号的番剧：手动改成合集第 14 集 = 本地第 1 集

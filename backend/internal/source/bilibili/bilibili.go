@@ -68,14 +68,15 @@ func (v ref) encode() source.Ref {
 }
 
 type Adapter struct {
-	client *client
+	client           *client
+	fetchConcurrency int // 拉取一个弹幕源时同时进行的请求数：分段与 XML 一起算
 }
 
 var _ source.Adapter = (*Adapter)(nil)
 
 // New 不连 B 站。同一个进程里只应有一个 Adapter：令牌桶在它里面，所有绑定共用。
 func New(cfg config.Bilibili, logger *slog.Logger) *Adapter {
-	return &Adapter{client: newClient(cfg.Sessdata, cfg.RequestsPerSecond, logger)}
+	return &Adapter{client: newClient(cfg, logger), fetchConcurrency: cfg.FetchConcurrency}
 }
 
 // ID 存入 bindings.adapter，一经发布不能再改。
@@ -163,12 +164,12 @@ func (a *Adapter) Fetch(ctx context.Context, r source.Ref) (source.Fetched, erro
 }
 
 // fetchDanmaku 并发拉取 cid 的 XML 和全部 protobuf 分段：段数为 ceil(时长 / 360)（至少 1 段），按段的顺序拼接。
-// 同时进行的请求不超过 segmentConcurrency 个；任何一个最终失败都整体失败，不返回部分弹幕。
+// 同时进行的请求不超过 fetchConcurrency 个；任何一个最终失败都整体失败，不返回部分弹幕。
 // 配置了 SESSDATA 也照样拉 XML：登录后的 protobuf 是否已经覆盖了它，还没有验证。
 func (a *Adapter) fetchDanmaku(ctx context.Context, cid int64, duration int) (proto, xml []danmaku.Danmaku, err error) {
 	parts := make([][]danmaku.Danmaku, max(1, (duration+segmentSeconds-1)/segmentSeconds))
 	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(segmentConcurrency)
+	g.SetLimit(a.fetchConcurrency)
 	g.Go(func() error {
 		var err error
 		xml, err = a.xmlDanmaku(ctx, cid)
