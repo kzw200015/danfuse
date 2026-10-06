@@ -1,21 +1,34 @@
 import { useState } from 'react'
 import { RadioTowerIcon, SearchIcon } from 'lucide-react'
-import { Link } from 'react-router'
+import { Link, useLocation, useSearchParams } from 'react-router'
 
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSeriesList } from '@/hooks/use-series'
 import { cn } from '@/lib/utils'
 
-import { catalogPath, filterSeries, seriesMeta } from './catalog'
-import { Hint, Poster, scrollIntoView } from './shared'
+import {
+  categorySearch,
+  filterSeries,
+  parseCategory,
+  seriesCategories,
+  seriesMeta,
+} from './catalog'
+import { Hint, Poster, scrollIntoView, useCatalogPath } from './shared'
 
-/** 左栏：剧列表，按剧名或原名筛选、可以只看追更中的，按标题排序 */
+/**
+ * 左栏：剧列表，按分类（地址栏的 ?type=）、剧名或原名筛选，可以只看追更中的，按年份倒序。
+ * 切换分类时选中的剧不变
+ */
 export default function SeriesList({ selectedId }: { selectedId?: number }) {
   const [keyword, setKeyword] = useState('')
   const [followingOnly, setFollowingOnly] = useState(false)
+  const { pathname } = useLocation()
+  const [searchParams] = useSearchParams()
+  const category = parseCategory(searchParams)
+  const path = useCatalogPath()
   const { data, error } = useSeriesList()
-  const list = data ? filterSeries(data, keyword, followingOnly) : []
+  const list = data ? filterSeries(data, { keyword, category, followingOnly }) : []
 
   return (
     <aside className="flex min-h-0 flex-col border-r">
@@ -41,6 +54,24 @@ export default function SeriesList({ selectedId }: { selectedId?: number }) {
           <RadioTowerIcon />
         </Button>
       </div>
+      <nav aria-label="分类" className="flex gap-1 px-2 pb-2">
+        {seriesCategories.map((c) => {
+          const selected = c.value === category
+          return (
+            <Link
+              key={c.value}
+              to={{ pathname, search: categorySearch(searchParams, c.value) }}
+              aria-current={selected ? 'true' : undefined}
+              className={buttonVariants({
+                size: 'xs',
+                variant: selected ? 'secondary' : 'ghost',
+              })}
+            >
+              {c.label}
+            </Link>
+          )
+        })}
+      </nav>
       {data ? (
         <>
           <div className="px-3 pb-1 text-xs text-muted-foreground">{list.length} 部</div>
@@ -48,9 +79,11 @@ export default function SeriesList({ selectedId }: { selectedId?: number }) {
             <Hint>
               {data.length === 0
                 ? '目录是空的，同步之后会出现在这里。'
-                : followingOnly && !keyword.trim()
-                  ? '没有追更中的剧'
-                  : '没有匹配的剧'}
+                : keyword.trim()
+                  ? '没有匹配的剧'
+                  : followingOnly
+                    ? '没有追更中的剧'
+                    : `没有${seriesCategories.find((c) => c.value === category)?.label}`}
             </Hint>
           )}
           <ul className="min-h-0 flex-1 overflow-y-auto">
@@ -59,7 +92,7 @@ export default function SeriesList({ selectedId }: { selectedId?: number }) {
               return (
                 <li key={s.id}>
                   <Link
-                    to={catalogPath(s.id)}
+                    to={path(s.id)}
                     ref={selected ? scrollIntoView : undefined}
                     aria-current={selected ? 'true' : undefined}
                     className={cn(

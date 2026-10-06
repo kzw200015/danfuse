@@ -6,9 +6,9 @@ import { buttonVariants } from '@/components/ui/button'
 import { formatDuration } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
-import { catalogPath, seasonLabel, seasonName, seriesMeta, type Selection } from './catalog'
+import { seasonLabel, seasonName, seriesMeta, type Selection } from './catalog'
 import DeleteButton from './DeleteButton'
-import { Hint, Poster, scrollIntoView } from './shared'
+import { Hint, Poster, scrollIntoView, useCatalogPath } from './shared'
 
 /** 中栏：选中的剧，以及它的季切换、季标题行和集列表。电影只有一集，不显示季切换和集列表 */
 export default function SeriesColumn({
@@ -18,6 +18,7 @@ export default function SeriesColumn({
   series: SeriesDetail
   selection: Selection
 }) {
+  const path = useCatalogPath()
   const seasonPanelOpen = !episode && !missing
   return (
     <section className="flex min-h-0 flex-col border-r">
@@ -36,7 +37,7 @@ export default function SeriesColumn({
             name={`「${series.title}」`}
             target={series}
             remove={() => deleteSeries(series.id)}
-            backTo={catalogPath()}
+            backTo={path()}
           />
         </div>
       </div>
@@ -53,7 +54,7 @@ export default function SeriesColumn({
               return (
                 <Link
                   key={se.id}
-                  to={catalogPath(series.id, se.id)}
+                  to={path(series.id, se.id)}
                   aria-current={selected ? 'true' : undefined}
                   className={buttonVariants({
                     size: 'xs',
@@ -69,7 +70,7 @@ export default function SeriesColumn({
             <>
               {/* 季标题行：在右栏打开季面板 */}
               <Link
-                to={catalogPath(series.id, season.id)}
+                to={path(series.id, season.id)}
                 title="查看整季"
                 aria-current={seasonPanelOpen ? 'true' : undefined}
                 className={cn(
@@ -92,7 +93,7 @@ export default function SeriesColumn({
                   return (
                     <li key={e.id}>
                       <Link
-                        to={catalogPath(series.id, season.id, e.id)}
+                        to={path(series.id, season.id, e.id)}
                         ref={selected ? scrollIntoView : undefined}
                         aria-current={selected ? 'true' : undefined}
                         className={cn(

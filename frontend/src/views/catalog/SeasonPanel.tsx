@@ -2,12 +2,14 @@ import { deleteSeason, type Season, type SeriesDetail } from '@/api/series'
 import { useSeries } from '@/hooks/use-series'
 
 import AddSeasonBindingForm from './AddSeasonBindingForm'
-import { bindingStats, catalogPath, seasonName } from './catalog'
+import { bindingStats, seasonName } from './catalog'
 import DeleteButton from './DeleteButton'
 import SeasonBindingCard from './SeasonBindingCard'
+import { useCatalogPath } from './shared'
 
 /** 右栏：选中整季、没选集时的季面板：这一季的信息、季绑定，以及"删除这一季" */
 export default function SeasonPanel({ series, season }: { series: SeriesDetail; season: Season }) {
+  const path = useCatalogPath()
   const stats = bindingStats(season.episodes)
   // 与剧详情同一份缓存，不另外请求；季绑定卡片用它判断剧详情和轮询到的详情哪个新
   const { dataUpdatedAt } = useSeries(series.id)
@@ -46,7 +48,7 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
           name={seasonName(season)}
           target={season}
           remove={() => deleteSeason(season.id)}
-          backTo={catalogPath(series.id)}
+          backTo={path(series.id)}
         />
       </div>
     </div>

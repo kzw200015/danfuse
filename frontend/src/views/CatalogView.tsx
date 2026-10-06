@@ -6,12 +6,12 @@ import type { SeriesDetail } from '@/api/series'
 import { useSeries } from '@/hooks/use-series'
 import { parseId } from '@/lib/route'
 
-import { catalogPath, resolveSelection, seasonName, type Selection } from './catalog/catalog'
+import { resolveSelection, seasonName, type Selection } from './catalog/catalog'
 import EpisodePanel from './catalog/EpisodePanel'
 import SeasonPanel from './catalog/SeasonPanel'
 import SeriesColumn from './catalog/SeriesColumn'
 import SeriesList from './catalog/SeriesList'
-import { Hint, NotFound } from './catalog/shared'
+import { Hint, NotFound, useCatalogPath } from './catalog/shared'
 
 /**
  * 目录页：剧列表 | 选中的剧 | 集面板或季面板，三栏占满顶栏以下的高度。
@@ -79,9 +79,10 @@ function SelectedSeries({
 
 /** 右栏：集面板、季面板，或季、集已经不存在时的提示 */
 function RightPanel({ series, selection }: { series: SeriesDetail; selection: Selection }) {
+  const path = useCatalogPath()
   const { season, episode } = selection
   if (selection.missing === 'season') {
-    return <NotFound what="这一季" backTo={catalogPath(series.id)} backLabel={series.title} />
+    return <NotFound what="这一季" backTo={path(series.id)} backLabel={series.title} />
   }
   if (selection.missing === 'episode') {
     // 电影在界面上没有季，返回这部电影
@@ -89,7 +90,7 @@ function RightPanel({ series, selection }: { series: SeriesDetail; selection: Se
     return (
       <NotFound
         what="这一集"
-        backTo={movie ? catalogPath(series.id) : catalogPath(series.id, selection.season.id)}
+        backTo={movie ? path(series.id) : path(series.id, selection.season.id)}
         backLabel={movie ? series.title : seasonName(selection.season)}
       />
     )
@@ -105,5 +106,6 @@ function MiddleColumn({ children }: { children: ReactNode }) {
 }
 
 function SeriesNotFound() {
-  return <NotFound what="这部剧" backTo={catalogPath()} backLabel="目录" />
+  const path = useCatalogPath()
+  return <NotFound what="这部剧" backTo={path()} backLabel="目录" />
 }

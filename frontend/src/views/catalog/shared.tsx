@@ -1,11 +1,13 @@
-import { useState, type ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, ExternalLinkIcon, ImageOffIcon } from 'lucide-react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 
 import { imageUrl } from '@/api/images'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+
+import { catalogPath } from './catalog'
 
 /**
  * 剧的海报。没有海报时显示占位图；图片加载失败时也显示占位图（例如同步换了海报、剧列表还没刷新时旧图已被删除）。
@@ -33,6 +35,12 @@ export function Poster({ imageId, className }: { imageId: number | null; classNa
       className={cn(base, 'object-cover', className)}
     />
   )
+}
+
+/** 目录页里的地址：带上地址栏现在的查询参数（剧列表的分类），在目录里点来点去分类不变 */
+export function useCatalogPath() {
+  const { search } = useLocation()
+  return useCallback((...ids: number[]) => catalogPath(...ids) + search, [search])
 }
 
 /** 选中行的 ref：挂载时滚进可见区域，刷新页面后也能看到选中的剧或集 */

@@ -3,8 +3,9 @@ import { formatDuration } from '@/lib/time'
 
 import AddBindingForm from './AddBindingForm'
 import BindingCard from './BindingCard'
-import { catalogPath, seasonName } from './catalog'
+import { seasonName } from './catalog'
 import DeleteButton from './DeleteButton'
+import { useCatalogPath } from './shared'
 import UploadBindingButton from './UploadBindingButton'
 
 /** 右栏：选中一集时的集面板。电影的唯一一集标题为"正片"，路径里不写季；电影只能整部删除，没有"删除这一集" */
@@ -17,6 +18,7 @@ export default function EpisodePanel({
   season: Season
   episode: Episode
 }) {
+  const path = useCatalogPath()
   const movie = series.type === 'movie'
   return (
     <div className="mx-auto grid max-w-3xl gap-4 p-5">
@@ -61,7 +63,7 @@ export default function EpisodePanel({
             name={`第 ${episode.number} 集`}
             target={episode}
             remove={() => deleteEpisode(episode.id)}
-            backTo={catalogPath(series.id, season.id)}
+            backTo={path(series.id, season.id)}
           />
         </div>
       )}

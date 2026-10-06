@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Binding, BindingStatus } from '@/api/bindings'
-import type { Episode, Season, SeriesDetail, SeriesSummary } from '@/api/series'
+import type { Episode, Season, SeriesDetail, SeriesSummary, SeriesType } from '@/api/series'
 import {
   appendFilesMessage,
   bindingStats,
+  categorySearch,
   defaultSeason,
   deletionImpact,
   durationMismatch,
   filterSeries,
   formatFileSize,
+  parseCategory,
   parseOffset,
   resolveSelection,
   seasonLabel,
@@ -17,10 +19,16 @@ import {
   type Selection,
 } from '../catalog'
 
-function summary(id: number, title: string, originalTitle: string | null, year: number | null) {
+function summary(
+  id: number,
+  title: string,
+  originalTitle: string | null,
+  year: number | null,
+  type: SeriesType = 'tv',
+) {
   return {
     id,
-    type: 'tv',
+    type,
     title,
     originalTitle,
     year,
@@ -50,6 +58,26 @@ function season(id: number, number: number, episodeIds: number[] = []): Season {
   }
 }
 
+describe('parseCategory / categorySearch', () => {
+  it.each([
+    ['', 'all'],
+    ['?type=tv', 'tv'],
+    ['?type=movie', 'movie'],
+    ['?type=anime', 'all'],
+  ] as const)('读出 %j', (search, want) => {
+    expect(parseCategory(new URLSearchParams(search))).toBe(want)
+  })
+
+  it.each([
+    ['', 'movie', '?type=movie'],
+    ['?type=movie', 'tv', '?type=tv'],
+    ['?type=movie', 'all', ''],
+    ['?x=1&type=tv', 'all', '?x=1'],
+  ] as const)('%j 选中 %s', (search, category, want) => {
+    expect(categorySearch(new URLSearchParams(search), category)).toBe(want)
+  })
+})
+
 describe('filterSeries', () => {
   const list = [
     summary(1, '星海旅人', 'Star Voyager', 2023),
@@ -58,13 +86,13 @@ describe('filterSeries', () => {
     summary(4, '青石巷日常', null, null),
   ]
   const titles = (keyword: string) =>
-    filterSeries(list, keyword).map((s) => `${s.title} ${s.year ?? '-'}`)
+    filterSeries(list, { keyword }).map((s) => `${s.title} ${s.year ?? '-'}`)
 
   it.each([
-    ['', ['青石巷日常 -', '雾港谜案 2021', '星海旅人 2019', '星海旅人 2023']],
-    ['  ', ['青石巷日常 -', '雾港谜案 2021', '星海旅人 2019', '星海旅人 2023']],
-    ['星海', ['星海旅人 2019', '星海旅人 2023']],
-    [' VOYAGER ', ['星海旅人 2019', '星海旅人 2023']],
+    ['', ['星海旅人 2023', '雾港谜案 2021', '星海旅人 2019', '青石巷日常 -']],
+    ['  ', ['星海旅人 2023', '雾港谜案 2021', '星海旅人 2019', '青石巷日常 -']],
+    ['星海', ['星海旅人 2023', '星海旅人 2019']],
+    [' VOYAGER ', ['星海旅人 2023', '星海旅人 2019']],
     ['谜案', ['雾港谜案 2021']],
     ['不存在', []],
   ])('筛选 %j', (keyword, want) => {
@@ -77,18 +105,34 @@ describe('filterSeries', () => {
       summary(2, '雾港谜案', null, 2021),
       { ...summary(3, '雾港日常', null, null), following: true },
     ]
-    expect(filterSeries(mixed, '', true).map((s) => s.id)).toEqual([3, 1])
-    expect(filterSeries(mixed, '雾港', true).map((s) => s.id)).toEqual([3])
-    expect(filterSeries(mixed, '雾港').map((s) => s.id)).toEqual([2, 3])
+    expect(filterSeries(mixed, { followingOnly: true }).map((s) => s.id)).toEqual([1, 3])
+    expect(filterSeries(mixed, { keyword: '雾港', followingOnly: true }).map((s) => s.id)).toEqual([
+      3,
+    ])
+    expect(filterSeries(mixed, { keyword: '雾港' }).map((s) => s.id)).toEqual([2, 3])
   })
 
-  it('标题里的数字按数值排序', () => {
-    const numbered = [summary(1, '物语 10', null, null), summary(2, '物语 2', null, null)]
-    expect(filterSeries(numbered, '').map((s) => s.title)).toEqual(['物语 2', '物语 10'])
+  it('按分类筛选：与关键词同时生效', () => {
+    const mixed = [
+      summary(1, '星海旅人', null, 2023),
+      summary(2, '星海旅人 剧场版', null, 2024, 'movie'),
+      summary(3, '雾港谜案 剧场版', null, 2021, 'movie'),
+    ]
+    expect(filterSeries(mixed, { category: 'all' }).map((s) => s.id)).toEqual([2, 1, 3])
+    expect(filterSeries(mixed, { category: 'tv' }).map((s) => s.id)).toEqual([1])
+    expect(filterSeries(mixed, { category: 'movie' }).map((s) => s.id)).toEqual([2, 3])
+    expect(filterSeries(mixed, { category: 'movie', keyword: '星海' }).map((s) => s.id)).toEqual([
+      2,
+    ])
+  })
+
+  it('同一年的按标题排，标题里的数字按数值排序', () => {
+    const numbered = [summary(1, '物语 10', null, 2020), summary(2, '物语 2', null, 2020)]
+    expect(filterSeries(numbered).map((s) => s.title)).toEqual(['物语 2', '物语 10'])
   })
 
   it('不改动传入的列表', () => {
-    filterSeries(list, '')
+    filterSeries(list)
     expect(list.map((s) => s.id)).toEqual([1, 2, 3, 4])
   })
 })

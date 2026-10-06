@@ -184,11 +184,56 @@ describe('CatalogView', () => {
     expect(list.queryByRole('link', { name: /长夜灯塔/ })).not.toBeInTheDocument()
   })
 
+  it('剧列表按分类筛选：分类在地址栏里，点进剧、切换分类都保留', async () => {
+    const { router } = renderRoutes('/catalog')
+    const list = within(await screen.findByRole('complementary'))
+    expect(await list.findByText('2 部')).toBeInTheDocument()
+    const categories = within(list.getByRole('navigation', { name: '分类' }))
+    expect(categories.getByRole('link', { name: '全部' })).toHaveAttribute('aria-current', 'true')
+
+    fireEvent.click(categories.getByRole('link', { name: '电影' }))
+
+    expect(router.state.location.search).toBe('?type=movie')
+    expect(await list.findByText('1 部')).toBeInTheDocument()
+    expect(categories.getByRole('link', { name: '电影' })).toHaveAttribute('aria-current', 'true')
+    expect(list.queryByRole('link', { name: /星海旅人/ })).not.toBeInTheDocument()
+
+    // 点进剧，分类留在地址栏里
+    fireEvent.click(list.getByRole('link', { name: /长夜灯塔/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/2'))
+    expect(router.state.location.search).toBe('?type=movie')
+    expect(list.getByText('1 部')).toBeInTheDocument()
+
+    // 切换分类时选中的剧不变
+    fireEvent.click(categories.getByRole('link', { name: '剧集' }))
+    expect(router.state.location.pathname).toBe('/catalog/2')
+    expect(router.state.location.search).toBe('?type=tv')
+    expect(await list.findByRole('link', { name: /星海旅人/ })).toBeInTheDocument()
+
+    fireEvent.change(list.getByRole('textbox', { name: '筛选剧名或原名' }), {
+      target: { value: '灯塔' },
+    })
+    expect(list.getByText('没有匹配的剧')).toBeInTheDocument()
+
+    fireEvent.click(categories.getByRole('link', { name: '全部' }))
+    expect(router.state.location.search).toBe('')
+    expect(await list.findByRole('link', { name: /长夜灯塔/ })).toBeInTheDocument()
+  })
+
+  it('打开带分类的地址，只列出这一类', async () => {
+    renderRoutes('/catalog?type=movie')
+    const list = within(await screen.findByRole('complementary'))
+    expect(await list.findByText('1 部')).toBeInTheDocument()
+    expect(list.getByRole('link', { name: /长夜灯塔/ })).toBeInTheDocument()
+  })
+
   it.each([
     ['/catalog/3', '找不到这部剧', '返回目录', '/catalog'],
     ['/catalog/abc', '找不到这部剧', '返回目录', '/catalog'],
     ['/catalog/1/20', '找不到这一季', '返回星海旅人', '/catalog/1'],
     ['/catalog/1/11/100', '找不到这一集', '返回第 1 季', '/catalog/1/11'],
+    // 返回链接带上剧列表的分类
+    ['/catalog/1/20?type=tv', '找不到这一季', '返回星海旅人', '/catalog/1?type=tv'],
     // 电影在界面上没有季，返回这部电影
     ['/catalog/2/20/999', '找不到这一集', '返回长夜灯塔', '/catalog/2'],
   ])('%s 不存在时提示并返回上一级', async (path, text, back, backTo) => {

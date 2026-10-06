@@ -1,26 +1,56 @@
 import type { AppendFilesResult } from '@/api/bindings'
-import type { Episode, Season, SeriesDetail, SeriesSummary } from '@/api/series'
+import type { Episode, Season, SeriesDetail, SeriesSummary, SeriesType } from '@/api/series'
 
 // 标题里的数字按数值比较："第2部"排在"第10部"前面
 const collator = new Intl.Collator('zh', { numeric: true })
 
+/** 剧列表的分类：全部，或只看一种类型。在地址栏的查询参数 ?type= 里，没有时为全部 */
+export type SeriesCategory = 'all' | SeriesType
+
+export const seriesCategories: { value: SeriesCategory; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'tv', label: '剧集' },
+  { value: 'movie', label: '电影' },
+]
+
+/** 地址栏里的分类；没有或不认识的值都当作全部 */
+export function parseCategory(search: URLSearchParams): SeriesCategory {
+  const type = search.get('type')
+  return type === 'tv' || type === 'movie' ? type : 'all'
+}
+
+/** 选中某个分类后的查询串：其他查询参数不动，全部时去掉 type */
+export function categorySearch(search: URLSearchParams, category: SeriesCategory) {
+  const next = new URLSearchParams(search)
+  if (category === 'all') next.delete('type')
+  else next.set('type', category)
+  const s = next.toString()
+  return s ? `?${s}` : ''
+}
+
 /**
- * 按剧名或原名筛选（不区分大小写），followingOnly 时只留追更中的剧（有开着追更的季绑定）；
- * 按标题排序，同名的按年份排
+ * 按分类、剧名或原名筛选（不区分大小写），followingOnly 时只留追更中的剧（有开着追更的季绑定）；
+ * 按年份倒序，年份未知的排在最后，同一年的按标题排
  */
 export function filterSeries(
   list: SeriesSummary[],
-  keyword: string,
-  followingOnly = false,
+  {
+    keyword = '',
+    category = 'all',
+    followingOnly = false,
+  }: { keyword?: string; category?: SeriesCategory; followingOnly?: boolean } = {},
 ): SeriesSummary[] {
   const k = keyword.trim().toLowerCase()
   return list
     .filter(
       (s) =>
+        (category === 'all' || s.type === category) &&
         (!followingOnly || s.following) &&
         (!k || s.title.toLowerCase().includes(k) || !!s.originalTitle?.toLowerCase().includes(k)),
     )
-    .toSorted((a, b) => collator.compare(a.title, b.title) || (a.year ?? 0) - (b.year ?? 0))
+    .toSorted(
+      (a, b) => (b.year ?? -Infinity) - (a.year ?? -Infinity) || collator.compare(a.title, b.title),
+    )
 }
 
 /** 默认选中的季：第 1 季，没有就第一个季 */
