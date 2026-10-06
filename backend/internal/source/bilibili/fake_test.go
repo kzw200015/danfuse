@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,6 +23,9 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
 )
+
+// discardLogger 测试里构造 Adapter 用的 logger，日志都丢掉。
+var discardLogger = slog.New(slog.DiscardHandler)
 
 // response 假 B 站的一个响应。
 type response struct {
@@ -152,7 +156,7 @@ var sampleTypes = map[string]func(t *testing.T, body []byte) response{
 
 // adapter 连到这个假 B 站的适配器。令牌桶不限速、重试不等待，测试不因时间参数变慢。
 func (f *fakeBilibili) adapter() *Adapter {
-	a := New(config.Bilibili{Sessdata: f.sessdata})
+	a := New(config.Bilibili{Sessdata: f.sessdata}, discardLogger)
 	a.client.http.Transport = f.transport()
 	a.client.limiter = rate.NewLimiter(rate.Inf, 0)
 	a.client.retryDelay = 0

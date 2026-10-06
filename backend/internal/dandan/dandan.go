@@ -7,9 +7,12 @@
 // 它是统一响应约定的例外：响应按官方 Swagger 的结构输出，不用 response 包。handler 自己把错误转成弹弹play 的
 // 结构返回 500，不交给全局 errorHandler，并按 errorHandler 的字段记一条日志；前缀下路由不匹配的 404、405 仍走全局处理。
 // 官方的鉴权头（X-AppId、X-Signature 这类）一律忽略，访问控制只靠路径里的 token。
+//
+// 除 related 外，每次请求成功应答后记一条 info 日志（logRequest），用来评估识别、搜索的效果和取弹幕的情况。
 package dandan
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -79,15 +82,17 @@ type episode struct {
 // 协议把 anime 里空格后面的数字当作集号，这里不这样做：没有标注的数字分不出是标题的一部分、季号还是集号。
 // 最多返回 50 季，被截断时 hasMore 为 true。tmdbId 忽略。插件自动匹配时取 animes[0]，再按数组下标取集。
 func (h *Handler) SearchEpisodes(c *echo.Context) error {
+	start := time.Now()
 	resp := searchEpisodesResponse{responseBase: succeeded, Animes: []anime{}}
 	query := formQuery(c)
 	keyword, ok := searchKeyword(query, "anime")
-	if !ok {
-		return c.JSON(http.StatusOK, resp)
-	}
 	var episode *int
 	if n, err := strconv.Atoi(query.Get("episode")); err == nil && n > 0 {
 		episode = &n
+	}
+	if !ok {
+		logSearch(c, start, "search/episodes", keyword, episode, 0, false)
+		return c.JSON(http.StatusOK, resp)
 	}
 
 	result, err := h.provider.Search(c.Request().Context(), provider.SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons, Episode: episode})
@@ -98,6 +103,7 @@ func (h *Handler) SearchEpisodes(c *echo.Context) error {
 	for _, s := range result.Seasons {
 		resp.Animes = append(resp.Animes, toAnime(s))
 	}
+	logSearch(c, start, "search/episodes", keyword, episode, len(result.Seasons), result.HasMore)
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -127,9 +133,11 @@ type searchAnime struct {
 // 结果是季，不带集，只给总集数，客户端再用 bangumiId 取作品详情。协议的响应没有 hasMore，最多返回 50 季，多出的截掉。
 // type、v2 忽略。
 func (h *Handler) SearchAnime(c *echo.Context) error {
+	start := time.Now()
 	resp := searchAnimeResponse{responseBase: succeeded, Animes: []searchAnime{}}
 	keyword, ok := searchKeyword(formQuery(c), "keyword")
 	if !ok {
+		logSearch(c, start, "search/anime", keyword, nil, 0, false)
 		return c.JSON(http.StatusOK, resp)
 	}
 
@@ -140,6 +148,7 @@ func (h *Handler) SearchAnime(c *echo.Context) error {
 	for _, s := range result.Seasons {
 		resp.Animes = append(resp.Animes, toSearchAnime(s))
 	}
+	logSearch(c, start, "search/anime", keyword, nil, len(result.Seasons), result.HasMore)
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -150,6 +159,14 @@ func formQuery(c *echo.Context) url.Values {
 	// 会丢掉含 ; 的整个参数，所以先把它转义。解析出错的参数照样丢掉，与 URL.Query 一致
 	query, _ := url.ParseQuery(strings.ReplaceAll(c.Request().URL.RawQuery, ";", "%3B"))
 	return query
+}
+
+// logSearch 搜索的日志：关键词原文、episode 参数，返回的季数和后面还有没有（search/anime 截掉的部分也算）。
+// 关键词不足 2 个字符时照样记，季数为 0。
+func logSearch(c *echo.Context, start time.Time, api, keyword string, episode *int, seasons int, hasMore bool) {
+	logRequest(c, start, "dandanplay search",
+		slog.String("api", api), slog.String("keyword", keyword), optionalInt("episode", episode),
+		slog.Int("seasons", seasons), slog.Bool("has_more", hasMore))
 }
 
 // searchKeyword 取参数 name 作为搜索关键词，去掉首尾空白；不足 2 个字符时 ok 为 false，调用方直接返回空列表（协议规则）。
@@ -212,9 +229,11 @@ type bangumiEpisode struct {
 // 作品详情：bangumiId 按季 ID 解析（search/anime 给出的 bangumiId、animeId 都可以），返回这一季和它的全部集。
 // 不是整数、不在本地号段内或季不存在时，按协议的"资源未找到"返回：HTTP 200、success 为 false、bangumi 为 null。
 func (h *Handler) Bangumi(c *echo.Context) error {
+	start := time.Now()
 	notFound := bangumiResponse{responseBase: animeNotFound}
 	id, err := strconv.ParseInt(c.Param("bangumiId"), 10, 64)
 	if err != nil {
+		logRequest(c, start, "dandanplay bangumi", slog.String("bangumi_id", c.Param("bangumiId")), slog.Bool("found", false))
 		return c.JSON(http.StatusOK, notFound)
 	}
 
@@ -222,6 +241,7 @@ func (h *Handler) Bangumi(c *echo.Context) error {
 	if err != nil {
 		return serverError(c, err, bangumiResponse{responseBase: failed})
 	}
+	logRequest(c, start, "dandanplay bangumi", slog.Int64("bangumi_id", id), slog.Bool("found", found), slog.Int("episodes", len(season.Episodes)))
 	if !found {
 		return c.JSON(http.StatusOK, notFound)
 	}
@@ -245,9 +265,11 @@ type comment struct {
 // 这一集所有绑定合并后的全部弹幕原文，按校正后时间升序。withRelated、from、chConvert 忽略。
 // 不存在的 episodeId（包括不是整数的）、没有绑定的集返回空列表。
 func (h *Handler) Comment(c *echo.Context) error {
+	start := time.Now()
 	resp := commentResponse{Comments: []comment{}}
 	episodeID, err := strconv.ParseInt(c.Param("episodeId"), 10, 64)
 	if err != nil {
+		logRequest(c, start, "dandanplay comment", slog.String("episode_id", c.Param("episodeId")), slog.Int("count", 0))
 		return c.JSON(http.StatusOK, resp)
 	}
 
@@ -260,6 +282,7 @@ func (h *Handler) Comment(c *echo.Context) error {
 	for i, it := range items {
 		resp.Comments[i] = toComment(it)
 	}
+	logRequest(c, start, "dandanplay comment", slog.Int64("episode_id", episodeID), slog.Int("count", len(items)))
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -273,6 +296,23 @@ type relatedResponse struct {
 // 官方已下线这个接口，插件仍会在每次取弹幕后调用。固定返回空的 relateds，插件也就不会再去调 extcomment。
 func (h *Handler) Related(c *echo.Context) error {
 	return c.JSON(http.StatusOK, relatedResponse{responseBase: succeeded, Relateds: []struct{}{}})
+}
+
+// logRequest 弹弹 API 一次成功应答的 info 日志：request_id（与 5xx 日志的字段相同）、处理耗时，加上各接口自己的字段。
+func logRequest(c *echo.Context, start time.Time, msg string, attrs ...slog.Attr) {
+	attrs = append([]slog.Attr{
+		slog.String("request_id", c.Response().Header().Get(echo.HeaderXRequestID)),
+		slog.Duration("duration", time.Since(start)),
+	}, attrs...)
+	c.Logger().LogAttrs(c.Request().Context(), slog.LevelInfo, msg, attrs...)
+}
+
+// optionalInt v 为 nil 时返回空的 Attr，日志里不出现这个字段。
+func optionalInt(key string, v *int) slog.Attr {
+	if v == nil {
+		return slog.Attr{}
+	}
+	return slog.Int(key, *v)
 }
 
 // serverError 服务端故障：HTTP 500 加弹弹play 结构的响应体（列表为空）。错误不交给全局 errorHandler，

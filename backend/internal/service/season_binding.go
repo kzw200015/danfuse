@@ -542,7 +542,7 @@ func (s *SeasonBindingService) start(ctx context.Context, id int64) error {
 	}
 	s.loop.spawn(func() {
 		defer lease.Release()
-		s.backfill(lease.Context(), id)
+		s.backfill(lease.Context(), id, triggerManual, nil)
 	})
 	return nil
 }

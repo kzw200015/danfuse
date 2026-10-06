@@ -34,7 +34,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 
 	// 适配器子包只由 app 引用，业务代码只依赖领域包的接口。
 	// B 站适配器里有全局令牌桶，整个进程只构造这一个。
-	sources := source.NewRegistry(bilibili.New(cfg.Bilibili))
+	sources := source.NewRegistry(bilibili.New(cfg.Bilibili, logger))
 	catalogSource := newCatalogSource(cfg.CatalogSource)
 
 	catalogs := service.NewCatalogService(store, sources)

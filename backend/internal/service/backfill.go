@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -32,33 +33,43 @@ var (
 // 上一次扫描还没做完时两次扫描同时进行：正在补建的（另一次扫描、手动触发或其他实例）跳过，
 // 列出之后才检查过的（拿到租约之后再确认一次）也跳过，同一个季绑定不会重复补建。
 // 与同步不耦合：新集靠"这一季里有集晚于上次检查时间建出"在一分钟内被发现。
+// 有到期的季绑定时，扫描做完记一条 "follow scan finished"：到期几个、补建了几个、跳过了几个；没有到期的不记，免得每分钟一条。
 func (s *SeasonBindingService) scan(ctx context.Context) {
-	ids, err := s.store.ListDueSeasonBindings(ctx, dueParams(nil))
+	start := time.Now()
+	due, err := s.store.ListDueSeasonBindings(ctx, dueParams(nil))
 	if err != nil {
 		if ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "list due season bindings failed", "error", err)
 		}
 		return
 	}
-	for _, id := range ids {
+	if len(due) == 0 {
+		return
+	}
+	backfilled := 0
+	for _, d := range due {
 		if ctx.Err() != nil {
 			return
 		}
-		s.scanOne(ctx, id)
+		if s.scanOne(ctx, d.ID) {
+			backfilled++
+		}
 	}
+	s.logger.InfoContext(ctx, "follow scan finished",
+		"due", len(due), "backfilled", backfilled, "skipped", len(due)-backfilled, "duration", time.Since(start))
 }
 
-// scanOne 拿到季绑定的租约、确认仍然到期后补建一轮，补建完随即释放；正在补建时跳过。
-func (s *SeasonBindingService) scanOne(ctx context.Context, id int64) {
+// scanOne 拿到季绑定的租约、确认仍然到期后补建一轮，补建完随即释放；正在补建时跳过。补建了返回 true。
+func (s *SeasonBindingService) scanOne(ctx context.Context, id int64) bool {
 	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSeasonBackfill(id))
 	if err != nil {
 		if ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "acquire backfill lease failed", "season_binding_id", id, "error", err)
 		}
-		return
+		return false
 	}
 	if !ok {
-		return
+		return false
 	}
 	defer lease.Release()
 	ctx = lease.Context()
@@ -69,11 +80,32 @@ func (s *SeasonBindingService) scanOne(ctx context.Context, id int64) {
 		if ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "check season binding due failed", "season_binding_id", id, "error", err)
 		}
-		return
+		return false
 	}
-	if len(due) > 0 {
-		s.backfill(ctx, id)
+	if len(due) == 0 {
+		return false
 	}
+	s.backfill(ctx, id, triggerSchedule, dueReasons(due[0]))
+	return true
+}
+
+// dueReasons 追更到期的原因，按 ListDueSeasonBindings 的列名，只用于日志。
+func dueReasons(d repository.ListDueSeasonBindingsRow) []string {
+	var reasons []string
+	for _, r := range []struct {
+		name string
+		ok   bool
+	}{
+		{"never_checked", d.NeverChecked},
+		{"interval_due", d.IntervalDue},
+		{"new_episodes", d.NewEpisodes},
+		{"refetch_due", d.RefetchDue},
+	} {
+		if r.ok {
+			reasons = append(reasons, r.name)
+		}
+	}
+	return reasons
 }
 
 // dueParams 按现在的时间判定追更是否到期的参数；id 不为 nil 时只判定这一个季绑定。
@@ -89,13 +121,19 @@ func dueParams(id *int64) repository.ListDueSeasonBindingsParams {
 
 // backfillRound 一轮补建的进度与结果。
 type backfillRound struct {
-	id    int64
-	start time.Time // 这一轮的开始时间，结束时写为上次检查时间
+	id       int64
+	start    time.Time // 这一轮的开始时间，结束时写为上次检查时间
+	seasonID int64     // 读到季绑定之后才有
 
-	created      int // 建出的绑定
-	alreadyBound int // 对应的集上已有同一个弹幕源的绑定、只记为处理过的条目
-	failed       int // 失败的条目与重新拉取
-	refetched    int // 重新拉取的绑定
+	items          int   // 列出的合集条目数
+	created        int   // 建出的绑定
+	alreadyBound   int   // 对应的集上已有同一个弹幕源的绑定、只记为处理过的条目
+	unmatched      int   // 还没处理过、对不上（没有序号）的条目
+	beforeStart    int   // 还没处理过、序号在集号对应的起点之前的条目
+	waitingEpisode int   // 还没处理过、目录里还没有对应的集的条目
+	failed         int   // 失败的条目与重新拉取
+	refetched      int   // 重新拉取的绑定
+	danmakuAdded   int64 // 建出与重新拉取的绑定新增的弹幕条数
 
 	rateLimited bool // 因限流结束
 	lastError   *string
@@ -108,12 +146,17 @@ type backfillRound struct {
 //  3. 追更开着时，自动重新拉取它建出的、建出不到 14 天、距上次拉取已满 12 小时的绑定（见 refetchRecent）。
 //  4. 正常结束或因错误、限流结束时，把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算"上次检查之后才有的"，
 //     一分钟后会被再扫到。被 ctx 取消（关闭服务、租约丢失）时不写，一分钟内接着做。
-func (s *SeasonBindingService) backfill(ctx context.Context, id int64) {
+//
+// trigger、due 只用于日志：trigger 取值同同步（triggerSchedule 为追更的扫描，triggerManual 为创建、立即补建、改集号对应、打开追更），
+// due 是追更的扫描触发时到期的原因（dueReasons），手动触发时为 nil。
+// 结束时记一条 "backfill finished"，用来评估追更：为什么到期、条目各自停在哪一步、建出与重新拉取了多少弹幕；
+// 这一轮记下了错误（上游错误、限流、合集已不存在、服务器内部错误）时为 warn 级别。
+func (s *SeasonBindingService) backfill(ctx context.Context, id int64, trigger string, due []string) {
 	r := &backfillRound{id: id, start: time.Now()}
 	err := s.runBackfill(ctx, r)
 	switch {
 	case ctx.Err() != nil:
-		s.logger.Info("backfill interrupted", "season_binding_id", id, "cause", context.Cause(ctx))
+		s.logger.Info("backfill interrupted", "season_binding_id", id, "trigger", trigger, "cause", context.Cause(ctx))
 		return
 	case errors.Is(err, errSeasonBindingGone):
 		s.logger.Info("season binding deleted during backfill", "season_binding_id", id)
@@ -128,13 +171,27 @@ func (s *SeasonBindingService) backfill(ctx context.Context, id int64) {
 	if err != nil {
 		s.logger.Error("save backfill result failed", "season_binding_id", id, "error", err)
 	}
-	s.logger.LogAttrs(ctx, slog.LevelInfo, "backfill finished",
+	level := slog.LevelInfo
+	if r.lastError != nil {
+		level = slog.LevelWarn
+	}
+	s.logger.LogAttrs(ctx, level, "backfill finished",
 		slog.Int64("season_binding_id", id),
+		slog.Int64("season_id", r.seasonID),
+		slog.String("trigger", trigger),
+		slog.String("due", strings.Join(due, ",")),
+		slog.Duration("duration", time.Since(r.start)),
+		slog.Int("items", r.items),
 		slog.Int("created", r.created),
 		slog.Int("already_bound", r.alreadyBound),
+		slog.Int("unmatched", r.unmatched),
+		slog.Int("before_start", r.beforeStart),
+		slog.Int("waiting_episode", r.waitingEpisode),
 		slog.Int("failed", r.failed),
 		slog.Int("refetched", r.refetched),
+		slog.Int64("danmaku_added", r.danmakuAdded),
 		slog.Bool("rate_limited", r.rateLimited),
+		slog.Bool("dead", r.dead),
 		slog.String("error", emptyIfNull(r.lastError)),
 	)
 }
@@ -146,6 +203,7 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 	if err != nil {
 		return err
 	}
+	r.seasonID = sb.SeasonID
 	adapter, err := s.sources.Get(sb.Adapter)
 	if err != nil {
 		return err
@@ -188,6 +246,7 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 	if err != nil {
 		return fmt.Errorf("list items of season binding %d: %w", r.id, err)
 	}
+	r.items = len(items)
 	handled, err := s.store.ListSeasonBindingHandled(ctx, r.id)
 	if err != nil {
 		return fmt.Errorf("list handled of season binding %d: %w", r.id, err)
@@ -236,14 +295,17 @@ func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRoun
 	case err != nil:
 		return true, fmt.Errorf("get item number of season binding %d: %w", r.id, err)
 	case number == nil:
+		r.unmatched++
 		return false, nil
 	}
 	target, ok := mappedEpisode(sb, *number)
 	if !ok {
+		r.beforeStart++
 		return false, nil
 	}
 	episodeID, err := s.store.GetEpisodeIDByNumber(ctx, repository.GetEpisodeIDByNumberParams{SeasonID: sb.SeasonID, Number: target})
 	if errors.Is(err, pgx.ErrNoRows) {
+		r.waitingEpisode++
 		return false, nil // 等目录里出现这一集
 	}
 	if err != nil {
@@ -341,6 +403,7 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 		return err
 	case created:
 		r.created++
+		r.danmakuAdded += added
 		s.bindings.logFetched(ctx, binding, *fetched, added)
 	default:
 		r.alreadyBound++
@@ -380,10 +443,11 @@ func (s *SeasonBindingService) refetchRecent(ctx context.Context, r *backfillRou
 		if !sb.Follow {
 			return nil
 		}
-		_, _, err = s.bindings.refetch(ctx, c.ID, false)
+		_, added, err := s.bindings.refetch(ctx, c.ID, false)
 		switch srcErr, _ := errors.AsType[*source.Error](err); {
 		case err == nil:
 			r.refetched++
+			r.danmakuAdded += added
 		case ctx.Err() != nil:
 			return ctx.Err()
 		case srcErr != nil && srcErr.Kind == source.RateLimited:

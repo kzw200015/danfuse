@@ -27,9 +27,11 @@ func (a *Aggregator) Search(ctx context.Context, q SearchQuery) (SearchResult, e
 
 // MatchResult 识别的结果。Candidates 按可能性排序，每个是一季，Episodes 恰好是认出的那一集；
 // Exact 为 true 时恰好一个候选，而且名称里的标题就是这部剧的标题或原名，可以直接采用。
+// Parsed 是名称按 catalog.ParseName 认出的标题、季号、集号，Parsed.Episode 为 nil 时没有搜索。
 type MatchResult struct {
 	Candidates []Season
 	Exact      bool
+	Parsed     catalog.ParsedName
 }
 
 // Match 按名称（match 的文件名）识别一集。名称里要写明集号（catalog.ParseName），否则没有候选；
@@ -38,7 +40,7 @@ type MatchResult struct {
 func (a *Aggregator) Match(ctx context.Context, name string, maxCandidates int) (MatchResult, error) {
 	parsed := catalog.ParseName(name)
 	if parsed.Episode == nil {
-		return MatchResult{}, nil
+		return MatchResult{Parsed: parsed}, nil
 	}
 	result, err := a.Search(ctx, SearchQuery{Keyword: name, MaxSeasons: maxCandidates})
 	if err != nil {
@@ -47,7 +49,7 @@ func (a *Aggregator) Match(ctx context.Context, name string, maxCandidates int) 
 	exact := len(result.Seasons) == 1 && slices.ContainsFunc(result.Seasons[0].Titles, func(t string) bool {
 		return fulltext.SameWords(t, parsed.Title)
 	})
-	return MatchResult{Candidates: result.Seasons, Exact: exact}, nil
+	return MatchResult{Candidates: result.Seasons, Exact: exact, Parsed: parsed}, nil
 }
 
 func (a *Aggregator) Season(ctx context.Context, id int64) (Season, bool, error) {

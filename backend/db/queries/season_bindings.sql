@@ -195,26 +195,30 @@ DELETE FROM season_bindings
 WHERE id = $1;
 
 -- name: ListDueSeasonBindings :many
--- 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚：
---   从没检查过；距上次检查已满 12 小时（due_before = 现在 - 12 小时）；这一季里有集的建出时间晚于上次检查时间；
---   它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 12 小时（同样以 due_before 判断）、
+-- 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚，每个条件各是一列（到期的原因，记进日志）：
+--   never_checked 从没检查过；interval_due 距上次检查已满 12 小时（due_before = 现在 - 12 小时）；
+--   new_episodes 这一季里有集的建出时间晚于上次检查时间；
+--   refetch_due 它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 12 小时（同样以 due_before 判断）、
 --   而且是在上次检查开始之后才满 12 小时的（满 12 小时之前开始的那一轮已经试过拉取它，失败了等下一次定期的检查，不每分钟重试）。
 -- 12 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
 -- id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
-SELECT sb.id
-FROM season_bindings sb
-WHERE sb.follow
-  AND (sqlc.narg(id)::bigint IS NULL OR sb.id = sqlc.narg(id)::bigint)
-  AND (sb.last_checked_at IS NULL
-    OR sb.last_checked_at <= sqlc.arg(due_before)::timestamptz
-    OR EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at)
-    OR EXISTS (SELECT 1
-               FROM bindings b
-               WHERE b.season_binding_id = sb.id
-                 AND b.created_at > sqlc.arg(created_after)::timestamptz
-                 AND b.last_fetched_at <= sqlc.arg(due_before)::timestamptz
-                 AND b.last_fetched_at > sb.last_checked_at - sqlc.arg(check_interval_seconds)::int * interval '1 second'))
-ORDER BY sb.last_checked_at NULLS FIRST, sb.id;
+SELECT id, never_checked, interval_due, new_episodes, refetch_due
+FROM (SELECT sb.id,
+             sb.last_checked_at,
+             (sb.last_checked_at IS NULL)::boolean AS never_checked,
+             COALESCE(sb.last_checked_at <= sqlc.arg(due_before)::timestamptz, false)::boolean AS interval_due,
+             EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at) AS new_episodes,
+             EXISTS (SELECT 1
+                     FROM bindings b
+                     WHERE b.season_binding_id = sb.id
+                       AND b.created_at > sqlc.arg(created_after)::timestamptz
+                       AND b.last_fetched_at <= sqlc.arg(due_before)::timestamptz
+                       AND b.last_fetched_at > sb.last_checked_at - sqlc.arg(check_interval_seconds)::int * interval '1 second') AS refetch_due
+      FROM season_bindings sb
+      WHERE sb.follow
+        AND (sqlc.narg(id)::bigint IS NULL OR sb.id = sqlc.narg(id)::bigint)) d
+WHERE never_checked OR interval_due OR new_episodes OR refetch_due
+ORDER BY last_checked_at NULLS FIRST, id;
 
 -- name: ListRecentBackfilledBindings :many
 -- 自动重新拉取的候选：季绑定建出的、建出时间晚于 created_after（现在 - 14 天）的绑定，按上次拉取时间从早到晚。

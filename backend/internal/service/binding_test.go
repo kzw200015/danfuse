@@ -295,12 +295,12 @@ func TestCreateBinding(t *testing.T) {
 				t.Errorf("content_version = %d, want %d", v, tt.wantVersion)
 			}
 
-			// 拉取结束的 info 日志：适配器的统计加上新增条数
-			wantLog := `level=INFO msg="danmaku fetched" binding_id=1 adapter=fake`
+			// 拉取结束的 info 日志：适配器的统计加上新增条数和总条数
+			wantLog := `level=INFO msg="danmaku fetched" binding_id=1 episode_id=1 adapter=fake`
 			for _, attr := range tt.fetched.LogAttrs {
 				wantLog += " " + attr.String()
 			}
-			wantLog += fmt.Sprintf(" added=%d", len(tt.wantDanmaku))
+			wantLog += fmt.Sprintf(" added=%d total=%d", len(tt.wantDanmaku), len(tt.wantDanmaku))
 			if !strings.Contains(logs.String(), wantLog) {
 				t.Errorf("日志 = %s\nwant 含 %s", logs.String(), wantLog)
 			}
@@ -604,11 +604,11 @@ func TestRefetch(t *testing.T) {
 				t.Errorf("content_version = %d, want %d", prev.ContentVersion, step.wantVersion)
 			}
 
-			wantLog := `level=INFO msg="danmaku fetched" binding_id=1 adapter=fake`
+			wantLog := `level=INFO msg="danmaku fetched" binding_id=1 episode_id=1 adapter=fake`
 			for _, attr := range step.fetched.LogAttrs {
 				wantLog += " " + attr.String()
 			}
-			wantLog += fmt.Sprintf(" added=%d", step.wantAdded)
+			wantLog += fmt.Sprintf(" added=%d total=%d", step.wantAdded, len(step.wantIDs))
 			if last := strings.TrimSpace(logs.String()); !strings.HasSuffix(last, wantLog) {
 				t.Errorf("日志 = %s\nwant 最后一行以 %s 结尾", last, wantLog)
 			}

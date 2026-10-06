@@ -413,7 +413,7 @@ func TestListCollectionErrors(t *testing.T) {
 }
 
 func TestDescribeCollection(t *testing.T) {
-	a := New(config.Bilibili{})
+	a := New(config.Bilibili{}, discardLogger)
 	tests := []struct {
 		ref  string
 		want source.Display

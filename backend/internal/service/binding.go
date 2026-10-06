@@ -326,11 +326,15 @@ func insertDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, 
 	return added, nil
 }
 
-// logFetched 每次拉取结束记一条 info 日志：适配器自己的统计加上新增条数。
+// logFetched 每次拉取结束记一条 info 日志：适配器自己的统计加上新增条数和拉取后的总条数；
+// 季绑定建出的绑定另记 season_binding_id，能和 "backfill finished" 对上。
 func (s *BindingService) logFetched(ctx context.Context, b repository.Binding, f source.Fetched, added int64) {
-	attrs := []slog.Attr{slog.Int64("binding_id", b.ID), slog.String("adapter", emptyIfNull(b.Adapter))}
+	attrs := []slog.Attr{slog.Int64("binding_id", b.ID), slog.Int64("episode_id", b.EpisodeID), slog.String("adapter", emptyIfNull(b.Adapter))}
+	if b.SeasonBindingID != nil {
+		attrs = append(attrs, slog.Int64("season_binding_id", *b.SeasonBindingID))
+	}
 	attrs = append(attrs, f.LogAttrs...)
-	attrs = append(attrs, slog.Int64("added", added))
+	attrs = append(attrs, slog.Int64("added", added), slog.Int("total", int(b.DanmakuCount)))
 	s.logger.LogAttrs(ctx, slog.LevelInfo, "danmaku fetched", attrs...)
 }
 

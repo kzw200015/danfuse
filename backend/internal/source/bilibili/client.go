@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
@@ -28,8 +29,9 @@ const (
 	maxRetries      = 3                // rate_limited 与 upstream 最多重试的次数
 	firstRetryDelay = 500 * time.Millisecond
 	maxRetryDelay   = 4 * time.Second
-	limiterBurst    = 10       // 全局令牌桶的容量：空闲之后最多连发几个请求，贴链接、重新拉取时开头几个请求不排队
-	maxBodySize     = 32 << 20 // 响应体（解压后）的上限，超过时按 Upstream 处理，不截断（截断的 protobuf 可能在弹幕边界上解出部分弹幕）
+	limiterBurst    = 10          // 全局令牌桶的容量：空闲之后最多连发几个请求，贴链接、重新拉取时开头几个请求不排队
+	slowLimiterWait = time.Second // 在令牌桶前等了这么久以上才记 debug 日志
+	maxBodySize     = 32 << 20    // 响应体（解压后）的上限，超过时按 Upstream 处理，不截断（截断的 protobuf 可能在弹幕边界上解出部分弹幕）
 )
 
 // messages 各类错误给用户看的提示。
@@ -73,15 +75,17 @@ func codeKind(code int) source.Kind {
 
 // client 对 B 站的所有请求都经过这里：带浏览器 UA 和 Referer，先过全局令牌桶；
 // rate_limited 与 upstream 指数退避后重试，最终把 HTTP 状态码和业务 code 归类成 *source.Error。
+// 日志用来评估限速是否合适：每次 rate_limited、upstream 的失败记一条（见 retry），在令牌桶前等得久的记 debug。
 type client struct {
 	http       *http.Client  // 测试里换掉它的 Transport，把请求转给假的 B 站
 	sessdata   string        // 可选的登录凭据，只作为 Cookie 发送，不写日志
 	limiter    *rate.Limiter // 全局令牌桶，所有绑定共用
 	retryDelay time.Duration // 第一次重试前的等待，之后每次翻倍
+	logger     *slog.Logger
 }
 
 // requestsPerSecond 全局令牌桶的平均速率（bilibili.requests_per_second），桶的容量为 limiterBurst。
-func newClient(sessdata string, requestsPerSecond float64) *client {
+func newClient(sessdata string, requestsPerSecond float64, logger *slog.Logger) *client {
 	return &client{
 		http: &http.Client{
 			Timeout: requestTimeout,
@@ -91,6 +95,7 @@ func newClient(sessdata string, requestsPerSecond float64) *client {
 		sessdata:   sessdata,
 		limiter:    rate.NewLimiter(rate.Limit(requestsPerSecond), limiterBurst),
 		retryDelay: firstRetryDelay,
+		logger:     logger,
 	}
 }
 
@@ -98,8 +103,12 @@ func newClient(sessdata string, requestsPerSecond float64) *client {
 // 配置了 SESSDATA 时只发给 bilibili.com 的子域名，与浏览器里这个 Cookie 的作用域一致，短链域名不带。
 // 返回的响应由调用方关闭。
 func (c *client) send(ctx context.Context, target string) (*http.Response, error) {
+	start := time.Now()
 	if err := c.limiter.Wait(ctx); err != nil {
 		return nil, sourceError(source.Upstream, fmt.Errorf("GET %s: %w", target, err))
+	}
+	if wait := time.Since(start); wait >= slowLimiterWait {
+		c.logger.DebugContext(ctx, "bilibili request throttled", "wait", wait)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
@@ -256,11 +265,21 @@ func binaryError(target string, body []byte) error {
 }
 
 // retry 执行 attempt，遇到 RateLimited、Upstream 时退避后重试，最多重试 maxRetries 次；ctx 结束后不再重试。
+// 每次 RateLimited（warn）、Upstream（info）的失败都记一条日志，ctx 结束导致的除外；retry 为 false 的是最后一次，错误交给调用方。
 func (c *client) retry(ctx context.Context, attempt func() error) error {
 	for n := 0; ; n++ {
 		err := attempt()
 		srcErr, ok := errors.AsType[*source.Error](err)
-		if !ok || (srcErr.Kind != source.RateLimited && srcErr.Kind != source.Upstream) || n == maxRetries || ctx.Err() != nil {
+		if !ok || (srcErr.Kind != source.RateLimited && srcErr.Kind != source.Upstream) || ctx.Err() != nil {
+			return err
+		}
+		level := slog.LevelInfo
+		if srcErr.Kind == source.RateLimited {
+			level = slog.LevelWarn
+		}
+		c.logger.Log(ctx, level, "bilibili request failed",
+			"kind", srcErr.Kind.String(), "attempt", n+1, "retry", n < maxRetries, "error", srcErr.Err)
+		if n == maxRetries {
 			return err
 		}
 		select {

@@ -287,55 +287,73 @@ func (q *Queries) InsertSeasonBindingHandled(ctx context.Context, arg InsertSeas
 }
 
 const listDueSeasonBindings = `-- name: ListDueSeasonBindings :many
-SELECT sb.id
-FROM season_bindings sb
-WHERE sb.follow
-  AND ($1::bigint IS NULL OR sb.id = $1::bigint)
-  AND (sb.last_checked_at IS NULL
-    OR sb.last_checked_at <= $2::timestamptz
-    OR EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at)
-    OR EXISTS (SELECT 1
-               FROM bindings b
-               WHERE b.season_binding_id = sb.id
-                 AND b.created_at > $3::timestamptz
-                 AND b.last_fetched_at <= $2::timestamptz
-                 AND b.last_fetched_at > sb.last_checked_at - $4::int * interval '1 second'))
-ORDER BY sb.last_checked_at NULLS FIRST, sb.id
+SELECT id, never_checked, interval_due, new_episodes, refetch_due
+FROM (SELECT sb.id,
+             sb.last_checked_at,
+             (sb.last_checked_at IS NULL)::boolean AS never_checked,
+             COALESCE(sb.last_checked_at <= $1::timestamptz, false)::boolean AS interval_due,
+             EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at) AS new_episodes,
+             EXISTS (SELECT 1
+                     FROM bindings b
+                     WHERE b.season_binding_id = sb.id
+                       AND b.created_at > $2::timestamptz
+                       AND b.last_fetched_at <= $1::timestamptz
+                       AND b.last_fetched_at > sb.last_checked_at - $3::int * interval '1 second') AS refetch_due
+      FROM season_bindings sb
+      WHERE sb.follow
+        AND ($4::bigint IS NULL OR sb.id = $4::bigint)) d
+WHERE never_checked OR interval_due OR new_episodes OR refetch_due
+ORDER BY last_checked_at NULLS FIRST, id
 `
 
 type ListDueSeasonBindingsParams struct {
-	ID                   *int64    `json:"id"`
 	DueBefore            time.Time `json:"dueBefore"`
 	CreatedAfter         time.Time `json:"createdAfter"`
 	CheckIntervalSeconds int32     `json:"checkIntervalSeconds"`
+	ID                   *int64    `json:"id"`
 }
 
-// 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚：
+type ListDueSeasonBindingsRow struct {
+	ID           int64 `json:"id"`
+	NeverChecked bool  `json:"neverChecked"`
+	IntervalDue  bool  `json:"intervalDue"`
+	NewEpisodes  bool  `json:"newEpisodes"`
+	RefetchDue   bool  `json:"refetchDue"`
+}
+
+// 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚，每个条件各是一列（到期的原因，记进日志）：
 //
-//	从没检查过；距上次检查已满 12 小时（due_before = 现在 - 12 小时）；这一季里有集的建出时间晚于上次检查时间；
-//	它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 12 小时（同样以 due_before 判断）、
+//	never_checked 从没检查过；interval_due 距上次检查已满 12 小时（due_before = 现在 - 12 小时）；
+//	new_episodes 这一季里有集的建出时间晚于上次检查时间；
+//	refetch_due 它建出的、建出不到 14 天（created_after = 现在 - 14 天）的绑定里，有距上次拉取已满 12 小时（同样以 due_before 判断）、
 //	而且是在上次检查开始之后才满 12 小时的（满 12 小时之前开始的那一轮已经试过拉取它，失败了等下一次定期的检查，不每分钟重试）。
 //
 // 12 小时由调用方传入（check_interval_seconds），时间规则只写在 service 里。
 // id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
-func (q *Queries) ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBindingsParams) ([]int64, error) {
+func (q *Queries) ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBindingsParams) ([]ListDueSeasonBindingsRow, error) {
 	rows, err := q.db.Query(ctx, listDueSeasonBindings,
-		arg.ID,
 		arg.DueBefore,
 		arg.CreatedAfter,
 		arg.CheckIntervalSeconds,
+		arg.ID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []int64{}
+	items := []ListDueSeasonBindingsRow{}
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var i ListDueSeasonBindingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.NeverChecked,
+			&i.IntervalDue,
+			&i.NewEpisodes,
+			&i.RefetchDue,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

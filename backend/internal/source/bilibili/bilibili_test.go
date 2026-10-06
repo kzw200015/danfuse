@@ -194,7 +194,7 @@ func TestParseLink(t *testing.T) {
 }
 
 func TestDescribe(t *testing.T) {
-	a := New(config.Bilibili{})
+	a := New(config.Bilibili{}, discardLogger)
 	tests := []struct {
 		ref  string
 		want source.Display
@@ -215,7 +215,7 @@ func TestDescribe(t *testing.T) {
 
 // TestDescribeRoundTrip 由链接解析出的 ref 展示出的链接，再解析一次得到相同的 ref。
 func TestDescribeRoundTrip(t *testing.T) {
-	a := New(config.Bilibili{})
+	a := New(config.Bilibili{}, discardLogger)
 	for _, link := range []string{"av170001", "av170001?p=7", "BV1ZY4y187fA", "av1", "av2251799813685247", "ep508404", "ep1"} {
 		ref, err := a.ParseLink(t.Context(), link)
 		if err != nil {
@@ -627,7 +627,7 @@ func TestSessdata(t *testing.T) {
 }
 
 func TestAdapterIdentity(t *testing.T) {
-	a := New(config.Bilibili{})
+	a := New(config.Bilibili{}, discardLogger)
 	if a.ID() != "bilibili" || a.Platform() != danmaku.PlatformBilibili {
 		t.Errorf("ID() = %q, Platform() = %q", a.ID(), a.Platform())
 	}
