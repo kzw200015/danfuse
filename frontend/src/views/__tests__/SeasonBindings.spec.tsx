@@ -603,10 +603,11 @@ it('剧列表：追更中的剧带标记，可以只看追更中', async () => {
     within(list.getByRole('link', { name: /长夜灯塔/ })).queryByRole('img', { name: '追更中' }),
   ).not.toBeInTheDocument()
 
-  const toggle = list.getByRole('button', { name: '只看追更中' })
+  fireEvent.click(list.getByRole('button', { name: '筛选条件' }))
+  const toggle = await screen.findByRole('checkbox', { name: '只看追更中' })
   fireEvent.click(toggle)
 
-  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(toggle).toBeChecked()
   expect(list.getByText('1 部')).toBeInTheDocument()
   expect(list.queryByRole('link', { name: /长夜灯塔/ })).not.toBeInTheDocument()
 

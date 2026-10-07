@@ -11,6 +11,8 @@ export interface SeriesSummary {
   title: string
   originalTitle: string | null
   year: number | null
+  /** TMDB 上的编号，没有时为 null，列表上标出警告 */
+  tmdbId: number | null
   /** 海报的图片 ID，没有海报时为 null；图片地址见 ./images.ts 的 imageUrl */
   posterImageId: number | null
   seasonCount: number

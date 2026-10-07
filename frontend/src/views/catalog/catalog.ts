@@ -29,7 +29,8 @@ export function categorySearch(search: URLSearchParams, category: SeriesCategory
 }
 
 /**
- * 按分类、剧名或原名筛选（不区分大小写），followingOnly 时只留追更中的剧（有开着追更的季绑定）；
+ * 按分类、剧名或原名筛选（不区分大小写），followingOnly 时只留追更中的剧（有开着追更的季绑定），
+ * noTmdbIdOnly 时只留没有 TMDB ID 的剧；条件同时生效。
  * 按年份倒序，年份未知的排在最后，同一年的按标题排
  */
 export function filterSeries(
@@ -38,7 +39,13 @@ export function filterSeries(
     keyword = '',
     category = 'all',
     followingOnly = false,
-  }: { keyword?: string; category?: SeriesCategory; followingOnly?: boolean } = {},
+    noTmdbIdOnly = false,
+  }: {
+    keyword?: string
+    category?: SeriesCategory
+    followingOnly?: boolean
+    noTmdbIdOnly?: boolean
+  } = {},
 ): SeriesSummary[] {
   const k = keyword.trim().toLowerCase()
   return list
@@ -46,6 +53,7 @@ export function filterSeries(
       (s) =>
         (category === 'all' || s.type === category) &&
         (!followingOnly || s.following) &&
+        (!noTmdbIdOnly || s.tmdbId === null) &&
         (!k || s.title.toLowerCase().includes(k) || !!s.originalTitle?.toLowerCase().includes(k)),
     )
     .toSorted(

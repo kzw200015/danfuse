@@ -227,6 +227,22 @@ describe('CatalogView', () => {
     expect(screen.getByRole('link', { name: back })).toHaveAttribute('href', backTo)
   })
 
+  it('剧列表筛选条件：只看没有 TMDB ID 的，与只看追更中同时生效', async () => {
+    renderRoutes('/catalog')
+    const list = within(await screen.findByRole('complementary'))
+    expect(await list.findByText('2 部')).toBeInTheDocument()
+    fireEvent.click(list.getByRole('button', { name: '筛选条件' }))
+    const toggle = await screen.findByRole('checkbox', { name: '只看没有 TMDB ID 的' })
+    fireEvent.click(toggle)
+
+    expect(list.getByText('1 部')).toBeInTheDocument()
+    expect(list.getByRole('link', { name: /长夜灯塔/ })).toBeInTheDocument()
+    expect(list.queryByRole('link', { name: /星海旅人/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '只看追更中' }))
+    expect(list.getByText('没有符合筛选条件的剧')).toBeInTheDocument()
+  })
+
   it('已加载的剧重新加载时不存在了，显示找不到', async () => {
     const { queryClient } = renderRoutes('/catalog/1')
     expect(await screen.findByRole('heading', { name: '星海旅人' })).toBeInTheDocument()
@@ -241,13 +257,25 @@ describe('CatalogView', () => {
 })
 
 describe('绑定', () => {
-  it('剧列表、集列表和季面板显示绑定统计', async () => {
+  it('剧列表、集列表和季面板显示绑定统计，剧列表标出没有 TMDB ID 的剧', async () => {
     renderRoutes('/catalog/1')
 
     const list = within(await screen.findByRole('complementary'))
     // 已绑定集数/总集数，有失效绑定时显示失效数
     expect(await list.findByRole('link', { name: /星海旅人/ })).toHaveTextContent(/1\/3\s*1 失效$/)
     expect(list.getByRole('link', { name: /长夜灯塔/ })).toHaveTextContent(/0\/1$/)
+
+    // 没有 TMDB ID 的剧带警告
+    expect(
+      within(list.getByRole('link', { name: /长夜灯塔/ })).getByRole('img', {
+        name: '没有 TMDB ID',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      within(list.getByRole('link', { name: /星海旅人/ })).queryByRole('img', {
+        name: '没有 TMDB ID',
+      }),
+    ).not.toBeInTheDocument()
 
     // 集列表：绑定数，有失效绑定时标红；没有绑定时不显示
     expect(
