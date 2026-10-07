@@ -227,6 +227,17 @@ func lockEpisode(ctx context.Context, q *repository.Queries, id int64, gone erro
 	return nil
 }
 
+// lockSeason 写入事务里锁住一季到提交（FOR KEY SHARE），期间删不掉它；这一季已被删除时返回 gone。
+func lockSeason(ctx context.Context, q *repository.Queries, id int64, gone error) error {
+	if _, err := q.LockSeason(ctx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return gone
+		}
+		return fmt.Errorf("lock season %d: %w", id, err)
+	}
+	return nil
+}
+
 // getBinding 取出绑定，不存在时返回 404"绑定不存在"。
 func (s *BindingService) getBinding(ctx context.Context, id int64) (repository.Binding, error) {
 	b, err := s.store.GetBinding(ctx, id)
