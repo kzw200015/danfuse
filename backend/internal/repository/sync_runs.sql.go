@@ -11,13 +11,19 @@ import (
 )
 
 const createSyncRun = `-- name: CreateSyncRun :one
-INSERT INTO sync_runs (trigger, status)
-VALUES ($1, 'running')
+INSERT INTO sync_runs (trigger, status, started_at)
+VALUES ($1, 'running', $2)
 RETURNING id
 `
 
-func (q *Queries) CreateSyncRun(ctx context.Context, trigger string) (int64, error) {
-	row := q.db.QueryRow(ctx, createSyncRun, trigger)
+type CreateSyncRunParams struct {
+	Trigger   string    `json:"trigger"`
+	StartedAt time.Time `json:"startedAt"`
+}
+
+// 开始时间取自应用的时钟：定时同步按它算下一次的时间。
+func (q *Queries) CreateSyncRun(ctx context.Context, arg CreateSyncRunParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createSyncRun, arg.Trigger, arg.StartedAt)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

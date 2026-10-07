@@ -1,6 +1,7 @@
 -- name: CreateSyncRun :one
-INSERT INTO sync_runs (trigger, status)
-VALUES ($1, 'running')
+-- 开始时间取自应用的时钟：定时同步按它算下一次的时间。
+INSERT INTO sync_runs (trigger, status, started_at)
+VALUES (sqlc.arg(trigger), 'running', sqlc.arg(started_at))
 RETURNING id;
 
 -- name: InterruptRunningSyncRuns :execrows
