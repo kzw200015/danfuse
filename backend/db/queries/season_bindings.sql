@@ -136,7 +136,7 @@ WHERE id = $1
 FOR UPDATE;
 
 -- name: InsertBackfilledBinding :one
--- 补建出一个绑定，带上建出它的季绑定；建出时间由应用写入（追更按它算自动重新拉取的窗口）。
+-- 补建出一个绑定，带上建出它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
 -- 这一集已有同一个弹幕源的绑定时什么都不做，没有行。
 INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, season_binding_id, created_at)
 VALUES (@episode_id, 'link', @adapter::text, @ref::jsonb, @title, @duration::int, @season_binding_id::bigint, @created_at)
@@ -206,33 +206,17 @@ WHERE id = $1;
 -- name: ListDueSeasonBindings :many
 -- 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚，每个条件各是一列（到期的原因，记进日志）：
 --   never_checked 从没检查过；interval_due 距上次检查已满一个检查周期（due_before = 现在 - 检查周期）；
---   new_episodes 这一季里有集的建出时间晚于上次检查时间；
---   refetch_due 它建出的、在重新拉取的窗口内（created_after = 现在 - 窗口）的绑定里，有距上次拉取已满一个检查周期（同样以 due_before 判断）、
---   而且是在上次检查开始之后才满的（满之前开始的那一轮已经试过拉取它，失败了等下一次定期的检查，不每次扫描都重试）。
--- 检查周期（check_interval_seconds）与窗口由调用方按配置传入，时间规则只写在 service 里。
+--   new_episodes 这一季里有集的建出时间晚于上次检查时间。
+-- 检查周期由调用方按配置传入，时间规则只写在 service 里。
 -- id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
-SELECT id, never_checked, interval_due, new_episodes, refetch_due
+SELECT id, never_checked, interval_due, new_episodes
 FROM (SELECT sb.id,
              sb.last_checked_at,
              (sb.last_checked_at IS NULL)::boolean AS never_checked,
              COALESCE(sb.last_checked_at <= sqlc.arg(due_before)::timestamptz, false)::boolean AS interval_due,
-             EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at) AS new_episodes,
-             EXISTS (SELECT 1
-                     FROM bindings b
-                     WHERE b.season_binding_id = sb.id
-                       AND b.created_at > sqlc.arg(created_after)::timestamptz
-                       AND b.last_fetched_at <= sqlc.arg(due_before)::timestamptz
-                       AND b.last_fetched_at > sb.last_checked_at - make_interval(secs => sqlc.arg(check_interval_seconds)::float8)) AS refetch_due
+             EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at) AS new_episodes
       FROM season_bindings sb
       WHERE sb.follow
         AND (sqlc.narg(id)::bigint IS NULL OR sb.id = sqlc.narg(id)::bigint)) d
-WHERE never_checked OR interval_due OR new_episodes OR refetch_due
+WHERE never_checked OR interval_due OR new_episodes
 ORDER BY last_checked_at NULLS FIRST, id;
-
--- name: ListRecentBackfilledBindings :many
--- 自动重新拉取的候选：季绑定建出的、建出时间晚于 created_after（现在 - 重新拉取的窗口）的绑定，按上次拉取时间从早到晚。
-SELECT id, last_fetched_at
-FROM bindings
-WHERE season_binding_id = sqlc.arg(season_binding_id)::bigint
-  AND created_at > sqlc.arg(created_after)::timestamptz
-ORDER BY last_fetched_at NULLS FIRST, id;

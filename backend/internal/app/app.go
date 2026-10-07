@@ -1,5 +1,5 @@
 // Package app 组装应用并运行。New 只构造对象，不做 IO：配置、日志、连接池与迁移由 main 准备好再传进来，
-// 构造出的组件都不连外部系统；Run 运行 HTTP 服务、后台同步与补建。
+// 构造出的组件都不连外部系统；Run 运行 HTTP 服务、后台同步、补建与定时拉取。
 package app
 
 import (
@@ -25,6 +25,7 @@ type App struct {
 	server         *server.Server
 	sync           *service.SyncService
 	seasonBindings *service.SeasonBindingService
+	scheduledFetch *service.ScheduledFetchService
 }
 
 // New 组装各层组件。pool 已连通、已迁移，由调用方在 Run 返回之后关闭。
@@ -38,7 +39,8 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 
 	catalogs := service.NewCatalogService(store, sources)
 	bindings := service.NewBindingService(store, sources, logger)
-	seasonBindings := service.NewSeasonBindingService(store, pool, sources, bindings, cfg.Follow, logger)
+	seasonBindings := service.NewSeasonBindingService(store, pool, sources, cfg.Follow, logger)
+	scheduledFetch := service.NewScheduledFetchService(store, pool, bindings, cfg.ScheduledFetch, logger)
 	syncs := service.NewSyncService(store, pool, catalogSource, cfg.Sync, logger)
 	dandanService := service.NewDandanService(store, sources)
 
@@ -54,6 +56,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		server:         server.New(cfg.Server, cfg.Dandanplay, logger, handlers, dandan.NewHandler(dandanService)),
 		sync:           syncs,
 		seasonBindings: seasonBindings,
+		scheduledFetch: scheduledFetch,
 	}
 }
 
@@ -67,10 +70,10 @@ func newCatalogSource(cfg config.CatalogSource) catalog.Source {
 	}
 }
 
-// Run 同时运行 HTTP 服务、后台同步与季绑定的补建（追更的扫描）并阻塞。ctx 取消时都退出：HTTP 服务优雅关闭，
-// 进行中的同步记为 interrupted，进行中的补建停下（不写上次检查时间，重启后接着做）；
-// HTTP 服务出错（例如端口被占用）时同步与补建也随之退出。
-// Run 等同步写完最终状态、补建停下才返回，调用方之后才能关闭连接池。
+// Run 同时运行 HTTP 服务、后台同步、季绑定的补建（追更的扫描）与定时拉取并阻塞。ctx 取消时都退出：HTTP 服务优雅关闭，
+// 进行中的同步记为 interrupted，进行中的补建停下（不写上次检查时间，重启后接着做），进行中的定时拉取停下；
+// HTTP 服务出错（例如端口被占用）时后台任务也随之退出。
+// Run 等同步写完最终状态、补建与定时拉取停下才返回，调用方之后才能关闭连接池。
 func (a *App) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return a.server.Start(ctx) })
@@ -80,6 +83,10 @@ func (a *App) Run(ctx context.Context) error {
 	})
 	g.Go(func() error {
 		a.seasonBindings.Run(ctx)
+		return nil
+	})
+	g.Go(func() error {
+		a.scheduledFetch.Run(ctx)
 		return nil
 	})
 	return g.Wait()

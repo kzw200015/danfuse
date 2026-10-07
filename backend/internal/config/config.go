@@ -16,15 +16,16 @@ import (
 const envPrefix = "DANFUSE"
 
 type Config struct {
-	Server        Server        `mapstructure:"server"`
-	Log           Log           `mapstructure:"log"`
-	Database      Database      `mapstructure:"database"`
-	Dandanplay    Dandanplay    `mapstructure:"dandanplay"`
-	CatalogSource CatalogSource `mapstructure:"catalog_source"`
-	Sync          Sync          `mapstructure:"sync"`
-	Follow        Follow        `mapstructure:"follow"`
-	Bilibili      Bilibili      `mapstructure:"bilibili"`
-	DanmakuFile   DanmakuFile   `mapstructure:"danmaku_file"`
+	Server         Server         `mapstructure:"server"`
+	Log            Log            `mapstructure:"log"`
+	Database       Database       `mapstructure:"database"`
+	Dandanplay     Dandanplay     `mapstructure:"dandanplay"`
+	CatalogSource  CatalogSource  `mapstructure:"catalog_source"`
+	Sync           Sync           `mapstructure:"sync"`
+	Follow         Follow         `mapstructure:"follow"`
+	ScheduledFetch ScheduledFetch `mapstructure:"scheduled_fetch"`
+	Bilibili       Bilibili       `mapstructure:"bilibili"`
+	DanmakuFile    DanmakuFile    `mapstructure:"danmaku_file"`
 }
 
 type Server struct {
@@ -87,10 +88,16 @@ type Sync struct {
 type Follow struct {
 	// ScanInterval 后台扫描的间隔：目录同步进来新的集后，最迟过这么久补建
 	ScanInterval time.Duration `mapstructure:"scan_interval"`
-	// CheckInterval 检查合集的周期，也是每个绑定自动重新拉取的最短间隔
+	// CheckInterval 检查合集的周期
 	CheckInterval time.Duration `mapstructure:"check_interval"`
-	// RefetchWindow 自动重新拉取的窗口：季绑定建出的绑定，建出后这么久之内按 CheckInterval 重新拉取；0 表示不自动重新拉取
-	RefetchWindow time.Duration `mapstructure:"refetch_window"`
+}
+
+// ScheduledFetch 定时拉取的时间规则：能重新拉取的绑定，建出后 Window 之内，距上次尝试拉取满 Interval 时自动重新拉取。
+type ScheduledFetch struct {
+	// Interval 每个绑定两次定时拉取的最短间隔，从上次尝试拉取（不论成败，包括手动重新拉取）算起
+	Interval time.Duration `mapstructure:"interval"`
+	// Window 绑定建出后这么久之内定时拉取；0 表示关闭定时拉取
+	Window time.Duration `mapstructure:"window"`
 }
 
 // Bilibili B 站源适配器。
@@ -189,7 +196,9 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("follow.scan_interval", time.Minute)
 	v.SetDefault("follow.check_interval", 12*time.Hour)
-	v.SetDefault("follow.refetch_window", 14*24*time.Hour)
+
+	v.SetDefault("scheduled_fetch.interval", 12*time.Hour)
+	v.SetDefault("scheduled_fetch.window", 14*24*time.Hour)
 
 	v.SetDefault("bilibili.sessdata", "")
 	v.SetDefault("bilibili.requests_per_second", 3.0)
@@ -276,8 +285,11 @@ func (c *Config) validate() error {
 	if c.Follow.CheckInterval <= 0 {
 		return errors.New("config: follow.check_interval must be positive")
 	}
-	if c.Follow.RefetchWindow < 0 {
-		return errors.New("config: follow.refetch_window must not be negative (0 disables automatic refetching)")
+	if c.ScheduledFetch.Interval <= 0 {
+		return errors.New("config: scheduled_fetch.interval must be positive")
+	}
+	if c.ScheduledFetch.Window < 0 {
+		return errors.New("config: scheduled_fetch.window must not be negative (0 disables scheduled fetching)")
 	}
 	// 原样作为 Cookie 的值发送：只能是浏览器里看到的那一串（逗号编码成了 %2C）。
 	// 含有 Cookie 值不允许的字符时 net/http 会加引号或丢掉这些字符，登录态悄悄失效，不如启动时就报错

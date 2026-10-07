@@ -188,7 +188,7 @@ describe('添加季绑定', () => {
     // 追更的说明按配置的时间规则写出
     expect(
       await preview.findByText(
-        '已完结，可以关掉追更：新建的季绑定开着追更，建出的绑定在 336 小时内每 12 小时自动重新拉取一次。',
+        '已完结，可以关掉追更：新建的季绑定开着追更，每 12 小时检查一次合集。',
       ),
     ).toBeInTheDocument()
     expect(preview.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')

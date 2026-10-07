@@ -77,7 +77,8 @@ export function settings(patch: Partial<Settings> = {}): Settings {
     catalogSource: null,
     syncInterval: 0,
     bilibiliSessdataConfigured: false,
-    follow: { scanInterval: 60, checkInterval: 43200, refetchWindow: 1209600 },
+    follow: { scanInterval: 60, checkInterval: 43200 },
+    scheduledFetch: { interval: 43200, window: 1209600 },
     ...patch,
   }
 }

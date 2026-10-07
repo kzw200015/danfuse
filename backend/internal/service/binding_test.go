@@ -616,7 +616,7 @@ func TestRefetch(t *testing.T) {
 	}
 }
 
-// TestRefetchFailed 拉取失败：弹幕源不存在时把绑定标为失效、保留弹幕；其余错误什么都不改。
+// TestRefetchFailed 拉取失败：弹幕源不存在时把绑定标为失效、保留弹幕；其余错误只记下尝试拉取的时间。
 // 重新拉取与清空后重新拉取都一样。
 func TestRefetchFailed(t *testing.T) {
 	tests := []struct {
@@ -674,12 +674,19 @@ func TestRefetchFailed(t *testing.T) {
 				}
 				after := getBinding(t, pool, id)
 				want := before
-				if tt.wantDead {
-					// 只改状态和拉取时间；弹幕、计数、标题、时长、content_version 都不动
-					if !after.LastFetchedAt.After(*before.LastFetchedAt) {
-						t.Errorf("last_fetched_at = %v, want 晚于创建时的 %v", after.LastFetchedAt, before.LastFetchedAt)
+				if tt.wantFetches > 0 {
+					// 拉取过就记下尝试拉取的时间
+					if !after.FetchAttemptedAt.After(*before.FetchAttemptedAt) {
+						t.Errorf("fetch_attempted_at = %v, want 晚于创建时的 %v", after.FetchAttemptedAt, before.FetchAttemptedAt)
 					}
-					want.Status, want.LastFetchedAt, want.UpdatedAt = "dead", after.LastFetchedAt, after.UpdatedAt
+					want.FetchAttemptedAt, want.UpdatedAt = after.FetchAttemptedAt, after.UpdatedAt
+				}
+				if tt.wantDead {
+					// 另外只改状态和拉取时间；弹幕、计数、标题、时长、content_version 都不动
+					if !after.LastFetchedAt.Equal(*after.FetchAttemptedAt) {
+						t.Errorf("last_fetched_at = %v, want 同尝试拉取的时间 %v", after.LastFetchedAt, after.FetchAttemptedAt)
+					}
+					want.Status, want.LastFetchedAt = "dead", after.LastFetchedAt
 				}
 				if !reflect.DeepEqual(after, want) {
 					t.Errorf("绑定 = %+v\nwant %+v", after, want)
@@ -733,7 +740,7 @@ func TestRefetchDeadAndRecover(t *testing.T) {
 	}
 }
 
-// TestRefetchTimeout 上游一直不响应：拉取到总时限 fetchTimeout 时按 Upstream 返回 502，绑定什么都不改。
+// TestRefetchTimeout 上游一直不响应：拉取到总时限 fetchTimeout 时按 Upstream 返回 502，绑定只记下尝试拉取的时间。
 func TestRefetchTimeout(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
@@ -751,8 +758,14 @@ func TestRefetchTimeout(t *testing.T) {
 		if elapsed := time.Since(start); elapsed != fetchTimeout {
 			t.Errorf("%v 后才失败，want 总时限 %v", elapsed, fetchTimeout)
 		}
-		if after := getBinding(t, pool, id); !reflect.DeepEqual(after, before) {
-			t.Errorf("绑定 = %+v\nwant 不变 %+v", after, before)
+		after := getBinding(t, pool, id)
+		if at := after.FetchAttemptedAt; at == nil || !at.Equal(start.Add(fetchTimeout)) {
+			t.Errorf("fetch_attempted_at = %v, want 超时的时间 %v", at, start.Add(fetchTimeout))
+		}
+		want := before
+		want.FetchAttemptedAt, want.UpdatedAt = after.FetchAttemptedAt, after.UpdatedAt
+		if !reflect.DeepEqual(after, want) {
+			t.Errorf("绑定 = %+v\nwant %+v", after, want)
 		}
 	})
 }

@@ -19,7 +19,7 @@
 - 拉取前的查重只为省一次请求，并发重复以唯一约束为准（`database.IsUniqueViolation`）；查无记录比较 `pgx.ErrNoRows`。
 - 写回时只更新自己负责的列（例如拉取不覆盖 offset）。
 - 批量写入用数组参数加 `unnest` 一条语句写完，`ON CONFLICT DO NOTHING` 去重、`:execrows` 返回实际插入的条数；`danmaku_count`、`file_count` 这类计数在同一个事务里按插入的条数维护，读取时不 COUNT。
-- 与追更比较的时间取自应用的时钟（`time.Now()`），不用数据库的 `now()`。
+- 与追更、定时拉取比较的时间取自应用的时钟（`time.Now()`），不用数据库的 `now()`。
 
 ## 错误与日志
 

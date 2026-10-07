@@ -57,6 +57,18 @@ function SettingsContent() {
       </section>
       <Separator />
       <section className="grid gap-1.5">
+        <h3 className="text-sm font-medium">弹幕源</h3>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+          <dt className="text-muted-foreground">定时拉取</dt>
+          <dd>
+            {data.scheduledFetch.window > 0
+              ? `绑定建出后 ${formatSeconds(data.scheduledFetch.window)}内，每 ${formatSeconds(data.scheduledFetch.interval)}重新拉取一次`
+              : '关闭'}
+          </dd>
+        </dl>
+      </section>
+      <Separator />
+      <section className="grid gap-1.5">
         <h3 className="text-sm font-medium">B 站</h3>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
           <dt className="text-muted-foreground">SESSDATA</dt>

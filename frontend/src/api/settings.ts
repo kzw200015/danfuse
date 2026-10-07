@@ -11,10 +11,16 @@ export interface CatalogSourceSettings {
 export interface FollowSettings {
   /** 后台扫描的间隔：目录同步进来新的集后最迟多久补建 */
   scanInterval: number
-  /** 检查合集的周期，也是自动重新拉取的最短间隔 */
+  /** 检查合集的周期 */
   checkInterval: number
-  /** 绑定建出后多久之内自动重新拉取，0 表示不自动重新拉取 */
-  refetchWindow: number
+}
+
+/** 定时拉取的时间规则，单位秒 */
+export interface ScheduledFetchSettings {
+  /** 每个绑定两次定时拉取的最短间隔 */
+  interval: number
+  /** 绑定建出后多久之内定时拉取，0 表示关闭 */
+  window: number
 }
 
 /** 只读的配置，对应后端 GET /api/settings */
@@ -28,6 +34,7 @@ export interface Settings {
   /** 是否配置了 B 站的 SESSDATA；不返回它的值 */
   bilibiliSessdataConfigured: boolean
   follow: FollowSettings
+  scheduledFetch: ScheduledFetchSettings
 }
 
 export function getSettings() {

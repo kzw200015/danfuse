@@ -251,7 +251,7 @@ func (e *seasonEnv) start() {
 	store := repository.NewStore(e.pool)
 	sources := source.NewRegistry(e.src)
 	logger := slogTo(io.MultiWriter(e.t.Output(), &e.logs))
-	e.svc = NewSeasonBindingService(store, e.pool, sources, NewBindingService(store, sources, logger), testFollow, logger)
+	e.svc = NewSeasonBindingService(store, e.pool, sources, testFollow, logger)
 	e.stop = runInBackground(e.t, e.svc)
 }
 
@@ -1402,116 +1402,6 @@ func TestFollowResumesAfterRestart(t *testing.T) {
 
 		assertStrings(t, "重启后的绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
 		assertStrings(t, "拉取", src.fetchedNames(), []string{"a", "b", "b", "c"})
-	})
-}
-
-// fetchedAt 库里绑定 ID 为 id 的上次拉取时间。
-func (e *seasonEnv) fetchedAt(id int64) time.Time {
-	e.t.Helper()
-	b := getBinding(e.t, e.pool, id)
-	return *b.LastFetchedAt
-}
-
-// TestAutoRefetch 追更开着时，定期的检查重新拉取季绑定建出的、建出不到 14 天、距上次拉取满 12 小时的绑定，每个绑定 12 小时最多一次；
-// 手动建的绑定不拉。
-func TestAutoRefetch(t *testing.T) {
-	t.Parallel()
-	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeCollector{
-			collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1), entry("b", 2)}}},
-			videos:      fakeVideos("a", "b", "m"),
-		}
-		env := newSeasonEnv(t, pool, src, 1, 2)
-		env.exec(`INSERT INTO bindings (episode_id, adapter, ref, title, duration, last_fetched_at) VALUES (1, 'fake', '{"name": "m"}', '手动', 1420, $1)`,
-			time.Now().Add(-48*time.Hour))
-		id := env.create(1, 1).ID
-		start := time.Now()
-
-		// 不到 12 小时：手动补建也不重新拉取
-		time.Sleep(time.Hour)
-		env.backfill(id)
-		assertStrings(t, "一小时后的拉取", src.fetchedNames(), []string{"a", "b"})
-
-		time.Sleep(testFollow.CheckInterval - time.Hour)
-		synctest.Wait()
-		assertStrings(t, "12 小时后的拉取", src.fetchedNames(), []string{"a", "b", "a", "b"})
-		if at := env.fetchedAt(2); !at.Equal(start.Add(testFollow.CheckInterval)) {
-			t.Errorf("上次拉取时间 = %v, want %v", at, start.Add(testFollow.CheckInterval))
-		}
-
-		// 刚拉取过再触发补建，不再重新拉取
-		env.backfill(id)
-		assertStrings(t, "刚拉取过再补建的拉取", src.fetchedNames(), []string{"a", "b", "a", "b"})
-	})
-}
-
-// TestAutoRefetchWindow 只重新拉取建出不到 14 天、距上次拉取满 12 小时的；追更关着时不拉；弹幕源不存在时标为失效。
-func TestAutoRefetchWindow(t *testing.T) {
-	t.Parallel()
-	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeCollector{
-			collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1), entry("b", 2), entry("c", 3), entry("d", 4)}}},
-			videos:      fakeVideos("a", "b", "c", "d"),
-		}
-		env := newSeasonEnv(t, pool, src, 1, 2, 3, 4)
-		id := env.create(1, 1).ID
-		now := time.Now()
-		// 绑定 1～4 依次为 a～d：a 建出满 14 天；b 建出 13 天、拉取已满 12 小时；c 建出 13 天、拉取还差一小时满 12 小时；d 同 b，但弹幕源已不存在
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 1`, now.Add(-testFollow.RefetchWindow), now.Add(-testFollow.CheckInterval-time.Hour))
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id IN (2, 4)`, now.Add(-13*24*time.Hour), now.Add(-testFollow.CheckInterval-time.Hour))
-		env.exec(`UPDATE bindings SET created_at = $1, last_fetched_at = $2 WHERE id = 3`, now.Add(-13*24*time.Hour), now.Add(-testFollow.CheckInterval+time.Hour))
-		delete(src.videos, "d")
-
-		if _, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Follow: new(false)}); err != nil {
-			t.Fatalf("Update: %v", err)
-		}
-		env.backfill(id)
-		assertStrings(t, "追更关着时的拉取", src.fetchedNames(), []string{"a", "b", "c", "d"})
-
-		if _, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Follow: new(true)}); err != nil {
-			t.Fatalf("Update: %v", err)
-		}
-		synctest.Wait()
-		assertStrings(t, "拉取", src.fetchedNames(), []string{"a", "b", "c", "d", "b", "d"})
-		if b := getBinding(t, pool, 4); b.Status != "dead" {
-			t.Errorf("d 的状态 = %s, want dead", b.Status)
-		}
-	})
-}
-
-// TestAutoRefetchDueAfterCheck 绑定在定期的检查开始之后才满 12 小时（例如上次是在那一轮中途拉取的）：
-// 一分钟内另起一轮重新拉取它，不等到下一次检查。
-func TestAutoRefetchDueAfterCheck(t *testing.T) {
-	t.Parallel()
-	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeCollector{
-			collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}},
-			videos:      fakeVideos("a"),
-		}
-		env := newSeasonEnv(t, pool, src, 1)
-		env.create(1, 1)
-		// 上次拉取在这一轮开始 30 秒之后
-		env.exec(`UPDATE bindings SET last_fetched_at = $1 WHERE id = 1`, time.Now().Add(30*time.Second))
-
-		checks := func() int { return src.listCount() - 2 } // 创建时列出一次，随后补建又检查一次
-
-		time.Sleep(testFollow.CheckInterval)
-		synctest.Wait()
-		assertStrings(t, "满 12 小时的检查", src.fetchedNames(), []string{"a"})
-		if n := checks(); n != 1 {
-			t.Fatalf("检查了 %d 次，want 1", n)
-		}
-
-		time.Sleep(testFollow.ScanInterval)
-		synctest.Wait()
-		assertStrings(t, "一分钟后", src.fetchedNames(), []string{"a", "a"})
-
-		// 之后不再每分钟检查
-		time.Sleep(time.Hour)
-		synctest.Wait()
-		if n := checks(); n != 2 {
-			t.Errorf("检查了 %d 次，want 2", n)
-		}
 	})
 }
 

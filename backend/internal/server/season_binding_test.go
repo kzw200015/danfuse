@@ -85,7 +85,7 @@ func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.P
 	sources := source.NewRegistry(fakeAdapter{})
 	logger := slog.New(slog.DiscardHandler)
 	bindings := service.NewBindingService(store, sources, logger)
-	svc := service.NewSeasonBindingService(store, pool, sources, bindings, config.Defaults().Follow, logger)
+	svc := service.NewSeasonBindingService(store, pool, sources, config.Defaults().Follow, logger)
 	runInBackground(t, svc)
 
 	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{

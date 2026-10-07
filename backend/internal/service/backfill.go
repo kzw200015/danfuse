@@ -94,7 +94,6 @@ func dueReasons(d repository.ListDueSeasonBindingsRow) []string {
 		{"never_checked", d.NeverChecked},
 		{"interval_due", d.IntervalDue},
 		{"new_episodes", d.NewEpisodes},
-		{"refetch_due", d.RefetchDue},
 	} {
 		if r.ok {
 			reasons = append(reasons, r.name)
@@ -103,16 +102,10 @@ func dueReasons(d repository.ListDueSeasonBindingsRow) []string {
 	return reasons
 }
 
-// dueParams 按现在的时间和追更的时间规则（follow.check_interval、follow.refetch_window）判定追更是否到期的参数；
+// dueParams 按现在的时间和追更的检查周期（follow.check_interval）判定追更是否到期的参数；
 // id 不为 nil 时只判定这一个季绑定。
 func (s *SeasonBindingService) dueParams(id *int64) repository.ListDueSeasonBindingsParams {
-	now := time.Now()
-	return repository.ListDueSeasonBindingsParams{
-		ID:                   id,
-		DueBefore:            now.Add(-s.follow.CheckInterval),
-		CreatedAfter:         now.Add(-s.follow.RefetchWindow),
-		CheckIntervalSeconds: s.follow.CheckInterval.Seconds(),
-	}
+	return repository.ListDueSeasonBindingsParams{ID: id, DueBefore: time.Now().Add(-s.follow.CheckInterval)}
 }
 
 // backfillRound 一轮补建的进度与结果。
@@ -127,9 +120,8 @@ type backfillRound struct {
 	unmatched      int   // 还没处理过、对不上（没有序号）的条目
 	beforeStart    int   // 还没处理过、序号在集号对应的起点之前的条目
 	waitingEpisode int   // 还没处理过、目录里还没有对应的集的条目
-	failed         int   // 失败的条目与重新拉取
-	refetched      int   // 重新拉取的绑定
-	danmakuAdded   int64 // 建出与重新拉取的绑定新增的弹幕条数
+	failed         int   // 拉取失败的条目
+	danmakuAdded   int64 // 建出的绑定新增的弹幕条数
 
 	rateLimited bool // 因限流结束
 	lastError   *string
@@ -139,13 +131,13 @@ type backfillRound struct {
 // backfill 补建一轮，调用方持有这个季绑定的租约，ctx 是租约的 ctx：
 //  1. 在事务之外列出合集：NotFound 标为失效、限流和其他上游错误记下原因，都结束这一轮；成功则恢复为正常，保存条目。
 //  2. 按合集顺序逐个处理还没处理过的条目：对得上、目录里有对应的集、那一集上还没有这个弹幕源的才建出绑定（见 backfillItem）。
-//  3. 追更开着时，自动重新拉取它建出的、在重新拉取的窗口内、距上次拉取已满一个检查周期的绑定（见 refetchRecent）。
-//  4. 正常结束或因错误、限流结束时，把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算"上次检查之后才有的"，
+//  3. 正常结束或因错误、限流结束时，把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算"上次检查之后才有的"，
 //     下一次扫描会再扫到。被 ctx 取消（关闭服务、租约丢失）时不写，下一次扫描接着做。
 //
 // trigger、due 只用于日志：trigger 取值同同步（triggerSchedule 为追更的扫描，triggerManual 为创建、立即补建、改集号对应、打开追更），
 // due 是追更的扫描触发时到期的原因（dueReasons），手动触发时为 nil。
-// 结束时记一条 "backfill finished"，用来评估追更：为什么到期、条目各自停在哪一步、建出与重新拉取了多少弹幕；
+// 结束时记一条 "backfill finished"，用来评估追更：为什么到期、条目各自停在哪一步、建出了多少弹幕；
+// 已建出的绑定之后的重新拉取不在补建里，见定时拉取（ScheduledFetchService）。
 // 这一轮记下了错误（上游错误、限流、合集已不存在、服务器内部错误）时为 warn 级别。
 func (s *SeasonBindingService) backfill(ctx context.Context, id int64, trigger string, due []string) {
 	r := &backfillRound{id: id, start: time.Now()}
@@ -184,7 +176,6 @@ func (s *SeasonBindingService) backfill(ctx context.Context, id int64, trigger s
 		slog.Int("before_start", r.beforeStart),
 		slog.Int("waiting_episode", r.waitingEpisode),
 		slog.Int("failed", r.failed),
-		slog.Int("refetched", r.refetched),
 		slog.Int64("danmaku_added", r.danmakuAdded),
 		slog.Bool("rate_limited", r.rateLimited),
 		slog.Bool("dead", r.dead),
@@ -192,7 +183,7 @@ func (s *SeasonBindingService) backfill(ctx context.Context, id int64, trigger s
 	)
 }
 
-// runBackfill 一轮补建的步骤 1～3。上游错误记在 r 里正常返回；季绑定被删除时返回 errSeasonBindingGone；
+// runBackfill 一轮补建的步骤 1、2。上游错误记在 r 里正常返回；季绑定被删除时返回 errSeasonBindingGone；
 // 其余返回的错误是服务器内部错误。
 func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound) error {
 	sb, err := s.getSeasonBinding(ctx, r.id)
@@ -259,7 +250,7 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 			return err
 		}
 	}
-	return s.refetchRecent(ctx, r)
+	return nil
 }
 
 // getSeasonBinding 补建时读季绑定，已被删除时返回 errSeasonBindingGone。
@@ -400,7 +391,7 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 	}
 	r.created++
 	r.danmakuAdded += added
-	s.bindings.logFetched(ctx, binding, fetched, added)
+	logFetched(ctx, s.logger, binding, fetched, added)
 	return nil
 }
 
@@ -411,48 +402,6 @@ func (s *SeasonBindingService) setItemError(ctx context.Context, id int64, ref [
 	})
 	if err != nil {
 		return fmt.Errorf("set item error of season binding %d: %w", id, err)
-	}
-	return nil
-}
-
-// refetchRecent 追更开着时（不论这一轮由什么触发），按上次拉取时间从早到晚重新拉取这个季绑定建出的、
-// 建出不到 follow.refetch_window、距上次拉取已满 follow.check_interval 的绑定，
-// 复用 BindingService.refetch 的只增不删模式：NotFound 照旧标为失效，限流结束这一轮。
-// 是否满一个检查周期在拉取每个绑定之前按当时的时间判断，前面的绑定拉取期间到期的也接着拉取。
-func (s *SeasonBindingService) refetchRecent(ctx context.Context, r *backfillRound) error {
-	candidates, err := s.store.ListRecentBackfilledBindings(ctx, repository.ListRecentBackfilledBindingsParams{
-		SeasonBindingID: r.id, CreatedAfter: time.Now().Add(-s.follow.RefetchWindow),
-	})
-	if err != nil {
-		return fmt.Errorf("list recent bindings of season binding %d: %w", r.id, err)
-	}
-	for _, c := range candidates {
-		if c.LastFetchedAt != nil && c.LastFetchedAt.After(time.Now().Add(-s.follow.CheckInterval)) {
-			return nil // 按上次拉取时间排序，后面的也没满一个检查周期
-		}
-		sb, err := s.getSeasonBinding(ctx, r.id)
-		if err != nil {
-			return err
-		}
-		if !sb.Follow {
-			return nil
-		}
-		_, added, err := s.bindings.refetch(ctx, c.ID, false)
-		switch srcErr, _ := errors.AsType[*source.Error](err); {
-		case err == nil:
-			r.refetched++
-			r.danmakuAdded += added
-		case ctx.Err() != nil:
-			return ctx.Err()
-		case srcErr != nil && srcErr.Kind == source.RateLimited:
-			r.lastError, r.rateLimited = &srcErr.Message, true
-			return nil
-		case errors.Is(err, errBindingNotFound), errors.Is(err, errBindingDeleted): // 用户刚删掉了这个绑定
-		case srcErr != nil: // NotFound 已标为失效；其余上游错误下次再试
-			r.failed++
-		default:
-			return err
-		}
 	}
 	return nil
 }

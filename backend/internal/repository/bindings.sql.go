@@ -84,7 +84,7 @@ func (q *Queries) EpisodeExists(ctx context.Context, id int64) (bool, error) {
 }
 
 const getBinding = `-- name: GetBinding :one
-SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count
+SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at
 FROM bindings
 WHERE id = $1
 `
@@ -111,6 +111,7 @@ func (q *Queries) GetBinding(ctx context.Context, id int64) (Binding, error) {
 		&i.SeasonBindingID,
 		&i.Kind,
 		&i.FileCount,
+		&i.FetchAttemptedAt,
 	)
 	return i, err
 }
@@ -130,20 +131,22 @@ func (q *Queries) GetBindingFileContent(ctx context.Context, id int64) ([]byte, 
 }
 
 const insertBinding = `-- name: InsertBinding :one
-INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration)
-VALUES ($1, 'link', $2::text, $3::jsonb, $4, $5::int)
+INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, created_at)
+VALUES ($1, 'link', $2::text, $3::jsonb, $4, $5::int, $6)
 RETURNING id
 `
 
 type InsertBindingParams struct {
-	EpisodeID int64  `json:"episodeId"`
-	Adapter   string `json:"adapter"`
-	Ref       []byte `json:"ref"`
-	Title     string `json:"title"`
-	Duration  int32  `json:"duration"`
+	EpisodeID int64     `json:"episodeId"`
+	Adapter   string    `json:"adapter"`
+	Ref       []byte    `json:"ref"`
+	Title     string    `json:"title"`
+	Duration  int32     `json:"duration"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // 贴链接建出的绑定。同一集重复绑定同一个弹幕源时撞上唯一约束 (episode_id, adapter, ref)。
+// 建出时间由应用写入（定时拉取按它算窗口）。
 func (q *Queries) InsertBinding(ctx context.Context, arg InsertBindingParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertBinding,
 		arg.EpisodeID,
@@ -151,6 +154,7 @@ func (q *Queries) InsertBinding(ctx context.Context, arg InsertBindingParams) (i
 		arg.Ref,
 		arg.Title,
 		arg.Duration,
+		arg.CreatedAt,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -283,7 +287,7 @@ func (q *Queries) ListBindingFiles(ctx context.Context, bindingID int64) ([]List
 }
 
 const listBindingsBySeries = `-- name: ListBindingsBySeries :many
-SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at, b.season_binding_id, b.kind, b.file_count
+SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at, b.season_binding_id, b.kind, b.file_count, b.fetch_attempted_at
 FROM bindings b
 JOIN episodes e ON e.id = b.episode_id
 JOIN seasons se ON se.id = e.season_id
@@ -319,10 +323,50 @@ func (q *Queries) ListBindingsBySeries(ctx context.Context, seriesID int64) ([]B
 			&i.SeasonBindingID,
 			&i.Kind,
 			&i.FileCount,
+			&i.FetchAttemptedAt,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDueScheduledFetches = `-- name: ListDueScheduledFetches :many
+SELECT id
+FROM bindings
+WHERE kind = 'link'
+  AND created_at > $1::timestamptz
+  AND (fetch_attempted_at IS NULL OR fetch_attempted_at <= $2::timestamptz)
+  AND ($3::bigint IS NULL OR id = $3::bigint)
+ORDER BY fetch_attempted_at NULLS FIRST, id
+`
+
+type ListDueScheduledFetchesParams struct {
+	CreatedAfter time.Time `json:"createdAfter"`
+	DueBefore    time.Time `json:"dueBefore"`
+	ID           *int64    `json:"id"`
+}
+
+// 定时拉取到期的绑定：能重新拉取的、建出时间晚于 created_after（现在 - 窗口）、上次尝试拉取不晚于 due_before（现在 - 间隔）的，
+// 按上次尝试拉取的时间从早到晚。时间规则由调用方按配置传入。
+// id 不为空时只看这一个绑定：拉取它之前再确认一次仍然到期。
+func (q *Queries) ListDueScheduledFetches(ctx context.Context, arg ListDueScheduledFetchesParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listDueScheduledFetches, arg.CreatedAfter, arg.DueBefore, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -364,9 +408,10 @@ func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 
 const markBindingDead = `-- name: MarkBindingDead :exec
 UPDATE bindings
-SET status          = 'dead',
-    last_fetched_at = $1::timestamptz,
-    updated_at      = now()
+SET status             = 'dead',
+    last_fetched_at    = $1::timestamptz,
+    fetch_attempted_at = $1::timestamptz,
+    updated_at         = now()
 WHERE id = $2
 `
 
@@ -376,7 +421,7 @@ type MarkBindingDeadParams struct {
 }
 
 // 重新拉取时弹幕源已不存在：标为失效。已保存的弹幕、计数、标题和时长都不动；
-// 这次拉取得到了确定的结果，拉取时间照常更新，由应用写入（同 RecordFetch）。
+// 这次拉取得到了确定的结果，拉取时间与上次尝试拉取的时间照常更新，由应用写入（同 RecordFetch）。
 func (q *Queries) MarkBindingDead(ctx context.Context, arg MarkBindingDeadParams) error {
 	_, err := q.db.Exec(ctx, markBindingDead, arg.FetchedAt, arg.ID)
 	return err
@@ -388,7 +433,7 @@ SET danmaku_count   = CASE WHEN $1::boolean THEN 0 ELSE danmaku_count END + $2::
     content_version = content_version + ($1::boolean OR $2::int > 0)::int,
     updated_at      = now()
 WHERE id = $3
-RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count
+RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at
 `
 
 type RecordDanmakuParams struct {
@@ -422,17 +467,19 @@ func (q *Queries) RecordDanmaku(ctx context.Context, arg RecordDanmakuParams) (B
 		&i.SeasonBindingID,
 		&i.Kind,
 		&i.FileCount,
+		&i.FetchAttemptedAt,
 	)
 	return i, err
 }
 
 const recordFetch = `-- name: RecordFetch :exec
 UPDATE bindings
-SET title           = $1,
-    duration        = $2::int,
-    status          = 'active',
-    last_fetched_at = $3::timestamptz,
-    updated_at      = now()
+SET title              = $1,
+    duration           = $2::int,
+    status             = 'active',
+    last_fetched_at    = $3::timestamptz,
+    fetch_attempted_at = $3::timestamptz,
+    updated_at         = now()
 WHERE id = $4
 `
 
@@ -445,7 +492,7 @@ type RecordFetchParams struct {
 
 // 一次拉取成功后更新弹幕源的信息：标题、时长用这次拉取的值覆盖，拉取成功即为 active。
 // 只更新拉取相关的列，不覆盖 offset；计数由 RecordDanmaku 维护。
-// 拉取时间由应用写入：追更按它判断自动重新拉取是否已满一个检查周期，与上次检查时间用同一个时钟。
+// 拉取时间由应用写入，同时也是上次尝试拉取的时间：定时拉取按它判断是否到期，与建出时间用同一个时钟。
 func (q *Queries) RecordFetch(ctx context.Context, arg RecordFetchParams) error {
 	_, err := q.db.Exec(ctx, recordFetch,
 		arg.Title,
@@ -456,12 +503,31 @@ func (q *Queries) RecordFetch(ctx context.Context, arg RecordFetchParams) error 
 	return err
 }
 
+const recordFetchAttempt = `-- name: RecordFetchAttempt :exec
+UPDATE bindings
+SET fetch_attempted_at = $1::timestamptz,
+    updated_at         = now()
+WHERE id = $2
+`
+
+type RecordFetchAttemptParams struct {
+	AttemptedAt time.Time `json:"attemptedAt"`
+	ID          int64     `json:"id"`
+}
+
+// 拉取失败（弹幕源不存在之外的上游错误、限流）：只记下尝试拉取的时间，定时拉取等满一个间隔再试。
+// 单条语句，不锁绑定；绑定已被删除时什么都不做。
+func (q *Queries) RecordFetchAttempt(ctx context.Context, arg RecordFetchAttemptParams) error {
+	_, err := q.db.Exec(ctx, recordFetchAttempt, arg.AttemptedAt, arg.ID)
+	return err
+}
+
 const updateBindingOffset = `-- name: UpdateBindingOffset :one
 UPDATE bindings
 SET "offset"   = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count
+RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at
 `
 
 type UpdateBindingOffsetParams struct {
@@ -491,6 +557,7 @@ func (q *Queries) UpdateBindingOffset(ctx context.Context, arg UpdateBindingOffs
 		&i.SeasonBindingID,
 		&i.Kind,
 		&i.FileCount,
+		&i.FetchAttemptedAt,
 	)
 	return i, err
 }

@@ -29,13 +29,20 @@ type settingsResponse struct {
 	BilibiliSessdataConfigured bool `json:"bilibiliSessdataConfigured"`
 	// Follow 追更的时间规则，管理界面据此写出追更的说明。
 	Follow followSettings `json:"follow"`
+	// ScheduledFetch 定时拉取的时间规则，管理界面据此写出定时拉取的说明。
+	ScheduledFetch scheduledFetchSettings `json:"scheduledFetch"`
 }
 
 // followSettings 追更的时间规则，单位秒。
 type followSettings struct {
 	ScanInterval  float64 `json:"scanInterval"`
 	CheckInterval float64 `json:"checkInterval"`
-	RefetchWindow float64 `json:"refetchWindow"` // 0 表示不自动重新拉取
+}
+
+// scheduledFetchSettings 定时拉取的时间规则，单位秒。
+type scheduledFetchSettings struct {
+	Interval float64 `json:"interval"`
+	Window   float64 `json:"window"` // 0 表示关闭定时拉取
 }
 
 // catalogSourceSettings 目录源的配置，不含 API key。
@@ -54,7 +61,10 @@ func (h *SettingsHandler) Get(c *echo.Context) error {
 		Follow: followSettings{
 			ScanInterval:  cfg.Follow.ScanInterval.Seconds(),
 			CheckInterval: cfg.Follow.CheckInterval.Seconds(),
-			RefetchWindow: cfg.Follow.RefetchWindow.Seconds(),
+		},
+		ScheduledFetch: scheduledFetchSettings{
+			Interval: cfg.ScheduledFetch.Interval.Seconds(),
+			Window:   cfg.ScheduledFetch.Window.Seconds(),
 		},
 	}
 	if cfg.Dandanplay.Token != "" {

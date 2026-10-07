@@ -14,7 +14,7 @@
   - 集号规则（ADR 0005）：投稿合集与多 P 投稿的适配器只给出展开到分 P 的条目和标签、标明 `Collection.NumberedByRule`，序号由季绑定上的规则从标签认出。规则是按优先级排列的一组正则，季绑定存它的副本；默认规则取自 `catalog.EpisodePatterns`，即 `ParseName` 那张表里带 `episode` 组的写法。
   - `NumberItems` 按规则认出序号，再交给 `NormalizeItems` 按 ref 去重、标出重复序号。
 - B 站适配器的链接解析（`bilibili/link.go`）只做字符串分类（短链先跳转一次再分类），集面板与季面板各自决定接受哪些（集面板遇到合集的链接时提示到季面板）。
-- 源适配器返回 `*source.Error`（带 Kind）：追更、重试、标为失效都按 Kind 分支；管理 API 由 `service.sourceAPIError` 按 Kind 转成 400/422/502，只包装 Err，日志里提示不重复。
+- 源适配器返回 `*source.Error`（带 Kind）：补建、定时拉取、标为失效都按 Kind 分支；管理 API 由 `service.sourceAPIError` 按 Kind 转成 400/422/502，只包装 Err，日志里提示不重复。
 
 ## 弹幕文件（ADR 0004）
 
