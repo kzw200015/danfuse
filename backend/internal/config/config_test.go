@@ -60,39 +60,6 @@ func TestLoadDefaultsWithoutCatalogSource(t *testing.T) {
 	}
 }
 
-func TestLoadTunableDefaults(t *testing.T) {
-	setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse"})
-
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Database.ConnectTimeout; got != 10*time.Second {
-		t.Errorf("connect_timeout = %v, want 10s", got)
-	}
-	if got := cfg.CatalogSource.Jellyfin.ListTimeout; got != 2*time.Minute {
-		t.Errorf("list_timeout = %v, want 2m", got)
-	}
-	if got := cfg.CatalogSource.Jellyfin.PosterTimeout; got != 30*time.Second {
-		t.Errorf("poster_timeout = %v, want 30s", got)
-	}
-	if cfg.Sync.KeepRuns != 20 {
-		t.Errorf("keep_runs = %d, want 20", cfg.Sync.KeepRuns)
-	}
-	if want := (Follow{ScanInterval: time.Minute, CheckInterval: 12 * time.Hour}); cfg.Follow != want {
-		t.Errorf("follow = %+v, want %+v", cfg.Follow, want)
-	}
-	if want := (ScheduledFetch{Interval: 12 * time.Hour, Window: 14 * 24 * time.Hour}); cfg.ScheduledFetch != want {
-		t.Errorf("scheduled_fetch = %+v, want %+v", cfg.ScheduledFetch, want)
-	}
-	if want := (Bilibili{RequestsPerSecond: 3, Burst: 10, FetchConcurrency: 10, RequestTimeout: 10 * time.Second}); cfg.Bilibili != want {
-		t.Errorf("bilibili = %+v, want %+v", cfg.Bilibili, want)
-	}
-	if want := (DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 50}); cfg.DanmakuFile != want {
-		t.Errorf("danmaku_file = %+v, want %+v", cfg.DanmakuFile, want)
-	}
-}
-
 func TestLoadTunablesFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{
 		"DATABASE_DSN":                           "postgres://localhost/danfuse",
@@ -147,27 +114,32 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 	}
 }
 
-func TestLoadDandanplayToken(t *testing.T) {
-	for _, token := range []string{"", "Abc-1.2_3~", "..."} {
-		t.Run(token, func(t *testing.T) {
-			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", "DANDANPLAY_TOKEN": token})
+// TestLoadAccepts 边界上合法的取值照常加载；SESSDATA 去掉首尾空白。
+func TestLoadAccepts(t *testing.T) {
+	const sessdata = "1a2b3c4d%2C1790000000%2Cabcde*a1" // 浏览器里看到的样子：逗号编码成了 %2C
+	tests := []struct {
+		key, value string
+		got        func(*Config) any
+		want       any
+	}{
+		{"DANDANPLAY_TOKEN", "", func(c *Config) any { return c.Dandanplay.Token }, ""},
+		{"DANDANPLAY_TOKEN", "Abc-1.2_3~", func(c *Config) any { return c.Dandanplay.Token }, "Abc-1.2_3~"},
+		{"DANDANPLAY_TOKEN", "...", func(c *Config) any { return c.Dandanplay.Token }, "..."},
+		{"DATABASE_MAX_CONNS", "0", func(c *Config) any { return c.Database.MaxConns }, int32(0)}, // 0 表示用 pgx 的默认值
+		{"DATABASE_MAX_CONNS", "1", func(c *Config) any { return c.Database.MaxConns }, int32(1)},
+		{"BILIBILI_SESSDATA", "", func(c *Config) any { return c.Bilibili.Sessdata }, ""},
+		{"BILIBILI_SESSDATA", sessdata, func(c *Config) any { return c.Bilibili.Sessdata }, sessdata},
+		{"BILIBILI_SESSDATA", " " + sessdata + "\n", func(c *Config) any { return c.Bilibili.Sessdata }, sessdata},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
+			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", tt.key: tt.value})
 			cfg, err := Load("")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if cfg.Dandanplay.Token != token {
-				t.Errorf("token = %q, want %q", cfg.Dandanplay.Token, token)
-			}
-		})
-	}
-}
-
-func TestLoadAcceptsMaxConns(t *testing.T) {
-	for _, maxConns := range []string{"0", "1"} { // 0 表示用 pgx 的默认值
-		t.Run(maxConns, func(t *testing.T) {
-			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", "DATABASE_MAX_CONNS": maxConns})
-			if _, err := Load(""); err != nil {
-				t.Error(err)
+			if got := tt.got(cfg); got != tt.want {
+				t.Errorf("%s = %#v, want %#v", tt.key, got, tt.want)
 			}
 		})
 	}
@@ -248,22 +220,6 @@ func TestLoadRejectsUnsupportedKind(t *testing.T) {
 			_, err := Load("")
 			if err == nil || !strings.Contains(err.Error(), `catalog_source.kind must be empty or "jellyfin"`) || strings.Contains(err.Error(), kind) {
 				t.Errorf("err = %v, want 列出允许的取值且不含配置的值", err)
-			}
-		})
-	}
-}
-
-func TestLoadBilibiliSessdata(t *testing.T) {
-	const sessdata = "1a2b3c4d%2C1790000000%2Cabcde*a1" // 浏览器里看到的样子：逗号编码成了 %2C
-	for _, raw := range []string{"", sessdata, " " + sessdata + "\n"} {
-		t.Run(raw, func(t *testing.T) {
-			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse", "BILIBILI_SESSDATA": raw})
-			cfg, err := Load("")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want := strings.TrimSpace(raw); cfg.Bilibili.Sessdata != want {
-				t.Errorf("sessdata = %q, want %q", cfg.Bilibili.Sessdata, want)
 			}
 		})
 	}

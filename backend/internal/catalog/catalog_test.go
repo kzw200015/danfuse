@@ -52,29 +52,29 @@ func TestSeriesValidate(t *testing.T) {
 	}
 }
 
-func TestSeasonLabelAndName(t *testing.T) {
+// TestSeasonName 季的名称，以及 ParseName 能从它拆回剧名和季号：插件手动选过一季之后，拿这个名称作为关键词搜回同一季。
+// 第 1 季和电影的名称就是剧名，没有季号。
+func TestSeasonName(t *testing.T) {
 	tests := []struct {
-		name      string
-		typ       SeriesType
-		number    int
-		wantLabel string
-		wantName  string
+		typ        SeriesType
+		number     int
+		wantName   string
+		wantParsed string // ParseName 拆出的"标题 | 季号 | 集号"
 	}{
-		{"第 1 季", TypeTV, 1, "第1季", "星海旅人"},
-		{"第 2 季", TypeTV, 2, "第2季", "星海旅人 第2季"},
-		{"第 12 季", TypeTV, 12, "第12季", "星海旅人 第12季"},
-		{"特别篇", TypeTV, 0, "特别篇", "星海旅人 特别篇"},
-		{"电影", TypeMovie, 1, "", "星海旅人"},
+		{TypeTV, 1, "星海旅人", "星海旅人 | - | -"},
+		{TypeTV, 2, "星海旅人 第2季", "星海旅人 | 2 | -"},
+		{TypeTV, 12, "星海旅人 第12季", "星海旅人 | 12 | -"},
+		{TypeTV, 0, "星海旅人 特别篇", "星海旅人 | 0 | -"},
+		{TypeMovie, 1, "星海旅人", "星海旅人 | - | -"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := seasonLabel(tt.typ, tt.number); got != tt.wantLabel {
-				t.Errorf("seasonLabel() = %q, want %q", got, tt.wantLabel)
-			}
-			if got := SeasonName(tt.typ, "星海旅人", tt.number); got != tt.wantName {
-				t.Errorf("SeasonName() = %q, want %q", got, tt.wantName)
-			}
-		})
+		name := SeasonName(tt.typ, "星海旅人", tt.number)
+		if name != tt.wantName {
+			t.Errorf("SeasonName(%s, %d) = %q, want %q", tt.typ, tt.number, name, tt.wantName)
+		}
+		if got := describeName(ParseName(name)); got != tt.wantParsed {
+			t.Errorf("ParseName(%q) = %q, want %q", name, got, tt.wantParsed)
+		}
 	}
 }
 

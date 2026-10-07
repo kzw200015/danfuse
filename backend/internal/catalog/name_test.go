@@ -53,24 +53,3 @@ func TestParseName(t *testing.T) {
 		}
 	}
 }
-
-// TestParseSeasonName SeasonName 输出的名称能拆回剧名和季号：插件手动选过一季之后，拿这个名称作为关键词搜回同一季。
-// 第 1 季和电影的名称就是剧名，没有季号。
-func TestParseSeasonName(t *testing.T) {
-	for _, tt := range []struct {
-		typ    SeriesType
-		number int
-		want   string
-	}{
-		{TypeTV, 1, "星海旅人 | - | -"},
-		{TypeTV, 2, "星海旅人 | 2 | -"},
-		{TypeTV, 12, "星海旅人 | 12 | -"},
-		{TypeTV, 0, "星海旅人 | 0 | -"},
-		{TypeMovie, 1, "星海旅人 | - | -"},
-	} {
-		name := SeasonName(tt.typ, "星海旅人", tt.number)
-		if got := describeName(ParseName(name)); got != tt.want {
-			t.Errorf("ParseName(%q) = %q, want %q", name, got, tt.want)
-		}
-	}
-}
