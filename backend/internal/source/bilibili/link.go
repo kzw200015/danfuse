@@ -195,7 +195,7 @@ func parseSpaceURL(u *url.URL) target {
 func parseVideoID(id string) (int64, bool) {
 	if digits, ok := strings.CutPrefix(id, "av"); ok {
 		aid, ok := positiveInt(digits)
-		return aid, ok && aid < maxAid
+		return aid, ok && validAid(aid)
 	}
 	return bvToAid(id)
 }
@@ -222,6 +222,9 @@ const (
 	bvXor      = 23442827791579
 	maxAid     = 1 << 51
 )
+
+// validAid aid 是否在 BV 号能表示的范围 (0, maxAid) 之内。
+func validAid(aid int64) bool { return aid > 0 && aid < maxAid }
 
 // aidToBV 先算 (maxAid | aid) ^ bvXor，按 58 进制从末位往前填，再交换下标 3↔9、4↔7。aid 必须在 (0, maxAid) 之间。
 func aidToBV(aid int64) string {

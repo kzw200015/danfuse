@@ -46,7 +46,7 @@ func sourceError(kind source.Kind, err error) *source.Error {
 }
 
 // 番剧的一季、投稿合集不存在时给用户看的提示，由 notFoundAs 换上；投稿与番剧单集用 messages 里通用的提示。
-var (
+const (
 	bangumiNotFound   = "番剧不存在、已下架或不可见"
 	ugcSeasonNotFound = "合集不存在或已删除"
 )

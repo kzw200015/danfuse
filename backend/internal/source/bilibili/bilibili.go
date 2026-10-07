@@ -54,7 +54,7 @@ func decodeRef(r source.Ref) (ref, error) {
 		return ref{}, fmt.Errorf("bilibili: decode ref %s: %w", r, err)
 	}
 	switch {
-	case v.Kind == kindVideo && v.Aid > 0 && v.Aid < maxAid && v.Page >= 1 && v.EpID == 0,
+	case v.Kind == kindVideo && validAid(v.Aid) && v.Page >= 1 && v.EpID == 0,
 		v.Kind == kindEpisode && v.EpID > 0 && v.Aid == 0 && v.Page == 0:
 		return v, nil
 	}

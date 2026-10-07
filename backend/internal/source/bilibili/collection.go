@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -46,7 +45,7 @@ func decodeCollectionRef(r source.CollectionRef) (collectionRef, error) {
 	switch {
 	case v.Kind == collectionBangumi && v.SeasonID > 0 && v.Mid == 0 && v.Aid == 0,
 		v.Kind == collectionUGCSeason && v.SeasonID > 0 && v.Mid > 0 && v.Aid == 0,
-		v.Kind == collectionMultiPage && v.Aid > 0 && v.Aid < maxAid && v.SeasonID == 0 && v.Mid == 0:
+		v.Kind == collectionMultiPage && validAid(v.Aid) && v.SeasonID == 0 && v.Mid == 0:
 		return v, nil
 	}
 	return collectionRef{}, fmt.Errorf("bilibili: invalid collection ref %s", r)
@@ -218,8 +217,8 @@ func episodeNumber(title string) (int, bool) {
 	if s == "" || strings.ContainsFunc(s, func(r rune) bool { return r < '0' || r > '9' }) {
 		return 0, false
 	}
-	n, err := strconv.ParseInt(s, 10, 32)
-	return int(n), err == nil && n <= math.MaxInt32
+	n, err := strconv.ParseInt(s, 10, 32) // 超出 int32 时报错
+	return int(n), err == nil
 }
 
 func (a *Adapter) listUGCSeason(ctx context.Context, seasonID int64) (source.Collection, error) {
@@ -246,7 +245,7 @@ func (a *Adapter) listUGCSeason(ctx context.Context, seasonID int64) (source.Col
 
 	c := source.Collection{Title: strings.TrimSpace(first.Meta.Title), NumberedByRule: true}
 	for _, e := range entries {
-		if e.Aid <= 0 || e.Aid >= maxAid {
+		if !validAid(e.Aid) {
 			continue
 		}
 		ps, ok := pages[e.Aid]
@@ -273,7 +272,7 @@ const maxViewAttempts = 3
 func (a *Adapter) seasonPages(ctx context.Context, seasonID int64, entries []archive) (map[int64][]ugcPage, error) {
 	attempts := 0
 	for _, e := range entries {
-		if e.Aid <= 0 || e.Aid >= maxAid {
+		if !validAid(e.Aid) {
 			continue
 		}
 		if attempts == maxViewAttempts {
