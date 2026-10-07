@@ -51,6 +51,8 @@ export interface SeriesDetail {
   title: string
   originalTitle: string | null
   year: number | null
+  /** TMDB 上的编号，没有时为 null；有它的剧同步时以它为身份 */
+  tmdbId: number | null
   /** 海报的图片 ID，没有海报时为 null */
   posterImageId: number | null
   /** 按季号排序 */

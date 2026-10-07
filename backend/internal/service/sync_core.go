@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
@@ -77,23 +80,18 @@ func (s *SyncService) syncItem(ctx context.Context, run *syncRun, item catalog.I
 
 type createdCounts struct{ series, seasons, episodes int32 }
 
-// writeSeries 同步核心，每部剧一个事务：按自然键依次 upsert 剧、季、集，键以外的字段用目录源的数据覆盖，
-// 重算这部剧所有季的搜索列，最后按 sha256 处理海报（下载失败的保留旧海报）。同一个自然键出现多次时后写的覆盖先写的。
-// 返回这个事务里新增的剧、季、集数量。
+// writeSeries 同步核心，每部剧一个事务：按身份写入剧（见 upsertSeries），再按季号、集号依次 upsert 季、集，
+// 键以外的字段用目录源的数据覆盖，重算这部剧所有季的搜索列，最后按 sha256 处理海报（下载失败的保留旧海报）。
+// 同一个身份出现多次时后写的覆盖先写的。返回这个事务里新增的剧、季、集数量。
 // 网络请求都在事务之外：适配在交出这部剧之前已经取完了它的季和集、下载完了海报。
 func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (createdCounts, error) {
 	var created createdCounts
 	err := s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
-		seriesRow, err := q.UpsertSeries(ctx, sqlc.UpsertSeriesParams{
-			Type:          string(series.Type),
-			Title:         series.Title,
-			OriginalTitle: nullIfEmpty(series.OriginalTitle),
-			Year:          int32Ptr(series.Year),
-		})
+		seriesRow, seriesCreated, err := upsertSeries(ctx, q, series)
 		if err != nil {
-			return fmt.Errorf("upsert series: %w", err)
+			return err
 		}
-		if seriesRow.Created {
+		if seriesCreated {
 			created.series++
 		}
 
@@ -140,6 +138,57 @@ func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (c
 		return createdCounts{}, err
 	}
 	return created, nil
+}
+
+// upsertSeries 按身份写入一部剧（见 docs/adr/0007），返回写入后的行和是否新增：
+//  1. 有 TMDB ID 时先按（类型，TMDB ID）找，找到就覆盖标题、年份和原名；
+//  2. 没找到（或没有 TMDB ID）再按（类型，标题，年份）在没有 TMDB ID 的剧里找，找到就覆盖原名、补上 TMDB ID。
+//     只在没有 TMDB ID 的剧里找：已有 TMDB ID 的剧标题年份相同也是另一部，在 Jellyfin 里重新识别成另一个条目按新剧处理；
+//  3. 都没找到就新增。
+//
+// 分三步而不是一条 ON CONFLICT：同步持有租约，没有并发的写入者；同步进行中删除的剧，下一步按新行处理即可。
+func upsertSeries(ctx context.Context, q *sqlc.Queries, series catalog.Series) (sqlc.Series, bool, error) {
+	if series.TMDBID != nil {
+		row, err := q.UpdateSeriesByTMDBID(ctx, sqlc.UpdateSeriesByTMDBIDParams{
+			Type:          string(series.Type),
+			TmdbID:        *series.TMDBID,
+			Title:         series.Title,
+			OriginalTitle: nullIfEmpty(series.OriginalTitle),
+			Year:          int32Ptr(series.Year),
+		})
+		if err == nil {
+			return row, false, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.Series{}, false, fmt.Errorf("update series by tmdb id: %w", err)
+		}
+	}
+
+	row, err := q.AdoptSeriesByNaturalKey(ctx, sqlc.AdoptSeriesByNaturalKeyParams{
+		Type:          string(series.Type),
+		Title:         series.Title,
+		Year:          int32Ptr(series.Year),
+		OriginalTitle: nullIfEmpty(series.OriginalTitle),
+		TmdbID:        series.TMDBID,
+	})
+	if err == nil {
+		return row, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return sqlc.Series{}, false, fmt.Errorf("update series by natural key: %w", err)
+	}
+
+	row, err = q.InsertSeries(ctx, sqlc.InsertSeriesParams{
+		Type:          string(series.Type),
+		Title:         series.Title,
+		OriginalTitle: nullIfEmpty(series.OriginalTitle),
+		Year:          int32Ptr(series.Year),
+		TmdbID:        series.TMDBID,
+	})
+	if err != nil {
+		return sqlc.Series{}, false, fmt.Errorf("insert series: %w", err)
+	}
+	return row, true, nil
 }
 
 // writeSearchVectors 重算一部剧所有季的搜索列，在这部剧的事务里调用。包括这次目录源没有给出的季：

@@ -15,6 +15,7 @@ import {
   parseOffset,
   parseTimestamp,
   resolveSelection,
+  tmdbUrl,
   type Selection,
 } from '../catalog'
 
@@ -160,6 +161,7 @@ describe('resolveSelection', () => {
     title: '星海旅人',
     originalTitle: null,
     year: 2019,
+    tmdbId: null,
     posterImageId: null,
     seasons: [season(10, 0, [100]), season(11, 1, [110, 111])],
   }
@@ -182,6 +184,14 @@ describe('resolveSelection', () => {
     ['电影：季不存在', movie, '10', undefined, 'missing season'],
   ])('%s', (_, series, seasonId, episodeId, want) => {
     expect(selected(resolveSelection(series, seasonId, episodeId))).toBe(want)
+  })
+})
+
+describe('tmdbUrl', () => {
+  it('电视剧和电影各走各的路径，没有 TMDB ID 时为 null', () => {
+    expect(tmdbUrl({ type: 'tv', tmdbId: 60735 })).toBe('https://www.themoviedb.org/tv/60735')
+    expect(tmdbUrl({ type: 'movie', tmdbId: 9 })).toBe('https://www.themoviedb.org/movie/9')
+    expect(tmdbUrl({ type: 'tv', tmdbId: null })).toBeNull()
   })
 })
 
@@ -223,6 +233,7 @@ describe('deletionImpact', () => {
     title: '星海旅人',
     originalTitle: null,
     year: 2019,
+    tmdbId: null,
     posterImageId: null,
     seasons: [season(10, 0), s1, s2],
   }

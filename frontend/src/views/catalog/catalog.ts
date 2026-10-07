@@ -98,6 +98,12 @@ export function seriesMeta(series: Pick<SeriesSummary, 'type' | 'year'>) {
   return `${series.year ?? '年份未知'} · ${series.type === 'movie' ? '电影' : '剧集'}`
 }
 
+/** 剧在 TMDB 上的页面；电视剧和电影各有一套编号，按类型分路径。没有 TMDB ID 时为 null */
+export function tmdbUrl(series: Pick<SeriesDetail, 'type' | 'tmdbId'>) {
+  if (series.tmdbId === null) return null
+  return `https://www.themoviedb.org/${series.type === 'movie' ? 'movie' : 'tv'}/${series.tmdbId}`
+}
+
 /** 一组集的绑定统计：已绑定的集数（至少有一个绑定）、失效的绑定数 */
 export function bindingStats(episodes: Episode[]) {
   return {

@@ -25,7 +25,7 @@ var (
 //
 // 删除用来清理目录源里已经没有的条目，下级的季、集、绑定和弹幕随外键级联删除。同步进行中也能删除，不加应用层的锁：
 // 同步正在写这部剧时，删除等它的事务提交，再连同刚写入的内容一起删掉；目录源里还在的条目，之后的同步（包括正在进行的这次）
-// 按自然键找不到它，会用新 ID 重新建出来，绑定不会恢复。
+// 按身份找不到它，会用新 ID 重新建出来，绑定不会恢复。
 type CatalogService struct {
 	store   *repository.Store
 	sources *source.Registry // 剧详情里绑定的弹幕源链接和标签由适配器生成
@@ -51,6 +51,7 @@ type SeriesDetail struct {
 	Title         string         `json:"title"`
 	OriginalTitle *string        `json:"originalTitle"`
 	Year          *int32         `json:"year"`
+	TMDBID        *int64         `json:"tmdbId"`        // 没有 TMDB ID 时为 null
 	PosterImageID *int64         `json:"posterImageId"` // 没有海报时为 null
 	Seasons       []SeasonDetail `json:"seasons"`
 }
@@ -115,6 +116,7 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 		Title:         series.Title,
 		OriginalTitle: series.OriginalTitle,
 		Year:          series.Year,
+		TMDBID:        series.TmdbID,
 		PosterImageID: series.PosterImageID,
 		Seasons:       make([]SeasonDetail, len(seasons)),
 	}

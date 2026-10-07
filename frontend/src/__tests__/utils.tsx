@@ -147,6 +147,7 @@ export function lighthouse(): SeriesDetail {
     title: '长夜灯塔',
     originalTitle: null,
     year: 2020,
+    tmdbId: null,
     posterImageId: null,
     seasons: [
       {

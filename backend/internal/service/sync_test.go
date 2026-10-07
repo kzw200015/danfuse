@@ -58,6 +58,7 @@ func TestSyncTwiceKeepsIDs(t *testing.T) {
 	})
 }
 
+// TestSyncMatchesNaturalKeys 没有 TMDB ID 的剧按（类型、标题、年份）对应；有 TMDB ID 的见 TestSyncMatchesTMDBID。
 func TestSyncMatchesNaturalKeys(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
@@ -123,6 +124,57 @@ func TestSyncMatchesNaturalKeys(t *testing.T) {
 		if got := readContents(t, pool); !slices.Equal(got, wantContents) {
 			t.Errorf("各集的绑定 = %q\nwant %q", got, wantContents)
 		}
+	})
+}
+
+// TestSyncMatchesTMDBID 剧的身份（docs/adr/0007）：有 TMDB ID 的剧按（类型，TMDB ID）对应，标题和年份随目录源覆盖；
+// 没有 TMDB ID 的剧按自然键对应，之后目录源给出 TMDB ID 时补上；自然键只在没有 TMDB ID 的剧里找，
+// 所以在 Jellyfin 里重新识别成另一个条目按新剧处理，标题年份相同、一个有 TMDB ID 一个没有的也是两部。
+func TestSyncMatchesTMDBID(t *testing.T) {
+	t.Parallel()
+	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &fakeCatalog{}
+		svc := newTestService(t, pool, src)
+		withTMDB := func(s *catalog.Series, id int64) *catalog.Series {
+			s.TMDBID = &id
+			return s
+		}
+		ep1 := func() catalog.Season { return season(1, "", episode(1, "第1集", 30)) }
+
+		// 星海旅人带 TMDB ID；雾港谜案没有（只用 AniDB 刮削）
+		src.items = []catalog.Item{
+			item(withTMDB(tv("星海旅人", new(2019), ep1()), 1)),
+			item(tv("雾港谜案", new(2021), ep1())),
+		}
+		syncOnce(t, svc)
+		assertStrings(t, "第一次同步：剧", readSeries(t, pool), []string{"1|tv|星海旅人|2019|1", "2|tv|雾港谜案|2021|-"})
+
+		// 星海旅人改了标题和年份（换元数据语言、重新识别成同一个条目）仍是同一部；雾港谜案刮上了 TMDB，按自然键对上并补上 TMDB ID
+		src.items = []catalog.Item{
+			item(withTMDB(tv("Star Sea", new(2020), ep1()), 1)),
+			item(withTMDB(tv("雾港谜案", new(2021), ep1()), 2)),
+		}
+		run := syncOnce(t, svc)
+		if got, want := runCounts(run), "succeeded 2/2 新增剧 0 季 0 集 0"; got != want {
+			t.Errorf("标题年份变化、补上 TMDB ID：%s, want %s", got, want)
+		}
+		assertStrings(t, "标题年份变化、补上 TMDB ID：剧", readSeries(t, pool), []string{"1|tv|Star Sea|2020|1", "2|tv|雾港谜案|2021|2"})
+
+		// 雾港谜案重新识别成了另一个条目（TMDB 3，标题年份没变）：新剧，旧的保留；
+		// 另一个媒体库里没刮上 TMDB 的「Star Sea (2020)」与有 TMDB ID 的那部标题年份相同，也是另一部；
+		// 电影的 TMDB 1 与剧集的 TMDB 1 是两套编号
+		src.items = []catalog.Item{
+			item(withTMDB(tv("雾港谜案", new(2021), ep1()), 3)),
+			item(tv("Star Sea", new(2020), ep1())),
+			item(withTMDB(movie("长夜灯塔", new(2020), 5400), 1)),
+		}
+		run = syncOnce(t, svc)
+		if got, want := runCounts(run), "succeeded 3/3 新增剧 3 季 3 集 3"; got != want {
+			t.Errorf("重新识别、同名无 TMDB ID、电影同号：%s, want %s", got, want)
+		}
+		assertStrings(t, "重新识别、同名无 TMDB ID、电影同号：剧", readSeries(t, pool), []string{
+			"1|tv|Star Sea|2020|1", "2|tv|雾港谜案|2021|2", "3|tv|雾港谜案|2021|3", "4|tv|Star Sea|2020|-", "5|movie|长夜灯塔|2020|1",
+		})
 	})
 }
 

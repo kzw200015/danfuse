@@ -81,7 +81,7 @@ func pickLibraries(names []string, folders []virtualFolder) (libraries []virtual
 	return libraries, skipped
 }
 
-// items Listing.Items 的实现：列出的剧和电影已经带着名称、年份和图片 tag，不用再请求一次；
+// items Listing.Items 的实现：列出的剧和电影已经带着名称、年份、外部 id 和图片 tag，不用再请求一次；
 // 电影自带时长，不用取季和集。请求都在调用方要下一项时才发：剧取季和集，有 Primary 图的再下载海报。
 // 海报下载失败只放进这部剧的 PosterErr，不结束迭代；整部跳过的剧不下载海报。
 // 没有刮削的剧和电影整部跳过，不发请求，见 scraped。
@@ -113,7 +113,7 @@ func (s *Source) items(ctx context.Context, listed []item) iter.Seq2[catalog.Ite
 }
 
 // scraped 剧或电影是否刮削过：ProviderIds 里有任意一个外部数据库的 id。
-// 没刮削的剧标题、年份来自文件夹名，刮削后会变，同步就会多出一部剧（剧按标题和年份对应），所以不同步。
+// 没刮削的剧标题、年份来自文件夹名，刮削后会变，没有 TMDB id 的剧按标题和年份对应，同步就会多出一部剧，所以不同步。
 // 文件夹名里带的 id（如 [tmdbid-123]）也算，Jellyfin 通常会随后按它刮削。
 func scraped(it item) bool {
 	for _, id := range it.ProviderIDs {
