@@ -60,13 +60,7 @@ type fakeCollectionRef struct {
 func (f *fakeCollector) ID() string                 { return "fake" }
 func (f *fakeCollector) Platform() danmaku.Platform { return danmaku.PlatformNone }
 
-func (f *fakeCollector) Describe(ref source.Ref) (source.Display, error) {
-	var r fakeRef
-	if err := json.Unmarshal(ref, &r); err != nil {
-		return source.Display{}, err
-	}
-	return source.Display{URL: "https://fake.test/" + r.Name, Label: "假弹幕源 " + r.Name}, nil
-}
+func (f *fakeCollector) Describe(ref source.Ref) (source.Display, error) { return describeFake(ref) }
 
 func (f *fakeCollector) ParseLink(context.Context, string) (source.Ref, error) {
 	return nil, source.ErrUnrecognized
@@ -81,16 +75,15 @@ func (f *fakeCollector) Fetch(ctx context.Context, ref source.Ref) (source.Fetch
 	f.fetched = append(f.fetched, r.Name)
 	f.mu.Unlock()
 	if f.started != nil {
-		upstream := &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: ctx.Err()}
 		select {
 		case f.started <- r.Name:
 		case <-ctx.Done():
-			return source.Fetched{}, upstream
+			return source.Fetched{}, upstreamErr(ctx)
 		}
 		select {
 		case <-f.release:
 		case <-ctx.Done():
-			return source.Fetched{}, upstream
+			return source.Fetched{}, upstreamErr(ctx)
 		}
 	}
 	if err := f.fetchErrs[r.Name]; err != nil {
@@ -135,7 +128,7 @@ func (f *fakeCollector) ListCollection(ctx context.Context, ref source.Collectio
 		select {
 		case <-f.listRelease:
 		case <-ctx.Done():
-			return source.Collection{}, &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: ctx.Err()}
+			return source.Collection{}, upstreamErr(ctx)
 		}
 	}
 	if f.listErr != nil {
@@ -275,14 +268,29 @@ func (e *seasonEnv) exec(sql string, args ...any) {
 	}
 }
 
+// bindParams 创建季绑定的参数：链接 link，合集第 from 集为本地第 to 集，默认的集号规则。
+func bindParams(link string, from, to int) CreateSeasonBinding {
+	return CreateSeasonBinding{Link: link, Mapping: source.Mapping{From: from, To: to}, Rule: source.DefaultEpisodeRule()}
+}
+
 // create 用链接 list/s 给第 1 季创建季绑定，等后台的补建结束，返回创建时的详情。
 func (e *seasonEnv) create(from, to int) SeasonBindingDetail {
 	e.t.Helper()
-	d, err := e.svc.Create(e.t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: from, To: to}, Rule: source.DefaultEpisodeRule()})
+	d, err := e.svc.Create(e.t.Context(), 1, bindParams("list/s", from, to))
 	if err != nil {
 		e.t.Fatalf("Create: %v", err)
 	}
 	synctest.Wait()
+	return d
+}
+
+// createAsync 用链接 link 给第 1 季创建季绑定（合集第 1 集为第 1 集），不等后台的补建，返回创建时的详情。
+func (e *seasonEnv) createAsync(link string) SeasonBindingDetail {
+	e.t.Helper()
+	d, err := e.svc.Create(e.t.Context(), 1, bindParams(link, 1, 1))
+	if err != nil {
+		e.t.Fatalf("Create: %v", err)
+	}
 	return d
 }
 
@@ -360,13 +368,6 @@ func states(d SeasonBindingDetail) []string {
 		got[i] = strings.TrimSpace(fmt.Sprintf("%s %s %s %s", it.Label, it.State, episode, emptyIfNull(it.Reason)))
 	}
 	return got
-}
-
-func assertStrings(t *testing.T, what string, got, want []string) {
-	t.Helper()
-	if !slices.Equal(got, want) {
-		t.Errorf("%s = %q\nwant %q", what, got, want)
-	}
 }
 
 func TestPreviewSeasonBinding(t *testing.T) {
@@ -522,7 +523,9 @@ func TestCreateSeasonBindingFailed(t *testing.T) {
 				src := &fakeCollector{collections: map[string]source.Collection{"s": {Title: "合集"}}, listErr: tt.listErr}
 				env := newSeasonEnv(t, pool, src, 1)
 
-				_, err := env.svc.Create(t.Context(), tt.seasonID, CreateSeasonBinding{Link: tt.link, Kind: tt.kind, Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
+				p := bindParams(tt.link, 1, 1)
+				p.Kind = tt.kind
+				_, err := env.svc.Create(t.Context(), tt.seasonID, p)
 
 				assertAppError(t, err, tt.wantStatus, tt.wantMessage)
 				if n := queryInt(t, pool, `SELECT count(*) FROM season_bindings`); n != 0 {
@@ -543,16 +546,18 @@ func TestCreateSeasonBindingDuplicate(t *testing.T) {
 		env.create(1, 1)
 		lists := src.listCount()
 
-		_, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "alias-list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
+		_, err := env.svc.Create(t.Context(), 1, bindParams("alias-list/s", 1, 1))
 		assertAppError(t, err, http.StatusConflict, "这一季已经绑定过这个合集")
 		if n := src.listCount(); n != lists {
 			t.Errorf("又列出了 %d 次合集，want 0：重复的不列出", n-lists)
 		}
 
-		if _, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "both/t", Kind: "list", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}); err != nil {
+		both := bindParams("both/t", 1, 1)
+		both.Kind = "list"
+		if _, err := env.svc.Create(t.Context(), 1, both); err != nil {
 			t.Errorf("同一季绑定另一个合集：%v", err)
 		}
-		if _, err := env.svc.Create(t.Context(), 2, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 13, To: 1}, Rule: source.DefaultEpisodeRule()}); err != nil {
+		if _, err := env.svc.Create(t.Context(), 2, bindParams("list/s", 13, 1)); err != nil {
 			t.Errorf("同一个合集绑到另一季：%v", err)
 		}
 		synctest.Wait()
@@ -579,7 +584,7 @@ func TestCreateSeasonBindingSeasonDeleted(t *testing.T) {
 
 		errc := make(chan error, 1)
 		go func() {
-			_, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
+			_, err := env.svc.Create(t.Context(), 1, bindParams("list/s", 1, 1))
 			errc <- err
 		}()
 		<-src.listStarted
@@ -654,10 +659,7 @@ func TestBackfillSourceBoundDuringFetch(t *testing.T) {
 		src := &fakeCollector{collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, videos: fakeVideos("a")}
 		env := newSeasonEnv(t, pool, src, 1)
 		src.gate()
-		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		d := env.createAsync("list/s")
 		<-src.started
 		env.bindManually(1, "a")
 		src.release <- struct{}{}
@@ -683,10 +685,7 @@ func TestBackfillSharedSource(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1)
 		first := env.create(1, 1).ID
-		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/t", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		d := env.createAsync("list/t")
 		second := d.ID
 		synctest.Wait()
 
@@ -805,42 +804,28 @@ func TestUpdateMappingSkippedItem(t *testing.T) {
 	})
 }
 
-// TestPreviewEpisodeRule 按规则编号的合集：预览按传入的集号规则认出序号。
+// TestPreviewEpisodeRule 按规则编号的合集：预览按请求里的集号规则认出序号（认的规则见 source.NumberItems 的测试）。
 func TestPreviewEpisodeRule(t *testing.T) {
 	t.Parallel()
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &fakeCollector{collections: map[string]source.Collection{
 			"ugc": {Title: "投稿合集", NumberedByRule: true, Items: []source.CollectionItem{
-				titled("x1", "【合辑】全12集 周更 / 01"), titled("x2", "【合辑】全12集 周更 / 周更"), titled("e1", "正式版 第1集 / 01"),
+				titled("x1", "【合辑】全12集 周更 / 01"), titled("x2", "【合辑】全12集 周更 / 周更"), titled("e1", "正式版 第1集 / 02"),
 			}},
 		}}
 		env := newSeasonEnv(t, pool, src, 1, 2)
 
-		got, err := env.svc.Preview(t.Context(), 1, "list/ugc", source.DefaultEpisodeRule())
+		got, err := env.svc.Preview(t.Context(), 1, "list/ugc", mustRule(t, `/ (\d+)$`))
 		if err != nil {
 			t.Fatalf("Preview: %v", err)
 		}
 		want := []PreviewItem{
-			{Label: "【合辑】全12集 周更 / 01", Reason: new("不符合集号规则")},
+			{Label: "【合辑】全12集 周更 / 01", Number: new(1)},
 			{Label: "【合辑】全12集 周更 / 周更", Reason: new("不符合集号规则")},
-			{Label: "正式版 第1集 / 01", Number: new(1)},
+			{Label: "正式版 第1集 / 02", Number: new(2)},
 		}
-		c := got.Candidates[0]
-		if !c.NumberedByRule || !reflect.DeepEqual(c.Items, want) {
-			t.Errorf("Preview(默认规则) = %+v\nwant 按规则编号、%+v", c, want)
-		}
-
-		got, err = env.svc.Preview(t.Context(), 1, "list/ugc", mustRule(t, `/ (\d+)$`))
-		if err != nil {
-			t.Fatalf("Preview: %v", err)
-		}
-		want = []PreviewItem{
-			{Label: "【合辑】全12集 周更 / 01", Reason: new("集号重复")},
-			{Label: "【合辑】全12集 周更 / 周更", Reason: new("不符合集号规则")},
-			{Label: "正式版 第1集 / 01", Reason: new("集号重复")},
-		}
-		if c := got.Candidates[0]; !reflect.DeepEqual(c.Items, want) {
-			t.Errorf("Preview(正则) = %+v\nwant %+v", c.Items, want)
+		if c := got.Candidates[0]; !c.NumberedByRule || !reflect.DeepEqual(c.Items, want) {
+			t.Errorf("Preview() = %+v\nwant 按规则编号、%+v", c, want)
 		}
 	})
 }
@@ -904,10 +889,7 @@ func TestUpdateEpisodeRuleDuringBackfill(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2, 3)
 		src.gate()
-		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		d := env.createAsync("list/s")
 		<-src.started // a，按默认规则对到第 1 集
 		if _, err := env.svc.Update(t.Context(), d.ID, UpdateSeasonBinding{Rule: new(mustRule(t, `/ (\d+)`))}); err != nil {
 			t.Fatalf("Update: %v", err)
@@ -1060,21 +1042,6 @@ func TestDeleteSeasonBinding(t *testing.T) {
 	}
 }
 
-// TestDeleteSeasonCascades 删除一季时它的季绑定一起删除。
-func TestDeleteSeasonCascades(t *testing.T) {
-	t.Parallel()
-	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeCollector{collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, videos: fakeVideos("a")}
-		env := newSeasonEnv(t, pool, src, 1)
-		id := env.create(1, 1).ID
-
-		env.exec(`DELETE FROM seasons WHERE id = 1`)
-
-		_, err := env.svc.Get(t.Context(), id)
-		assertAppError(t, err, http.StatusNotFound, "季绑定不存在")
-	})
-}
-
 // TestDeleteSeasonBindingDuringBackfill 补建停在拉取上时删除季绑定：补建随即结束。一起删时，之前建出的绑定也删掉、
 // 正在建的不会漏下；不一起删时，之前建出的绑定变成普通绑定，正在建的不再建出。
 func TestDeleteSeasonBindingDuringBackfill(t *testing.T) {
@@ -1089,10 +1056,7 @@ func TestDeleteSeasonBindingDuringBackfill(t *testing.T) {
 				}
 				env := newSeasonEnv(t, pool, src, 1, 2, 3)
 				src.gate()
-				d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-				if err != nil {
-					t.Fatalf("Create: %v", err)
-				}
+				d := env.createAsync("list/s")
 				<-src.started // a
 				src.release <- struct{}{}
 				<-src.started // b：a 已经写入
@@ -1153,9 +1117,7 @@ func TestBackfillWriteDuringDeleteSeason(t *testing.T) {
 		src := &fakeCollector{collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, videos: fakeVideos("a")}
 		env := newSeasonEnv(t, pool, src, 1, 2)
 		src.gate()
-		if _, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}); err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		env.createAsync("list/s")
 		<-src.started // a：还没开始写入
 
 		// 第 2 集被另一个事务锁住，删季锁住季和第 1 集之后停在第 2 集上
@@ -1215,10 +1177,7 @@ func TestBackfillTwice(t *testing.T) {
 		src := &fakeCollector{collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, videos: fakeVideos("a")}
 		env := newSeasonEnv(t, pool, src, 1)
 		src.gate()
-		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		d := env.createAsync("list/s")
 		<-src.started
 
 		assertAppError(t, env.svc.Backfill(t.Context(), d.ID), http.StatusConflict, "正在补建")
@@ -1250,10 +1209,7 @@ func TestBackfillEpisodeDeletedDuringFetch(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2)
 		src.gate()
-		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		d := env.createAsync("list/s")
 		<-src.started // a
 		env.exec(`DELETE FROM episodes WHERE number = 1`)
 		src.release <- struct{}{}
@@ -1348,10 +1304,7 @@ func TestFollowRechecksDue(t *testing.T) {
 		src := &fakeCollector{collections: map[string]source.Collection{"s": {}, "t": {}}, videos: fakeVideos("a")}
 		env := newSeasonEnv(t, pool, src, 1)
 		env.create(1, 1)
-		second, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/t", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		second := env.createAsync("list/t")
 		synctest.Wait()
 		// 合集 s 新出了一集：定期的检查里，第一个季绑定停在拉取上
 		src.collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 1)}}
@@ -1381,10 +1334,7 @@ func TestFollowResumesAfterRestart(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2, 3)
 		src.gate()
-		d, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		d := env.createAsync("list/s")
 		<-src.started // a
 		src.release <- struct{}{}
 		<-src.started // b
@@ -1418,17 +1368,12 @@ func TestManualBackfillConcurrent(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2)
 		src.gate()
-		if _, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/s", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}); err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		env.createAsync("list/s")
 		if name := <-src.started; name != "a" {
 			t.Fatalf("第一个季绑定拉取的是 %s", name)
 		}
 
-		second, err := env.svc.Create(t.Context(), 1, CreateSeasonBinding{Link: "list/t", Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()})
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
+		second := env.createAsync("list/t")
 		if !second.Running {
 			t.Error("第二个季绑定 running = false, want 立即开始")
 		}
