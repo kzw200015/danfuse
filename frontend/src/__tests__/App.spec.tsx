@@ -147,6 +147,20 @@ describe('设置弹出层', () => {
   })
 
   it.each([
+    { window: 1209600, want: '绑定建出后 336 小时内，每 12 小时重新拉取一次' },
+    { window: 0, want: '关闭' },
+  ])('定时拉取的规则：$want', async ({ window, want }) => {
+    vi.mocked(getSettings).mockResolvedValue(
+      settings({ scheduledFetch: { interval: 43200, window } }),
+    )
+    renderRoutes('/catalog')
+
+    const dialog = await openSettings()
+
+    expect((await within(dialog).findByText('定时拉取')).nextElementSibling).toHaveTextContent(want)
+  })
+
+  it.each([
     { configured: true, want: '已配置' },
     { configured: false, want: '未配置，以未登录的身份拉取，弹幕可能不全' },
   ])('B 站 SESSDATA 只显示是否已配置：$want', async ({ configured, want }) => {

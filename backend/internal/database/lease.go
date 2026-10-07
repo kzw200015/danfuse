@@ -26,6 +26,8 @@ const (
 const (
 	// LeaseSync 同一时间只跑一次同步，多实例同样成立。
 	LeaseSync = "sync"
+	// LeaseScheduledFetch 同一时间只跑一轮定时拉取，多实例同样成立。
+	LeaseScheduledFetch = "scheduled_fetch"
 	// LeaseSeasonBackfillPrefix 按季绑定的键的前缀，见 LeaseSeasonBackfill；SQL 里判断"正在补建"时用它拼出同样的键。
 	LeaseSeasonBackfillPrefix = "season_backfill:"
 )

@@ -28,7 +28,8 @@ var (
 	errKindNotFound          = apierr.ErrBadRequest.WithMessage("链接里没有这种合集，请重新预览")
 )
 
-// SeasonBindingService 季绑定：在季上绑定一个合集，按集号对应为各集补建出普通的绑定；追更时定时补建、自动重新拉取。
+// SeasonBindingService 季绑定：在季上绑定一个合集，按集号对应为各集补建出普通的绑定；追更时定时补建。
+// 建出的绑定之后的重新拉取与季绑定无关，见定时拉取（ScheduledFetchService）。
 //
 // 生命周期同 SyncService：App.Run 运行 Run(ctx)（循环是 backgroundLoop），补建都用 Run 的 ctx（应用级），不用 HTTP 请求的 ctx；
 // 手动触发（创建、立即补建、改集号对应、打开追更）经 Run 的循环立即在后台开始，不同季绑定的补建互不等待；
@@ -38,24 +39,22 @@ var (
 // "补建中"以按季绑定的租约（database.LeaseSeasonBackfill）为准，多实例同样成立，季绑定上不存运行状态。
 // 网络请求都在事务之外；写入事务先锁季、再锁季绑定，删除季绑定时排队，之后补建再也锁不到它，随即结束。
 type SeasonBindingService struct {
-	store    *repository.Store
-	pool     *pgxpool.Pool // 拿按季绑定的租约
-	sources  *source.Registry
-	bindings *BindingService // 自动重新拉取复用它的 refetch
-	follow   config.Follow   // 追更的时间规则
-	logger   *slog.Logger
-	loop     *backgroundLoop // Run 的循环：追更的扫描与手动触发，进行中的扫描和补建
+	store   *repository.Store
+	pool    *pgxpool.Pool // 拿按季绑定的租约
+	sources *source.Registry
+	follow  config.Follow // 追更的时间规则
+	logger  *slog.Logger
+	loop    *backgroundLoop // Run 的循环：追更的扫描与手动触发，进行中的扫描和补建
 }
 
-func NewSeasonBindingService(store *repository.Store, pool *pgxpool.Pool, sources *source.Registry, bindings *BindingService, follow config.Follow, logger *slog.Logger) *SeasonBindingService {
+func NewSeasonBindingService(store *repository.Store, pool *pgxpool.Pool, sources *source.Registry, follow config.Follow, logger *slog.Logger) *SeasonBindingService {
 	return &SeasonBindingService{
-		store:    store,
-		pool:     pool,
-		sources:  sources,
-		bindings: bindings,
-		follow:   follow,
-		logger:   logger,
-		loop:     newBackgroundLoop(),
+		store:   store,
+		pool:    pool,
+		sources: sources,
+		follow:  follow,
+		logger:  logger,
+		loop:    newBackgroundLoop(),
 	}
 }
 

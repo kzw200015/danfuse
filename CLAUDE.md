@@ -11,6 +11,7 @@ danfuse 是自托管的弹幕聚合服务：从目录源（目前只有 Jellyfin
 - 改动某个模块前读它的架构文档 `docs/architecture/`：
   - `sources.md`：源适配器、合集与集号规则、弹幕文件、绑定卡片、B 站适配器的测试
   - `season-binding.md`：季绑定、补建、追更
+  - `scheduled-fetch.md`：定时拉取（绑定建出后的自动重新拉取）
   - `dandan-api.md`：弹弹 API 的接口、响应格式、路由与测试
   - `catalog.md`：目录同步、海报与图片接口、同步状态的轮询、搜索列与 Go 迁移、名称里的季号集号、Jellyfin 样本
   - `runtime.md`：启动流程、后台循环、租约、前端托管

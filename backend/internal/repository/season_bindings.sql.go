@@ -215,7 +215,7 @@ type InsertBackfilledBindingParams struct {
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
-// 补建出一个绑定，带上建出它的季绑定；建出时间由应用写入（追更按它算自动重新拉取的窗口）。
+// 补建出一个绑定，带上建出它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
 // 这一集已有同一个弹幕源的绑定时什么都不做，没有行。
 func (q *Queries) InsertBackfilledBinding(ctx context.Context, arg InsertBackfilledBindingParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertBackfilledBinding,
@@ -325,30 +325,22 @@ func (q *Queries) ListBoundSources(ctx context.Context, id int64) ([]ListBoundSo
 }
 
 const listDueSeasonBindings = `-- name: ListDueSeasonBindings :many
-SELECT id, never_checked, interval_due, new_episodes, refetch_due
+SELECT id, never_checked, interval_due, new_episodes
 FROM (SELECT sb.id,
              sb.last_checked_at,
              (sb.last_checked_at IS NULL)::boolean AS never_checked,
              COALESCE(sb.last_checked_at <= $1::timestamptz, false)::boolean AS interval_due,
-             EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at) AS new_episodes,
-             EXISTS (SELECT 1
-                     FROM bindings b
-                     WHERE b.season_binding_id = sb.id
-                       AND b.created_at > $2::timestamptz
-                       AND b.last_fetched_at <= $1::timestamptz
-                       AND b.last_fetched_at > sb.last_checked_at - make_interval(secs => $3::float8)) AS refetch_due
+             EXISTS (SELECT 1 FROM episodes e WHERE e.season_id = sb.season_id AND e.created_at > sb.last_checked_at) AS new_episodes
       FROM season_bindings sb
       WHERE sb.follow
-        AND ($4::bigint IS NULL OR sb.id = $4::bigint)) d
-WHERE never_checked OR interval_due OR new_episodes OR refetch_due
+        AND ($2::bigint IS NULL OR sb.id = $2::bigint)) d
+WHERE never_checked OR interval_due OR new_episodes
 ORDER BY last_checked_at NULLS FIRST, id
 `
 
 type ListDueSeasonBindingsParams struct {
-	DueBefore            time.Time `json:"dueBefore"`
-	CreatedAfter         time.Time `json:"createdAfter"`
-	CheckIntervalSeconds float64   `json:"checkIntervalSeconds"`
-	ID                   *int64    `json:"id"`
+	DueBefore time.Time `json:"dueBefore"`
+	ID        *int64    `json:"id"`
 }
 
 type ListDueSeasonBindingsRow struct {
@@ -356,25 +348,17 @@ type ListDueSeasonBindingsRow struct {
 	NeverChecked bool  `json:"neverChecked"`
 	IntervalDue  bool  `json:"intervalDue"`
 	NewEpisodes  bool  `json:"newEpisodes"`
-	RefetchDue   bool  `json:"refetchDue"`
 }
 
 // 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚，每个条件各是一列（到期的原因，记进日志）：
 //
 //	never_checked 从没检查过；interval_due 距上次检查已满一个检查周期（due_before = 现在 - 检查周期）；
-//	new_episodes 这一季里有集的建出时间晚于上次检查时间；
-//	refetch_due 它建出的、在重新拉取的窗口内（created_after = 现在 - 窗口）的绑定里，有距上次拉取已满一个检查周期（同样以 due_before 判断）、
-//	而且是在上次检查开始之后才满的（满之前开始的那一轮已经试过拉取它，失败了等下一次定期的检查，不每次扫描都重试）。
+//	new_episodes 这一季里有集的建出时间晚于上次检查时间。
 //
-// 检查周期（check_interval_seconds）与窗口由调用方按配置传入，时间规则只写在 service 里。
+// 检查周期由调用方按配置传入，时间规则只写在 service 里。
 // id 不为空时只看这一个季绑定：扫描拿到它的租约之后再确认一次仍然到期。
 func (q *Queries) ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBindingsParams) ([]ListDueSeasonBindingsRow, error) {
-	rows, err := q.db.Query(ctx, listDueSeasonBindings,
-		arg.DueBefore,
-		arg.CreatedAfter,
-		arg.CheckIntervalSeconds,
-		arg.ID,
-	)
+	rows, err := q.db.Query(ctx, listDueSeasonBindings, arg.DueBefore, arg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +371,6 @@ func (q *Queries) ListDueSeasonBindings(ctx context.Context, arg ListDueSeasonBi
 			&i.NeverChecked,
 			&i.IntervalDue,
 			&i.NewEpisodes,
-			&i.RefetchDue,
 		); err != nil {
 			return nil, err
 		}
@@ -420,45 +403,6 @@ func (q *Queries) ListEpisodeNumbersBySeason(ctx context.Context, seasonID int64
 			return nil, err
 		}
 		items = append(items, number)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listRecentBackfilledBindings = `-- name: ListRecentBackfilledBindings :many
-SELECT id, last_fetched_at
-FROM bindings
-WHERE season_binding_id = $1::bigint
-  AND created_at > $2::timestamptz
-ORDER BY last_fetched_at NULLS FIRST, id
-`
-
-type ListRecentBackfilledBindingsParams struct {
-	SeasonBindingID int64     `json:"seasonBindingId"`
-	CreatedAfter    time.Time `json:"createdAfter"`
-}
-
-type ListRecentBackfilledBindingsRow struct {
-	ID            int64      `json:"id"`
-	LastFetchedAt *time.Time `json:"lastFetchedAt"`
-}
-
-// 自动重新拉取的候选：季绑定建出的、建出时间晚于 created_after（现在 - 重新拉取的窗口）的绑定，按上次拉取时间从早到晚。
-func (q *Queries) ListRecentBackfilledBindings(ctx context.Context, arg ListRecentBackfilledBindingsParams) ([]ListRecentBackfilledBindingsRow, error) {
-	rows, err := q.db.Query(ctx, listRecentBackfilledBindings, arg.SeasonBindingID, arg.CreatedAfter)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListRecentBackfilledBindingsRow{}
-	for rows.Next() {
-		var i ListRecentBackfilledBindingsRow
-		if err := rows.Scan(&i.ID, &i.LastFetchedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

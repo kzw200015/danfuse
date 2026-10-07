@@ -79,8 +79,11 @@ func TestLoadTunableDefaults(t *testing.T) {
 	if cfg.Sync.KeepRuns != 20 {
 		t.Errorf("keep_runs = %d, want 20", cfg.Sync.KeepRuns)
 	}
-	if want := (Follow{ScanInterval: time.Minute, CheckInterval: 12 * time.Hour, RefetchWindow: 14 * 24 * time.Hour}); cfg.Follow != want {
+	if want := (Follow{ScanInterval: time.Minute, CheckInterval: 12 * time.Hour}); cfg.Follow != want {
 		t.Errorf("follow = %+v, want %+v", cfg.Follow, want)
+	}
+	if want := (ScheduledFetch{Interval: 12 * time.Hour, Window: 14 * 24 * time.Hour}); cfg.ScheduledFetch != want {
+		t.Errorf("scheduled_fetch = %+v, want %+v", cfg.ScheduledFetch, want)
 	}
 	if want := (Bilibili{RequestsPerSecond: 3, Burst: 10, FetchConcurrency: 10, RequestTimeout: 10 * time.Second}); cfg.Bilibili != want {
 		t.Errorf("bilibili = %+v, want %+v", cfg.Bilibili, want)
@@ -100,7 +103,8 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 		"SYNC_KEEP_RUNS":                         "1",
 		"FOLLOW_SCAN_INTERVAL":                   "30s",
 		"FOLLOW_CHECK_INTERVAL":                  "6h",
-		"FOLLOW_REFETCH_WINDOW":                  "0", // 不自动重新拉取
+		"SCHEDULED_FETCH_INTERVAL":               "1h",
+		"SCHEDULED_FETCH_WINDOW":                 "0", // 关闭定时拉取
 		"BILIBILI_REQUESTS_PER_SECOND":           "0.5",
 		"BILIBILI_BURST":                         "1",
 		"BILIBILI_FETCH_CONCURRENCY":             "2",
@@ -131,6 +135,9 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 	}
 	if want := (Follow{ScanInterval: 30 * time.Second, CheckInterval: 6 * time.Hour}); cfg.Follow != want {
 		t.Errorf("follow = %+v, want %+v", cfg.Follow, want)
+	}
+	if want := (ScheduledFetch{Interval: time.Hour}); cfg.ScheduledFetch != want {
+		t.Errorf("scheduled_fetch = %+v, want %+v", cfg.ScheduledFetch, want)
 	}
 	if want := (Bilibili{RequestsPerSecond: 0.5, Burst: 1, FetchConcurrency: 2, RequestTimeout: 20 * time.Second}); cfg.Bilibili != want {
 		t.Errorf("bilibili = %+v, want %+v", cfg.Bilibili, want)
@@ -210,7 +217,8 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"keep_runs 为 0", map[string]string{"SYNC_KEEP_RUNS": "0"}, "sync.keep_runs"},
 		{"scan_interval 为 0", map[string]string{"FOLLOW_SCAN_INTERVAL": "0"}, "follow.scan_interval"},
 		{"check_interval 为 0", map[string]string{"FOLLOW_CHECK_INTERVAL": "0"}, "follow.check_interval"},
-		{"refetch_window 为负", map[string]string{"FOLLOW_REFETCH_WINDOW": "-1h"}, "follow.refetch_window"},
+		{"scheduled_fetch.interval 为 0", map[string]string{"SCHEDULED_FETCH_INTERVAL": "0"}, "scheduled_fetch.interval"},
+		{"scheduled_fetch.window 为负", map[string]string{"SCHEDULED_FETCH_WINDOW": "-1h"}, "scheduled_fetch.window"},
 		{"requests_per_second 为 0", map[string]string{"BILIBILI_REQUESTS_PER_SECOND": "0"}, "bilibili.requests_per_second"},
 		{"requests_per_second 为负", map[string]string{"BILIBILI_REQUESTS_PER_SECOND": "-1"}, "bilibili.requests_per_second"},
 		{"burst 为 0", map[string]string{"BILIBILI_BURST": "0"}, "bilibili.burst"},

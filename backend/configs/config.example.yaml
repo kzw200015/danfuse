@@ -41,11 +41,16 @@ sync:
   interval: 0 # 定时同步的间隔，例如 24h；0 表示关闭。距最近一次同步（含手动的）满一个间隔就同步，启动时已经到期就立即同步
   keep_runs: 20 # 同步记录保留最近几次，至少 1
 
-# 季绑定的追更。调大 refetch_window 或调小 check_interval 都会增加 B 站请求量
+# 季绑定的追更
 follow:
   scan_interval: 1m # 后台扫描的间隔：目录同步进来新的集后，最迟过这么久补建
-  check_interval: 12h # 检查合集的周期，也是自动重新拉取的最短间隔
-  refetch_window: 336h # 季绑定建出的绑定在建出后多久之内自动重新拉取（14 天）；0 表示不自动重新拉取
+  check_interval: 12h # 检查合集的周期
+
+# 定时拉取：能重新拉取的绑定（不论手动建的还是补建出的）在建出后 window 之内，每隔 interval 自动重新拉取一次。
+# 调大 window 或调小 interval 都会增加 B 站请求量
+scheduled_fetch:
+  interval: 12h # 距上次拉取（不论成败，包括手动重新拉取）满多久才再拉
+  window: 336h # 绑定建出后多久之内定时拉取（14 天）；0 表示关闭定时拉取
 
 # B 站：贴 B 站链接创建绑定、拉取弹幕。
 bilibili:

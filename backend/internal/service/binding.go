@@ -108,6 +108,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 			Ref:       ref,
 			Title:     fetched.Title,
 			Duration:  int32(fetched.Duration),
+			CreatedAt: fetchedAt,
 		})
 		if err != nil {
 			if database.IsUniqueViolation(err) {
@@ -121,7 +122,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 	if err != nil {
 		return BindingView{}, err
 	}
-	s.logFetched(ctx, binding, fetched, added)
+	logFetched(ctx, s.logger, binding, fetched, added)
 	return bindingView(s.sources, binding)
 }
 
@@ -132,12 +133,13 @@ func (s *BindingService) Refetch(ctx context.Context, id int64, replace bool) (B
 }
 
 // refetch Refetch 的实现，适配器的错误原样返回（*source.Error）。不依赖 HTTP 请求，
-// 追更的自动重新拉取（SeasonBindingService.refetchRecent）也复用它，按 Kind 决定是否停下这一轮。
+// 定时拉取（ScheduledFetchService）也复用它，按 Kind 决定是否停下这一轮。
 //   - replace 为 false（重新拉取）：只插入新弹幕，从不删除，平台上已经删掉的弹幕继续保留。
 //   - replace 为 true（清空后重新拉取，即管理 API 的 clear）：拉取成功后，在同一个事务里删掉这个绑定的全部弹幕、
 //     写入这次的结果；新增条数为这次的总条数。
 //
-// 拉取失败时什么都不改，只有弹幕源不存在（NotFound）时把绑定标为失效，已保存的弹幕保留；失效的绑定拉取成功后恢复正常。
+// 拉取失败时只记下尝试拉取的时间（定时拉取等满一个间隔再试）；弹幕源不存在（NotFound）时把绑定标为失效，已保存的弹幕保留；
+// 失效的绑定拉取成功后恢复正常。
 // 拉取期间绑定被删除时返回 404"绑定已被删除"，拉取结果丢弃。用弹幕文件建的绑定不能重新拉取（400）。
 func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (BindingView, int64, error) {
 	b, err := s.getBinding(ctx, id)
@@ -154,8 +156,14 @@ func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (B
 
 	fetched, err := fetch(ctx, adapter, b.Ref)
 	if err != nil {
-		if srcErr, ok := errors.AsType[*source.Error](err); ok && srcErr.Kind == source.NotFound {
+		switch srcErr, ok := errors.AsType[*source.Error](err); {
+		case !ok || ctx.Err() != nil: // 服务器内部错误、关闭服务：不算一次尝试
+		case srcErr.Kind == source.NotFound:
 			if err := s.markDead(ctx, b, srcErr); err != nil {
+				return BindingView{}, 0, err
+			}
+		default:
+			if err := s.recordFetchAttempt(ctx, b.ID); err != nil {
 				return BindingView{}, 0, err
 			}
 		}
@@ -175,13 +183,13 @@ func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (B
 	if err != nil {
 		return BindingView{}, 0, err
 	}
-	s.logFetched(ctx, b, fetched, added)
+	logFetched(ctx, s.logger, b, fetched, added)
 	view, err := bindingView(s.sources, b)
 	return view, added, err
 }
 
 // markDead 重新拉取时弹幕源已不存在：把绑定标为失效，已保存的弹幕保留。
-// 成功后记一条 info 日志，连同适配器给的原因：422 不经过 errorHandler 的日志，追更自动重新拉取时也能看出绑定失效了。
+// 成功后记一条 info 日志，连同适配器给的原因：422 不经过 errorHandler 的日志，定时拉取时也能看出绑定失效了。
 func (s *BindingService) markDead(ctx context.Context, b repository.Binding, reason error) error {
 	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		if err := lockBinding(ctx, q, b.ID); err != nil {
@@ -197,6 +205,14 @@ func (s *BindingService) markDead(ctx context.Context, b repository.Binding, rea
 	}
 	s.logger.LogAttrs(ctx, slog.LevelInfo, "binding marked dead",
 		slog.Int64("binding_id", b.ID), slog.String("adapter", emptyIfNull(b.Adapter)), slog.String("reason", reason.Error()))
+	return nil
+}
+
+// recordFetchAttempt 拉取失败（弹幕源不存在之外）时记下尝试拉取的时间，单条语句；绑定已被删除时什么都不做。
+func (s *BindingService) recordFetchAttempt(ctx context.Context, id int64) error {
+	if err := s.store.RecordFetchAttempt(ctx, repository.RecordFetchAttemptParams{ID: id, AttemptedAt: time.Now()}); err != nil {
+		return fmt.Errorf("record fetch attempt of binding %d: %w", id, err)
+	}
 	return nil
 }
 
@@ -262,8 +278,8 @@ func (s *BindingService) Delete(ctx context.Context, id int64) error {
 // saveFetched 在写入事务里保存一次拉取的结果：更新标题、时长与拉取时间 fetchedAt，再用 writeDanmaku 写入弹幕。
 // 调用方已在同一个事务里锁住或刚插入这个绑定。返回更新后的绑定和新增条数（replace 时即这次的总条数）。
 //
-// 拉取时间取自应用的时钟（拉取完成时的 time.Now()），不用数据库的 now()：追更按它判断自动重新拉取是否已满一个检查周期，
-// 与上次检查时间用同一个时钟，测试里也能用假时间推进。
+// 拉取时间（也是上次尝试拉取的时间）取自应用的时钟（拉取完成时的 time.Now()），不用数据库的 now()：
+// 定时拉取按它判断是否到期，与建出时间用同一个时钟，测试里也能用假时间推进。
 func saveFetched(ctx context.Context, q *repository.Queries, bindingID int64, f source.Fetched, replace bool, fetchedAt time.Time) (repository.Binding, int64, error) {
 	err := q.RecordFetch(ctx, repository.RecordFetchParams{
 		ID:        bindingID,
@@ -328,14 +344,14 @@ func insertDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, 
 
 // logFetched 每次拉取结束记一条 info 日志：适配器自己的统计加上新增条数和拉取后的总条数；
 // 季绑定建出的绑定另记 season_binding_id，能和 "backfill finished" 对上。
-func (s *BindingService) logFetched(ctx context.Context, b repository.Binding, f source.Fetched, added int64) {
+func logFetched(ctx context.Context, logger *slog.Logger, b repository.Binding, f source.Fetched, added int64) {
 	attrs := []slog.Attr{slog.Int64("binding_id", b.ID), slog.Int64("episode_id", b.EpisodeID), slog.String("adapter", emptyIfNull(b.Adapter))}
 	if b.SeasonBindingID != nil {
 		attrs = append(attrs, slog.Int64("season_binding_id", *b.SeasonBindingID))
 	}
 	attrs = append(attrs, f.LogAttrs...)
 	attrs = append(attrs, slog.Int64("added", added), slog.Int("total", int(b.DanmakuCount)))
-	s.logger.LogAttrs(ctx, slog.LevelInfo, "danmaku fetched", attrs...)
+	logger.LogAttrs(ctx, slog.LevelInfo, "danmaku fetched", attrs...)
 }
 
 // bindingView 绑定的 JSON：贴链接建的，弹幕源的链接和标签交给它的适配器生成；用弹幕文件建的，标签写明文件的份数。
