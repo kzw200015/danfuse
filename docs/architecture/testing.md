@@ -12,6 +12,8 @@
 ### HTTP
 
 - 在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求；要换掉托管的前端文件时用 `newServer(..., fstest.MapFS{...})`。
+- 共用的辅助函数在 `server_test.go`：`call` 发请求并解出统一响应，`assertAPIErrors` 逐条检查失败请求的状态码和提示，`assertJSON` 按语义比较 JSON，`popTime` 取走取决于当前时间的字段，`decodeLogEntry` 解出 5xx 日志，`newPool` 建连接池。
+- HTTP 测试只管路由、参数绑定与校验、状态码、响应结构和错误映射；业务规则（级联删除、计数、状态变化、进度）由 service 的测试覆盖，不在这里重复。
 
 ### service
 
@@ -32,8 +34,10 @@
 ## 前端
 
 - 测试文件放在各目录的 `__tests__/` 下，命名 `*.spec.ts(x)`；jsdom 环境，未开启 globals，需从 `vitest` 显式 import。测试文件被 `tsconfig.app.json` 排除，由 `tsconfig.vitest.json` 单独做类型检查。
-- 组件测试用 `vi.mock('@/api/<资源>')` 自动 mock 请求函数，并为每个用例新建 `QueryClient`；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应。
+- 组件测试用 `vi.mock('@/api/<资源>')` 自动 mock 请求函数，并为每个用例新建 `QueryClient`（`src/__tests__/utils.tsx` 的 `newQueryClient()`）；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应。
+- `vitest.setup.ts` 在每个用例结束后卸载组件、换回真实时间、`vi.resetAllMocks()`，测试文件不用再写这些 `afterEach`；mock 的返回值在 `beforeEach` 或用例里设置。
 - 涉及路由的测试用 `src/__tests__/utils.tsx` 的 `renderRoutes(path)`（`createMemoryRouter(routes)` 加新的 `QueryClient`）。根布局会取最近一次同步和设置，所以要 mock `@/api/sync`、`@/api/settings`，再调用同一文件的 `mockRootLayout()`。
 - 同一文件里还有共用的 fixture 与 mock（`settings`、`binding`、`lighthouse`、`mockCatalog`、`syncRun`、`mockSyncRuns`、`seedSeries`、`card`），新用例先找这里。
 - 涉及轮询的用例用 `vi.useFakeTimers({ shouldAdvanceTime: true })`，`vi.advanceTimersByTimeAsync` 推进轮询；点按钮前先等依赖的查询取到（按钮渲染出来时查询可能还没发出）。
-- jsdom 缺少的 `matchMedia`、`scrollIntoView` 在 `vitest.setup.ts` 里补上。
+- jsdom 缺少的 `matchMedia`、`scrollIntoView` 在 `vitest.setup.ts` 里补上；那里还把 `findBy`/`waitFor` 的超时放宽到 3 秒（每个文件的第一个用例要现加载懒加载的页面）。
+- 纯函数（`lib/`、`views/catalog/catalog.ts` 等）的分支用表格用例在单元测试里覆盖，组件测试只验证用户能看到的流程，不再逐个分支重复。

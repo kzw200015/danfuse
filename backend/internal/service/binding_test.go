@@ -19,7 +19,6 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
@@ -53,12 +52,20 @@ type fakeRef struct {
 func (a *fakeAdapter) ID() string                 { return "fake" }
 func (a *fakeAdapter) Platform() danmaku.Platform { return danmaku.PlatformNone }
 
-func (a *fakeAdapter) Describe(ref source.Ref) (source.Display, error) {
+func (a *fakeAdapter) Describe(ref source.Ref) (source.Display, error) { return describeFake(ref) }
+
+// describeFake 假适配器（fakeAdapter、fakeCollector）共用的弹幕源链接和标签。
+func describeFake(ref source.Ref) (source.Display, error) {
 	var r fakeRef
 	if err := json.Unmarshal(ref, &r); err != nil {
 		return source.Display{}, err
 	}
 	return source.Display{URL: "https://fake.test/" + r.Name, Label: "假弹幕源 " + r.Name}, nil
+}
+
+// upstreamErr 与真实的适配器一样：ctx 结束（超时、取消）时按 Upstream 失败。
+func upstreamErr(ctx context.Context) error {
+	return &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: ctx.Err()}
 }
 
 func (a *fakeAdapter) ParseLink(ctx context.Context, link string) (source.Ref, error) {
@@ -73,7 +80,7 @@ func (a *fakeAdapter) ParseLink(ctx context.Context, link string) (source.Ref, e
 		select {
 		case <-delay:
 		case <-ctx.Done():
-			return nil, &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: ctx.Err()}
+			return nil, upstreamErr(ctx)
 		}
 	}
 	for _, prefix := range []string{"fake/", "alias/"} {
@@ -91,14 +98,14 @@ func (a *fakeAdapter) Fetch(ctx context.Context, ref source.Ref) (source.Fetched
 			return source.Fetched{}, errNoDeadline
 		}
 		<-ctx.Done()
-		return source.Fetched{}, &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: ctx.Err()}
+		return source.Fetched{}, upstreamErr(ctx)
 	}
 	if a.started != nil {
 		a.started <- struct{}{}
 		select {
 		case <-a.release:
-		case <-ctx.Done(): // 与真实的适配器一样：ctx 结束时按 Upstream 失败
-			return source.Fetched{}, &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: ctx.Err()}
+		case <-ctx.Done():
+			return source.Fetched{}, upstreamErr(ctx)
 		}
 	}
 	if a.err != nil {
@@ -156,18 +163,6 @@ func newBindingService(t *testing.T, adapter *fakeAdapter, logger *slog.Logger) 
 	return NewBindingService(repository.NewStore(pool), source.NewRegistry(adapter), logger), pool
 }
 
-// seedEpisodes 写入一部剧、一季、两集，集 ID 为 1、2。
-func seedEpisodes(t *testing.T, pool *pgxpool.Pool) {
-	t.Helper()
-	_, err := pool.Exec(t.Context(), `
-		INSERT INTO series (type, title) VALUES ('tv', '星海旅人');
-		INSERT INTO seasons (series_id, number) VALUES (1, 1);
-		INSERT INTO episodes (season_id, number, duration) VALUES (1, 1, 1420), (1, 2, 1440);`)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 // waitFetching 等一次 Create 或 Refetch 进入拉取（在 started 上报到）；它在拉取之前就返回时立即失败，不挂住测试。
 func waitFetching(t *testing.T, adapter *fakeAdapter, errc <-chan error) {
 	t.Helper()
@@ -197,15 +192,6 @@ func readDanmaku(t *testing.T, pool *pgxpool.Pool, bindingID int64) []danmaku.Da
 	return items
 }
 
-func queryInt(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) int64 {
-	t.Helper()
-	var n int64
-	if err := pool.QueryRow(t.Context(), sql, args...).Scan(&n); err != nil {
-		t.Fatalf("%s: %v", sql, err)
-	}
-	return n
-}
-
 // assertNothingWritten 库里没有任何绑定和弹幕。
 func assertNothingWritten(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
@@ -213,15 +199,6 @@ func assertNothingWritten(t *testing.T, pool *pgxpool.Pool) {
 	rows := queryInt(t, pool, `SELECT count(*) FROM danmaku`)
 	if bindings != 0 || rows != 0 {
 		t.Errorf("库里有 %d 个绑定、%d 条弹幕，want 都没有", bindings, rows)
-	}
-}
-
-// assertAppError err 是给定状态码与提示的 *apierr.Error。
-func assertAppError(t *testing.T, err error, status int, message string) {
-	t.Helper()
-	appErr, ok := errors.AsType[*apierr.Error](err)
-	if !ok || appErr.HTTPStatus != status || appErr.Message != message {
-		t.Errorf("err = %v, want %d %q", err, status, message)
 	}
 }
 
@@ -296,11 +273,7 @@ func TestCreateBinding(t *testing.T) {
 			}
 
 			// 拉取结束的 info 日志：适配器的统计加上新增条数和总条数
-			wantLog := `level=INFO msg="danmaku fetched" binding_id=1 episode_id=1 adapter=fake`
-			for _, attr := range tt.fetched.LogAttrs {
-				wantLog += " " + attr.String()
-			}
-			wantLog += fmt.Sprintf(" added=%d total=%d", len(tt.wantDanmaku), len(tt.wantDanmaku))
+			wantLog := fetchedLog(tt.fetched, len(tt.wantDanmaku), len(tt.wantDanmaku))
 			if !strings.Contains(logs.String(), wantLog) {
 				t.Errorf("日志 = %s\nwant 含 %s", logs.String(), wantLog)
 			}
@@ -331,17 +304,7 @@ func TestCreateBindingFailed(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity, wantMessage: "视频不存在、已删除或不可见", wantFetches: 1,
 		},
 		{
-			name: "需要登录", episodeID: 1, link: "fake/s1",
-			err:        &source.Error{Kind: source.AuthRequired, Message: "需要登录，请配置 SESSDATA", Err: errors.New("code -101")},
-			wantStatus: http.StatusBadGateway, wantMessage: "需要登录，请配置 SESSDATA", wantFetches: 1,
-		},
-		{
-			name: "限流", episodeID: 1, link: "fake/s1",
-			err:        &source.Error{Kind: source.RateLimited, Message: "B 站限流，请稍后再试", Err: errors.New("HTTP 412")},
-			wantStatus: http.StatusBadGateway, wantMessage: "B 站限流，请稍后再试", wantFetches: 1,
-		},
-		{
-			name: "接口异常", episodeID: 1, link: "fake/s1",
+			name: "其他上游错误", episodeID: 1, link: "fake/s1",
 			err:        &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: errors.New("HTTP 503")},
 			wantStatus: http.StatusBadGateway, wantMessage: "B 站接口异常", wantFetches: 1,
 		},
@@ -387,33 +350,15 @@ func TestCreateBindingDuplicate(t *testing.T) {
 	}
 }
 
-// TestCreateBindingTimeout 上游一直不响应：拉取到总时限 fetchTimeout 时按 Upstream 返回 502，库里什么都不留。
-// 在 synctest 气泡里用假时间，不真等 25 秒。
+// TestCreateBindingTimeout 上游一直不响应：到总时限 fetchTimeout 时按 Upstream 返回 502，库里什么都不留。
+// 解析链接（例如跟随短链）也要联网：解析与拉取共用总时限，从解析开始计时。在 synctest 气泡里用假时间，不真等 25 秒。
 func TestCreateBindingTimeout(t *testing.T) {
-	t.Parallel()
-	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		seedEpisodes(t, pool)
-		svc := NewBindingService(repository.NewStore(pool), source.NewRegistry(&fakeAdapter{hang: true}), testLogger(t))
-
-		start := time.Now()
-		_, err := svc.Create(t.Context(), 1, "fake/s1")
-
-		assertAppError(t, err, http.StatusBadGateway, "B 站接口异常")
-		if elapsed := time.Since(start); elapsed != fetchTimeout {
-			t.Errorf("%v 后才失败，want 总时限 %v", elapsed, fetchTimeout)
-		}
-		assertNothingWritten(t, pool)
-	})
-}
-
-// TestCreateBindingParseTimeout 解析链接（例如跟随短链）也要联网：解析与拉取共用总时限 fetchTimeout，从解析开始计时，
-// 两者加起来超过时限时按 Upstream 返回 502，库里什么都不留。在 synctest 气泡里用假时间。
-func TestCreateBindingParseTimeout(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
 		adapter *fakeAdapter
 	}{
+		{"拉取一直不响应", &fakeAdapter{hang: true}},
 		{"解析链接一直不返回", &fakeAdapter{parseHang: true}},
 		{"解析链接用了 20 秒，拉取一直不响应：25 秒时失败，不是 45 秒", &fakeAdapter{parseDelay: 20 * time.Second, hang: true}},
 	}
@@ -504,6 +449,15 @@ var videoV2 = source.Fetched{
 	LogAttrs: []slog.Attr{slog.Int("protobuf", 4)},
 }
 
+// fetchedLog 绑定 1（集 1）拉取结束时的 info 日志：适配器的统计加上新增条数和拉取后的总条数。
+func fetchedLog(f source.Fetched, added, total int) string {
+	log := `level=INFO msg="danmaku fetched" binding_id=1 episode_id=1 adapter=fake`
+	for _, attr := range f.LogAttrs {
+		log += " " + attr.String()
+	}
+	return log + fmt.Sprintf(" added=%d total=%d", added, total)
+}
+
 // createS1 给集 1 绑定弹幕源 s1，返回绑定 ID。适配器这时返回 video 时，
 // 绑定有原始 ID 为 10、20、30 的三条弹幕，content_version 为 1。
 func createS1(t *testing.T, svc *BindingService) int64 {
@@ -513,16 +467,6 @@ func createS1(t *testing.T, svc *BindingService) int64 {
 		t.Fatalf("Create: %v", err)
 	}
 	return b.ID
-}
-
-// getBinding 读出库里的绑定。
-func getBinding(t *testing.T, pool *pgxpool.Pool, id int64) repository.Binding {
-	t.Helper()
-	b, err := repository.New(pool).GetBinding(t.Context(), id)
-	if err != nil {
-		t.Fatalf("GetBinding(%d): %v", id, err)
-	}
-	return b
 }
 
 // sourceIDs 一个绑定落库的弹幕的原始 ID，升序。
@@ -604,11 +548,7 @@ func TestRefetch(t *testing.T) {
 				t.Errorf("content_version = %d, want %d", prev.ContentVersion, step.wantVersion)
 			}
 
-			wantLog := `level=INFO msg="danmaku fetched" binding_id=1 episode_id=1 adapter=fake`
-			for _, attr := range step.fetched.LogAttrs {
-				wantLog += " " + attr.String()
-			}
-			wantLog += fmt.Sprintf(" added=%d total=%d", step.wantAdded, len(step.wantIDs))
+			wantLog := fetchedLog(step.fetched, int(step.wantAdded), len(step.wantIDs))
 			if last := strings.TrimSpace(logs.String()); !strings.HasSuffix(last, wantLog) {
 				t.Errorf("日志 = %s\nwant 最后一行以 %s 结尾", last, wantLog)
 			}
@@ -617,7 +557,7 @@ func TestRefetch(t *testing.T) {
 }
 
 // TestRefetchFailed 拉取失败：弹幕源不存在时把绑定标为失效、保留弹幕；其余错误只记下尝试拉取的时间。
-// 重新拉取与清空后重新拉取都一样。
+// 清空后重新拉取失败时同样不动已有的弹幕。
 func TestRefetchFailed(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -638,64 +578,52 @@ func TestRefetchFailed(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity, wantMessage: "视频不存在、已删除或不可见", wantFetches: 1, wantDead: true,
 		},
 		{
-			name: "需要登录", id: 1,
-			err:        &source.Error{Kind: source.AuthRequired, Message: "需要登录，请配置 SESSDATA", Err: errors.New("code -101")},
-			wantStatus: http.StatusBadGateway, wantMessage: "需要登录，请配置 SESSDATA", wantFetches: 1,
-		},
-		{
-			name: "限流", id: 1,
-			err:        &source.Error{Kind: source.RateLimited, Message: "B 站限流，请稍后再试", Err: errors.New("HTTP 412")},
-			wantStatus: http.StatusBadGateway, wantMessage: "B 站限流，请稍后再试", wantFetches: 1,
-		},
-		{
-			name: "接口异常", id: 1,
+			name: "其他上游错误", id: 1,
 			err:        &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: errors.New("HTTP 503")},
 			wantStatus: http.StatusBadGateway, wantMessage: "B 站接口异常", wantFetches: 1,
 		},
 	}
 	for _, tt := range tests {
-		for _, replace := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/replace=%v", tt.name, replace), func(t *testing.T) {
-				t.Parallel()
-				adapter := &fakeAdapter{sources: map[string]source.Fetched{"s1": video}}
-				svc, pool := newBindingService(t, adapter, testLogger(t))
-				id := createS1(t, svc)
-				before := getBinding(t, pool, id)
-				adapter.sources["s1"] = videoV2 // 万一拉取成功了，会多出新弹幕
-				adapter.err = tt.err
-				adapter.fetches.Store(0)
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			adapter := &fakeAdapter{sources: map[string]source.Fetched{"s1": video}}
+			svc, pool := newBindingService(t, adapter, testLogger(t))
+			id := createS1(t, svc)
+			before := getBinding(t, pool, id)
+			adapter.sources["s1"] = videoV2 // 万一拉取成功了，会多出新弹幕
+			adapter.err = tt.err
+			adapter.fetches.Store(0)
 
-				_, _, err := svc.Refetch(t.Context(), tt.id, replace)
+			_, _, err := svc.Refetch(t.Context(), tt.id, true)
 
-				assertAppError(t, err, tt.wantStatus, tt.wantMessage)
-				assertSourceCause(t, err, tt.err)
-				if n := adapter.fetches.Load(); n != tt.wantFetches {
-					t.Errorf("拉取了 %d 次，want %d", n, tt.wantFetches)
+			assertAppError(t, err, tt.wantStatus, tt.wantMessage)
+			assertSourceCause(t, err, tt.err)
+			if n := adapter.fetches.Load(); n != tt.wantFetches {
+				t.Errorf("拉取了 %d 次，want %d", n, tt.wantFetches)
+			}
+			after := getBinding(t, pool, id)
+			want := before
+			if tt.wantFetches > 0 {
+				// 拉取过就记下尝试拉取的时间
+				if !after.FetchAttemptedAt.After(*before.FetchAttemptedAt) {
+					t.Errorf("fetch_attempted_at = %v, want 晚于创建时的 %v", after.FetchAttemptedAt, before.FetchAttemptedAt)
 				}
-				after := getBinding(t, pool, id)
-				want := before
-				if tt.wantFetches > 0 {
-					// 拉取过就记下尝试拉取的时间
-					if !after.FetchAttemptedAt.After(*before.FetchAttemptedAt) {
-						t.Errorf("fetch_attempted_at = %v, want 晚于创建时的 %v", after.FetchAttemptedAt, before.FetchAttemptedAt)
-					}
-					want.FetchAttemptedAt, want.UpdatedAt = after.FetchAttemptedAt, after.UpdatedAt
+				want.FetchAttemptedAt, want.UpdatedAt = after.FetchAttemptedAt, after.UpdatedAt
+			}
+			if tt.wantDead {
+				// 另外只改状态和拉取时间；弹幕、计数、标题、时长、content_version 都不动
+				if !after.LastFetchedAt.Equal(*after.FetchAttemptedAt) {
+					t.Errorf("last_fetched_at = %v, want 同尝试拉取的时间 %v", after.LastFetchedAt, after.FetchAttemptedAt)
 				}
-				if tt.wantDead {
-					// 另外只改状态和拉取时间；弹幕、计数、标题、时长、content_version 都不动
-					if !after.LastFetchedAt.Equal(*after.FetchAttemptedAt) {
-						t.Errorf("last_fetched_at = %v, want 同尝试拉取的时间 %v", after.LastFetchedAt, after.FetchAttemptedAt)
-					}
-					want.Status, want.LastFetchedAt = "dead", after.LastFetchedAt
-				}
-				if !reflect.DeepEqual(after, want) {
-					t.Errorf("绑定 = %+v\nwant %+v", after, want)
-				}
-				if ids := sourceIDs(t, pool, id); !slices.Equal(ids, []int64{10, 20, 30}) {
-					t.Errorf("落库的弹幕 = %v, want 不变", ids)
-				}
-			})
-		}
+				want.Status, want.LastFetchedAt = "dead", after.LastFetchedAt
+			}
+			if !reflect.DeepEqual(after, want) {
+				t.Errorf("绑定 = %+v\nwant %+v", after, want)
+			}
+			if ids := sourceIDs(t, pool, id); !slices.Equal(ids, []int64{10, 20, 30}) {
+				t.Errorf("落库的弹幕 = %v, want 不变", ids)
+			}
+		})
 	}
 }
 

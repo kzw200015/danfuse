@@ -105,9 +105,7 @@ func TestFileBinding(t *testing.T) {
 	}
 
 	// 用弹幕文件建的绑定不能重新拉取；贴链接建的不能追加文件
-	if code, message, _ := call(t, srv, http.MethodPost, "/api/bindings/5/refetch", `{}`, http.StatusBadRequest); code != 1 || message != "用弹幕文件建的绑定不能重新拉取" {
-		t.Errorf("重新拉取：code=%d message=%q", code, message)
-	}
+	assertAPIErrors(t, srv, []apiError{{http.MethodPost, "/api/bindings/5/refetch", `{}`, http.StatusBadRequest, "用弹幕文件建的绑定不能重新拉取"}})
 	if message, _ := upload(t, srv, "/api/bindings/1/files", []uploadFile{danmakuXML("1.xml", "1")}, http.StatusBadRequest); message != "这个绑定不是用弹幕文件建的" {
 		t.Errorf("给贴链接建的绑定追加文件：message=%q", message)
 	}

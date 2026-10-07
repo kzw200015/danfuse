@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -18,6 +19,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
 )
 
@@ -190,6 +192,53 @@ func getRun(t *testing.T, svc *SyncService, id int64) repository.SyncRun {
 		t.Fatalf("GetRun(%d): %v", id, err)
 	}
 	return run
+}
+
+// seedEpisodes 写入一部剧、一季、两集，集 ID 为 1、2。
+func seedEpisodes(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	_, err := pool.Exec(t.Context(), `
+		INSERT INTO series (type, title) VALUES ('tv', '星海旅人');
+		INSERT INTO seasons (series_id, number) VALUES (1, 1);
+		INSERT INTO episodes (season_id, number, duration) VALUES (1, 1, 1420), (1, 2, 1440);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// getBinding 读出库里的绑定。
+func getBinding(t *testing.T, pool *pgxpool.Pool, id int64) repository.Binding {
+	t.Helper()
+	b, err := repository.New(pool).GetBinding(t.Context(), id)
+	if err != nil {
+		t.Fatalf("GetBinding(%d): %v", id, err)
+	}
+	return b
+}
+
+func queryInt(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) int64 {
+	t.Helper()
+	var n int64
+	if err := pool.QueryRow(t.Context(), sql, args...).Scan(&n); err != nil {
+		t.Fatalf("%s: %v", sql, err)
+	}
+	return n
+}
+
+// assertAppError err 是给定状态码与提示的 *apierr.Error。
+func assertAppError(t *testing.T, err error, status int, message string) {
+	t.Helper()
+	appErr, ok := errors.AsType[*apierr.Error](err)
+	if !ok || appErr.HTTPStatus != status || appErr.Message != message {
+		t.Errorf("err = %v, want %d %q", err, status, message)
+	}
+}
+
+func assertStrings(t *testing.T, what string, got, want []string) {
+	t.Helper()
+	if !slices.Equal(got, want) {
+		t.Errorf("%s = %q\nwant %q", what, got, want)
+	}
 }
 
 // fakeCatalog 实现 catalog.Source 的假目录源：List 返回 items 的清单，Items 依次产出 items。

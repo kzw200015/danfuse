@@ -51,54 +51,36 @@ describe('request', () => {
     })
   })
 
-  it('统一结构的错误响应转换为 ApiError，保留业务码、HTTP 状态码与提示', async () => {
-    mockResponse(409, { code: CODE_FAIL, message: '同步正在进行', data: null })
+  it.each([
+    {
+      name: '统一结构的错误响应：保留业务码、HTTP 状态码与提示',
+      mock: () => mockResponse(409, { code: CODE_FAIL, message: '同步正在进行', data: null }),
+      want: { code: CODE_FAIL, status: 409, message: '同步正在进行' },
+    },
+    {
+      name: '2xx 但业务码不为 0',
+      mock: () => mockResponse(200, { code: 1001, message: '业务失败', data: null }),
+      want: { code: 1001, status: 200, message: '业务失败' },
+    },
+    {
+      name: '2xx 但响应不是统一结构：响应格式错误',
+      mock: () => mockResponse(200, '<!doctype html>'),
+      want: { code: CODE_FAIL, status: 200, message: '响应格式错误' },
+    },
+    {
+      name: '错误响应不是统一结构：通用失败，保留 HTTP 状态码',
+      mock: () => mockResponse(502, '<html>Bad Gateway</html>'),
+      want: { code: CODE_FAIL, status: 502, message: 'Request failed with status code 502' },
+    },
+    {
+      name: '网络错误：通用失败，status 为 0',
+      mock: mockNetworkError,
+      want: { code: CODE_FAIL, status: 0, message: 'Network Error' },
+    },
+  ])('$name → ApiError', async ({ mock, want }) => {
+    mock()
 
-    expect(await failure(request({ url: '/sync-runs', method: 'POST' }))).toEqual({
-      code: CODE_FAIL,
-      status: 409,
-      message: '同步正在进行',
-    })
-  })
-
-  it('2xx 但业务码不为 0 时同样转换为 ApiError', async () => {
-    mockResponse(200, { code: 1001, message: '业务失败', data: null })
-
-    expect(await failure(request({ url: '/series' }))).toEqual({
-      code: 1001,
-      status: 200,
-      message: '业务失败',
-    })
-  })
-
-  it('2xx 但响应不是统一结构时为响应格式错误', async () => {
-    mockResponse(200, '<!doctype html>')
-
-    expect(await failure(request({ url: '/series' }))).toEqual({
-      code: CODE_FAIL,
-      status: 200,
-      message: '响应格式错误',
-    })
-  })
-
-  it('错误响应不是统一结构时归为通用失败，保留 HTTP 状态码', async () => {
-    mockResponse(502, '<html>Bad Gateway</html>')
-
-    expect(await failure(request({ url: '/series' }))).toEqual({
-      code: CODE_FAIL,
-      status: 502,
-      message: 'Request failed with status code 502',
-    })
-  })
-
-  it('网络错误归为通用失败，status 为 0', async () => {
-    mockNetworkError()
-
-    expect(await failure(request({ url: '/series' }))).toEqual({
-      code: CODE_FAIL,
-      status: 0,
-      message: 'Network Error',
-    })
+    expect(await failure(request({ url: '/series' }))).toEqual(want)
   })
 })
 

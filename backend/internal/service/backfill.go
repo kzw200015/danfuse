@@ -186,7 +186,7 @@ func (s *SeasonBindingService) backfill(ctx context.Context, id int64, trigger s
 // runBackfill 一轮补建的步骤 1、2。上游错误记在 r 里正常返回；季绑定被删除时返回 errSeasonBindingGone；
 // 其余返回的错误是服务器内部错误。
 func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound) error {
-	sb, err := s.getSeasonBinding(ctx, r.id)
+	sb, err := s.getSeasonBinding(ctx, r.id, errSeasonBindingGone)
 	if err != nil {
 		return err
 	}
@@ -253,11 +253,11 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 	return nil
 }
 
-// getSeasonBinding 补建时读季绑定，已被删除时返回 errSeasonBindingGone。
-func (s *SeasonBindingService) getSeasonBinding(ctx context.Context, id int64) (repository.SeasonBinding, error) {
+// getSeasonBinding 读季绑定，不存在时返回 gone（管理 API 为 404，补建时为 errSeasonBindingGone）。
+func (s *SeasonBindingService) getSeasonBinding(ctx context.Context, id int64, gone error) (repository.SeasonBinding, error) {
 	sb, err := s.store.GetSeasonBinding(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return repository.SeasonBinding{}, errSeasonBindingGone
+		return repository.SeasonBinding{}, gone
 	}
 	if err != nil {
 		return repository.SeasonBinding{}, fmt.Errorf("get season binding %d: %w", id, err)
@@ -271,7 +271,7 @@ func (s *SeasonBindingService) getSeasonBinding(ctx context.Context, id int64) (
 // 否则在事务之外拉取，再写入（见 saveBackfilled）。
 // 拉取失败时：限流记下原因、结束这一轮（stop 为 true）；其他错误只记在条目上，继续下一个。
 func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRound, adapter source.Adapter, it repository.SeasonBindingItem) (stop bool, err error) {
-	sb, err := s.getSeasonBinding(ctx, r.id)
+	sb, err := s.getSeasonBinding(ctx, r.id, errSeasonBindingGone)
 	if err != nil {
 		return true, err
 	}
@@ -340,11 +340,8 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 	)
 	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		// 先锁季：删季的级联先锁集、后锁季绑定，补建若先锁季绑定、后锁集就会与它死锁；先锁住季，删季在第一步就排队
-		if _, err := q.LockSeason(ctx, sb.SeasonID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return errSeasonBindingGone // 季删除时季绑定随之删除
-			}
-			return fmt.Errorf("lock season %d: %w", sb.SeasonID, err)
+		if err := lockSeason(ctx, q, sb.SeasonID, errSeasonBindingGone); err != nil { // 季删除时季绑定随之删除
+			return err
 		}
 		if _, err := q.LockSeasonBindingShared(ctx, sb.ID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {

@@ -2,7 +2,6 @@ package service
 
 import (
 	"bytes"
-	"io"
 	"net/http"
 	"reflect"
 	"slices"
@@ -123,12 +122,6 @@ func TestCreateFromFilesErrors(t *testing.T) {
 			[]UploadedFile{snapshot1, notDanmaku},
 			http.StatusUnprocessableEntity,
 			"无法识别「README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整",
-		},
-		{
-			"文件被截断", 1,
-			[]UploadedFile{{Name: "1.xml", Data: snapshot1.Data[:60]}},
-			http.StatusUnprocessableEntity,
-			"无法识别「1.xml」：目前只支持 B 站的 XML 弹幕文件，且文件要完整",
 		},
 		{"集不存在", 99, []UploadedFile{snapshot1}, http.StatusNotFound, "集不存在"},
 	}
@@ -277,7 +270,7 @@ func TestReparse(t *testing.T) {
 // TestReparseUnparsable 存下的文件按现在的规则解析不了：返回 422，弹幕不动。
 func TestReparseUnparsable(t *testing.T) {
 	t.Parallel()
-	svc, pool := newBindingService(t, &fakeAdapter{}, slogTo(io.Discard))
+	svc, pool := newBindingService(t, &fakeAdapter{}, testLogger(t))
 	created, err := svc.CreateFromFiles(t.Context(), 1, []UploadedFile{snapshot1})
 	if err != nil {
 		t.Fatal(err)

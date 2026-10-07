@@ -40,26 +40,49 @@ func (a *fakeAdapter) DescribeCollection(CollectionRef) (Display, error) {
 	return Display{}, nil
 }
 
-// fakeLinker 认识以 prefix 开头的弹幕源链接；链接里带 "bad" 时返回 InvalidLink。合集的链接都不认识。
+// fakeLinker 认识以 prefix 开头的链接，弹幕源与合集的链接规则相同；链接里带 "bad" 时返回 InvalidLink。
 type fakeLinker struct {
 	fakeAdapter
 	prefix string
 	asked  int
 }
 
-func (l *fakeLinker) ParseLink(_ context.Context, link string) (Ref, error) {
+var _ Adapter = (*fakeLinker)(nil)
+
+func newFakeLinker(id string) *fakeLinker {
+	return &fakeLinker{id: id, prefix: id + ":"}
+}
+
+// parse 两种链接共用的规则，返回 ref 的内容。
+func (l *fakeLinker) parse(link string) (string, error) {
 	l.asked++
 	switch {
 	case !strings.HasPrefix(link, l.prefix):
-		return nil, ErrUnrecognized
+		return "", ErrUnrecognized
 	case strings.Contains(link, "bad"):
-		return nil, &Error{Kind: InvalidLink, Message: "请打开具体某一集再复制链接"}
+		return "", &Error{Kind: InvalidLink, Message: "这个链接不能绑定"}
 	}
-	return Ref(`"` + strings.TrimPrefix(link, l.prefix) + `"`), nil
+	return `"` + strings.TrimPrefix(link, l.prefix) + `"`, nil
+}
+
+func (l *fakeLinker) ParseLink(_ context.Context, link string) (Ref, error) {
+	ref, err := l.parse(link)
+	if err != nil {
+		return nil, err
+	}
+	return Ref(ref), nil
+}
+
+func (l *fakeLinker) ParseCollectionLink(_ context.Context, link string) ([]CollectionCandidate, error) {
+	ref, err := l.parse(link)
+	if err != nil {
+		return nil, err
+	}
+	return []CollectionCandidate{{Kind: "list", Ref: CollectionRef(ref)}}, nil
 }
 
 func TestRegistryGet(t *testing.T) {
-	plain, linker := &fakeAdapter{id: "file"}, &fakeLinker{id: "site"}
+	plain, linker := &fakeAdapter{id: "file"}, newFakeLinker("site")
 	r := NewRegistry(plain, linker)
 
 	for _, want := range []Adapter{plain, linker} {
@@ -72,7 +95,25 @@ func TestRegistryGet(t *testing.T) {
 	}
 }
 
-func TestRegistryParseLink(t *testing.T) {
+// TestRegistryParse ParseLink 与 ParseCollectionLink 询问各适配器的规则相同，每个用例两个方法都测。
+func TestRegistryParse(t *testing.T) {
+	// 两个方法都返回认出链接的适配器和 ref；合集取唯一的那个候选的 ref
+	methods := map[string]func(ctx context.Context, r *Registry, link string) (Adapter, string, error){
+		"ParseLink": func(ctx context.Context, r *Registry, link string) (Adapter, string, error) {
+			adapter, ref, err := r.ParseLink(ctx, link)
+			return adapter, string(ref), err
+		},
+		"ParseCollectionLink": func(ctx context.Context, r *Registry, link string) (Adapter, string, error) {
+			adapter, candidates, err := r.ParseCollectionLink(ctx, link)
+			switch len(candidates) {
+			case 0:
+				return adapter, "", err
+			case 1:
+				return adapter, string(candidates[0].Ref), err
+			}
+			return nil, "", errors.New("候选不止一个")
+		},
+	}
 	tests := []struct {
 		name        string
 		link        string
@@ -84,87 +125,30 @@ func TestRegistryParseLink(t *testing.T) {
 		{name: "第一个适配器认识", link: "a:1", wantAdapter: "a", wantRef: `"1"`, wantAsked: [2]int{1, 0}},
 		{name: "第一个不认识时交给下一个", link: "b:2", wantAdapter: "b", wantRef: `"2"`, wantAsked: [2]int{1, 1}},
 		{name: "都不认识", link: "c:3", wantMessage: "无法识别的链接", wantAsked: [2]int{1, 1}},
-		{name: "认识但不能绑定：直接返回适配器的错误", link: "a:bad", wantMessage: "请打开具体某一集再复制链接", wantAsked: [2]int{1, 0}},
+		{name: "认识但不能绑定：直接返回适配器的错误", link: "a:bad", wantMessage: "这个链接不能绑定", wantAsked: [2]int{1, 0}},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := &fakeLinker{id: "a", prefix: "a:"}
-			b := &fakeLinker{id: "b", prefix: "b:"}
-			r := NewRegistry(&fakeAdapter{id: "file"}, a, b)
+	for method, parse := range methods {
+		for _, tt := range tests {
+			t.Run(method+"/"+tt.name, func(t *testing.T) {
+				a, b := newFakeLinker("a"), newFakeLinker("b")
+				r := NewRegistry(&fakeAdapter{id: "file"}, a, b)
 
-			adapter, ref, err := r.ParseLink(t.Context(), tt.link)
+				adapter, ref, err := parse(t.Context(), r, tt.link)
 
-			if tt.wantAdapter != "" {
-				if err != nil || adapter.ID() != tt.wantAdapter || string(ref) != tt.wantRef {
-					t.Errorf("ParseLink() = (%v, %s, %v), want (%s, %s, nil)", adapter, ref, err, tt.wantAdapter, tt.wantRef)
+				if tt.wantAdapter != "" {
+					if err != nil || adapter == nil || adapter.ID() != tt.wantAdapter || ref != tt.wantRef {
+						t.Errorf("%s() = (%v, %s, %v), want (%s, %s, nil)", method, adapter, ref, err, tt.wantAdapter, tt.wantRef)
+					}
+				} else {
+					srcErr, ok := errors.AsType[*Error](err)
+					if !ok || srcErr.Kind != InvalidLink || srcErr.Message != tt.wantMessage || adapter != nil || ref != "" {
+						t.Errorf("%s() = (%v, %s, %v), want InvalidLink %q", method, adapter, ref, err, tt.wantMessage)
+					}
 				}
-			} else {
-				srcErr, ok := errors.AsType[*Error](err)
-				if !ok || srcErr.Kind != InvalidLink || srcErr.Message != tt.wantMessage || adapter != nil || ref != nil {
-					t.Errorf("ParseLink() = (%v, %s, %v), want InvalidLink %q", adapter, ref, err, tt.wantMessage)
+				if got := [2]int{a.asked, b.asked}; got != tt.wantAsked {
+					t.Errorf("询问次数 = %v, want %v", got, tt.wantAsked)
 				}
-			}
-			if got := [2]int{a.asked, b.asked}; got != tt.wantAsked {
-				t.Errorf("询问次数 = %v, want %v", got, tt.wantAsked)
-			}
-		})
-	}
-}
-
-// fakeCollector 认识以 prefix 开头的合集链接，给出一个候选；链接里带 "series" 时返回 InvalidLink。弹幕源的链接都不认识。
-type fakeCollector struct {
-	fakeAdapter
-	prefix string
-	asked  int
-}
-
-func (c *fakeCollector) ParseCollectionLink(_ context.Context, link string) ([]CollectionCandidate, error) {
-	c.asked++
-	switch {
-	case !strings.HasPrefix(link, c.prefix):
-		return nil, ErrUnrecognized
-	case strings.Contains(link, "series"):
-		return nil, &Error{Kind: InvalidLink, Message: "暂不支持系列"}
-	}
-	return []CollectionCandidate{{Kind: "list", Ref: CollectionRef(`"` + strings.TrimPrefix(link, c.prefix) + `"`)}}, nil
-}
-
-func TestRegistryParseCollectionLink(t *testing.T) {
-	tests := []struct {
-		name        string
-		link        string
-		wantAdapter string // 为空表示期望出错
-		wantRef     string
-		wantMessage string
-		wantAsked   [2]int // 两个适配器各被问了几次
-	}{
-		{name: "第一个适配器认识", link: "a:1", wantAdapter: "a", wantRef: `"1"`, wantAsked: [2]int{1, 0}},
-		{name: "第一个不认识时交给下一个", link: "b:2", wantAdapter: "b", wantRef: `"2"`, wantAsked: [2]int{1, 1}},
-		{name: "都不认识", link: "c:3", wantMessage: "无法识别的链接", wantAsked: [2]int{1, 1}},
-		{name: "认识但不能绑定：直接返回适配器的错误", link: "a:series", wantMessage: "暂不支持系列", wantAsked: [2]int{1, 0}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := &fakeCollector{id: "a", prefix: "a:"}
-			b := &fakeCollector{id: "b", prefix: "b:"}
-			// 只认识弹幕源链接的适配器不认识合集的链接，跳过
-			r := NewRegistry(&fakeLinker{id: "l", prefix: "a:"}, a, b)
-
-			adapter, candidates, err := r.ParseCollectionLink(t.Context(), tt.link)
-
-			if tt.wantAdapter != "" {
-				if err != nil || adapter.ID() != tt.wantAdapter || len(candidates) != 1 || string(candidates[0].Ref) != tt.wantRef {
-					t.Errorf("ParseCollectionLink() = (%v, %+v, %v), want (%s, %s, nil)", adapter, candidates, err, tt.wantAdapter, tt.wantRef)
-				}
-			} else {
-				srcErr, ok := errors.AsType[*Error](err)
-				if !ok || srcErr.Kind != InvalidLink || srcErr.Message != tt.wantMessage || adapter != nil || candidates != nil {
-					t.Errorf("ParseCollectionLink() = (%v, %+v, %v), want InvalidLink %q", adapter, candidates, err, tt.wantMessage)
-				}
-			}
-			if got := [2]int{a.asked, b.asked}; got != tt.wantAsked {
-				t.Errorf("询问次数 = %v, want %v", got, tt.wantAsked)
-			}
-		})
+			})
+		}
 	}
 }

@@ -20,18 +20,16 @@ type Response struct {
 }
 
 // OK 返回 200 成功响应。
-func OK(c *echo.Context, data any) error {
-	return c.JSON(http.StatusOK, Response{Code: apierr.CodeOK, Message: "ok", Data: data})
-}
+func OK(c *echo.Context, data any) error { return success(c, http.StatusOK, data) }
 
 // Created 返回 201 成功响应。
-func Created(c *echo.Context, data any) error {
-	return c.JSON(http.StatusCreated, Response{Code: apierr.CodeOK, Message: "ok", Data: data})
-}
+func Created(c *echo.Context, data any) error { return success(c, http.StatusCreated, data) }
 
 // Accepted 返回 202 成功响应：请求已受理，在后台处理。
-func Accepted(c *echo.Context, data any) error {
-	return c.JSON(http.StatusAccepted, Response{Code: apierr.CodeOK, Message: "ok", Data: data})
+func Accepted(c *echo.Context, data any) error { return success(c, http.StatusAccepted, data) }
+
+func success(c *echo.Context, status int, data any) error {
+	return c.JSON(status, Response{Code: apierr.CodeOK, Message: "ok", Data: data})
 }
 
 // Fail 返回错误响应。handler 中一般直接 return 错误，由全局错误处理器调用本函数。

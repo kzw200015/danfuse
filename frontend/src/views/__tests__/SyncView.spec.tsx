@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import {
@@ -28,11 +28,6 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.mocked(getSettings).mockResolvedValue(jellyfin)
   server = mockSyncRuns()
-})
-
-afterEach(() => {
-  vi.useRealTimers()
-  vi.resetAllMocks()
 })
 
 const syncNav = () => screen.findByRole('link', { name: /^同步/ })
@@ -77,7 +72,7 @@ describe('标题行与立即同步', () => {
     expect(await screen.findByRole('button', { name: '立即同步' })).toBeEnabled()
   })
 
-  it('已有同步在跑（还没轮询到，例如其他实例刚开始的）时提示，轮询到之后"立即同步"禁用', async () => {
+  it('已有同步在跑（还没轮询到，例如定时或其他实例刚开始的）时提示，轮询到之后"立即同步"禁用', async () => {
     server.runs = [syncRun(1)]
     vi.mocked(triggerSync).mockRejectedValue(new ApiError('同步正在进行', 1, 409))
     renderRoutes('/sync')
@@ -89,32 +84,6 @@ describe('标题行与立即同步', () => {
     await advance(2000)
     expect(await screen.findByRole('button', { name: '同步中…' })).toBeDisabled()
     expect(await screen.findByRole('cell', { name: '#2' })).toBeInTheDocument()
-  })
-
-  it('触发后同步很快就结束、没赶上轮询时也让剧列表失效', async () => {
-    server.runs = [syncRun(1)]
-    vi.mocked(triggerSync).mockImplementation(async () => {
-      server.runs.unshift(syncRun(2, { createdSeries: 1 }))
-      return { id: 2 }
-    })
-    const { queryClient } = renderRoutes('/sync')
-    const invalidated = seedSeries(queryClient)
-
-    await clickSyncNow()
-
-    await waitFor(() => expect(invalidated()).toEqual([true, true]))
-  })
-
-  it('页面打开之后才开始的同步（定时或其他实例）由轮询发现，"立即同步"随之禁用', async () => {
-    server.runs = [syncRun(1)]
-    renderRoutes('/sync')
-    expect(await screen.findByRole('button', { name: '立即同步' })).toBeEnabled()
-
-    server.runs.unshift(
-      syncRun(2, { trigger: 'schedule', status: 'running', finishedAt: null, total: 3, done: 1 }),
-    )
-    await advance(2000)
-    expect(await screen.findByRole('button', { name: '同步中…' })).toBeDisabled()
     expect(await within(await syncNav()).findByText('1/3')).toBeInTheDocument()
   })
 

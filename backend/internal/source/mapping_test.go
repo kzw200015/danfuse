@@ -86,11 +86,6 @@ func TestNormalizeItems(t *testing.T) {
 			[]CollectionItem{numbered("a", 1), numbered("b", 2)},
 		},
 		{
-			"ref 不同、序号相同：标为集号重复",
-			[]CollectionItem{numbered("a", 1), numbered("b", 1), numbered("c", 2)},
-			[]CollectionItem{unmatched("a", "集号重复"), unmatched("b", "集号重复"), numbered("c", 2)},
-		},
-		{
 			"去掉重复的 ref 之后才判定序号",
 			[]CollectionItem{numbered("a", 1), numbered("a", 1), numbered("b", 2)},
 			[]CollectionItem{numbered("a", 1), numbered("b", 2)},

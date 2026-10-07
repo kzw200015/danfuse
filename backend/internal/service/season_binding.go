@@ -229,11 +229,8 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 	var id int64
 	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		// 锁住这一季到提交：之后的删除要等这个事务提交，再连同季绑定一起删掉
-		if _, err := q.LockSeason(ctx, seasonID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return errSeasonDeleted
-			}
-			return fmt.Errorf("lock season %d: %w", seasonID, err)
+		if err := lockSeason(ctx, q, seasonID, errSeasonDeleted); err != nil {
+			return err
 		}
 		var err error
 		id, err = q.InsertSeasonBinding(ctx, repository.InsertSeasonBindingParams{
@@ -501,11 +498,8 @@ func renumberItems(ctx context.Context, q *repository.Queries, id int64, rule so
 
 // Backfill 立即在后台补建一次，追更关着时也能用。不存在时返回 404；这个季绑定正在补建时返回 409"正在补建"，不排第二次。
 func (s *SeasonBindingService) Backfill(ctx context.Context, id int64) error {
-	if _, err := s.store.GetSeasonBinding(ctx, id); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errSeasonBindingNotFound
-		}
-		return fmt.Errorf("get season binding %d: %w", id, err)
+	if _, err := s.getSeasonBinding(ctx, id, errSeasonBindingNotFound); err != nil {
+		return err
 	}
 	return s.trigger(ctx, id)
 }

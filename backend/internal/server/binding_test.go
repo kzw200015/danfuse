@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"maps"
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 
@@ -68,51 +66,22 @@ func TestCreateBinding(t *testing.T) {
 	// 201 和绑定：不含 ref 和 contentVersion
 	_, _, data := call(t, srv, http.MethodPost, "/api/episodes/2/bindings", `{"url": " fake/x "}`, http.StatusCreated)
 	binding := decodeObject(t, data)
-	wantFields := []string{
-		"adapter", "danmakuCount", "duration", "id", "kind", "lastFetchedAt", "offset",
-		"seasonBindingId", "sourceLabel", "sourceUrl", "status", "title",
-	}
-	if got := slices.Sorted(maps.Keys(binding)); !slices.Equal(got, wantFields) {
-		t.Errorf("绑定的字段 = %q\nwant %q", got, wantFields)
-	}
-	if string(binding["lastFetchedAt"]) == "null" {
-		t.Error("lastFetchedAt 为 null，want 这次拉取的时间")
-	}
-	delete(binding, "lastFetchedAt")
+	popTime(t, binding, "lastFetchedAt") // 这次拉取的时间
 	assertJSON(t, json.RawMessage(jsonString(binding)), `{
 		"id": 5, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/x", "sourceLabel": "假弹幕源 x",
 		"title": "弹幕源 x", "duration": 1418, "offset": 0, "status": "active", "danmakuCount": 2, "seasonBindingId": null
 	}`)
 
-	// 剧列表随之更新
-	_, _, data = call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK)
-	var list []map[string]json.RawMessage
-	if err := json.Unmarshal(data, &list); err != nil {
-		t.Fatal(err)
-	}
-	if got := string(list[0]["boundEpisodeCount"]) + "/" + string(list[0]["bindingCount"]); got != "3/4" {
-		t.Errorf("星海旅人的已绑定集数/绑定数 = %s, want 3/4", got)
-	}
-
-	for _, tt := range []struct {
-		target      string
-		body        string
-		wantStatus  int
-		wantMessage string
-	}{
-		{"/api/episodes/2/bindings", `{"url": "fake/x"}`, http.StatusConflict, "这一集已经绑定过这个弹幕源"},
-		{"/api/episodes/2/bindings", `{"url": "https://example.com/v/1"}`, http.StatusBadRequest, "无法识别的链接"},
-		{"/api/episodes/2/bindings", `{"url": "  "}`, http.StatusBadRequest, "请粘贴弹幕源的链接"},
-		{"/api/episodes/2/bindings", `{"url": `, http.StatusBadRequest, "请求参数错误"},
-		{"/api/episodes/0/bindings", `{"url": "fake/x"}`, http.StatusBadRequest, "集 ID 不合法"},
-		{"/api/episodes/99/bindings", `{"url": "fake/x"}`, http.StatusNotFound, "集不存在"},
-		{"/api/episodes/2/bindings", `{"url": "fake/gone"}`, http.StatusUnprocessableEntity, "视频不存在、已删除或不可见"},
-		{"/api/episodes/2/bindings", `{"url": "fake/down"}`, http.StatusBadGateway, "B 站接口异常"},
-	} {
-		if code, message, _ := call(t, srv, http.MethodPost, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
-			t.Errorf("POST %s %s: code=%d message=%q, want %q", tt.target, tt.body, code, message, tt.wantMessage)
-		}
-	}
+	assertAPIErrors(t, srv, []apiError{
+		{http.MethodPost, "/api/episodes/2/bindings", `{"url": "fake/x"}`, http.StatusConflict, "这一集已经绑定过这个弹幕源"},
+		{http.MethodPost, "/api/episodes/2/bindings", `{"url": "https://example.com/v/1"}`, http.StatusBadRequest, "无法识别的链接"},
+		{http.MethodPost, "/api/episodes/2/bindings", `{"url": "  "}`, http.StatusBadRequest, "请粘贴弹幕源的链接"},
+		{http.MethodPost, "/api/episodes/2/bindings", `{"url": `, http.StatusBadRequest, "请求参数错误"},
+		{http.MethodPost, "/api/episodes/0/bindings", `{"url": "fake/x"}`, http.StatusBadRequest, "集 ID 不合法"},
+		{http.MethodPost, "/api/episodes/99/bindings", `{"url": "fake/x"}`, http.StatusNotFound, "集不存在"},
+		{http.MethodPost, "/api/episodes/2/bindings", `{"url": "fake/gone"}`, http.StatusUnprocessableEntity, "视频不存在、已删除或不可见"},
+		{http.MethodPost, "/api/episodes/2/bindings", `{"url": "fake/down"}`, http.StatusBadGateway, "B 站接口异常"},
+	})
 }
 
 func TestRefetchBinding(t *testing.T) {
@@ -133,10 +102,7 @@ func TestRefetchBinding(t *testing.T) {
 		body   string
 		want   string // 不含 lastFetchedAt
 	}{
-		// 绑定 1 已有原始 ID 为 1、2 的两条弹幕：没有新弹幕；偏移不变。没传 clear 时为重新拉取
-		{"/api/bindings/1/refetch", `{"clear": false}`, `{"added": 0, "binding": {
-			"id": 1, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
-			"title": "弹幕源 a", "duration": 1418, "offset": 1.5, "status": "active", "danmakuCount": 2, "seasonBindingId": null}}`},
+		// 没传 clear 时为重新拉取：绑定 1 已有原始 ID 为 1、2 的两条弹幕，没有新弹幕；偏移不变
 		{"/api/bindings/1/refetch", `{}`, `{"added": 0, "binding": {
 			"id": 1, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
 			"title": "弹幕源 a", "duration": 1418, "offset": 1.5, "status": "active", "danmakuCount": 2, "seasonBindingId": null}}`},
@@ -148,38 +114,19 @@ func TestRefetchBinding(t *testing.T) {
 		_, _, data := call(t, srv, http.MethodPost, tt.target, tt.body, http.StatusOK)
 		result := decodeObject(t, data)
 		binding := decodeObject(t, result["binding"])
-		if string(binding["lastFetchedAt"]) == "null" {
-			t.Errorf("POST %s %s: lastFetchedAt 为 null，want 这次拉取的时间", tt.target, tt.body)
-		}
-		delete(binding, "lastFetchedAt")
+		popTime(t, binding, "lastFetchedAt") // 这次拉取的时间
 		result["binding"] = json.RawMessage(jsonString(binding))
 		assertJSON(t, json.RawMessage(jsonString(result)), tt.want)
 	}
 
-	for _, tt := range []struct {
-		target      string
-		body        string
-		wantStatus  int
-		wantMessage string
-	}{
-		{"/api/bindings/5/refetch", `{"clear": true}`, http.StatusUnprocessableEntity, "视频不存在、已删除或不可见"},
-		{"/api/bindings/6/refetch", `{"clear": true}`, http.StatusBadGateway, "B 站接口异常"},
-		{"/api/bindings/99/refetch", `{}`, http.StatusNotFound, "绑定不存在"},
-		{"/api/bindings/0/refetch", `{}`, http.StatusBadRequest, "绑定 ID 不合法"},
-		{"/api/bindings/1/refetch", `{"clear": "yes"}`, http.StatusBadRequest, "请求参数错误"},
-	} {
-		if code, message, _ := call(t, srv, http.MethodPost, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
-			t.Errorf("POST %s %s: code=%d message=%q, want %q", tt.target, tt.body, code, message, tt.wantMessage)
-		}
-	}
-	// 弹幕源不存在时标为失效，接口异常时状态不变
-	var statuses []string
-	if err := pool.QueryRow(t.Context(), `SELECT array_agg(status ORDER BY id) FROM bindings WHERE id IN (5, 6)`).Scan(&statuses); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(statuses, []string{"dead", "active"}) {
-		t.Errorf("绑定 5、6 的状态 = %v, want [dead active]", statuses)
-	}
+	// 弹幕源不存在时标为失效、接口异常时状态不变，见 service 的 TestRefetchDeadAndRecover
+	assertAPIErrors(t, srv, []apiError{
+		{http.MethodPost, "/api/bindings/5/refetch", `{"clear": true}`, http.StatusUnprocessableEntity, "视频不存在、已删除或不可见"},
+		{http.MethodPost, "/api/bindings/6/refetch", `{"clear": true}`, http.StatusBadGateway, "B 站接口异常"},
+		{http.MethodPost, "/api/bindings/99/refetch", `{}`, http.StatusNotFound, "绑定不存在"},
+		{http.MethodPost, "/api/bindings/0/refetch", `{}`, http.StatusBadRequest, "绑定 ID 不合法"},
+		{http.MethodPost, "/api/bindings/1/refetch", `{"clear": "yes"}`, http.StatusBadRequest, "请求参数错误"},
+	})
 }
 
 func TestUpdateBinding(t *testing.T) {
@@ -201,26 +148,18 @@ func TestUpdateBinding(t *testing.T) {
 		}
 	}
 
-	for _, tt := range []struct {
-		target      string
-		body        string
-		wantStatus  int
-		wantMessage string
-	}{
-		{"/api/bindings/1", `{"offset": 86400.5}`, http.StatusBadRequest, "偏移必须是 -86400 到 86400 之间的秒数"},
-		{"/api/bindings/1", `{"offset": -86401}`, http.StatusBadRequest, "偏移必须是 -86400 到 86400 之间的秒数"},
-		{"/api/bindings/1", `{}`, http.StatusBadRequest, "偏移必须是 -86400 到 86400 之间的秒数"},
-		{"/api/bindings/1", `{"offset": null}`, http.StatusBadRequest, "偏移必须是 -86400 到 86400 之间的秒数"},
+	const invalidOffset = "偏移必须是 -86400 到 86400 之间的秒数"
+	assertAPIErrors(t, srv, []apiError{
+		{http.MethodPatch, "/api/bindings/1", `{"offset": 86400.5}`, http.StatusBadRequest, invalidOffset},
+		{http.MethodPatch, "/api/bindings/1", `{"offset": -86401}`, http.StatusBadRequest, invalidOffset},
+		{http.MethodPatch, "/api/bindings/1", `{}`, http.StatusBadRequest, invalidOffset},
+		{http.MethodPatch, "/api/bindings/1", `{"offset": null}`, http.StatusBadRequest, invalidOffset},
 		// JSON 写不出 NaN 和无穷大；超出 float64 范围的数解析失败
-		{"/api/bindings/1", `{"offset": 1e999}`, http.StatusBadRequest, "请求参数错误"},
-		{"/api/bindings/1", `{"offset": "1"}`, http.StatusBadRequest, "请求参数错误"},
-		{"/api/bindings/0", `{"offset": 1}`, http.StatusBadRequest, "绑定 ID 不合法"},
-		{"/api/bindings/99", `{"offset": 1}`, http.StatusNotFound, "绑定不存在"},
-	} {
-		if code, message, _ := call(t, srv, http.MethodPatch, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
-			t.Errorf("PATCH %s %s: code=%d message=%q, want %q", tt.target, tt.body, code, message, tt.wantMessage)
-		}
-	}
+		{http.MethodPatch, "/api/bindings/1", `{"offset": 1e999}`, http.StatusBadRequest, "请求参数错误"},
+		{http.MethodPatch, "/api/bindings/1", `{"offset": "1"}`, http.StatusBadRequest, "请求参数错误"},
+		{http.MethodPatch, "/api/bindings/0", `{"offset": 1}`, http.StatusBadRequest, "绑定 ID 不合法"},
+		{http.MethodPatch, "/api/bindings/99", `{"offset": 1}`, http.StatusNotFound, "绑定不存在"},
+	})
 }
 
 func TestDeleteBinding(t *testing.T) {
@@ -232,26 +171,10 @@ func TestDeleteBinding(t *testing.T) {
 	if code, _, data := call(t, srv, http.MethodDelete, "/api/bindings/1", "", http.StatusOK); code != 0 || string(data) != "null" {
 		t.Errorf("code=%d data=%s, want 0 null", code, data)
 	}
-	// 它的弹幕一起删除
-	var rows int
-	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM danmaku WHERE binding_id = 1`).Scan(&rows); err != nil {
-		t.Fatal(err)
-	}
-	if rows != 0 {
-		t.Errorf("还留着 %d 条弹幕", rows)
-	}
-
-	for _, tt := range []struct {
-		target      string
-		wantStatus  int
-		wantMessage string
-	}{
-		{"/api/bindings/1", http.StatusNotFound, "绑定不存在"},
-		{"/api/bindings/0", http.StatusBadRequest, "绑定 ID 不合法"},
-		{"/api/bindings/abc", http.StatusBadRequest, "请求参数错误"},
-	} {
-		if code, message, _ := call(t, srv, http.MethodDelete, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
-			t.Errorf("DELETE %s: code=%d message=%q, want %q", tt.target, code, message, tt.wantMessage)
-		}
-	}
+	// 它的弹幕一起删除，见 service 的 TestDeleteBinding
+	assertAPIErrors(t, srv, []apiError{
+		{http.MethodDelete, "/api/bindings/1", "", http.StatusNotFound, "绑定不存在"},
+		{http.MethodDelete, "/api/bindings/0", "", http.StatusBadRequest, "绑定 ID 不合法"},
+		{http.MethodDelete, "/api/bindings/abc", "", http.StatusBadRequest, "请求参数错误"},
+	})
 }

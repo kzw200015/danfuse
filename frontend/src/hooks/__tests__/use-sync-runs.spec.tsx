@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 
-import { advance, mockSyncRuns, seedSeries, syncRun } from '@/__tests__/utils'
+import { advance, mockSyncRuns, newQueryClient, seedSeries, syncRun } from '@/__tests__/utils'
 import { getLatestSyncRun } from '@/api/sync'
 import { useLatestSyncRun } from '@/hooks/use-sync-runs'
 
@@ -17,14 +17,9 @@ beforeEach(() => {
   server = mockSyncRuns()
 })
 
-afterEach(() => {
-  vi.useRealTimers()
-  vi.resetAllMocks()
-})
-
 /** 用新的 QueryClient 渲染 useLatestSyncRun，并放进目录页的查询：剧列表和打开的那部剧 */
 function renderLatestSyncRun() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = newQueryClient()
   const seriesInvalidated = seedSeries(queryClient)
   const { result } = renderHook(useLatestSyncRun, {
     wrapper: ({ children }: { children: ReactNode }) => (

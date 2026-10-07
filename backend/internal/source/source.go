@@ -135,15 +135,21 @@ func (r *Registry) Get(id string) (Adapter, error) {
 // ParseLink 依次交给各个适配器，返回第一个认识这个链接的适配器和规范化的 ref。
 // 适配器返回 ErrUnrecognized 以外的错误时直接返回；都不认识时返回 Kind 为 InvalidLink 的 *Error（"无法识别的链接"）。
 func (r *Registry) ParseLink(ctx context.Context, link string) (Adapter, Ref, error) {
-	for _, a := range r.adapters {
-		ref, err := a.ParseLink(ctx, link)
+	return firstRecognized(r.adapters, func(a Adapter) (Ref, error) { return a.ParseLink(ctx, link) })
+}
+
+// firstRecognized 依次用 parse 询问各个适配器，返回第一个认识链接的适配器和它的结果，规则见 Registry.ParseLink。
+func firstRecognized[T any](adapters []Adapter, parse func(Adapter) (T, error)) (Adapter, T, error) {
+	var zero T
+	for _, a := range adapters {
+		v, err := parse(a)
 		switch {
 		case errors.Is(err, ErrUnrecognized):
 			continue
 		case err != nil:
-			return nil, nil, err
+			return nil, zero, err
 		}
-		return a, ref, nil
+		return a, v, nil
 	}
-	return nil, nil, &Error{Kind: InvalidLink, Message: "无法识别的链接"}
+	return nil, zero, &Error{Kind: InvalidLink, Message: "无法识别的链接"}
 }

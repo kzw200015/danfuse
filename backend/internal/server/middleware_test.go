@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -57,16 +56,7 @@ func TestErrorHandlerLogsServerErrors(t *testing.T) {
 				return
 			}
 
-			var entry struct {
-				Level     string `json:"level"`
-				RequestID string `json:"request_id"`
-				Method    string `json:"method"`
-				Route     string `json:"route"`
-				Error     string `json:"error"`
-			}
-			if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
-				t.Fatalf("应恰好记录一条日志：%v\n%s", err, logs.String())
-			}
+			entry := decodeLogEntry(t, &logs)
 			if entry.Level != "ERROR" {
 				t.Errorf("level = %q, want ERROR", entry.Level)
 			}
@@ -99,16 +89,7 @@ func TestErrorHandlerClientGone(t *testing.T) {
 
 	srv.echo.ServeHTTP(httptest.NewRecorder(), req)
 
-	var entry struct {
-		Level string `json:"level"`
-		Msg   string `json:"msg"`
-		Route string `json:"route"`
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
-		t.Fatalf("应恰好记录一条日志：%v\n%s", err, logs.String())
-	}
-	if entry.Level != "INFO" || entry.Msg != "request canceled" || entry.Route != "/items/:id" || entry.Error != "list items: context canceled" {
+	if entry := decodeLogEntry(t, &logs); entry.Level != "INFO" || entry.Msg != "request canceled" || entry.Route != "/items/:id" || entry.Error != "list items: context canceled" {
 		t.Errorf("日志 = %s, want INFO request canceled，路由与错误链照常记录", logs.String())
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"maps"
 	"net/http"
 	"slices"
-	"strings"
 	"testing"
 	"testing/synctest"
 
@@ -60,29 +59,11 @@ func TestSyncRunsAPI(t *testing.T) {
 			t.Errorf("同步进行中再触发：code=%d message=%q", code, message)
 		}
 
-		// 进行中每提交一部剧，已完成数加一
-		progress := func() string {
-			t.Helper()
-			var run struct {
-				Status string `json:"status"`
-				Total  *int   `json:"total"`
-				Done   int    `json:"done"`
-			}
-			_, _, data := call(t, srv, http.MethodGet, "/api/sync-runs/1", "", http.StatusOK)
-			if err := json.Unmarshal(data, &run); err != nil {
-				t.Fatal(err)
-			}
-			return strings.Join([]string{run.Status, jsonString(run.Total), jsonString(run.Done)}, " ")
+		// 进度与警告怎样随同步写入见 service 的 TestSyncProgress；这里放行两部剧，让同步结束
+		for range 2 {
+			src.gate <- struct{}{}
 		}
-		for i, want := range []string{"running 2 0", "running 2 1", "succeeded 2 2"} {
-			if i > 0 {
-				src.gate <- struct{}{}
-				synctest.Wait()
-			}
-			if got := progress(); got != want {
-				t.Errorf("放行 %d 部后：%s, want %s", i, got, want)
-			}
-		}
+		synctest.Wait()
 
 		// 详情含警告，列表不含
 		_, _, data := call(t, srv, http.MethodGet, "/api/sync-runs/1", "", http.StatusOK)
@@ -95,7 +76,7 @@ func TestSyncRunsAPI(t *testing.T) {
 			t.Errorf("详情的字段 = %q\nwant %q", got, wantFields)
 		}
 		wantDetail := map[string]string{
-			"id": `1`, "trigger": `"manual"`, "createdSeries": `1`, "createdSeasons": `1`, "createdEpisodes": `2`,
+			"id": `1`, "trigger": `"manual"`, "status": `"succeeded"`, "total": `2`, "done": `2`, "createdSeries": `1`, "createdSeasons": `1`, "createdEpisodes": `2`,
 			"warningCount": `2`, "warnings": `["找不到媒体库「动画」，已跳过","乙：没有有效的集，整部跳过"]`, "error": `null`,
 		}
 		for k, want := range wantDetail {
@@ -120,19 +101,11 @@ func TestSyncRunsAPI(t *testing.T) {
 			t.Errorf("最近一次 = %s\nwant 列表的第一条 %s", latest, data)
 		}
 
-		for _, tt := range []struct {
-			target      string
-			wantStatus  int
-			wantMessage string
-		}{
-			{"/api/sync-runs/2", http.StatusNotFound, "同步记录不存在"},
-			{"/api/sync-runs/0", http.StatusBadRequest, "同步记录 ID 不合法"},
-			{"/api/sync-runs/abc", http.StatusBadRequest, "请求参数错误"},
-		} {
-			if code, message, _ := call(t, srv, http.MethodGet, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
-				t.Errorf("GET %s: code=%d message=%q, want %q", tt.target, code, message, tt.wantMessage)
-			}
-		}
+		assertAPIErrors(t, srv, []apiError{
+			{http.MethodGet, "/api/sync-runs/2", "", http.StatusNotFound, "同步记录不存在"},
+			{http.MethodGet, "/api/sync-runs/0", "", http.StatusBadRequest, "同步记录 ID 不合法"},
+			{http.MethodGet, "/api/sync-runs/abc", "", http.StatusBadRequest, "请求参数错误"},
+		})
 	})
 }
 
@@ -150,18 +123,4 @@ func TestTriggerSyncWithoutCatalogSource(t *testing.T) {
 			t.Errorf("没有同步记录时列表 = %s, want []", data)
 		}
 	})
-}
-
-func decodeObject(t *testing.T, data json.RawMessage) map[string]json.RawMessage {
-	t.Helper()
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(data, &obj); err != nil {
-		t.Fatal(err)
-	}
-	return obj
-}
-
-func jsonString(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
 }

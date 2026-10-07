@@ -2,7 +2,6 @@ package source
 
 import (
 	"context"
-	"errors"
 )
 
 // CollectionRef 合集在平台内的引用，是适配器自己定义的 JSON，存入 season_bindings.ref（jsonb），
@@ -37,15 +36,5 @@ type CollectionItem struct {
 // ParseCollectionLink 依次交给各个适配器，返回第一个认识这个链接的适配器和它给出的候选。
 // 适配器返回 ErrUnrecognized 以外的错误时直接返回；都不认识时返回 Kind 为 InvalidLink 的 *Error（"无法识别的链接"）。
 func (r *Registry) ParseCollectionLink(ctx context.Context, link string) (Adapter, []CollectionCandidate, error) {
-	for _, a := range r.adapters {
-		candidates, err := a.ParseCollectionLink(ctx, link)
-		switch {
-		case errors.Is(err, ErrUnrecognized):
-			continue
-		case err != nil:
-			return nil, nil, err
-		}
-		return a, candidates, nil
-	}
-	return nil, nil, &Error{Kind: InvalidLink, Message: "无法识别的链接"}
+	return firstRecognized(r.adapters, func(a Adapter) ([]CollectionCandidate, error) { return a.ParseCollectionLink(ctx, link) })
 }

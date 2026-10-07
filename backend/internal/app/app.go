@@ -22,10 +22,10 @@ import (
 )
 
 type App struct {
-	server         *server.Server
-	sync           *service.SyncService
-	seasonBindings *service.SeasonBindingService
-	scheduledFetch *service.ScheduledFetchService
+	server *server.Server
+	// background 与 HTTP 服务一起运行的后台循环：同步、季绑定的补建（追更的扫描）、定时拉取。
+	// Run 在 ctx 取消后收尾完才返回。
+	background []interface{ Run(ctx context.Context) }
 }
 
 // New 组装各层组件。pool 已连通、已迁移，由调用方在 Run 返回之后关闭。
@@ -53,10 +53,8 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Settings:      handler.NewSettingsHandler(cfg),
 	}
 	return &App{
-		server:         server.New(cfg.Server, cfg.Dandanplay, logger, handlers, dandan.NewHandler(dandanService)),
-		sync:           syncs,
-		seasonBindings: seasonBindings,
-		scheduledFetch: scheduledFetch,
+		server:     server.New(cfg.Server, cfg.Dandanplay, logger, handlers, dandan.NewHandler(dandanService)),
+		background: []interface{ Run(ctx context.Context) }{syncs, seasonBindings, scheduledFetch},
 	}
 }
 
@@ -77,17 +75,11 @@ func newCatalogSource(cfg config.CatalogSource) catalog.Source {
 func (a *App) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return a.server.Start(ctx) })
-	g.Go(func() error {
-		a.sync.Run(ctx)
-		return nil
-	})
-	g.Go(func() error {
-		a.seasonBindings.Run(ctx)
-		return nil
-	})
-	g.Go(func() error {
-		a.scheduledFetch.Run(ctx)
-		return nil
-	})
+	for _, bg := range a.background {
+		g.Go(func() error {
+			bg.Run(ctx)
+			return nil
+		})
+	}
 	return g.Wait()
 }

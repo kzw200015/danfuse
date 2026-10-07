@@ -104,25 +104,14 @@ func TestDecodeSegment(t *testing.T) {
 			elems: []elem{{mode: 1, content: "a"}},
 		},
 		{
-			name:  "非法的 UTF-8 字节被清洗",
+			// 正文的其余清洗规则与 XML 共用 bilifmt.NewDanmaku，在那里测
+			name:  "正文是非法的 UTF-8 也不影响整段解码，非法字节被清洗",
 			elems: []elem{text("ab\xffc\xe4\xb8d")},
 			want:  want("abcd"),
 		},
 		{
-			name:  "NUL 被去掉",
-			elems: []elem{text("a\x00b")},
-			want:  want("ab"),
-		},
-		{
-			name:  "去掉空白后为空的丢弃",
+			name:  "没有正文、去掉空白后为空的丢弃",
 			elems: []elem{text(" \t\n　"), text("\xff\xfe"), {id: 2, mode: 1}},
-		},
-		{
-			name:  "其余原样保留：首尾空白、emoji、&<>、换行",
-			elems: []elem{text(" 前后有空格 "), text("😀🎉"), text(`&<>"'`), text("第一行\n第二行")},
-			want: slices.Concat(
-				want(" 前后有空格 "), want("😀🎉"), want(`&<>"'`), want("第一行\n第二行"),
-			),
 		},
 		{
 			name:  "未知字段与用不到的已知字段被跳过",

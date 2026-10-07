@@ -3,7 +3,6 @@ package bilibili
 import (
 	"fmt"
 	"log/slog"
-	"net/http"
 	"reflect"
 	"slices"
 	"strconv"
@@ -107,9 +106,8 @@ func TestFetchEpisodeErrors(t *testing.T) {
 		kind     source.Kind
 		attempts int
 	}{
-		{"pgc -403", codeResponse(-403), source.AuthRequired, 1},
+		// 状态码与错误码的归类与投稿共用，见 TestFetchErrors；这里只确认 pgc 照样归类、重试
 		{"pgc -352", codeResponse(-352), source.RateLimited, 4},
-		{"pgc HTTP 500", statusResponse(http.StatusInternalServerError), source.Upstream, 4},
 		{"pgc result 结构不对", jsonResponse(`{"code":0,"result":{"episodes":"x"}}`), source.Upstream, 4},
 		{"单集没有 cid：不重试", pgcResponse(t, noCID), source.Upstream, 1},
 	}

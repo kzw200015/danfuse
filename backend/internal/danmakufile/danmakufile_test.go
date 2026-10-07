@@ -34,19 +34,9 @@ func TestParse(t *testing.T) {
 				{SourceID: 251930634, TimeMs: 385734, Mode: danmaku.ModeTop, Color: 0xFF0000, Text: "噗—"},
 			},
 		},
-		{
-			name: "带 BOM",
-			data: append([]byte("\xef\xbb\xbf"), xmlFile(`<d p="1.5,1,25,0,0,0,x,7">a</d>`)...),
-			want: []danmaku.Danmaku{{SourceID: 7, TimeMs: 1500, Mode: danmaku.ModeScroll, Text: "a"}},
-		},
-		{
-			name: "</i> 之后附了注释",
-			data: append(xmlFile(`<d p="1.5,1,25,0,0,0,x,7">a</d>`), "\n<!--凑够1KB-->\n\n<!--好像还不够啊-->\n"...),
-			want: []danmaku.Danmaku{{SourceID: 7, TimeMs: 1500, Mode: danmaku.ModeScroll, Text: "a"}},
-		},
+		// BOM、</i> 之后的注释等文档格式的细节在 bilifmt 测
 		{name: "没有弹幕", data: xmlFile(), want: nil},
 		{name: "少了最后的 >", data: bytes.TrimSuffix(xmlFile(`<d p="1.5,1,25,0,0,0,x,7">a</d>`), []byte(">")), wantErr: true},
-		{name: "被截断", data: xmlFile(`<d p="1.5,1,25,0,0,0,x,7">a</d>`)[:120], wantErr: true},
 		{name: "HTML", data: []byte("<html><body>来自新世界的B站历史弹幕</body></html>"), wantErr: true},
 		{name: "JSON", data: []byte(`[{"c":"0,16777215,1,25,4d0568ac,1389087514","m":"QAQ"}]`), wantErr: true},
 		{name: "不是 B 站的 XML", data: []byte(`<?xml version="1.0"?><root><item>x</item></root>`), wantErr: true},

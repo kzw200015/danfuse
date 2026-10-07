@@ -518,9 +518,7 @@ func TestTriggerRejected(t *testing.T) {
 			stop() // Run 已返回：不再等它接收触发
 
 			_, err := svc.Trigger(t.Context())
-			if appErr, ok := errors.AsType[*apierr.Error](err); !ok || appErr.HTTPStatus != http.StatusServiceUnavailable || appErr.Message != "服务正在关闭" {
-				t.Errorf("Trigger() error = %v, want 503 服务正在关闭", err)
-			}
+			assertAppError(t, err, http.StatusServiceUnavailable, "服务正在关闭")
 		})
 	})
 
