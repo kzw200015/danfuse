@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -57,6 +59,94 @@ func decodeResponse(t *testing.T, what string, rec *httptest.ResponseRecorder, w
 	return resp.Code, resp.Message, resp.Data
 }
 
+// apiError 一个应当失败的管理 API 请求：期望的状态码和提示，业务码一律为 1。
+type apiError struct {
+	method, target, body string
+	wantStatus           int
+	wantMessage          string
+}
+
+// assertAPIErrors 逐个发出 cases 里的请求，检查状态码、业务码和提示。
+func assertAPIErrors(t *testing.T, srv *Server, cases []apiError) {
+	t.Helper()
+	for _, tt := range cases {
+		if code, message, _ := call(t, srv, tt.method, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
+			t.Errorf("%s %s %s: code=%d message=%q, want %q", tt.method, tt.target, tt.body, code, message, tt.wantMessage)
+		}
+	}
+}
+
+// logEntry 一条 JSON 日志里 logger.ServerError 写的字段。
+type logEntry struct {
+	Level     string `json:"level"`
+	Msg       string `json:"msg"`
+	RequestID string `json:"request_id"`
+	Method    string `json:"method"`
+	Route     string `json:"route"`
+	Error     string `json:"error"`
+}
+
+// decodeLogEntry 解出 logs 里恰好一条的 JSON 日志。
+func decodeLogEntry(t *testing.T, logs *bytes.Buffer) logEntry {
+	t.Helper()
+	var entry logEntry
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatalf("应恰好记录一条日志：%v\n%s", err, logs.String())
+	}
+	return entry
+}
+
+// newPool 按 cfg 新建连接池，测试结束时关闭。在 synctest 气泡里用时，连接池在气泡里创建、在气泡里关闭。
+func newPool(t *testing.T, cfg *pgxpool.Config) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// decodeObject 把 JSON 对象解成字段名到原始值的映射。
+func decodeObject(t *testing.T, data json.RawMessage) map[string]json.RawMessage {
+	t.Helper()
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		t.Fatal(err)
+	}
+	return obj
+}
+
+// popTime 检查 obj 里有 key 且不为 null（取决于当前时间的字段），再把它删掉，方便与固定的 JSON 比较其余字段。
+func popTime(t *testing.T, obj map[string]json.RawMessage, key string) {
+	t.Helper()
+	if v, ok := obj[key]; !ok || string(v) == "null" {
+		t.Errorf("%s = %s，want 一个时间", key, v)
+	}
+	delete(obj, key)
+}
+
+func jsonString(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// assertJSON 按语义比较 JSON：字段名与值都要一致，不管字段顺序与空白。
+func assertJSON(t *testing.T, got json.RawMessage, want string) {
+	t.Helper()
+	var g, w any
+	if err := json.Unmarshal(got, &g); err != nil {
+		t.Fatalf("响应不是 JSON：%s", got)
+	}
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		t.Fatalf("期望值不是 JSON：%v", err)
+	}
+	if !reflect.DeepEqual(g, w) {
+		// 两边都重新编码，字段按名称排序，方便对照
+		t.Errorf("got  %s\nwant %s", jsonString(g), jsonString(w))
+	}
+}
+
 // fakeCatalog 实现 catalog.Source 的假目录源：依次产出 items，清单带上 warnings；
 // gate 不为 nil 时，每产出一部剧之前等它放行一次。
 type fakeCatalog struct {
@@ -93,12 +183,7 @@ func (s *fakeCatalog) List(ctx context.Context) (catalog.Listing, error) {
 // src 为 nil 表示未配置目录源。连接池在气泡里创建、在气泡里关闭：测试结束时先取消 Run 并等它返回，再关闭连接池。
 func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*service.SyncService, *pgxpool.Pool) {
 	t.Helper()
-	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-
+	pool := newPool(t, cfg)
 	svc := service.NewSyncService(repository.NewStore(pool), pool, src, config.Sync{KeepRuns: 20}, slog.New(slog.DiscardHandler))
 	runInBackground(t, svc)
 	return svc, pool

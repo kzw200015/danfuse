@@ -12,6 +12,8 @@
 ### HTTP
 
 - 在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求；要换掉托管的前端文件时用 `newServer(..., fstest.MapFS{...})`。
+- 共用的辅助函数在 `server_test.go`：`call` 发请求并解出统一响应，`assertAPIErrors` 逐条检查失败请求的状态码和提示，`assertJSON` 按语义比较 JSON，`popTime` 取走取决于当前时间的字段，`decodeLogEntry` 解出 5xx 日志，`newPool` 建连接池。
+- HTTP 测试只管路由、参数绑定与校验、状态码、响应结构和错误映射；业务规则（级联删除、计数、状态变化、进度）由 service 的测试覆盖，不在这里重复。
 
 ### service
 

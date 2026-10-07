@@ -74,11 +74,7 @@ func (fakeAdapter) DescribeCollection(ref source.CollectionRef) (source.Display,
 // 起完整的 Echo（目录、绑定、季绑定接口），源适配器只注册了 fakeAdapter。测试结束时先停下后台循环，再关闭连接池。
 func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.Pool) {
 	t.Helper()
-	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
+	pool := newPool(t, cfg)
 	seedCatalog(t, pool)
 
 	store := repository.NewStore(pool)
@@ -146,10 +142,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 
 		_, _, data = call(t, srv, http.MethodGet, "/api/season-bindings/1", "", http.StatusOK)
 		detail := decodeObject(t, data)
-		if string(detail["lastCheckedAt"]) == "null" {
-			t.Error("lastCheckedAt 为 null，want 这一轮的开始时间")
-		}
-		delete(detail, "lastCheckedAt")
+		popTime(t, detail, "lastCheckedAt") // 这一轮的开始时间
 		assertJSON(t, json.RawMessage(jsonString(detail)), `{
 			"id": 1, "seasonId": 1, "adapter": "fake", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"title": "合集 s", "finished": false, "mappingFrom": 1, "mappingTo": 1, "numberedByRule": false, "episodePatterns": `+defaultPatterns+`,
@@ -227,13 +220,8 @@ func TestSeasonBindingAPI(t *testing.T) {
 		if err != nil || !ok {
 			t.Fatalf("TryLease = %v, %v", ok, err)
 		}
-		if code, message, _ := call(t, srv, http.MethodPost, "/api/season-bindings/1/backfill", "", http.StatusConflict); code != 1 || message != "正在补建" {
-			t.Errorf("正在补建时：code=%d message=%q", code, message)
-		}
-		_, _, data = call(t, srv, http.MethodGet, "/api/season-bindings/1", "", http.StatusOK)
-		if got := decodeObject(t, data)["running"]; string(got) != "true" {
-			t.Errorf("持有租约时 running = %s, want true", got)
-		}
+		// 正在补建时详情的 running 为 true，见 service 的 TestBackfillTwice
+		assertAPIErrors(t, srv, []apiError{{http.MethodPost, "/api/season-bindings/1/backfill", "", http.StatusConflict, "正在补建"}})
 		lease.Release()
 
 		// 按集号规则编号的合集：创建时保存规则，改规则时条目随即按新规则重新认出序号
@@ -260,11 +248,9 @@ func TestSeasonBindingAPI(t *testing.T) {
 		}
 		synctest.Wait()
 
-		// 删除，一起删掉建出的绑定
-		call(t, srv, http.MethodDelete, "/api/season-bindings/1?withBindings=true", "", http.StatusOK)
-		var n int
-		if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM bindings WHERE episode_id IN (1, 2)`).Scan(&n); err != nil || n != 2 {
-			t.Errorf("第 1 季剩下 %d 个绑定（%v），want 只剩原来的 2 个", n, err)
+		// 删除；一起删与不一起删时建出的绑定怎样处理，见 service 的 TestDeleteSeasonBinding
+		if code, _, data := call(t, srv, http.MethodDelete, "/api/season-bindings/1?withBindings=true", "", http.StatusOK); code != 0 || string(data) != "null" {
+			t.Errorf("DELETE: code=%d data=%s, want 0 null", code, data)
 		}
 		call(t, srv, http.MethodGet, "/api/season-bindings/1", "", http.StatusNotFound)
 	})
@@ -278,11 +264,7 @@ func TestSeasonBindingAPIErrors(t *testing.T) {
 		call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusCreated)
 		synctest.Wait()
 
-		for _, tt := range []struct {
-			method, target, body string
-			wantStatus           int
-			wantMessage          string
-		}{
+		assertAPIErrors(t, srv, []apiError{
 			{http.MethodPost, "/api/seasons/0/season-bindings/preview", `{"link": "fakelist/s"}`, http.StatusBadRequest, "季 ID 不合法"},
 			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": "  "}`, http.StatusBadRequest, "请粘贴合集的链接"},
 			{http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": `, http.StatusBadRequest, "请求参数错误"},
@@ -315,17 +297,6 @@ func TestSeasonBindingAPIErrors(t *testing.T) {
 
 			{http.MethodDelete, "/api/season-bindings/1?withBindings=abc", "", http.StatusBadRequest, "请求参数错误"},
 			{http.MethodDelete, "/api/season-bindings/99", "", http.StatusNotFound, "季绑定不存在"},
-		} {
-			if code, message, _ := call(t, srv, tt.method, tt.target, tt.body, tt.wantStatus); code != 1 || message != tt.wantMessage {
-				t.Errorf("%s %s %s: code=%d message=%q, want %q", tt.method, tt.target, tt.body, code, message, tt.wantMessage)
-			}
-		}
-
-		// 不一起删：建出的绑定留下，变成普通绑定
-		call(t, srv, http.MethodDelete, "/api/season-bindings/1", "", http.StatusOK)
-		_, _, data := call(t, srv, http.MethodGet, "/api/series/1", "", http.StatusOK)
-		if got := strings.Count(string(data), `"seasonBindingId":null`); got != 5 {
-			t.Errorf("删除季绑定后有 %d 个绑定的 seasonBindingId 为 null，want 这部剧的全部 5 个", got)
-		}
+		})
 	})
 }

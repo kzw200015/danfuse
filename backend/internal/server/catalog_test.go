@@ -2,10 +2,8 @@ package server
 
 import (
 	"bytes"
-	"encoding/json"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -151,19 +149,11 @@ func TestGetSeries(t *testing.T) {
 		assertJSON(t, data, tt.want)
 	}
 
-	for _, tt := range []struct {
-		target      string
-		wantStatus  int
-		wantMessage string
-	}{
-		{"/api/series/4", http.StatusNotFound, "剧不存在"},
-		{"/api/series/0", http.StatusBadRequest, "剧 ID 不合法"},
-		{"/api/series/abc", http.StatusBadRequest, "请求参数错误"},
-	} {
-		if code, message, _ := call(t, srv, http.MethodGet, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
-			t.Errorf("GET %s: code=%d message=%q, want %q", tt.target, code, message, tt.wantMessage)
-		}
-	}
+	assertAPIErrors(t, srv, []apiError{
+		{http.MethodGet, "/api/series/4", "", http.StatusNotFound, "剧不存在"},
+		{http.MethodGet, "/api/series/0", "", http.StatusBadRequest, "剧 ID 不合法"},
+		{http.MethodGet, "/api/series/abc", "", http.StatusBadRequest, "请求参数错误"},
+	})
 }
 
 // TestGetImage 图片接口是统一响应约定的例外：成功时直接返回原始字节；出错时照常是统一结构。
@@ -187,25 +177,20 @@ func TestGetImage(t *testing.T) {
 		t.Errorf("body = %q, want 原始字节 %q", rec.Body.Bytes(), posterPNG)
 	}
 
-	for _, tt := range []struct {
-		target      string
-		wantStatus  int
-		wantMessage string
-	}{
-		{"/api/images/2", http.StatusNotFound, "图片不存在"},
-		{"/api/images/0", http.StatusBadRequest, "图片 ID 不合法"},
-		{"/api/images/abc", http.StatusBadRequest, "请求参数错误"},
-	} {
-		if code, message, _ := call(t, srv, http.MethodGet, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
-			t.Errorf("GET %s: code=%d message=%q, want %q", tt.target, code, message, tt.wantMessage)
-		}
-		if got := serve(t, srv, http.MethodGet, tt.target, "").Header().Get("Cache-Control"); got != "" {
+	failures := []apiError{
+		{http.MethodGet, "/api/images/2", "", http.StatusNotFound, "图片不存在"},
+		{http.MethodGet, "/api/images/0", "", http.StatusBadRequest, "图片 ID 不合法"},
+		{http.MethodGet, "/api/images/abc", "", http.StatusBadRequest, "请求参数错误"},
+	}
+	assertAPIErrors(t, srv, failures)
+	for _, tt := range failures {
+		if got := serve(t, srv, tt.method, tt.target, "").Header().Get("Cache-Control"); got != "" {
 			t.Errorf("GET %s: 出错时不应缓存，Cache-Control = %q", tt.target, got)
 		}
 	}
 }
 
-// TestDeleteCatalog 删除剧、季、集返回 200 和 null；删除剧时它的海报一起删除。级联删除的结果见 service 的测试。
+// TestDeleteCatalog 删除剧、季、集返回 200 和 null。级联删除的结果（含海报）见 service 的 TestDeleteCatalog。
 func TestDeleteCatalog(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
@@ -218,41 +203,13 @@ func TestDeleteCatalog(t *testing.T) {
 			t.Errorf("DELETE %s: code=%d data=%s, want 0 null", target, code, data)
 		}
 	}
-	for _, tt := range []struct {
-		method      string
-		target      string
-		wantStatus  int
-		wantMessage string
-	}{
-		{http.MethodGet, "/api/images/1", http.StatusNotFound, "图片不存在"}, // 剧 1 的海报
-		{http.MethodDelete, "/api/series/1", http.StatusNotFound, "剧不存在"},
-		{http.MethodDelete, "/api/seasons/1", http.StatusNotFound, "季不存在"},
-		{http.MethodDelete, "/api/episodes/1", http.StatusNotFound, "集不存在"},
-		{http.MethodDelete, "/api/series/0", http.StatusBadRequest, "剧 ID 不合法"},
-		{http.MethodDelete, "/api/seasons/0", http.StatusBadRequest, "季 ID 不合法"},
-		{http.MethodDelete, "/api/episodes/0", http.StatusBadRequest, "集 ID 不合法"},
-		{http.MethodDelete, "/api/seasons/abc", http.StatusBadRequest, "请求参数错误"},
-	} {
-		if code, message, _ := call(t, srv, tt.method, tt.target, "", tt.wantStatus); code != 1 || message != tt.wantMessage {
-			t.Errorf("%s %s: code=%d message=%q, want %q", tt.method, tt.target, code, message, tt.wantMessage)
-		}
-	}
-	// 别的剧不受影响
-	call(t, srv, http.MethodGet, "/api/series/2", "", http.StatusOK)
-}
-
-// assertJSON 按语义比较 JSON：字段名与值都要一致，不管字段顺序与空白。
-func assertJSON(t *testing.T, got json.RawMessage, want string) {
-	t.Helper()
-	var g, w any
-	if err := json.Unmarshal(got, &g); err != nil {
-		t.Fatalf("响应不是 JSON：%s", got)
-	}
-	if err := json.Unmarshal([]byte(want), &w); err != nil {
-		t.Fatalf("期望值不是 JSON：%v", err)
-	}
-	if !reflect.DeepEqual(g, w) {
-		// 两边都重新编码，字段按名称排序，方便对照
-		t.Errorf("got  %s\nwant %s", jsonString(g), jsonString(w))
-	}
+	assertAPIErrors(t, srv, []apiError{
+		{http.MethodDelete, "/api/series/1", "", http.StatusNotFound, "剧不存在"},
+		{http.MethodDelete, "/api/seasons/1", "", http.StatusNotFound, "季不存在"},
+		{http.MethodDelete, "/api/episodes/1", "", http.StatusNotFound, "集不存在"},
+		{http.MethodDelete, "/api/series/0", "", http.StatusBadRequest, "剧 ID 不合法"},
+		{http.MethodDelete, "/api/seasons/0", "", http.StatusBadRequest, "季 ID 不合法"},
+		{http.MethodDelete, "/api/episodes/0", "", http.StatusBadRequest, "集 ID 不合法"},
+		{http.MethodDelete, "/api/seasons/abc", "", http.StatusBadRequest, "请求参数错误"},
+	})
 }

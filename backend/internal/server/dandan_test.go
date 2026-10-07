@@ -100,17 +100,12 @@ func dandanServer(pool *pgxpool.Pool, token string, logs io.Writer) *Server {
 }
 
 // newDandanServer 新建一个库，用同步写入 items，再起弹弹 API。要在同步之外补写数据（例如绑定和弹幕）时，
-// 照这里的写法组合 dbtest.Config、syncCatalog、pgxpool.NewWithConfig 和 dandanServer，自己留着连接池。
+// 照这里的写法组合 dbtest.Config、syncCatalog、newPool 和 dandanServer，自己留着连接池。
 func newDandanServer(t *testing.T, token string, items ...catalog.Item) *Server {
 	t.Helper()
 	cfg := dbtest.Config(t)
 	syncCatalog(t, cfg, items...)
-	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	return dandanServer(pool, token, nil)
+	return dandanServer(newPool(t, cfg), token, nil)
 }
 
 // browserURL 插件直接把关键词拼进地址，不做 URL 编码（ede.js 的 getEpisodeInfo），由浏览器按 URL 标准处理：
@@ -267,8 +262,8 @@ func TestPluginMatchesEpisode(t *testing.T) {
 	}
 }
 
-// TestPluginManualSearch 手动搜索时插件列出 animeTitle 和 typeDescription；手动选过的季，
-// 插件之后拿我们返回的 animeTitle 作为这一季其他集的关键词。
+// TestPluginManualSearch 手动选过的季，插件之后拿我们返回的 animeTitle 作为这一季其他集的关键词，要能搜回同一季。
+// 列出的 animeTitle、typeDescription 的格式见 TestSearchEpisodesResponse，排序规则见 service 的 TestSearch。
 func TestPluginManualSearch(t *testing.T) {
 	t.Parallel()
 	srv := newDandanServer(t, "", pluginCatalog()...)
@@ -279,9 +274,7 @@ func TestPluginManualSearch(t *testing.T) {
 	}{
 		{"星海旅人 特别篇", 3},
 		{"星海旅人 第2季", 2},
-		{"星海旅人", 1},
-		{"旅人", 1},
-		{"night", 4}, // 剧名命中（Night Watch）排在原名命中（长夜灯塔）之前
+		{"Night Watch 第2季", 5},
 	} {
 		t.Run(tt.keyword, func(t *testing.T) {
 			animes := searchEpisodes(t, srv, "/dandanplay", tt.keyword)
@@ -348,8 +341,8 @@ func TestSearchEpisodesResponse(t *testing.T) {
 	}
 }
 
-// TestSearchEpisodesEpisode 只保留一集：episode 参数为正整数时，或 anime 里写明了集号时（参数优先），没有这一集的季不返回。
-// 其他值的 episode 忽略。
+// TestSearchEpisodesEpisode episode 参数为正整数时交给搜索，只保留这一集，优先于 anime 里写明的集号；其他值的 episode 忽略。
+// 关键词里的季号、集号怎样过滤见 service 的 TestSearchSeasonEpisode。
 func TestSearchEpisodesEpisode(t *testing.T) {
 	t.Parallel()
 	srv := newDandanServer(t, "", pluginCatalog()...)
@@ -364,10 +357,7 @@ func TestSearchEpisodesEpisode(t *testing.T) {
 		want  string
 	}{
 		{"anime=星海旅人&episode=13", only13},
-		{"anime=星海旅人 第13话", only13},
-		{"anime=星海旅人 S02E13", only13},
 		{"anime=星海旅人 第1话&episode=13", only13},
-		{"anime=星海旅人&episode=99", `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "hasMore": false, "animes": []}`},
 		{"anime=星海旅人 第2季&episode=C1", secondSeason(`{"episodeId": 3, "episodeTitle": "第13话 新的航程"}, {"episodeId": 4, "episodeTitle": "第14话"}`)},
 		{"anime=星海旅人 第2季&episode=0", secondSeason(`{"episodeId": 3, "episodeTitle": "第13话 新的航程"}, {"episodeId": 4, "episodeTitle": "第14话"}`)},
 	} {
@@ -441,7 +431,6 @@ func TestSearchAnimeResponse(t *testing.T) {
 		{"电影", "?keyword=长夜灯塔", animes(searchAnimeJSON(6, "长夜灯塔", "movie", "电影 · 2020", 1))},
 		{"没有年份时省略年份", "?keyword=无名之旅", animes(searchAnimeJSON(7, "无名之旅", "tvseries", "剧集", 1))},
 		{"关键词带分号", "?keyword=Steins;Gate", animes(searchAnimeJSON(8, "Steins;Gate", "tvseries", "剧集 · 2011", 1))},
-		{"空格分开的词都要命中", "?keyword=星海旅人 第2季", animes(searchAnimeJSON(2, "星海旅人 第2季", "tvseries", "剧集 · 2019", 2))},
 		{"type 忽略", "?keyword=长夜灯塔&type=tvseries", animes(searchAnimeJSON(6, "长夜灯塔", "movie", "电影 · 2020", 1))},
 		// 只要有这一集的季，集数仍是总集数
 		{"写明集号", "?keyword=星海旅人 第13话", animes(searchAnimeJSON(2, "星海旅人 第2季", "tvseries", "剧集 · 2019", 2))},
@@ -516,12 +505,8 @@ func newCommentServer(t *testing.T) *Server {
 	t.Helper()
 	cfg := dbtest.Config(t)
 	syncCatalog(t, cfg, pluginCatalog()...)
-	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	_, err = pool.Exec(t.Context(), `
+	pool := newPool(t, cfg)
+	_, err := pool.Exec(t.Context(), `
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", status, danmaku_count) VALUES
 			(1, 'bilibili', '{"kind": "video", "aid": 1, "page": 1}', '星海旅人 / 第 1 话', 1420, 0, 'active', 4), -- 绑定 1
 			(1, 'bilibili', '{"kind": "episode", "epId": 2}', '星海旅人 启程', 1422, 10, 'dead', 3),          -- 绑定 2：失效，弹幕延后 10 秒
@@ -808,19 +793,21 @@ func TestDandanUnregisteredEndpoints(t *testing.T) {
 	}
 }
 
+// dandanGets 注册了的 GET 接口，各取一个有结果的请求。
+var dandanGets = []string{
+	"/dandanplay/api/v2/search/episodes?anime=星海旅人",
+	"/dandanplay/api/v2/search/anime?keyword=星海旅人",
+	"/dandanplay/api/v2/bangumi/1",
+	"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
+	"/dandanplay/api/v2/related/1",
+}
+
 func TestDandanCORS(t *testing.T) {
 	t.Parallel()
 	srv := newDandanServer(t, "", pluginCatalog()...)
 
 	// 带 Origin 的请求（浏览器的跨域请求都带），响应都带 Access-Control-Allow-Origin，包括出错的
-	for _, target := range []string{
-		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
-		"/dandanplay/api/v2/search/anime?keyword=星海旅人",
-		"/dandanplay/api/v2/bangumi/1",
-		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
-		"/dandanplay/api/v2/related/1",
-		"/dandanplay/api/v2/extcomment",
-	} {
+	for _, target := range append(slices.Clone(dandanGets), "/dandanplay/api/v2/extcomment") {
 		if rec, _ := pluginGet(t, srv, target, nil); rec.Header().Get("Access-Control-Allow-Origin") != "*" {
 			t.Errorf("GET %s: Access-Control-Allow-Origin = %q, want *", target, rec.Header().Get("Access-Control-Allow-Origin"))
 		}
@@ -830,16 +817,12 @@ func TestDandanCORS(t *testing.T) {
 	}
 
 	// 插件设置了 User-Agent 请求头，保留它的浏览器会先发预检；POST JSON 请求体（match）也要先预检
-	for _, tt := range []struct {
-		target, method, headers string
-	}{
-		{"/dandanplay/api/v2/search/episodes?anime=星海旅人", http.MethodGet, "user-agent"},
-		{"/dandanplay/api/v2/search/anime?keyword=星海旅人", http.MethodGet, "user-agent"},
-		{"/dandanplay/api/v2/bangumi/1", http.MethodGet, "user-agent"},
-		{"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1", http.MethodGet, "user-agent"},
-		{"/dandanplay/api/v2/related/1", http.MethodGet, "user-agent"},
-		{"/dandanplay/api/v2/match", http.MethodPost, "content-type"},
-	} {
+	type preflight struct{ target, method, headers string }
+	preflights := []preflight{{"/dandanplay/api/v2/match", http.MethodPost, "content-type"}}
+	for _, target := range dandanGets {
+		preflights = append(preflights, preflight{target, http.MethodGet, "user-agent"})
+	}
+	for _, tt := range preflights {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, browserURL(tt.target), nil)
 		req.Header.Set("Origin", jellyfinOrigin)
 		req.Header.Set("Access-Control-Request-Method", tt.method)
@@ -880,13 +863,7 @@ func TestDandanGzip(t *testing.T) {
 	t.Parallel()
 	srv := newCommentServer(t)
 
-	for _, target := range []string{
-		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
-		"/dandanplay/api/v2/search/anime?keyword=星海旅人",
-		"/dandanplay/api/v2/bangumi/1",
-		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
-		"/dandanplay/api/v2/related/1",
-	} {
+	for _, target := range dandanGets {
 		rec, body := pluginGet(t, srv, target, nil)
 		if got := rec.Header().Get("Content-Encoding"); got != "gzip" {
 			t.Errorf("GET %s: Content-Encoding = %q, want gzip", target, got)
@@ -940,13 +917,7 @@ func TestDandanIgnoresAppHeaders(t *testing.T) {
 		"X-Signature": {"c2lnbmF0dXJl"},
 	}
 
-	for _, target := range []string{
-		"/dandanplay/api/v2/search/episodes?anime=星海旅人",
-		"/dandanplay/api/v2/search/anime?keyword=星海旅人",
-		"/dandanplay/api/v2/bangumi/1",
-		"/dandanplay/api/v2/comment/1?withRelated=true&chConvert=1",
-		"/dandanplay/api/v2/related/1",
-	} {
+	for _, target := range dandanGets {
 		plain, plainBody := pluginGet(t, srv, target, nil)
 		withApp, withAppBody := pluginGet(t, srv, target, appHeaders)
 		if withApp.Code != plain.Code || !bytes.Equal(withAppBody, plainBody) {
@@ -1012,16 +983,7 @@ func TestDandanServerError(t *testing.T) {
 				t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
 			}
 
-			var entry struct {
-				Level     string `json:"level"`
-				RequestID string `json:"request_id"`
-				Method    string `json:"method"`
-				Route     string `json:"route"`
-				Error     string `json:"error"`
-			}
-			if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
-				t.Fatalf("应恰好记录一条日志：%v\n%s", err, logs.String())
-			}
+			entry := decodeLogEntry(t, &logs)
 			if want := rec.Header().Get("X-Request-Id"); entry.Level != "ERROR" || entry.RequestID == "" || entry.RequestID != want ||
 				entry.Method != method || entry.Route != tt.wantRoute || entry.Error == "" {
 				t.Errorf("日志 = %+v, want ERROR、request_id %q、%s、路由模式 %s 和错误链", entry, want, method, tt.wantRoute)

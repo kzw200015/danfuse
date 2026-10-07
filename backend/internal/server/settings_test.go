@@ -21,7 +21,7 @@ func TestSettings(t *testing.T) {
 		source     config.CatalogSource
 		sync       config.Sync
 		bilibili   config.Bilibili
-		wantData   string
+		wantData   string // 不含 follow、scheduledFetch
 	}{
 		{
 			"未配置目录源",
@@ -29,7 +29,7 @@ func TestSettings(t *testing.T) {
 			config.CatalogSource{},
 			config.Sync{},
 			config.Bilibili{},
-			`{"dandanplayToken":null,"catalogSource":null,"syncInterval":0,"bilibiliSessdataConfigured":false,"follow":{"scanInterval":60,"checkInterval":43200},"scheduledFetch":{"interval":43200,"window":1209600}}`,
+			`{"dandanplayToken":null,"catalogSource":null,"syncInterval":0,"bilibiliSessdataConfigured":false}`,
 		},
 		{
 			"kind 为空时不读 Jellyfin 的设置块",
@@ -39,7 +39,7 @@ func TestSettings(t *testing.T) {
 			}},
 			config.Sync{},
 			config.Bilibili{},
-			`{"dandanplayToken":null,"catalogSource":null,"syncInterval":0,"bilibiliSessdataConfigured":false,"follow":{"scanInterval":60,"checkInterval":43200},"scheduledFetch":{"interval":43200,"window":1209600}}`,
+			`{"dandanplayToken":null,"catalogSource":null,"syncInterval":0,"bilibiliSessdataConfigured":false}`,
 		},
 		{
 			"Jellyfin",
@@ -49,7 +49,7 @@ func TestSettings(t *testing.T) {
 			}},
 			config.Sync{Interval: 24 * time.Hour},
 			config.Bilibili{},
-			`{"dandanplayToken":"s3cret","catalogSource":{"kind":"jellyfin","url":"http://192.168.1.10:8096/jellyfin","libraries":["番剧","电影"]},"syncInterval":86400,"bilibiliSessdataConfigured":false,"follow":{"scanInterval":60,"checkInterval":43200},"scheduledFetch":{"interval":43200,"window":1209600}}`,
+			`{"dandanplayToken":"s3cret","catalogSource":{"kind":"jellyfin","url":"http://192.168.1.10:8096/jellyfin","libraries":["番剧","电影"]},"syncInterval":86400,"bilibiliSessdataConfigured":false}`,
 		},
 		{
 			"定时间隔不是整秒",
@@ -59,7 +59,7 @@ func TestSettings(t *testing.T) {
 			}},
 			config.Sync{Interval: 1500 * time.Millisecond},
 			config.Bilibili{},
-			`{"dandanplayToken":null,"catalogSource":{"kind":"jellyfin","url":"http://jellyfin:8096","libraries":["番剧"]},"syncInterval":1.5,"bilibiliSessdataConfigured":false,"follow":{"scanInterval":60,"checkInterval":43200},"scheduledFetch":{"interval":43200,"window":1209600}}`,
+			`{"dandanplayToken":null,"catalogSource":{"kind":"jellyfin","url":"http://jellyfin:8096","libraries":["番剧"]},"syncInterval":1.5,"bilibiliSessdataConfigured":false}`,
 		},
 		{
 			"配置了 SESSDATA：只给出已配置",
@@ -67,7 +67,7 @@ func TestSettings(t *testing.T) {
 			config.CatalogSource{},
 			config.Sync{},
 			config.Bilibili{Sessdata: sessdata},
-			`{"dandanplayToken":null,"catalogSource":null,"syncInterval":0,"bilibiliSessdataConfigured":true,"follow":{"scanInterval":60,"checkInterval":43200},"scheduledFetch":{"interval":43200,"window":1209600}}`,
+			`{"dandanplayToken":null,"catalogSource":null,"syncInterval":0,"bilibiliSessdataConfigured":true}`,
 		},
 	}
 	for _, tt := range tests {
@@ -85,7 +85,9 @@ func TestSettings(t *testing.T) {
 				t.Fatalf("status = %d, want 200, body %s", rec.Code, rec.Body)
 			}
 			body := rec.Body.String()
-			if want := `{"code":0,"message":"ok","data":` + tt.wantData + `}`; strings.TrimSpace(body) != want {
+			// 追更与定时拉取的时间规则都取默认值，接在 wantData 的字段后面
+			const timing = `,"follow":{"scanInterval":60,"checkInterval":43200},"scheduledFetch":{"interval":43200,"window":1209600}`
+			if want := `{"code":0,"message":"ok","data":` + strings.TrimSuffix(tt.wantData, "}") + timing + `}}`; strings.TrimSpace(body) != want {
 				t.Errorf("body = %s\nwant %s", body, want)
 			}
 			if strings.Contains(body, apiKey) {
