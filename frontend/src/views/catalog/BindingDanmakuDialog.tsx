@@ -1,4 +1,5 @@
-import { useState, type ComponentProps, type MouseEvent, type UIEvent } from 'react'
+import { useRef, useState, type ComponentProps, type MouseEvent, type UIEvent } from 'react'
+import { Slider } from '@base-ui/react/slider'
 import { Loader2Icon, MessageSquareTextIcon } from 'lucide-react'
 
 import type { Binding, DanmakuItem, DanmakuMode } from '@/api/bindings'
@@ -12,7 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Slider } from '@/components/ui/slider'
 import {
   Table,
   TableBody,
@@ -152,11 +152,11 @@ function TimeSlider({
 }) {
   // 悬停的位置：相对拖动条左端的像素与对应的时间；鼠标不在拖动条上时为 null
   const [hover, setHover] = useState<{ x: number; ms: number } | null>(null)
+  const thumbRef = useRef<HTMLDivElement>(null)
   const onMouseMove = (e: MouseEvent<HTMLElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
     // 滑块贴边对齐：0 和最大值分别在两端向内半个滑块处
-    const thumb =
-      e.currentTarget.querySelector<HTMLElement>('[data-slot=slider-thumb]')?.offsetWidth ?? 0
+    const thumb = thumbRef.current?.offsetWidth ?? 0
     const x = Math.min(Math.max(e.clientX - rect.left, 0), rect.width)
     const ratio = Math.min(Math.max((x - thumb / 2) / (rect.width - thumb), 0), 1)
     const ms = Math.round((ratio * max) / 1000) * 1000
@@ -164,18 +164,29 @@ function TimeSlider({
   }
   return (
     <div className="relative flex-1" onMouseMove={onMouseMove} onMouseLeave={() => setHover(null)}>
-      <Slider
-        // 上下各加 8px：点击区域比 4px 的轨道和 12px 的滑块大，点轨道附近也能跳
-        controlClassName="cursor-pointer py-2"
+      {/* 直接用 Base UI 的原件拼，样式取自 shadcn 的 slider：只要一个滑块，读屏读出 m:ss，点击区域加大 */}
+      <Slider.Root
         min={0}
         max={max}
         step={1000}
         value={value}
-        getAriaLabel={() => '弹幕源时间轴'}
-        getAriaValueText={(_, v) => formatTime(v)}
+        thumbAlignment="edge"
         onValueChange={onDrag}
         onValueCommitted={onCommit}
-      />
+      >
+        {/* 上下各加 8px：点击区域比 4px 的轨道和 12px 的滑块大，点轨道附近也能跳 */}
+        <Slider.Control className="relative flex w-full cursor-pointer touch-none items-center py-2 select-none">
+          <Slider.Track className="relative h-1 w-full grow overflow-hidden rounded-full bg-muted select-none">
+            <Slider.Indicator className="h-full bg-primary select-none" />
+          </Slider.Track>
+          <Slider.Thumb
+            ref={thumbRef}
+            aria-label="弹幕源时间轴"
+            getAriaValueText={(_, v) => formatTime(v)}
+            className="relative block size-3 shrink-0 rounded-full border border-ring bg-white ring-ring/50 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3"
+          />
+        </Slider.Control>
+      </Slider.Root>
       {hover && (
         <span
           role="tooltip"

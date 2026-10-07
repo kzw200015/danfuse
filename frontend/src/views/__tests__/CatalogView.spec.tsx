@@ -950,10 +950,9 @@ describe('查看弹幕', () => {
     fireEvent.click((await card('弹幕源 1')).getByRole('button', { name: '弹幕 1,234 条' }))
     const dialog = within(await screen.findByRole('dialog'))
     const slider = await dialog.findByRole('slider', { hidden: true })
-    const bar = slider.closest('[data-slot=slider]')!.parentElement!
+    const bar = slider.closest('[role=group]')!.parentElement!
     // 宽 1012 像素、滑块宽 12 像素：去掉两端各半个滑块后每像素 1421 毫秒
-    const thumb = bar.querySelector('[data-slot=slider-thumb]')!
-    Object.defineProperty(thumb, 'offsetWidth', { value: 12 })
+    Object.defineProperty(slider.parentElement!, 'offsetWidth', { value: 12 })
     vi.spyOn(bar, 'getBoundingClientRect').mockReturnValue(
       DOMRect.fromRect({ x: 100, width: 1012 }),
     )
