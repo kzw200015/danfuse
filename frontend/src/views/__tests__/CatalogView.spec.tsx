@@ -43,6 +43,7 @@ const tv: SeriesDetail = {
   title: '星海旅人',
   originalTitle: 'Star Voyager',
   year: 2019,
+  tmdbId: 60735,
   posterImageId: 5,
   seasons: [
     {
@@ -98,6 +99,10 @@ describe('CatalogView', () => {
 
     expect(await screen.findByRole('heading', { name: '星海旅人' })).toBeInTheDocument()
     expect(screen.getByText('Star Voyager')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'TMDB' })).toHaveAttribute(
+      'href',
+      'https://www.themoviedb.org/tv/60735',
+    )
     expect(
       within(screen.getByRole('complementary')).getByRole('link', { name: /星海旅人/ }),
     ).toHaveAttribute('aria-current', 'true')
@@ -143,6 +148,7 @@ describe('CatalogView', () => {
     expect(screen.getByText('时长 1:30:00 · 集 ID 200')).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '季' })).not.toBeInTheDocument()
     expect(screen.queryByTitle('查看整季')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'TMDB' })).not.toBeInTheDocument() // 没有 TMDB ID
     // 只能整部删除
     expect(screen.getByRole('button', { name: '删除这部剧' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '删除这一集' })).not.toBeInTheDocument()

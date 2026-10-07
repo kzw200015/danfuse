@@ -66,6 +66,7 @@ function starVoyager(): SeriesDetail {
     title: '星海旅人',
     originalTitle: null,
     year: 2019,
+    tmdbId: null,
     posterImageId: null,
     seasons: [
       {

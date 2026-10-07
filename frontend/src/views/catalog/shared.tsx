@@ -98,14 +98,25 @@ export function takeFiles(input: HTMLInputElement) {
   return files
 }
 
-/** 弹幕源、合集的标题，在新标签页打开它在平台上的页面 */
-export function SourceLink({ href, children }: { href: string; children: ReactNode }) {
+/** 在新标签页打开的外链，带外链图标；默认是弹幕源、合集标题的加粗样式，其他地方用 className 调整 */
+export function SourceLink({
+  href,
+  className,
+  children,
+}: {
+  href: string
+  className?: string
+  children: ReactNode
+}) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-1 font-medium break-all hover:underline"
+      className={cn(
+        'inline-flex items-center gap-1 font-medium break-all hover:underline',
+        className,
+      )}
     >
       {children}
       <ExternalLinkIcon className="size-3 shrink-0 opacity-50" />

@@ -6,9 +6,9 @@ import { buttonVariants } from '@/components/ui/button'
 import { formatDuration } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
-import { seasonLabel, seasonName, seriesMeta, type Selection } from './catalog'
+import { seasonLabel, seasonName, seriesMeta, tmdbUrl, type Selection } from './catalog'
 import DeleteButton from './DeleteButton'
-import { Hint, Poster, scrollIntoView, useCatalogPath } from './shared'
+import { Hint, Poster, scrollIntoView, SourceLink, useCatalogPath } from './shared'
 
 /** 中栏：选中的剧，以及它的季切换、季标题行和集列表。电影只有一集，不显示季切换和集列表 */
 export default function SeriesColumn({
@@ -19,6 +19,7 @@ export default function SeriesColumn({
   selection: Selection
 }) {
   const path = useCatalogPath()
+  const tmdb = tmdbUrl(series)
   const seasonPanelOpen = !episode && !missing
   return (
     <section className="flex min-h-0 flex-col border-r">
@@ -29,7 +30,18 @@ export default function SeriesColumn({
           {series.originalTitle && (
             <div className="truncate text-xs text-muted-foreground">{series.originalTitle}</div>
           )}
-          <div className="text-xs text-muted-foreground">{seriesMeta(series)}</div>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <span>{seriesMeta(series)}</span>
+            {/* 核对 Jellyfin 识别得对不对；同步按 TMDB ID 对应这部剧 */}
+            {tmdb && (
+              <>
+                <span>·</span>
+                <SourceLink href={tmdb} className="font-normal">
+                  TMDB
+                </SourceLink>
+              </>
+            )}
+          </div>
           <DeleteButton
             key={series.id}
             className="mt-1 -ml-2.5"
