@@ -64,12 +64,14 @@ func TestCreateFromFiles(t *testing.T) {
 	}
 
 	want := BindingView{
-		ID:           1,
-		Kind:         "file",
-		SourceLabel:  "弹幕文件 · 2 份",
-		Title:        "20130709",
-		Status:       "active",
-		DanmakuCount: 3,
+		ID:             1,
+		Kind:           "file",
+		SourceLabel:    "弹幕文件 · 2 份",
+		Title:          "20130709",
+		Status:         "active",
+		DanmakuCount:   3,
+		ContentVersion: 1,
+		MaxTimeMs:      120000,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("CreateFromFiles() = %+v\nwant %+v", got, want)
@@ -79,9 +81,6 @@ func TestCreateFromFiles(t *testing.T) {
 	}
 	if names := fileNames(t, svc, got.ID); !slices.Equal(names, []string{"20130709.xml", "20130711.xml"}) {
 		t.Errorf("弹幕文件 = %v", names)
-	}
-	if v := getBinding(t, pool, got.ID).ContentVersion; v != 1 {
-		t.Errorf("content_version = %d, want 1", v)
 	}
 	if wantLog := `level=INFO msg="danmaku files added" binding_id=1 files=2 added=3`; !strings.Contains(logs.String(), wantLog) {
 		t.Errorf("日志 = %q, want 含 %q", logs.String(), wantLog)

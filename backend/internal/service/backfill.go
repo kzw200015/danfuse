@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -85,7 +85,7 @@ func (s *SeasonBindingService) scanOne(ctx context.Context, id int64) bool {
 }
 
 // dueReasons 追更到期的原因，按 ListDueSeasonBindings 的列名，只用于日志。
-func dueReasons(d repository.ListDueSeasonBindingsRow) []string {
+func dueReasons(d sqlc.ListDueSeasonBindingsRow) []string {
 	var reasons []string
 	for _, r := range []struct {
 		name string
@@ -104,8 +104,8 @@ func dueReasons(d repository.ListDueSeasonBindingsRow) []string {
 
 // dueParams 按现在的时间和追更的检查周期（follow.check_interval）判定追更是否到期的参数；
 // id 不为 nil 时只判定这一个季绑定。
-func (s *SeasonBindingService) dueParams(id *int64) repository.ListDueSeasonBindingsParams {
-	return repository.ListDueSeasonBindingsParams{ID: id, DueBefore: time.Now().Add(-s.follow.CheckInterval)}
+func (s *SeasonBindingService) dueParams(id *int64) sqlc.ListDueSeasonBindingsParams {
+	return sqlc.ListDueSeasonBindingsParams{ID: id, DueBefore: time.Now().Add(-s.follow.CheckInterval)}
 }
 
 // backfillRound 一轮补建的进度与结果。
@@ -153,7 +153,7 @@ func (s *SeasonBindingService) backfill(ctx context.Context, id int64, trigger s
 		s.logger.Error("backfill failed", "season_binding_id", id, "error", err)
 		r.lastError = new(internalErrorMessage)
 	}
-	err = s.store.FinishSeasonBindingCheck(ctx, repository.FinishSeasonBindingCheckParams{
+	err = s.store.FinishSeasonBindingCheck(ctx, sqlc.FinishSeasonBindingCheckParams{
 		ID: id, CheckedAt: r.start, Error: r.lastError, Dead: r.dead,
 	})
 	if err != nil {
@@ -207,9 +207,9 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 		r.lastError, r.dead, r.rateLimited = &srcErr.Message, srcErr.Kind == source.NotFound, srcErr.Kind == source.RateLimited
 		return nil
 	}
-	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	err = s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		// 集号规则在锁住季绑定的这一句里读：改规则的事务要么已经提交、这里读到新规则，要么等这个事务提交再按新规则重认
-		patterns, err := q.RecordSeasonBindingListed(ctx, repository.RecordSeasonBindingListedParams{
+		patterns, err := q.RecordSeasonBindingListed(ctx, sqlc.RecordSeasonBindingListedParams{
 			ID: r.id, Title: col.Title, Finished: col.Finished, NumberedByRule: col.NumberedByRule,
 		})
 		if err != nil {
@@ -254,13 +254,13 @@ func (s *SeasonBindingService) runBackfill(ctx context.Context, r *backfillRound
 }
 
 // getSeasonBinding 读季绑定，不存在时返回 gone（管理 API 为 404，补建时为 errSeasonBindingGone）。
-func (s *SeasonBindingService) getSeasonBinding(ctx context.Context, id int64, gone error) (repository.SeasonBinding, error) {
+func (s *SeasonBindingService) getSeasonBinding(ctx context.Context, id int64, gone error) (sqlc.SeasonBinding, error) {
 	sb, err := s.store.GetSeasonBinding(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return repository.SeasonBinding{}, gone
+		return sqlc.SeasonBinding{}, gone
 	}
 	if err != nil {
-		return repository.SeasonBinding{}, fmt.Errorf("get season binding %d: %w", id, err)
+		return sqlc.SeasonBinding{}, fmt.Errorf("get season binding %d: %w", id, err)
 	}
 	return sb, nil
 }
@@ -270,12 +270,12 @@ func (s *SeasonBindingService) getSeasonBinding(ctx context.Context, id int64, g
 // 对应的集上已有同一个弹幕源的绑定（手动绑的、别的季绑定建的）时也跳过：不拉取，不记处理过，那个绑定被删掉之后的补建再建。
 // 否则在事务之外拉取，再写入（见 saveBackfilled）。
 // 拉取失败时：限流记下原因、结束这一轮（stop 为 true）；其他错误只记在条目上，继续下一个。
-func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRound, adapter source.Adapter, it repository.SeasonBindingItem) (stop bool, err error) {
+func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRound, adapter source.Adapter, it sqlc.SeasonBindingItem) (stop bool, err error) {
 	sb, err := s.getSeasonBinding(ctx, r.id, errSeasonBindingGone)
 	if err != nil {
 		return true, err
 	}
-	number, err := s.store.GetSeasonBindingItemNumber(ctx, repository.GetSeasonBindingItemNumberParams{SeasonBindingID: r.id, Ref: it.Ref})
+	number, err := s.store.GetSeasonBindingItemNumber(ctx, sqlc.GetSeasonBindingItemNumberParams{SeasonBindingID: r.id, Ref: it.Ref})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows): // 季绑定刚被删除，条目随之删除；下一个条目读季绑定时结束这一轮
 		return false, nil
@@ -290,7 +290,7 @@ func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRoun
 		r.beforeStart++
 		return false, nil
 	}
-	episodeID, err := s.store.GetEpisodeIDByNumber(ctx, repository.GetEpisodeIDByNumberParams{SeasonID: sb.SeasonID, Number: target})
+	episodeID, err := s.store.GetEpisodeIDByNumber(ctx, sqlc.GetEpisodeIDByNumberParams{SeasonID: sb.SeasonID, Number: target})
 	if errors.Is(err, pgx.ErrNoRows) {
 		r.waitingEpisode++
 		return false, nil // 等目录里出现这一集
@@ -299,7 +299,7 @@ func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRoun
 		return true, fmt.Errorf("get episode %d of season %d: %w", target, sb.SeasonID, err)
 	}
 
-	key := repository.BindingExistsParams{EpisodeID: episodeID, Adapter: sb.Adapter, Ref: it.Ref}
+	key := sqlc.BindingExistsParams{EpisodeID: episodeID, Adapter: sb.Adapter, Ref: it.Ref}
 	switch bound, err := s.store.BindingExists(ctx, key); {
 	case err != nil:
 		return true, fmt.Errorf("check binding of episode %d: %w", episodeID, err)
@@ -332,13 +332,13 @@ func (s *SeasonBindingService) backfillItem(ctx context.Context, r *backfillRoun
 // saveBackfilled 补建一个条目的写入事务：锁住季、季绑定（没有了就结束这一轮，返回 errSeasonBindingGone）、
 // 集（拉取期间被删除时跳过这个条目），插入带来源季绑定的绑定，写入弹幕，记处理过，清掉条目的失败原因。
 // 拉取期间有人绑定了同一个弹幕源（插入撞上唯一约束）时什么都不写，同样计入 alreadyBound。
-func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRound, sb repository.SeasonBinding, episodeID int64, ref []byte, fetched source.Fetched) error {
+func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRound, sb sqlc.SeasonBinding, episodeID int64, ref []byte, fetched source.Fetched) error {
 	now := time.Now()
 	var (
-		binding repository.Binding
+		binding sqlc.Binding
 		added   int64
 	)
-	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	err := s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		// 先锁季：删季的级联先锁集、后锁季绑定，补建若先锁季绑定、后锁集就会与它死锁；先锁住季，删季在第一步就排队
 		if err := lockSeason(ctx, q, sb.SeasonID, errSeasonBindingGone); err != nil { // 季删除时季绑定随之删除
 			return err
@@ -352,7 +352,7 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 		if err := lockEpisode(ctx, q, episodeID, errEpisodeGone); err != nil {
 			return err
 		}
-		id, err := q.InsertBackfilledBinding(ctx, repository.InsertBackfilledBindingParams{
+		id, err := q.InsertBackfilledBinding(ctx, sqlc.InsertBackfilledBindingParams{
 			EpisodeID:       episodeID,
 			Adapter:         sb.Adapter,
 			Ref:             ref,
@@ -370,12 +370,12 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 		if binding, added, err = saveFetched(ctx, q, id, fetched, false, now); err != nil {
 			return err
 		}
-		if err := q.InsertSeasonBindingHandled(ctx, repository.InsertSeasonBindingHandledParams{
+		if err := q.InsertSeasonBindingHandled(ctx, sqlc.InsertSeasonBindingHandledParams{
 			SeasonBindingID: sb.ID, Ref: ref, EpisodeID: episodeID,
 		}); err != nil {
 			return fmt.Errorf("insert handled of season binding %d: %w", sb.ID, err)
 		}
-		return q.SetSeasonBindingItemError(ctx, repository.SetSeasonBindingItemErrorParams{SeasonBindingID: sb.ID, Ref: ref})
+		return q.SetSeasonBindingItemError(ctx, sqlc.SetSeasonBindingItemErrorParams{SeasonBindingID: sb.ID, Ref: ref})
 	})
 	switch {
 	case errors.Is(err, errEpisodeGone):
@@ -394,7 +394,7 @@ func (s *SeasonBindingService) saveBackfilled(ctx context.Context, r *backfillRo
 
 // setItemError 记下条目补建失败的原因和时间，下次补建再试。
 func (s *SeasonBindingService) setItemError(ctx context.Context, id int64, ref []byte, message *string) error {
-	err := s.store.SetSeasonBindingItemError(ctx, repository.SetSeasonBindingItemErrorParams{
+	err := s.store.SetSeasonBindingItemError(ctx, sqlc.SetSeasonBindingItemErrorParams{
 		SeasonBindingID: id, Ref: ref, Error: message, ErrorAt: new(time.Now()),
 	})
 	if err != nil {

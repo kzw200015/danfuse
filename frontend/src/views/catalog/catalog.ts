@@ -153,6 +153,20 @@ export function parseOffset(text: string) {
   return Math.abs(offset) <= MAX_OFFSET ? offset : null
 }
 
+/** 弹幕时间（int32 毫秒）的上限 */
+const MAX_TIME_MS = 2 ** 31 - 1
+
+/**
+ * 跳转输入的时间：秒、m:ss 或 h:mm:ss（冒号后的分、秒为 0～59，可省去前导 0），返回毫秒；不合法或超出范围时为 null。
+ */
+export function parseTimestamp(text: string) {
+  const s = text.trim()
+  if (!/^\d+(:[0-5]?\d){0,2}$/.test(s)) return null
+  const seconds = s.split(':').reduce((acc, part) => acc * 60 + Number(part), 0)
+  const ms = seconds * 1000
+  return ms <= MAX_TIME_MS ? ms : null
+}
+
 /** 目录页的地址：/catalog[/剧[/季[/集]]] */
 export function catalogPath(...ids: number[]) {
   return ['/catalog', ...ids].join('/')

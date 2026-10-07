@@ -13,6 +13,7 @@ import {
   formatFileSize,
   parseCategory,
   parseOffset,
+  parseTimestamp,
   resolveSelection,
   type Selection,
 } from '../catalog'
@@ -321,4 +322,25 @@ describe('appendFilesMessage', () => {
   ])('%s', (_, result, want) => {
     expect(appendFilesMessage(result)).toBe(want)
   })
+})
+
+describe('parseTimestamp', () => {
+  it.each([
+    ['0', 0],
+    ['90', 90_000],
+    ['1:30', 90_000],
+    [' 1:05 ', 65_000],
+    ['1:5', 65_000],
+    ['1:02:03', 3_723_000],
+    ['120:00', 7_200_000],
+  ])('%j 合法', (text, want) => {
+    expect(parseTimestamp(text)).toBe(want)
+  })
+
+  it.each(['', 'abc', '1:60', '1:2:3:4', ':30', '1:', '-1', '1.5', '600:00:00'])(
+    '%j 不合法',
+    (text) => {
+      expect(parseTimestamp(text)).toBeNull()
+    },
+  )
 })

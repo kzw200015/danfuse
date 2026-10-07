@@ -99,8 +99,9 @@ login() {
   AUTH="$CLIENT, Token=\"$token\""
 }
 
-# 媒体库设置：不读 NFO、不用任何联网的元数据和图片提供者、不从视频截图，
-# 标题、年份、季号只由文件夹和文件名决定；只保留文件夹里的本地海报。
+# 媒体库设置：不用任何联网的元数据和图片提供者、不从视频截图，标题、年份、季号只由文件夹和文件名决定；
+# 只保留文件夹里的本地海报。关掉刮削的是 TypeOptions 里空的 MetadataFetchers；NFO 总会被读
+# （EnableInternetProviders、DisabledLocalMetadataReaders 两个版本都不起作用），测试媒体库靠它给条目带上 ProviderIds。
 # 自动合并同名剧保持 Jellyfin 的默认值（开启），与真实环境一致
 library_options() {
   jq -n --arg path "$1" '{
@@ -109,10 +110,8 @@ library_options() {
     EnableAutomaticSeriesGrouping: true,
     EnablePhotos: false,
     EnableRealtimeMonitor: false,
-    EnableInternetProviders: false,
     SaveLocalMetadata: false,
     MetadataSavers: [],
-    DisabledLocalMetadataReaders: ["Nfo"],
     EnableEmbeddedTitles: false,
     EnableEmbeddedExtrasTitles: false,
     EnableEmbeddedEpisodeInfos: false,

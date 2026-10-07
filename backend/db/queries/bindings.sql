@@ -79,11 +79,13 @@ WHERE binding_id = $1;
 
 -- name: RecordDanmaku :one
 -- 写入弹幕之后更新绑定的计数（拉取、追加文件、重新解析共用）：
---   只增不删时，新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
---   替换（清空后重新拉取、重新解析）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1。
+--   只增不删时，新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1，max_time_ms 取与这批最晚时间中较大的；
+--   替换（清空后重新拉取、重新解析）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1，
+--   max_time_ms 设为这批的最晚时间。latest_ms 是这次写入的整批弹幕（含已有、跳过的）的最晚时间，不早于 0。
 UPDATE bindings
 SET danmaku_count   = CASE WHEN @replace::boolean THEN 0 ELSE danmaku_count END + @added::int,
     content_version = content_version + (@replace::boolean OR @added::int > 0)::int,
+    max_time_ms     = GREATEST(CASE WHEN @replace::boolean THEN 0 ELSE max_time_ms END, @latest_ms::int),
     updated_at      = now()
 WHERE id = @id
 RETURNING *;

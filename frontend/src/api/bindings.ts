@@ -35,6 +35,10 @@ interface BindingBase {
   /** dead 表示上次拉取时弹幕源已不存在，已保存的弹幕仍照常输出 */
   status: BindingStatus
   danmakuCount: number
+  /** 弹幕内容的版本：插入了新弹幕、或替换了全部弹幕时加 1，改偏移不变 */
+  contentVersion: number
+  /** 最晚一条弹幕的时间，毫秒，未校正；没有弹幕时为 0 */
+  maxTimeMs: number
   lastFetchedAt: string | null
   /** 建出这个绑定的季绑定；手动贴链接建的、或季绑定已被删除的为 null */
   seasonBindingId: number | null
@@ -139,4 +143,34 @@ export interface BindingFile {
 /** 用弹幕文件建的绑定里的文件，按加入的顺序 */
 export function listBindingFiles(id: number) {
   return request<BindingFile[]>({ url: `/bindings/${id}/files` })
+}
+
+/** 弹幕的类型，沿用 B 站的编号：1 滚动、4 底部、5 顶部、6 逆向 */
+export type DanmakuMode = 1 | 4 | 5 | 6
+
+/** 绑定保存的一条弹幕 */
+export interface DanmakuItem {
+  /** 弹幕源时间：相对弹幕源视频开头的毫秒数，未校正 */
+  timeMs: number
+  mode: DanmakuMode
+  /** RGB888 */
+  color: number
+  text: string
+}
+
+export interface DanmakuPage {
+  items: DanmakuItem[]
+  /** 下一页的游标，没有下一页时为 null */
+  next: string | null
+}
+
+/**
+ * 绑定保存的弹幕，按弹幕源时间升序分页。fromMs 用于跳转：只取弹幕源时间在它及以后的，翻页时照传；
+ * after 为上一页的游标，不传时从头取。
+ */
+export function listBindingDanmaku(id: number, fromMs: number | null, after?: string) {
+  return request<DanmakuPage>({
+    url: `/bindings/${id}/danmaku`,
+    params: { fromMs: fromMs ?? undefined, after },
+  })
 }

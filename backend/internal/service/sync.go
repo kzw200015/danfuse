@@ -15,6 +15,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 )
 
 const (
@@ -133,7 +134,7 @@ func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 }
 
 // ListRuns 最近 sync.keep_runs 次同步，新的在前，不含警告正文。
-func (s *SyncService) ListRuns(ctx context.Context) ([]repository.ListSyncRunsRow, error) {
+func (s *SyncService) ListRuns(ctx context.Context) ([]sqlc.ListSyncRunsRow, error) {
 	runs, err := s.store.ListSyncRuns(ctx, s.keepRuns)
 	if err != nil {
 		return nil, fmt.Errorf("list sync runs: %w", err)
@@ -142,7 +143,7 @@ func (s *SyncService) ListRuns(ctx context.Context) ([]repository.ListSyncRunsRo
 }
 
 // LatestRun 最近一次同步，不含警告正文；一次都没有同步过时为 nil。
-func (s *SyncService) LatestRun(ctx context.Context) (*repository.ListSyncRunsRow, error) {
+func (s *SyncService) LatestRun(ctx context.Context) (*sqlc.ListSyncRunsRow, error) {
 	runs, err := s.store.ListSyncRuns(ctx, 1)
 	if err != nil {
 		return nil, fmt.Errorf("get latest sync run: %w", err)
@@ -154,13 +155,13 @@ func (s *SyncService) LatestRun(ctx context.Context) (*repository.ListSyncRunsRo
 }
 
 // GetRun 一次同步的详情，含警告。
-func (s *SyncService) GetRun(ctx context.Context, id int64) (repository.SyncRun, error) {
+func (s *SyncService) GetRun(ctx context.Context, id int64) (sqlc.SyncRun, error) {
 	run, err := s.store.GetSyncRun(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return repository.SyncRun{}, errSyncRunNotFound
+			return sqlc.SyncRun{}, errSyncRunNotFound
 		}
-		return repository.SyncRun{}, fmt.Errorf("get sync run %d: %w", id, err)
+		return sqlc.SyncRun{}, fmt.Errorf("get sync run %d: %w", id, err)
 	}
 	return run, nil
 }
@@ -240,7 +241,7 @@ func (s *SyncService) createRun(ctx context.Context, trigger string) (int64, err
 	if err := s.store.DeleteOldSyncRuns(ctx, s.keepRuns-1); err != nil {
 		return 0, fmt.Errorf("delete old sync runs: %w", err)
 	}
-	runID, err := s.store.CreateSyncRun(ctx, repository.CreateSyncRunParams{Trigger: trigger, StartedAt: time.Now()})
+	runID, err := s.store.CreateSyncRun(ctx, sqlc.CreateSyncRunParams{Trigger: trigger, StartedAt: time.Now()})
 	if err != nil {
 		return 0, fmt.Errorf("create sync run: %w", err)
 	}
@@ -319,8 +320,8 @@ func (r *syncRun) warn(msg string) {
 	}
 }
 
-func (r *syncRun) params(status string, reason *string) repository.UpdateSyncRunParams {
-	return repository.UpdateSyncRunParams{
+func (r *syncRun) params(status string, reason *string) sqlc.UpdateSyncRunParams {
+	return sqlc.UpdateSyncRunParams{
 		ID:              r.id,
 		Status:          status,
 		Total:           r.total,

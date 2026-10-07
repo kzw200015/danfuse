@@ -12,6 +12,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -131,9 +132,9 @@ func (s *ScheduledFetchService) scan(ctx context.Context) {
 }
 
 // dueParams 按现在的时间和定时拉取的时间规则判定是否到期的参数；id 不为 nil 时只判定这一个绑定。
-func (s *ScheduledFetchService) dueParams(id *int64) repository.ListDueScheduledFetchesParams {
+func (s *ScheduledFetchService) dueParams(id *int64) sqlc.ListDueScheduledFetchesParams {
 	now := time.Now()
-	return repository.ListDueScheduledFetchesParams{
+	return sqlc.ListDueScheduledFetchesParams{
 		ID:           id,
 		CreatedAfter: now.Add(-s.rule.Window),
 		DueBefore:    now.Add(-s.rule.Interval),

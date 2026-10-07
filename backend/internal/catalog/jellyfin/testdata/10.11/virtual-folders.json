@@ -13,9 +13,7 @@
         "\\"
       ],
       "DelimiterWhitelist": [],
-      "DisabledLocalMetadataReaders": [
-        "Nfo"
-      ],
+      "DisabledLocalMetadataReaders": [],
       "DisabledLyricFetchers": [],
       "DisabledMediaSegmentProviders": [],
       "DisabledSubtitleFetchers": [],
@@ -117,9 +115,7 @@
         "\\"
       ],
       "DelimiterWhitelist": [],
-      "DisabledLocalMetadataReaders": [
-        "Nfo"
-      ],
+      "DisabledLocalMetadataReaders": [],
       "DisabledLyricFetchers": [],
       "DisabledMediaSegmentProviders": [],
       "DisabledSubtitleFetchers": [],
@@ -220,9 +216,7 @@
         "\\"
       ],
       "DelimiterWhitelist": [],
-      "DisabledLocalMetadataReaders": [
-        "Nfo"
-      ],
+      "DisabledLocalMetadataReaders": [],
       "DisabledLyricFetchers": [],
       "DisabledMediaSegmentProviders": [],
       "DisabledSubtitleFetchers": [],

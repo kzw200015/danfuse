@@ -61,8 +61,8 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 - **分层**：`handler` → `service` → `repository.Store` → PostgreSQL，依赖方向由 depguard 守住（`backend/.golangci.yml`）。所有组件在 `internal/app/app.go` 的 `app.New` 里手写组装（不用 DI 框架）。
 - **领域包**（包名取自 `GLOSSARY.md`，如 `catalog`、`source`、`danmaku`）只放接口、类型、纯计算与外部适配；外部系统的适配器放在领域包的子包里（`catalog/jellyfin` 实现 `catalog.Source`，`source/bilibili` 实现 `source.Adapter`），由 `app` 装配（目录源按配置的 `kind` 选，未配置时为 nil；源适配器注册进 `source.Registry`）。
 - **弹弹 API** 的 handler 在 `dandan` 包，与 `handler` 平级。
-- **数据库访问**：service 依赖 `*repository.Store`（具体类型，内嵌 sqlc 生成的 `*repository.Queries`，另有 `ExecTx`；没有 `Querier` 接口）。单条查询直接调用、自动提交；多条语句需要原子性时用 `store.ExecTx(ctx, func(q *repository.Queries) error {...})`。列名 `offset` 是保留字，SQL 里要加引号。
-- **生成代码**：`internal/repository/` 下除 `store.go` 外均为 sqlc 生成。sqlc 直接把 `db/migrations`（goose 迁移文件）当作 schema 读取，改表结构 = 新增迁移，再 `make sqlc`。sqlc 配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`，个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型。
+- **数据库访问**：service 依赖 `*repository.Store`（具体类型，内嵌 sqlc 生成的 `*sqlc.Queries`，另有 `ExecTx`；没有 `Querier` 接口）。单条查询直接调用、自动提交；多条语句需要原子性时用 `store.ExecTx(ctx, func(q *sqlc.Queries) error {...})`。列名 `offset` 是保留字，SQL 里要加引号。
+- **生成代码**：`internal/repository/sqlc/` 下均为 sqlc 生成（包名 `sqlc`：查询、模型与参数类型），`internal/repository` 只放手写的 `Store`。sqlc 直接把 `db/migrations`（goose 迁移文件）当作 schema 读取，改表结构 = 新增迁移，再 `make sqlc`。sqlc 配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`，个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型。
 - **错误出口**：`server/middleware.go` 的全局 `errorHandler` 统一转换：`*apierr.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。`code` 为 `0` 成功、`1`（`CodeFail`）通用失败，目前没有业务码。
 - **日志**：没有请求日志中间件，5xx 由 errorHandler 经 `logger.ServerError` 记录（`request_id`、方法、路由模式、完整的错误链）；请求的 ctx 已取消时改记 info 级别的 `request canceled`。
 - **API 版本**：Echo v5 的 handler 签名是 `func(c *echo.Context) error`（指针）；代码使用 Go 1.26+ 的 `errors.AsType`。goimports 本地前缀为 `github.com/kzw200015/danfuse`。

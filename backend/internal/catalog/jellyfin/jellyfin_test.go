@@ -30,7 +30,9 @@ const (
 	seriesFogHarbor   = "c311548d3a5ebeef512b28ff37a80d62" // 雾港谜案 (2021)
 	seriesStarSea2023 = "e4892d8fc0b94beff829b05e504b6929" // 星海旅人 (2023)
 	seriesStoneLane   = "fa5a9a8128b338dfb62899e69beb66dd" // 青石巷日常 (2022)
+	seriesMountain    = "b9ced9ff836c7b7021de9e69b095ff22" // 山间来信 (2024)，没刮削
 	movieLighthouse   = "2028c556be6ed0b7cb33571dfdc33b24" // 长夜灯塔 (2020)
+	movieOldHarbor    = "bccf15e8838149c87ac88c53efe870d2" // 旧港夜航 (2018)，没刮削
 )
 
 func ep(number int, title string, duration int) catalog.Episode {
@@ -96,6 +98,7 @@ func summarize(items []catalog.Item) any {
 //   - 同一集的两个版本：10.11 是 Id 不同的两集，按 Id 顺序排列；12.1 合并成一个；
 //   - 文件名带季号、没有对应季文件夹时 Jellyfin 补建的季：10.11 叫"第 2 季"，12.1 叫"Season 2"。
 //
+// 没有 NFO 的山间来信、旧港夜航没刮削，整部跳过。
 // 12.1 里两部"星海旅人"被按剧名合并，按剧查询会互相带出对方的季和集，只保留 SeriesId 匹配的才能得到下面的结果。
 // 海报：文件夹自带海报的三部（星海旅人 2019 的 JPEG、雾港谜案的 PNG、长夜灯塔的 JPEG）保持原格式，内容是抓取的样本。
 func wantSamples(t *testing.T, version string) []catalog.Item {
@@ -151,7 +154,9 @@ func wantSamples(t *testing.T, version string) []catalog.Item {
 				Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{ep(1, "", 45)}}},
 			},
 		},
+		{Name: "旧港夜航 (2018)", Warnings: []string{"没有刮削元数据，整部跳过"}},
 		{Name: name("星海旅人", 2019), Series: starSea2019},
+		{Name: name("山间来信", 2024), Warnings: []string{"没有刮削元数据，整部跳过"}},
 		{
 			Name:   name("雾港谜案", 2021),
 			Series: fogHarbor,
@@ -191,8 +196,8 @@ func TestListSamples(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if listing.Total != 5 {
-				t.Errorf("Total = %d, want 5", listing.Total)
+			if listing.Total != 7 {
+				t.Errorf("Total = %d, want 7", listing.Total)
 			}
 			wantWarnings := []string{"找不到媒体库「不存在」，已跳过", "媒体库「其他」的类型不是剧集或电影，已跳过"}
 			if !slices.Equal(listing.Warnings, wantWarnings) {
@@ -217,13 +222,15 @@ func TestItemsRequestsOnDemand(t *testing.T) {
 		t.Fatalf("List 之后的请求 = %q, want %q", got, listed)
 	}
 
-	// 每要一项才取这一部剧的季和集、下载海报；电影不用取季和集，没有 Primary 图的不下载海报
+	// 每要一项才取这一部剧的季和集、下载海报；电影不用取季和集，没有 Primary 图的不下载海报，没刮削的什么都不请求
 	next, stop := iter.Pull2(listing.Items)
 	defer stop()
 	want := listed
 	for _, requests := range [][]string{
 		{"image-" + movieLighthouse},
+		{}, // movieOldHarbor
 		{"items-" + seriesStarSea2019 + ".json", "image-" + seriesStarSea2019},
+		{}, // seriesMountain
 		{"items-" + seriesFogHarbor + ".json", "image-" + seriesFogHarbor},
 		{"items-" + seriesStarSea2023 + ".json"},
 		{"items-" + seriesStoneLane + ".json"},
@@ -282,8 +289,8 @@ func TestItemsEndsAfterError(t *testing.T) {
 		}
 	}
 
-	if len(got) != 2 || got[0] != "星海旅人" || !strings.HasPrefix(got[1], "error: 取「雾港谜案」的季和集失败") {
-		t.Errorf("产出 = %q, want 第一部剧、然后是错误", got)
+	if len(got) != 3 || got[0] != "星海旅人" || got[1] != "山间来信" || !strings.HasPrefix(got[2], "error: 取「雾港谜案」的季和集失败") {
+		t.Errorf("产出 = %q, want 前两部剧、然后是错误", got)
 	}
 	if n := len(fake.requested()); n != 5 {
 		t.Errorf("出错后不应再请求，共请求 %d 次，want 5", n)
@@ -379,7 +386,7 @@ func message(t *testing.T, err error) string {
 // TestMapping 用构造的响应覆盖 e2e 环境里没有的情形。媒体库"番剧"里只有一部剧 s1，一个用例一个行为。
 func TestMapping(t *testing.T) {
 	const folders = `[{"Name":"番剧","ItemId":"lib","CollectionType":"tvshows"}]`
-	const defaultSeries = `{"Id":"s1","Type":"Series","Name":" 测试剧 ","OriginalTitle":" テスト ","ProductionYear":2020}`
+	const defaultSeries = `{"Id":"s1","Type":"Series","Name":" 测试剧 ","OriginalTitle":" テスト ","ProductionYear":2020,"ProviderIds":{"Tmdb":"1"}}`
 	tv := func(seasons ...catalog.Season) *catalog.Series {
 		return &catalog.Series{Type: catalog.TypeTV, Title: "测试剧", OriginalTitle: "テスト", Year: new(2020), Seasons: seasons}
 	}
@@ -401,7 +408,7 @@ func TestMapping(t *testing.T) {
 	}{
 		{
 			name:     "剧名为空白：用条目 Id 指代，标题为空（由核心的校验拒绝）",
-			series:   `{"Id":"s1","Type":"Series","Name":"  "}`,
+			series:   `{"Id":"s1","Type":"Series","Name":"  ","ProviderIds":{"Tmdb":"1"}}`,
 			children: []string{valid},
 			want: catalog.Item{Name: "Jellyfin 条目 s1", Series: &catalog.Series{
 				Type: catalog.TypeTV, Seasons: []catalog.Season{validSeason},
@@ -547,11 +554,49 @@ func TestMapping(t *testing.T) {
 	}
 }
 
+// TestScraped 只同步刮削过的剧和电影：ProviderIds 里有任意一个外部数据库的 id；没刮削的整部跳过，不取季和集、不下载海报。
+func TestScraped(t *testing.T) {
+	const children = `{"Items":[{"Id":"%[1]s-e1","Type":"Episode","SeriesId":%[1]q,"Name":"第1集","ParentIndexNumber":1,"IndexNumber":1}]}`
+	fake := newFake(t, map[string]string{
+		"virtual-folders.json": `[{"Name":"番剧","ItemId":"lib","CollectionType":"tvshows"}]`,
+		"items-lib.json": `{"Items":[
+			{"Id":"m1","Type":"Movie","Name":"没有 ProviderIds 的电影","ImageTags":{"Primary":"tag"}},
+			{"Id":"s1","Type":"Series","Name":"没有 ProviderIds 的剧","ImageTags":{"Primary":"tag"}},
+			{"Id":"s2","Type":"Series","Name":"ProviderIds 为空","ProviderIds":{}},
+			{"Id":"s3","Type":"Series","Name":"id 都是空白","ProviderIds":{"Tmdb":"","Imdb":" "}},
+			{"Id":"s4","Type":"Series","Name":"任意外部数据库","ProviderIds":{"Tmdb":"","AniDB":"42"}}
+		]}`,
+		"items-s4.json": fmt.Sprintf(children, "s4"),
+	})
+	listing, err := fake.source("番剧").List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	skipped := func(name string) catalog.Item {
+		return catalog.Item{Name: name, Warnings: []string{"没有刮削元数据，整部跳过"}}
+	}
+	assertItems(t, collect(t, listing.Items), []catalog.Item{
+		skipped("没有 ProviderIds 的电影"),
+		skipped("没有 ProviderIds 的剧"),
+		skipped("ProviderIds 为空"),
+		skipped("id 都是空白"),
+		{Name: "任意外部数据库", Series: &catalog.Series{
+			Type: catalog.TypeTV, Title: "任意外部数据库",
+			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1, Title: "第1集"}}}},
+		}},
+	})
+	want := []string{"virtual-folders.json", "items-lib.json", "items-s4.json"}
+	if got := fake.requested(); !slices.Equal(got, want) {
+		t.Errorf("请求 = %q, want %q", got, want)
+	}
+}
+
 // TestURLWithSubpath Jellyfin 挂在反向代理的子路径下：请求都发到子路径下面。
 func TestURLWithSubpath(t *testing.T) {
 	fake := newFake(t, map[string]string{
 		"virtual-folders.json": `[{"Name":"电影","ItemId":"lib","CollectionType":"movies"}]`,
-		"items-lib.json":       `{"Items":[{"Id":"m1","Type":"Movie","Name":"长夜灯塔"}]}`,
+		"items-lib.json":       `{"Items":[{"Id":"m1","Type":"Movie","Name":"长夜灯塔","ProviderIds":{"Tmdb":"1"}}]}`,
 	})
 	proxy := httptest.NewServer(http.StripPrefix("/jellyfin", fake)) // 子路径以外的请求返回 404
 	t.Cleanup(proxy.Close)
@@ -570,8 +615,8 @@ func TestMapMovie(t *testing.T) {
 	fake := newFake(t, map[string]string{
 		"virtual-folders.json": `[{"Name":"电影","ItemId":"lib","CollectionType":"movies"}]`,
 		"items-lib.json": `{"Items":[
-			{"Id":"m2","Type":"Movie","Name":"无时长","OriginalTitle":"No Runtime"},
-			{"Id":"m1","Type":"Movie","Name":"有时长","ProductionYear":1999,"RunTimeTicks":71234567890}
+			{"Id":"m2","Type":"Movie","Name":"无时长","OriginalTitle":"No Runtime","ProviderIds":{"Tmdb":"2"}},
+			{"Id":"m1","Type":"Movie","Name":"有时长","ProductionYear":1999,"RunTimeTicks":71234567890,"ProviderIds":{"Tmdb":"1"}}
 		]}`,
 	})
 	listing, err := fake.source("电影").List(t.Context())
@@ -655,8 +700,8 @@ func TestPoster(t *testing.T) {
 			samples := map[string]string{
 				"virtual-folders.json": folders,
 				"items-lib.json": `{"Items":[
-					{"Id":"s1","Type":"Series","Name":"甲","ImageTags":` + tt.imageTags + `},
-					{"Id":"s2","Type":"Series","Name":"乙","ImageTags":{"Primary":"tag"}}
+					{"Id":"s1","Type":"Series","Name":"甲","ProviderIds":{"Tmdb":"1"},"ImageTags":` + tt.imageTags + `},
+					{"Id":"s2","Type":"Series","Name":"乙","ProviderIds":{"Tmdb":"2"},"ImageTags":{"Primary":"tag"}}
 				]}`,
 				"items-s1.json": cmp.Or(tt.children, fmt.Sprintf(validChildren, "s1")),
 				"items-s2.json": fmt.Sprintf(validChildren, "s2"),

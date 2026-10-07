@@ -3,14 +3,76 @@
 //   sqlc v1.31.1
 // source: danmaku.sql
 
-package repository
+package sqlc
 
 import (
 	"context"
 )
 
+const listBindingDanmakuPage = `-- name: ListBindingDanmakuPage :many
+SELECT source_id, time_ms, mode, color, text
+FROM danmaku
+WHERE binding_id = $1
+  AND ($2::int IS NULL OR time_ms >= $2::int)
+  AND ($3::int IS NULL
+       OR (time_ms, source_id) > ($3::int, $4::bigint))
+ORDER BY time_ms, source_id
+LIMIT $5
+`
+
+type ListBindingDanmakuPageParams struct {
+	BindingID     int64  `json:"bindingId"`
+	FromMs        *int32 `json:"fromMs"`
+	AfterTimeMs   *int32 `json:"afterTimeMs"`
+	AfterSourceID *int64 `json:"afterSourceId"`
+	PageLimit     int32  `json:"pageLimit"`
+}
+
+type ListBindingDanmakuPageRow struct {
+	SourceID int64  `json:"sourceId"`
+	TimeMs   int32  `json:"timeMs"`
+	Mode     int16  `json:"mode"`
+	Color    int32  `json:"color"`
+	Text     string `json:"text"`
+}
+
+// 管理界面查看一个绑定的弹幕：时间未校正，按 (time_ms, source_id) 升序，从游标之后取一页。
+// from_ms 不为 NULL 时只取这个时间及以后的（跳转）；两个游标参数都为 NULL 时从头取。
+// 按 binding_id 的主键过滤后在内存里排序，一个绑定的条数不大，不另建索引。
+func (q *Queries) ListBindingDanmakuPage(ctx context.Context, arg ListBindingDanmakuPageParams) ([]ListBindingDanmakuPageRow, error) {
+	rows, err := q.db.Query(ctx, listBindingDanmakuPage,
+		arg.BindingID,
+		arg.FromMs,
+		arg.AfterTimeMs,
+		arg.AfterSourceID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListBindingDanmakuPageRow{}
+	for rows.Next() {
+		var i ListBindingDanmakuPageRow
+		if err := rows.Scan(
+			&i.SourceID,
+			&i.TimeMs,
+			&i.Mode,
+			&i.Color,
+			&i.Text,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBindingsByEpisode = `-- name: ListBindingsByEpisode :many
-SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at
+SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms
 FROM bindings
 WHERE episode_id = $1
 ORDER BY id
@@ -45,6 +107,7 @@ func (q *Queries) ListBindingsByEpisode(ctx context.Context, episodeID int64) ([
 			&i.Kind,
 			&i.FileCount,
 			&i.FetchAttemptedAt,
+			&i.MaxTimeMs,
 		); err != nil {
 			return nil, err
 		}

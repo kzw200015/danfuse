@@ -67,7 +67,7 @@ func TestFileBinding(t *testing.T) {
 		[]uploadFile{danmakuXML("20130709.xml", "1", "2"), danmakuXML("20130711.xml", "2", "3")}, http.StatusCreated)
 	assertJSON(t, data, `{
 		"id": 5, "kind": "file", "adapter": null, "sourceUrl": null, "sourceLabel": "弹幕文件 · 2 份",
-		"title": "20130709", "duration": null, "offset": 0, "status": "active", "danmakuCount": 3,
+		"title": "20130709", "duration": null, "offset": 0, "status": "active", "contentVersion": 1, "danmakuCount": 3, "maxTimeMs": 1500,
 		"lastFetchedAt": null, "seasonBindingId": null
 	}`)
 
