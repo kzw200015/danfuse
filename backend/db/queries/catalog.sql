@@ -57,7 +57,8 @@ RETURNING id, (xmax = 0)::boolean AS created;
 -- name: ListSeries :many
 -- 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。
 -- 一集有多个绑定时连接出多行，所以季数、集数、已绑定集数都按 DISTINCT 计。following 表示有开着追更的季绑定。
-SELECT s.id, s.type, s.title, s.original_title, s.year, s.poster_image_id,
+-- tmdb_id 用来在列表上标出没有 TMDB ID、按标题和年份对应的剧。
+SELECT s.id, s.type, s.title, s.original_title, s.year, s.tmdb_id, s.poster_image_id,
        count(DISTINCT se.id)::int                         AS season_count,
        count(DISTINCT e.id)::int                          AS episode_count,
        count(DISTINCT b.episode_id)::int                  AS bound_episode_count,

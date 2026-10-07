@@ -32,6 +32,7 @@ function summary(
     title,
     originalTitle,
     year,
+    tmdbId: null,
     posterImageId: null,
     seasonCount: 1,
     episodeCount: 1,
@@ -110,6 +111,18 @@ describe('filterSeries', () => {
       3,
     ])
     expect(filterSeries(mixed, { keyword: '雾港' }).map((s) => s.id)).toEqual([2, 3])
+  })
+
+  it('只看没有 TMDB ID 的：与只看追更中同时生效', () => {
+    const mixed = [
+      { ...summary(1, '星海旅人', null, 2023), tmdbId: 60735, following: true },
+      summary(2, '雾港谜案', null, 2021),
+      { ...summary(3, '雾港日常', null, null), following: true },
+    ]
+    expect(filterSeries(mixed, { noTmdbIdOnly: true }).map((s) => s.id)).toEqual([2, 3])
+    expect(
+      filterSeries(mixed, { noTmdbIdOnly: true, followingOnly: true }).map((s) => s.id),
+    ).toEqual([3])
   })
 
   it('按分类筛选：与关键词同时生效', () => {
