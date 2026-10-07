@@ -8,7 +8,7 @@
 - 业务代码只依赖领域包的接口，不对适配器做类型断言；绑定、合集的 ref 只交给适配器解析，原始 ref 不出现在 JSON 输出里。
 - 领域包只放接口、类型、纯计算与外部适配；读写数据库的业务都在 `service`。
 - `app.New` 和各构造函数只构造对象，不做 IO、不连外部系统。新增 service 在 `app.New` 构造，handler 还要加进 `Handlers`。
-- sqlc 生成的 `internal/repository/*`（`store.go` 除外）不手改；改表结构是新增迁移再 `make sqlc`。已推到 main 的迁移文件不再修改。
+- sqlc 生成的 `internal/repository/sqlc/` 不手改；改表结构是新增迁移再 `make sqlc`。已推到 main 的迁移文件不再修改。
 
 ## 数据库与并发
 

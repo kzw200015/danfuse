@@ -12,6 +12,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/fulltext"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -76,7 +77,7 @@ func (d *DandanService) search(ctx context.Context, name catalog.ParsedName, epi
 	if query == "" {
 		return DandanSearchResult{}, nil
 	}
-	rows, err := d.store.SearchSeasons(ctx, repository.SearchSeasonsParams{
+	rows, err := d.store.SearchSeasons(ctx, sqlc.SearchSeasonsParams{
 		Query: query, Season: int32Ptr(name.Season), Episode: int32Ptr(episode), MaxRows: int32(maxSeasons + 1),
 	})
 	if err != nil {
@@ -151,7 +152,7 @@ func (d *DandanService) Season(ctx context.Context, id int64) (DandanSeason, boo
 		return DandanSeason{}, false, err
 	}
 	// GetSeason 的列与 SearchSeasons 相同，行可以直接转换；两边的列不一致时编译不通过
-	return seasonOf(repository.SearchSeasonsRow(row), episodes[id]), true, nil
+	return seasonOf(sqlc.SearchSeasonsRow(row), episodes[id]), true, nil
 }
 
 // listEpisodes 各季的全部集，按季 ID 分组，组内按集号升序。
@@ -168,7 +169,7 @@ func (d *DandanService) listEpisodes(ctx context.Context, seasonIDs []int64) (ma
 }
 
 // seasonOf 由查出的一季（季号与所属剧的类型、剧名、原名、年份）和它的全部集组装一季，名称和类别按目录的规则得出。
-func seasonOf(r repository.SearchSeasonsRow, episodes []DandanEpisode) DandanSeason {
+func seasonOf(r sqlc.SearchSeasonsRow, episodes []DandanEpisode) DandanSeason {
 	typ, n := catalog.SeriesType(r.Type), int(r.Number)
 	titles := []string{r.Title}
 	if r.OriginalTitle != nil {

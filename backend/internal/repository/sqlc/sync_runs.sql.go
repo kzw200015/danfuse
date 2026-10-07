@@ -3,7 +3,7 @@
 //   sqlc v1.31.1
 // source: sync_runs.sql
 
-package repository
+package sqlc
 
 import (
 	"context"

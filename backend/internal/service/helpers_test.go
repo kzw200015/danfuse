@@ -21,6 +21,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -182,7 +183,7 @@ func holdSyncLock(t *testing.T, pool *pgxpool.Pool) (unlock func()) {
 }
 
 // syncOnce 手动触发一次同步，等它结束后返回同步记录。
-func syncOnce(t *testing.T, svc *SyncService) repository.SyncRun {
+func syncOnce(t *testing.T, svc *SyncService) sqlc.SyncRun {
 	t.Helper()
 	return getRun(t, svc, triggerSync(t, svc))
 }
@@ -198,7 +199,7 @@ func triggerSync(t *testing.T, svc *SyncService) int64 {
 	return id
 }
 
-func getRun(t *testing.T, svc *SyncService, id int64) repository.SyncRun {
+func getRun(t *testing.T, svc *SyncService, id int64) sqlc.SyncRun {
 	t.Helper()
 	run, err := svc.GetRun(t.Context(), id)
 	if err != nil {
@@ -220,9 +221,9 @@ func seedEpisodes(t *testing.T, pool *pgxpool.Pool) {
 }
 
 // getBinding 读出库里的绑定。
-func getBinding(t *testing.T, pool *pgxpool.Pool, id int64) repository.Binding {
+func getBinding(t *testing.T, pool *pgxpool.Pool, id int64) sqlc.Binding {
 	t.Helper()
-	b, err := repository.New(pool).GetBinding(t.Context(), id)
+	b, err := sqlc.New(pool).GetBinding(t.Context(), id)
 	if err != nil {
 		t.Fatalf("GetBinding(%d): %v", id, err)
 	}
@@ -387,7 +388,7 @@ func readPoster(t *testing.T, pool *pgxpool.Pool, title string) poster {
 }
 
 // runCounts 同步记录的状态、进度与新增数，例如 "succeeded 2/2 新增剧 2 季 3 集 4"，便于整体比较。
-func runCounts(run repository.SyncRun) string {
+func runCounts(run sqlc.SyncRun) string {
 	total := "-"
 	if run.Total != nil {
 		total = fmt.Sprint(*run.Total)

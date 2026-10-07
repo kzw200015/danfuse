@@ -11,7 +11,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 )
 
 var errNotFileBinding = apierr.ErrBadRequest.WithMessage("这个绑定不是用弹幕文件建的")
@@ -74,15 +74,15 @@ func (s *BindingService) CreateFromFiles(ctx context.Context, episodeID int64, f
 		return BindingView{}, err
 	}
 	var (
-		binding  repository.Binding
+		binding  sqlc.Binding
 		newFiles int
 		added    int64
 	)
-	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	err = s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		if err := lockEpisode(ctx, q, episodeID, errEpisodeNotFound); err != nil {
 			return err
 		}
-		id, err := q.InsertFileBinding(ctx, repository.InsertFileBindingParams{
+		id, err := q.InsertFileBinding(ctx, sqlc.InsertFileBindingParams{
 			EpisodeID: episodeID,
 			Title:     danmakufile.Title(files[0].Name),
 		})
@@ -110,11 +110,11 @@ func (s *BindingService) AppendFiles(ctx context.Context, id int64, files []Uplo
 		return FilesAdded{}, err
 	}
 	var (
-		b        repository.Binding
+		b        sqlc.Binding
 		newFiles int
 		added    int64
 	)
-	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	err = s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		if err := lockBinding(ctx, q, id); err != nil {
 			return err
 		}
@@ -135,13 +135,13 @@ func (s *BindingService) AppendFiles(ctx context.Context, id int64, files []Uplo
 
 // addFiles 在写入事务里把解析好的文件加入绑定：存下原文件（绑定里已有内容相同的跳过），
 // 写入新加入的文件的弹幕，再更新绑定的文件份数与弹幕计数。调用方已在同一个事务里锁住或刚插入这个绑定。
-func addFiles(ctx context.Context, q *repository.Queries, bindingID int64, files []parsedFile) (repository.Binding, int, int64, error) {
+func addFiles(ctx context.Context, q *sqlc.Queries, bindingID int64, files []parsedFile) (sqlc.Binding, int, int64, error) {
 	var (
 		items    []danmaku.Danmaku
 		newFiles int
 	)
 	for _, f := range files {
-		n, err := q.InsertBindingFile(ctx, repository.InsertBindingFileParams{
+		n, err := q.InsertBindingFile(ctx, sqlc.InsertBindingFileParams{
 			BindingID: bindingID,
 			Name:      f.Name,
 			Sha256:    f.sum[:],
@@ -149,15 +149,15 @@ func addFiles(ctx context.Context, q *repository.Queries, bindingID int64, files
 			Content:   f.Data,
 		})
 		if err != nil {
-			return repository.Binding{}, 0, 0, fmt.Errorf("insert file %q of binding %d: %w", f.Name, bindingID, err)
+			return sqlc.Binding{}, 0, 0, fmt.Errorf("insert file %q of binding %d: %w", f.Name, bindingID, err)
 		}
 		if n > 0 {
 			newFiles++
 			items = append(items, f.danmaku...)
 		}
 	}
-	if err := q.AddBindingFileCount(ctx, repository.AddBindingFileCountParams{ID: bindingID, Files: int32(newFiles)}); err != nil {
-		return repository.Binding{}, 0, 0, fmt.Errorf("count files of binding %d: %w", bindingID, err)
+	if err := q.AddBindingFileCount(ctx, sqlc.AddBindingFileCountParams{ID: bindingID, Files: int32(newFiles)}); err != nil {
+		return sqlc.Binding{}, 0, 0, fmt.Errorf("count files of binding %d: %w", bindingID, err)
 	}
 	b, added, err := writeDanmaku(ctx, q, bindingID, items, false)
 	return b, newFiles, added, err
@@ -170,12 +170,12 @@ func (s *BindingService) Reparse(ctx context.Context, id int64) (BindingView, er
 		return BindingView{}, err
 	}
 	var (
-		b      repository.Binding
+		b      sqlc.Binding
 		added  int64
 		files  int
 		latest int32
 	)
-	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	err := s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		if err := lockBinding(ctx, q, id); err != nil {
 			return err
 		}
@@ -242,7 +242,7 @@ func (s *BindingService) checkFileBinding(ctx context.Context, id int64) error {
 }
 
 // logFiles 加入、重新解析弹幕文件之后记一条 info 日志。
-func (s *BindingService) logFiles(ctx context.Context, msg string, b repository.Binding, files int, added int64) {
+func (s *BindingService) logFiles(ctx context.Context, msg string, b sqlc.Binding, files int, added int64) {
 	s.logger.LogAttrs(ctx, slog.LevelInfo, msg,
 		slog.Int64("binding_id", b.ID), slog.Int("files", files), slog.Int64("added", added))
 }

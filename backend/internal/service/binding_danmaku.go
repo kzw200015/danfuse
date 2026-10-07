@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 )
 
 // danmakuPageSize 查看绑定的弹幕时一页的条数。
@@ -33,7 +33,7 @@ type DanmakuPage struct {
 // fromMs 不为 nil 时只取弹幕源时间在它及以后的（跳转），翻页时也照传。
 // 绑定不存在时 404，游标不合法时 400。各页分别读取，翻页期间绑定的弹幕变了也不处理。
 func (s *BindingService) ListDanmaku(ctx context.Context, id int64, fromMs *int32, after string) (DanmakuPage, error) {
-	params := repository.ListBindingDanmakuPageParams{BindingID: id, FromMs: fromMs, PageLimit: danmakuPageSize + 1}
+	params := sqlc.ListBindingDanmakuPageParams{BindingID: id, FromMs: fromMs, PageLimit: danmakuPageSize + 1}
 	if after != "" {
 		timeMs, sourceID, ok := parseDanmakuCursor(after)
 		if !ok {

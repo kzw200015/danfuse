@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 )
 
 // syncCatalog 列出目录源的清单，再一部剧一部剧地写入目录。每处理完一部剧（包括跳过的）写入一次进度。
@@ -83,8 +83,8 @@ type createdCounts struct{ series, seasons, episodes int32 }
 // 网络请求都在事务之外：适配在交出这部剧之前已经取完了它的季和集、下载完了海报。
 func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (createdCounts, error) {
 	var created createdCounts
-	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
-		seriesRow, err := q.UpsertSeries(ctx, repository.UpsertSeriesParams{
+	err := s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
+		seriesRow, err := q.UpsertSeries(ctx, sqlc.UpsertSeriesParams{
 			Type:          string(series.Type),
 			Title:         series.Title,
 			OriginalTitle: nullIfEmpty(series.OriginalTitle),
@@ -98,7 +98,7 @@ func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (c
 		}
 
 		for _, season := range series.Seasons {
-			seasonRow, err := q.UpsertSeason(ctx, repository.UpsertSeasonParams{
+			seasonRow, err := q.UpsertSeason(ctx, sqlc.UpsertSeasonParams{
 				SeriesID: seriesRow.ID,
 				Number:   int32(season.Number),
 				Title:    nullIfEmpty(season.Title),
@@ -111,7 +111,7 @@ func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (c
 			}
 
 			for _, ep := range season.Episodes {
-				epRow, err := q.UpsertEpisode(ctx, repository.UpsertEpisodeParams{
+				epRow, err := q.UpsertEpisode(ctx, sqlc.UpsertEpisodeParams{
 					SeasonID: seasonRow.ID,
 					Number:   int32(ep.Number),
 					Title:    nullIfEmpty(ep.Title),
@@ -144,14 +144,14 @@ func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (c
 
 // writeSearchVectors 重算一部剧所有季的搜索列，在这部剧的事务里调用。包括这次目录源没有给出的季：
 // 剧名、原名是每一季搜索列的一部分，原名变了每一季都要重算。
-func writeSearchVectors(ctx context.Context, q *repository.Queries, seriesID int64, series catalog.Series) error {
+func writeSearchVectors(ctx context.Context, q *sqlc.Queries, seriesID int64, series catalog.Series) error {
 	seasons, err := q.ListSeasonsBySeries(ctx, seriesID)
 	if err != nil {
 		return fmt.Errorf("list seasons: %w", err)
 	}
 	for _, se := range seasons {
 		vector := catalog.SearchVector(series.Type, series.Title, series.OriginalTitle, int(se.Number), emptyIfNull(se.Title))
-		if err := q.SetSeasonSearchVector(ctx, repository.SetSeasonSearchVectorParams{ID: se.ID, SearchVector: vector}); err != nil {
+		if err := q.SetSeasonSearchVector(ctx, sqlc.SetSeasonSearchVectorParams{ID: se.ID, SearchVector: vector}); err != nil {
 			return fmt.Errorf("set search vector of season %d: %w", se.Number, err)
 		}
 	}
@@ -163,7 +163,7 @@ func writeSearchVectors(ctx context.Context, q *repository.Queries, seriesID int
 //   - 与旧图的 sha256 相同：不写；
 //   - 不同（或原来没有海报）：插入新图 → 剧指向新图 → 删除旧图；
 //   - 没有图：清空剧的海报 → 删除旧图。
-func writePoster(ctx context.Context, q *repository.Queries, seriesID int64, oldID *int64, poster *catalog.Image) error {
+func writePoster(ctx context.Context, q *sqlc.Queries, seriesID int64, oldID *int64, poster *catalog.Image) error {
 	if poster == nil && oldID == nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func writePoster(ctx context.Context, q *repository.Queries, seriesID int64, old
 				return nil
 			}
 		}
-		id, err := q.InsertImage(ctx, repository.InsertImageParams{
+		id, err := q.InsertImage(ctx, sqlc.InsertImageParams{
 			ContentType: poster.ContentType,
 			Data:        poster.Data,
 			Sha256:      sum[:],
@@ -190,7 +190,7 @@ func writePoster(ctx context.Context, q *repository.Queries, seriesID int64, old
 		newID = &id
 	}
 
-	if err := q.SetSeriesPoster(ctx, repository.SetSeriesPosterParams{ID: seriesID, PosterImageID: newID}); err != nil {
+	if err := q.SetSeriesPoster(ctx, sqlc.SetSeriesPosterParams{ID: seriesID, PosterImageID: newID}); err != nil {
 		return fmt.Errorf("set poster: %w", err)
 	}
 	if oldID != nil {

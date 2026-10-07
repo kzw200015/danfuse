@@ -152,7 +152,7 @@ docker compose up -d --build danfuse                     # 构建并启动 danfu
 - **迁移文件推到 main 之后就算已经发布，不再修改**（推送 main 会发布镜像，用户的数据库已经执行过它）。改表结构一律新增迁移。
 - 已有数据需要用 Go 重新计算时（例如分词规则改变后重算搜索列），在同一目录按序号新增 Go 迁移，写法见 [`docs/architecture/catalog.md`](docs/architecture/catalog.md) 的"搜索列"一节。
 
-`backend/internal/repository/`（`store.go` 除外）由 sqlc 生成，不要手改；改了查询之后执行 `make generate`。依赖在 `backend/internal/app/app.go` 的 `app.New` 里手写组装，新增或修改构造函数时直接改那里。
+`backend/internal/repository/sqlc/` 由 sqlc 生成，不要手改；改了查询之后执行 `make generate`。依赖在 `backend/internal/app/app.go` 的 `app.New` 里手写组装，新增或修改构造函数时直接改那里。
 
 ## 文档
 

@@ -10,6 +10,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -35,7 +36,7 @@ func NewCatalogService(store *repository.Store, sources *source.Registry) *Catal
 }
 
 // ListSeries 全部剧连同海报的图片 ID、季数、集数与绑定统计，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
-func (s *CatalogService) ListSeries(ctx context.Context) ([]repository.ListSeriesRow, error) {
+func (s *CatalogService) ListSeries(ctx context.Context) ([]sqlc.ListSeriesRow, error) {
 	series, err := s.store.ListSeries(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list series: %w", err)
@@ -93,7 +94,7 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 	if err != nil {
 		return SeriesDetail{}, fmt.Errorf("list bindings of series %d: %w", id, err)
 	}
-	seasonBindings, err := s.store.ListSeasonBindingSummariesBySeries(ctx, repository.ListSeasonBindingSummariesBySeriesParams{
+	seasonBindings, err := s.store.ListSeasonBindingSummariesBySeries(ctx, sqlc.ListSeasonBindingSummariesBySeriesParams{
 		SeriesID: id, LeasePrefix: database.LeaseSeasonBackfillPrefix,
 	})
 	if err != nil {
@@ -152,20 +153,20 @@ func (s *CatalogService) GetSeries(ctx context.Context, id int64) (SeriesDetail,
 }
 
 // GetImage 一张图片的原始字节与 content-type；不存在时返回 404。
-func (s *CatalogService) GetImage(ctx context.Context, id int64) (repository.GetImageRow, error) {
+func (s *CatalogService) GetImage(ctx context.Context, id int64) (sqlc.GetImageRow, error) {
 	img, err := s.store.GetImage(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return repository.GetImageRow{}, errImageNotFound
+			return sqlc.GetImageRow{}, errImageNotFound
 		}
-		return repository.GetImageRow{}, fmt.Errorf("get image %d: %w", id, err)
+		return sqlc.GetImageRow{}, fmt.Errorf("get image %d: %w", id, err)
 	}
 	return img, nil
 }
 
 // DeleteSeries 删除一部剧，连同它的海报：同一个事务里先删剧、再删图。剧不存在时返回 404。
 func (s *CatalogService) DeleteSeries(ctx context.Context, id int64) error {
-	return s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	return s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		posterID, err := q.DeleteSeries(ctx, id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {

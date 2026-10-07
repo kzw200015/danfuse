@@ -3,7 +3,7 @@
 //   sqlc v1.31.1
 // source: search.sql
 
-package repository
+package sqlc
 
 import (
 	"context"

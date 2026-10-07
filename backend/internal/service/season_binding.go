@@ -16,6 +16,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -214,7 +215,7 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 		return SeasonBindingDetail{}, err
 	}
 	// 只是省掉一次注定 409 的列出；并发时以写入事务里的唯一约束为准
-	key := repository.SeasonBindingExistsParams{SeasonID: seasonID, Adapter: adapter.ID(), Ref: c.Ref}
+	key := sqlc.SeasonBindingExistsParams{SeasonID: seasonID, Adapter: adapter.ID(), Ref: c.Ref}
 	switch exists, err := s.store.SeasonBindingExists(ctx, key); {
 	case err != nil:
 		return SeasonBindingDetail{}, fmt.Errorf("check season binding of season %d: %w", seasonID, err)
@@ -227,13 +228,13 @@ func (s *SeasonBindingService) Create(ctx context.Context, seasonID int64, p Cre
 	}
 
 	var id int64
-	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	err = s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		// 锁住这一季到提交：之后的删除要等这个事务提交，再连同季绑定一起删掉
 		if err := lockSeason(ctx, q, seasonID, errSeasonDeleted); err != nil {
 			return err
 		}
 		var err error
-		id, err = q.InsertSeasonBinding(ctx, repository.InsertSeasonBindingParams{
+		id, err = q.InsertSeasonBinding(ctx, sqlc.InsertSeasonBindingParams{
 			SeasonID:        seasonID,
 			Adapter:         adapter.ID(),
 			Ref:             c.Ref,
@@ -275,8 +276,8 @@ func chooseCandidate(candidates []source.CollectionCandidate, kind string) (sour
 }
 
 // saveItems 在写入事务里保存一次列出的条目：按弹幕源 upsert（位置从 1 开始），删掉合集里已经没有的。
-func saveItems(ctx context.Context, q *repository.Queries, id int64, items []source.CollectionItem) error {
-	p := repository.UpsertSeasonBindingItemsParams{
+func saveItems(ctx context.Context, q *sqlc.Queries, id int64, items []source.CollectionItem) error {
+	p := sqlc.UpsertSeasonBindingItemsParams{
 		SeasonBindingID: id,
 		Refs:            make([]string, len(items)),
 		Positions:       make([]int32, len(items)),
@@ -293,7 +294,7 @@ func saveItems(ctx context.Context, q *repository.Queries, id int64, items []sou
 		}
 		p.Reasons[i], p.Labels[i] = it.Unmatched, it.Label
 	}
-	if err := q.DeleteStaleSeasonBindingItems(ctx, repository.DeleteStaleSeasonBindingItemsParams{SeasonBindingID: id, Refs: p.Refs}); err != nil {
+	if err := q.DeleteStaleSeasonBindingItems(ctx, sqlc.DeleteStaleSeasonBindingItemsParams{SeasonBindingID: id, Refs: p.Refs}); err != nil {
 		return fmt.Errorf("delete stale items of season binding %d: %w", id, err)
 	}
 	if err := q.UpsertSeasonBindingItems(ctx, p); err != nil {
@@ -304,7 +305,7 @@ func saveItems(ctx context.Context, q *repository.Queries, id int64, items []sou
 
 // Get 季绑定的详情，条目表各条目的状态由条目、处理过的记录、绑定和本季的集算出。不存在时返回 404。
 func (s *SeasonBindingService) Get(ctx context.Context, id int64) (SeasonBindingDetail, error) {
-	row, err := s.store.GetSeasonBindingSummary(ctx, repository.GetSeasonBindingSummaryParams{
+	row, err := s.store.GetSeasonBindingSummary(ctx, sqlc.GetSeasonBindingSummaryParams{
 		ID: id, LeasePrefix: database.LeaseSeasonBackfillPrefix,
 	})
 	if err != nil {
@@ -343,7 +344,7 @@ type sourceAt struct {
 }
 
 // itemViews 算出各条目的状态（见 itemView）。条目、处理过的记录与绑定的 ref 都读自 jsonb 列，格式相同，可以直接比较。
-func itemViews(sb repository.SeasonBinding, items []repository.SeasonBindingItem, handled []repository.ListSeasonBindingHandledRow, bound []repository.ListBoundSourcesRow, numbers []int32) []SeasonBindingItemView {
+func itemViews(sb sqlc.SeasonBinding, items []sqlc.SeasonBindingItem, handled []sqlc.ListSeasonBindingHandledRow, bound []sqlc.ListBoundSourcesRow, numbers []int32) []SeasonBindingItemView {
 	builtAt := make(map[string]int32, len(handled)) // 处理过的弹幕源建在哪一集
 	for _, h := range handled {
 		builtAt[string(h.Ref)] = h.EpisodeNumber
@@ -363,7 +364,7 @@ func itemViews(sb repository.SeasonBinding, items []repository.SeasonBindingItem
 // 是它建出的为已建绑定，别人建的为集上已有，没有了为绑定已被删除。
 // 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、对应的集上已有这个弹幕源、最近一次失败、待补建。
 // own 是本季现有的绑定（见 ListBoundSources），numbers 是本季的集号。
-func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, builtAt map[string]int32, own map[sourceAt]bool, numbers []int32) SeasonBindingItemView {
+func itemView(sb sqlc.SeasonBinding, it sqlc.SeasonBindingItem, builtAt map[string]int32, own map[sourceAt]bool, numbers []int32) SeasonBindingItemView {
 	v := SeasonBindingItemView{Label: it.Label, Number: it.Number}
 	ref := string(it.Ref)
 	if episode, ok := builtAt[ref]; ok {
@@ -404,7 +405,7 @@ func itemView(sb repository.SeasonBinding, it repository.SeasonBindingItem, buil
 
 // mappedEpisode 按季绑定的集号对应，合集序号 number 对到的本地集号。在起点之前时 ok 为 false；
 // 对到的集号超出 int 的范围时目录里不可能有这一集，同样不参与。
-func mappedEpisode(sb repository.SeasonBinding, number int32) (episode int32, ok bool) {
+func mappedEpisode(sb sqlc.SeasonBinding, number int32) (episode int32, ok bool) {
 	n, ok := source.Mapping{From: int(sb.MappingFrom), To: int(sb.MappingTo)}.Episode(int(number))
 	if !ok || n > math.MaxInt32 {
 		return 0, false
@@ -413,7 +414,7 @@ func mappedEpisode(sb repository.SeasonBinding, number int32) (episode int32, ok
 }
 
 // seasonBindingView 季绑定的 JSON，合集的链接和标签交给它的适配器生成。
-func seasonBindingView(sources *source.Registry, sb repository.SeasonBinding, bindingCount int32, running bool) (SeasonBindingView, error) {
+func seasonBindingView(sources *source.Registry, sb sqlc.SeasonBinding, bindingCount int32, running bool) (SeasonBindingView, error) {
 	adapter, err := sources.Get(sb.Adapter)
 	if err != nil {
 		return SeasonBindingView{}, fmt.Errorf("season binding %d: %w", sb.ID, err)
@@ -457,13 +458,13 @@ type UpdateSeasonBinding struct {
 // 打开追更、传了集号对应或集号规则时随即在后台补建一次，正在补建时不另起一轮
 // （进行中的那一轮处理每个条目之前都重新读季绑定和条目的序号，会用上新的对应和规则）。不存在时返回 404。
 func (s *SeasonBindingService) Update(ctx context.Context, id int64, p UpdateSeasonBinding) (SeasonBindingDetail, error) {
-	params := repository.UpdateSeasonBindingParams{ID: id, Follow: p.Follow, MappingFrom: p.MappingFrom, MappingTo: p.MappingTo}
+	params := sqlc.UpdateSeasonBindingParams{ID: id, Follow: p.Follow, MappingFrom: p.MappingFrom, MappingTo: p.MappingTo}
 	var err error
 	if p.Rule == nil {
 		_, err = s.store.UpdateSeasonBinding(ctx, params)
 	} else {
 		params.EpisodePatterns = p.Rule.Patterns()
-		err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
+		err = s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 			byRule, err := q.UpdateSeasonBinding(ctx, params)
 			if err != nil || !byRule {
 				return err
@@ -484,7 +485,7 @@ func (s *SeasonBindingService) Update(ctx context.Context, id int64, p UpdateSea
 }
 
 // renumberItems 在改集号规则的事务里，按保存的标签用新规则重新认出各条目的序号。
-func renumberItems(ctx context.Context, q *repository.Queries, id int64, rule source.EpisodeRule) error {
+func renumberItems(ctx context.Context, q *sqlc.Queries, id int64, rule source.EpisodeRule) error {
 	rows, err := q.ListSeasonBindingItems(ctx, id)
 	if err != nil {
 		return fmt.Errorf("list items of season binding %d: %w", id, err)
@@ -507,7 +508,7 @@ func (s *SeasonBindingService) Backfill(ctx context.Context, id int64) error {
 // Delete 删除季绑定：一个事务里先锁住它（进行中的补建写入事务先提交，之后补建再也锁不到它，随即结束），
 // withBindings 时先删它建出的绑定（弹幕随之级联），再删季绑定；否则它建出的绑定变成普通绑定。不存在时返回 404。
 func (s *SeasonBindingService) Delete(ctx context.Context, id int64, withBindings bool) error {
-	return s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	return s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		if _, err := q.LockSeasonBindingForDelete(ctx, id); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return errSeasonBindingNotFound

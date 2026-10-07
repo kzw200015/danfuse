@@ -13,6 +13,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/pkg/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/repository/sqlc"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -83,7 +84,7 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 		return BindingView{}, errEpisodeNotFound
 	}
 	// 只是省掉一次注定 409 的拉取；并发时以写入事务里的唯一约束为准
-	key := repository.BindingExistsParams{EpisodeID: episodeID, Adapter: adapter.ID(), Ref: ref}
+	key := sqlc.BindingExistsParams{EpisodeID: episodeID, Adapter: adapter.ID(), Ref: ref}
 	switch bound, err := s.store.BindingExists(ctx, key); {
 	case err != nil:
 		return BindingView{}, fmt.Errorf("check binding of episode %d: %w", episodeID, err)
@@ -98,15 +99,15 @@ func (s *BindingService) Create(ctx context.Context, episodeID int64, link strin
 	fetchedAt := time.Now()
 
 	var (
-		binding repository.Binding
+		binding sqlc.Binding
 		added   int64
 	)
-	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	err = s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		// 锁住这一集到提交：之后的删除要等这个事务提交，再连同绑定和弹幕一起删掉
 		if err := lockEpisode(ctx, q, episodeID, errEpisodeDeleted); err != nil {
 			return err
 		}
-		id, err := q.InsertBinding(ctx, repository.InsertBindingParams{
+		id, err := q.InsertBinding(ctx, sqlc.InsertBindingParams{
 			EpisodeID: episodeID,
 			Adapter:   adapter.ID(),
 			Ref:       ref,
@@ -176,7 +177,7 @@ func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (B
 	fetchedAt := time.Now()
 
 	var added int64
-	err = s.store.ExecTx(ctx, func(q *repository.Queries) error {
+	err = s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		if err := lockBinding(ctx, q, id); err != nil {
 			return err
 		}
@@ -194,12 +195,12 @@ func (s *BindingService) refetch(ctx context.Context, id int64, replace bool) (B
 
 // markDead 重新拉取时弹幕源已不存在：把绑定标为失效，已保存的弹幕保留。
 // 成功后记一条 info 日志，连同适配器给的原因：422 不经过 errorHandler 的日志，定时拉取时也能看出绑定失效了。
-func (s *BindingService) markDead(ctx context.Context, b repository.Binding, reason error) error {
-	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
+func (s *BindingService) markDead(ctx context.Context, b sqlc.Binding, reason error) error {
+	err := s.store.ExecTx(ctx, func(q *sqlc.Queries) error {
 		if err := lockBinding(ctx, q, b.ID); err != nil {
 			return err
 		}
-		if err := q.MarkBindingDead(ctx, repository.MarkBindingDeadParams{ID: b.ID, FetchedAt: time.Now()}); err != nil {
+		if err := q.MarkBindingDead(ctx, sqlc.MarkBindingDeadParams{ID: b.ID, FetchedAt: time.Now()}); err != nil {
 			return fmt.Errorf("mark binding %d dead: %w", b.ID, err)
 		}
 		return nil
@@ -214,14 +215,14 @@ func (s *BindingService) markDead(ctx context.Context, b repository.Binding, rea
 
 // recordFetchAttempt 拉取失败（弹幕源不存在之外）时记下尝试拉取的时间，单条语句；绑定已被删除时什么都不做。
 func (s *BindingService) recordFetchAttempt(ctx context.Context, id int64) error {
-	if err := s.store.RecordFetchAttempt(ctx, repository.RecordFetchAttemptParams{ID: id, AttemptedAt: time.Now()}); err != nil {
+	if err := s.store.RecordFetchAttempt(ctx, sqlc.RecordFetchAttemptParams{ID: id, AttemptedAt: time.Now()}); err != nil {
 		return fmt.Errorf("record fetch attempt of binding %d: %w", id, err)
 	}
 	return nil
 }
 
 // lockEpisode 写入事务里锁住一集到提交（FOR KEY SHARE），期间删不掉它；这一集已被删除时返回 gone。
-func lockEpisode(ctx context.Context, q *repository.Queries, id int64, gone error) error {
+func lockEpisode(ctx context.Context, q *sqlc.Queries, id int64, gone error) error {
 	if _, err := q.LockEpisode(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return gone
@@ -232,7 +233,7 @@ func lockEpisode(ctx context.Context, q *repository.Queries, id int64, gone erro
 }
 
 // lockSeason 写入事务里锁住一季到提交（FOR KEY SHARE），期间删不掉它；这一季已被删除时返回 gone。
-func lockSeason(ctx context.Context, q *repository.Queries, id int64, gone error) error {
+func lockSeason(ctx context.Context, q *sqlc.Queries, id int64, gone error) error {
 	if _, err := q.LockSeason(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return gone
@@ -243,20 +244,20 @@ func lockSeason(ctx context.Context, q *repository.Queries, id int64, gone error
 }
 
 // getBinding 取出绑定，不存在时返回 404"绑定不存在"。
-func (s *BindingService) getBinding(ctx context.Context, id int64) (repository.Binding, error) {
+func (s *BindingService) getBinding(ctx context.Context, id int64) (sqlc.Binding, error) {
 	b, err := s.store.GetBinding(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return repository.Binding{}, errBindingNotFound
+			return sqlc.Binding{}, errBindingNotFound
 		}
-		return repository.Binding{}, fmt.Errorf("get binding %d: %w", id, err)
+		return sqlc.Binding{}, fmt.Errorf("get binding %d: %w", id, err)
 	}
 	return b, nil
 }
 
 // lockBinding 重新拉取、追加文件、重新解析的写入事务的第一句：锁住这个绑定到提交，同一个绑定的写入排队执行。
 // 绑定已被删除时返回 404"绑定已被删除"。
-func lockBinding(ctx context.Context, q *repository.Queries, id int64) error {
+func lockBinding(ctx context.Context, q *sqlc.Queries, id int64) error {
 	if _, err := q.LockBinding(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errBindingDeleted
@@ -268,7 +269,7 @@ func lockBinding(ctx context.Context, q *repository.Queries, id int64) error {
 
 // UpdateOffset 改偏移（秒，正数表示弹幕延后），单条语句，content_version 不变。取值范围由调用方校验。
 func (s *BindingService) UpdateOffset(ctx context.Context, id int64, offset float64) (BindingView, error) {
-	b, err := s.store.UpdateBindingOffset(ctx, repository.UpdateBindingOffsetParams{ID: id, Offset: offset})
+	b, err := s.store.UpdateBindingOffset(ctx, sqlc.UpdateBindingOffsetParams{ID: id, Offset: offset})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return BindingView{}, errBindingNotFound
@@ -295,30 +296,30 @@ func (s *BindingService) Delete(ctx context.Context, id int64) error {
 //
 // 拉取时间（也是上次尝试拉取的时间）取自应用的时钟（拉取完成时的 time.Now()），不用数据库的 now()：
 // 定时拉取按它判断是否到期，与建出时间用同一个时钟，测试里也能用假时间推进。
-func saveFetched(ctx context.Context, q *repository.Queries, bindingID int64, f source.Fetched, replace bool, fetchedAt time.Time) (repository.Binding, int64, error) {
-	err := q.RecordFetch(ctx, repository.RecordFetchParams{
+func saveFetched(ctx context.Context, q *sqlc.Queries, bindingID int64, f source.Fetched, replace bool, fetchedAt time.Time) (sqlc.Binding, int64, error) {
+	err := q.RecordFetch(ctx, sqlc.RecordFetchParams{
 		ID:        bindingID,
 		Title:     f.Title,
 		Duration:  int32(f.Duration),
 		FetchedAt: fetchedAt,
 	})
 	if err != nil {
-		return repository.Binding{}, 0, fmt.Errorf("record fetch of binding %d: %w", bindingID, err)
+		return sqlc.Binding{}, 0, fmt.Errorf("record fetch of binding %d: %w", bindingID, err)
 	}
 	return writeDanmaku(ctx, q, bindingID, f.Danmaku, replace)
 }
 
 // writeDanmaku 在写入事务里写入一批弹幕并更新计数：replace 时先删掉这个绑定的全部弹幕；
 // 插入弹幕（按原始 ID 去重，已有的跳过），再用 recordDanmaku 更新计数。返回更新后的绑定和新增条数。
-func writeDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, items []danmaku.Danmaku, replace bool) (repository.Binding, int64, error) {
+func writeDanmaku(ctx context.Context, q *sqlc.Queries, bindingID int64, items []danmaku.Danmaku, replace bool) (sqlc.Binding, int64, error) {
 	if replace {
 		if err := q.DeleteDanmaku(ctx, bindingID); err != nil {
-			return repository.Binding{}, 0, fmt.Errorf("delete danmaku of binding %d: %w", bindingID, err)
+			return sqlc.Binding{}, 0, fmt.Errorf("delete danmaku of binding %d: %w", bindingID, err)
 		}
 	}
 	added, err := insertDanmaku(ctx, q, bindingID, items)
 	if err != nil {
-		return repository.Binding{}, 0, err
+		return sqlc.Binding{}, 0, err
 	}
 	b, err := recordDanmaku(ctx, q, bindingID, replace, added, latestTime(items))
 	return b, added, err
@@ -326,12 +327,12 @@ func writeDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, i
 
 // recordDanmaku 写入弹幕之后更新绑定的 danmaku_count、content_version 与 max_time_ms（规则见 RecordDanmaku），返回更新后的绑定。
 // latestMs 是这次写入的整批弹幕的 latestTime。
-func recordDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, replace bool, added int64, latestMs int32) (repository.Binding, error) {
-	b, err := q.RecordDanmaku(ctx, repository.RecordDanmakuParams{
+func recordDanmaku(ctx context.Context, q *sqlc.Queries, bindingID int64, replace bool, added int64, latestMs int32) (sqlc.Binding, error) {
+	b, err := q.RecordDanmaku(ctx, sqlc.RecordDanmakuParams{
 		ID: bindingID, Replace: replace, Added: int32(added), LatestMs: latestMs,
 	})
 	if err != nil {
-		return repository.Binding{}, fmt.Errorf("record danmaku of binding %d: %w", bindingID, err)
+		return sqlc.Binding{}, fmt.Errorf("record danmaku of binding %d: %w", bindingID, err)
 	}
 	return b, nil
 }
@@ -346,8 +347,8 @@ func latestTime(items []danmaku.Danmaku) int32 {
 }
 
 // insertDanmaku 一条语句写入一批弹幕，按原始 ID 去重（已有的跳过），返回实际插入的条数。
-func insertDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, items []danmaku.Danmaku) (int64, error) {
-	p := repository.InsertDanmakuParams{
+func insertDanmaku(ctx context.Context, q *sqlc.Queries, bindingID int64, items []danmaku.Danmaku) (int64, error) {
+	p := sqlc.InsertDanmakuParams{
 		BindingID: bindingID,
 		SourceIds: make([]int64, len(items)),
 		TimeMs:    make([]int32, len(items)),
@@ -371,7 +372,7 @@ func insertDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, 
 
 // logFetched 每次拉取结束记一条 info 日志：适配器自己的统计加上新增条数和拉取后的总条数；
 // 季绑定建出的绑定另记 season_binding_id，能和 "backfill finished" 对上。
-func logFetched(ctx context.Context, logger *slog.Logger, b repository.Binding, f source.Fetched, added int64) {
+func logFetched(ctx context.Context, logger *slog.Logger, b sqlc.Binding, f source.Fetched, added int64) {
 	attrs := []slog.Attr{slog.Int64("binding_id", b.ID), slog.Int64("episode_id", b.EpisodeID), slog.String("adapter", emptyIfNull(b.Adapter))}
 	if b.SeasonBindingID != nil {
 		attrs = append(attrs, slog.Int64("season_binding_id", *b.SeasonBindingID))
@@ -382,7 +383,7 @@ func logFetched(ctx context.Context, logger *slog.Logger, b repository.Binding, 
 }
 
 // bindingView 绑定的 JSON：贴链接建的，弹幕源的链接和标签交给它的适配器生成；用弹幕文件建的，标签写明文件的份数。
-func bindingView(sources *source.Registry, b repository.Binding) (BindingView, error) {
+func bindingView(sources *source.Registry, b sqlc.Binding) (BindingView, error) {
 	v := BindingView{
 		ID:              b.ID,
 		Kind:            b.Kind,
@@ -414,7 +415,7 @@ func bindingView(sources *source.Registry, b repository.Binding) (BindingView, e
 }
 
 // bindingPlatform 绑定的弹幕所在的平台：贴链接建的取自适配器；弹幕文件里的弹幕不属于任何平台（见 docs/adr/0004）。
-func bindingPlatform(sources *source.Registry, b repository.Binding) (danmaku.Platform, error) {
+func bindingPlatform(sources *source.Registry, b sqlc.Binding) (danmaku.Platform, error) {
 	if b.Kind == kindFile {
 		return danmaku.PlatformNone, nil
 	}
@@ -427,7 +428,7 @@ func bindingPlatform(sources *source.Registry, b repository.Binding) (danmaku.Pl
 
 // linkAdapter 贴链接建的绑定的适配器。用弹幕文件建的绑定没有适配器，调用方要先按 kind 分支；
 // 适配器没有注册时返回错误，调用方按服务器内部错误处理。
-func linkAdapter(sources *source.Registry, b repository.Binding) (source.Adapter, error) {
+func linkAdapter(sources *source.Registry, b sqlc.Binding) (source.Adapter, error) {
 	if b.Adapter == nil {
 		return nil, fmt.Errorf("binding %d: %s binding has no adapter", b.ID, b.Kind)
 	}
