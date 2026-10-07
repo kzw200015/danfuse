@@ -129,6 +129,7 @@ type Series struct {
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 	PosterImageID *int64    `json:"posterImageId"`
+	TmdbID        *int64    `json:"tmdbId"`
 }
 
 type SyncRun struct {

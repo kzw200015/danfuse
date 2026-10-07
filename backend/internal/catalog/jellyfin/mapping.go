@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
@@ -17,19 +18,36 @@ const ticksPerSecond = 10_000_000
 
 // mapMovie 电影合成为一部 type=movie 的剧，下面一个第 1 季、一个第 1 集：季、集标题都为空，集时长取电影的时长。
 func mapMovie(movie item) catalog.Item {
+	tmdbID, warnings := tmdbID(movie)
 	return catalog.Item{
-		Name: displayName(movie),
+		Name:     displayName(movie),
+		Warnings: warnings,
 		Series: &catalog.Series{
 			Type:          catalog.TypeMovie,
 			Title:         strings.TrimSpace(movie.Name),
 			OriginalTitle: strings.TrimSpace(movie.OriginalTitle),
 			Year:          movie.ProductionYear,
+			TMDBID:        tmdbID,
 			Seasons: []catalog.Season{{
 				Number:   1,
 				Episodes: []catalog.Episode{{Number: 1, Duration: seconds(movie.RunTimeTicks)}},
 			}},
 		},
 	}
+}
+
+// tmdbID 剧或电影的 TMDB id：ProviderIds 里键为 Tmdb 的值（电影的 TmdbCollection 是所属系列，不算）。
+// 没有时为 nil；有但不是正整数（手写 NFO 可能写错）时也为 nil，并返回一条警告，这部剧退回按标题和年份对应。
+func tmdbID(it item) (id *int64, warnings []string) {
+	raw := strings.TrimSpace(it.ProviderIDs["Tmdb"])
+	if raw == "" {
+		return nil, nil
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n <= 0 {
+		return nil, []string{fmt.Sprintf("TMDB ID「%s」无效，按标题和年份对应", raw)}
+	}
+	return &n, nil
 }
 
 // mapSeries 把一部剧和按剧递归查到的季、集条目翻译成 catalog.Item：跳过的项写进 Warnings，
@@ -69,11 +87,14 @@ func mapSeries(series item, children []item) catalog.Item {
 		return result
 	}
 
+	tmdbID, warnings := tmdbID(series)
+	result.Warnings = append(result.Warnings, warnings...)
 	s := &catalog.Series{
 		Type:          catalog.TypeTV,
 		Title:         strings.TrimSpace(series.Name),
 		OriginalTitle: strings.TrimSpace(series.OriginalTitle),
 		Year:          series.ProductionYear,
+		TMDBID:        tmdbID,
 	}
 	for _, number := range slices.Sorted(maps.Keys(episodes)) {
 		eps := episodes[number]

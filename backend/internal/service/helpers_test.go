@@ -366,6 +366,23 @@ func texts(rows []catalogRow) []string {
 	return result
 }
 
+// readSeries 目录里的全部剧，按 id 排序："id|类型|标题|年份|TMDB ID"，空值写作 -。
+func readSeries(t *testing.T, pool *pgxpool.Pool) []string {
+	t.Helper()
+	rows, err := pool.Query(t.Context(), `
+		SELECT format('%s|%s|%s|%s|%s', id, type, title, coalesce(year::text, '-'), coalesce(tmdb_id::text, '-'))
+		FROM series
+		ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
 // poster 一部剧的海报：图片 ID（没有海报时为 0），以及 "content-type|内容"（没有海报时为空）。
 type poster struct {
 	id   int64

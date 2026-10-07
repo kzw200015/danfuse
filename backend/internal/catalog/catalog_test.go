@@ -30,6 +30,7 @@ func TestSeriesValidate(t *testing.T) {
 		{"电影", movie(Season{Number: 1, Episodes: episodes(1)}), ""},
 		{"类型无效", Series{Type: "anime", Title: "星海旅人", Seasons: []Season{{Number: 1, Episodes: episodes(1)}}}, "类型"},
 		{"标题为空", Series{Type: TypeTV, Title: " ", Seasons: []Season{{Number: 1, Episodes: episodes(1)}}}, "标题为空"},
+		{"TMDB ID 不是正数", Series{Type: TypeTV, Title: "星海旅人", TMDBID: new(int64(0)), Seasons: []Season{{Number: 1, Episodes: episodes(1)}}}, "TMDB ID 0 无效"},
 		{"没有季", tv(), "没有任何季"},
 		{"季里没有集", tv(Season{Number: 1}), "没有任何集"},
 		{"季号为负", tv(Season{Number: -1, Episodes: episodes(1)}), "季号 -1"},

@@ -67,7 +67,8 @@ type Item struct {
 }
 
 // Series 适配交给核心的一部剧，与表结构一一对应。电影由适配合成为第 1 季第 1 集。
-// 同一个自然键可以出现多次（例如同一集的两个版本），核心按顺序 upsert，后写的覆盖先写的。
+// 剧的身份（见 docs/adr/0007）：有 TMDB ID 的以（类型，TMDB ID）为身份，标题和年份只是随目录源覆盖的属性；
+// 没有的以（类型，标题，年份）为身份。同一个身份可以出现多次（例如同一集的两个版本），核心按顺序 upsert，后写的覆盖先写的。
 //
 // 海报有三种状态，决定核心怎么处理，属于数据，不放进 Item.Warnings：
 //   - Poster 不为 nil：有图，与现有海报的 sha256 不同时换图；
@@ -78,6 +79,7 @@ type Series struct {
 	Title         string
 	OriginalTitle string // 空串存为 null
 	Year          *int
+	TMDBID        *int64 // TMDB 上的编号（电视剧和电影各有一套），目录源没给或给的不合法时为 nil
 	Poster        *Image
 	PosterErr     error
 	Seasons       []Season
@@ -101,7 +103,7 @@ type Image struct {
 	Data        []byte
 }
 
-// Validate 核心的防御性校验：类型有效、标题非空、至少一季、每季至少一集、编号 ≥ 0、
+// Validate 核心的防御性校验：类型有效、标题非空、TMDB ID 为正数、至少一季、每季至少一集、编号 ≥ 0、
 // 电影恰好只有第 1 季第 1 集。不合格的整部剧跳过，返回的 error 文本作为警告记入同步记录。
 func (s Series) Validate() error {
 	if s.Type != TypeTV && s.Type != TypeMovie {
@@ -109,6 +111,9 @@ func (s Series) Validate() error {
 	}
 	if strings.TrimSpace(s.Title) == "" {
 		return errors.New("标题为空")
+	}
+	if s.TMDBID != nil && *s.TMDBID <= 0 {
+		return fmt.Errorf("TMDB ID %d 无效", *s.TMDBID)
 	}
 	if len(s.Seasons) == 0 {
 		return errors.New("没有任何季")

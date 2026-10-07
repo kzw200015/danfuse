@@ -9,6 +9,51 @@ import (
 	"context"
 )
 
+const adoptSeriesByNaturalKey = `-- name: AdoptSeriesByNaturalKey :one
+UPDATE series
+SET original_title = $1,
+    tmdb_id        = $2,
+    updated_at     = now()
+WHERE type = $3
+  AND title = $4
+  AND year IS NOT DISTINCT FROM $5::int
+  AND tmdb_id IS NULL
+RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id
+`
+
+type AdoptSeriesByNaturalKeyParams struct {
+	OriginalTitle *string `json:"originalTitle"`
+	TmdbID        *int64  `json:"tmdbId"`
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	Year          *int32  `json:"year"`
+}
+
+// 按自然键 (type, title, year) 在没有 TMDB ID 的剧里找一部，覆盖原名并补上 TMDB ID（目录源没给时仍为空）。
+// 年份都为空也算同一部剧。没有这部剧时没有行。
+func (q *Queries) AdoptSeriesByNaturalKey(ctx context.Context, arg AdoptSeriesByNaturalKeyParams) (Series, error) {
+	row := q.db.QueryRow(ctx, adoptSeriesByNaturalKey,
+		arg.OriginalTitle,
+		arg.TmdbID,
+		arg.Type,
+		arg.Title,
+		arg.Year,
+	)
+	var i Series
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Title,
+		&i.OriginalTitle,
+		&i.Year,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PosterImageID,
+		&i.TmdbID,
+	)
+	return i, err
+}
+
 const deleteEpisode = `-- name: DeleteEpisode :execrows
 DELETE FROM episodes
 WHERE id = $1
@@ -54,7 +99,7 @@ func (q *Queries) DeleteSeries(ctx context.Context, id int64) (*int64, error) {
 }
 
 const getSeries = `-- name: GetSeries :one
-SELECT id, type, title, original_title, year, created_at, updated_at, poster_image_id
+SELECT id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id
 FROM series
 WHERE id = $1
 `
@@ -71,6 +116,44 @@ func (q *Queries) GetSeries(ctx context.Context, id int64) (Series, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PosterImageID,
+		&i.TmdbID,
+	)
+	return i, err
+}
+
+const insertSeries = `-- name: InsertSeries :one
+INSERT INTO series (type, title, original_title, year, tmdb_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id
+`
+
+type InsertSeriesParams struct {
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	OriginalTitle *string `json:"originalTitle"`
+	Year          *int32  `json:"year"`
+	TmdbID        *int64  `json:"tmdbId"`
+}
+
+func (q *Queries) InsertSeries(ctx context.Context, arg InsertSeriesParams) (Series, error) {
+	row := q.db.QueryRow(ctx, insertSeries,
+		arg.Type,
+		arg.Title,
+		arg.OriginalTitle,
+		arg.Year,
+		arg.TmdbID,
+	)
+	var i Series
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Title,
+		&i.OriginalTitle,
+		&i.Year,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PosterImageID,
+		&i.TmdbID,
 	)
 	return i, err
 }
@@ -233,6 +316,50 @@ func (q *Queries) SetSeriesPoster(ctx context.Context, arg SetSeriesPosterParams
 	return err
 }
 
+const updateSeriesByTMDBID = `-- name: UpdateSeriesByTMDBID :one
+UPDATE series
+SET title          = $1,
+    original_title = $2,
+    year           = $3,
+    updated_at     = now()
+WHERE type = $4
+  AND tmdb_id = $5::bigint
+RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id
+`
+
+type UpdateSeriesByTMDBIDParams struct {
+	Title         string  `json:"title"`
+	OriginalTitle *string `json:"originalTitle"`
+	Year          *int32  `json:"year"`
+	Type          string  `json:"type"`
+	TmdbID        int64   `json:"tmdbId"`
+}
+
+// 按身份 (type, tmdb_id) 更新一部剧：标题、年份、原名都随目录源覆盖（见 docs/adr/0007）。没有这部剧时没有行。
+// 海报由同步核心随后按 sha256 处理，带回整行是为了剧现在的海报。
+func (q *Queries) UpdateSeriesByTMDBID(ctx context.Context, arg UpdateSeriesByTMDBIDParams) (Series, error) {
+	row := q.db.QueryRow(ctx, updateSeriesByTMDBID,
+		arg.Title,
+		arg.OriginalTitle,
+		arg.Year,
+		arg.Type,
+		arg.TmdbID,
+	)
+	var i Series
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Title,
+		&i.OriginalTitle,
+		&i.Year,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PosterImageID,
+		&i.TmdbID,
+	)
+	return i, err
+}
+
 const upsertEpisode = `-- name: UpsertEpisode :one
 INSERT INTO episodes (season_id, number, title, duration)
 VALUES ($1, $2, $3, $4)
@@ -255,7 +382,7 @@ type UpsertEpisodeRow struct {
 	Created bool  `json:"created"`
 }
 
-// 按自然键 (season_id, number) 写入一集，规则同 UpsertSeries。
+// 按自然键 (season_id, number) 写入一集，规则同 UpsertSeason。
 func (q *Queries) UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) (UpsertEpisodeRow, error) {
 	row := q.db.QueryRow(ctx, upsertEpisode,
 		arg.SeasonID,
@@ -288,47 +415,11 @@ type UpsertSeasonRow struct {
 	Created bool  `json:"created"`
 }
 
-// 按自然键 (series_id, number) 写入一季，规则同 UpsertSeries。
+// 按自然键 (series_id, number) 写入一季：匹配上就用目录源的数据覆盖键以外的字段，匹配不上就新增。
+// created 表示这一行是这次新增的：新插入的行 xmax 为 0，ON CONFLICT DO UPDATE 更新过的行不为 0。
 func (q *Queries) UpsertSeason(ctx context.Context, arg UpsertSeasonParams) (UpsertSeasonRow, error) {
 	row := q.db.QueryRow(ctx, upsertSeason, arg.SeriesID, arg.Number, arg.Title)
 	var i UpsertSeasonRow
 	err := row.Scan(&i.ID, &i.Created)
-	return i, err
-}
-
-const upsertSeries = `-- name: UpsertSeries :one
-INSERT INTO series (type, title, original_title, year)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (type, title, year) DO UPDATE
-SET original_title = excluded.original_title,
-    updated_at     = now()
-RETURNING id, (xmax = 0)::boolean AS created, poster_image_id
-`
-
-type UpsertSeriesParams struct {
-	Type          string  `json:"type"`
-	Title         string  `json:"title"`
-	OriginalTitle *string `json:"originalTitle"`
-	Year          *int32  `json:"year"`
-}
-
-type UpsertSeriesRow struct {
-	ID            int64  `json:"id"`
-	Created       bool   `json:"created"`
-	PosterImageID *int64 `json:"posterImageId"`
-}
-
-// 按自然键 (type, title, year) 写入一部剧：匹配上就用目录源的数据覆盖键以外的字段，匹配不上就新增。
-// created 表示这一行是这次新增的：新插入的行 xmax 为 0，ON CONFLICT DO UPDATE 更新过的行不为 0。
-// 海报由同步核心随后按 sha256 处理，这里带回剧现在的海报。
-func (q *Queries) UpsertSeries(ctx context.Context, arg UpsertSeriesParams) (UpsertSeriesRow, error) {
-	row := q.db.QueryRow(ctx, upsertSeries,
-		arg.Type,
-		arg.Title,
-		arg.OriginalTitle,
-		arg.Year,
-	)
-	var i UpsertSeriesRow
-	err := row.Scan(&i.ID, &i.Created, &i.PosterImageID)
 	return i, err
 }
