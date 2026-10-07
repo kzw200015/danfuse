@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 生成端到端环境的测试媒体库：几十秒的黑屏视频，按 Jellyfin 的命名规则排好。
 # 剧名、年份都是虚构的，标题、年份、季号只由文件夹和文件名决定。
+# 要同步的剧和电影带一个只写了虚构 TMDB id 的 NFO，算作刮削过（标题、年份不受影响）；不带 NFO 的算作没刮削，同步时跳过。
 # 可重复执行：先清空 media/ 里的内容再重建（保留目录本身，运行中的 Jellyfin 挂载不受影响）。
 set -euo pipefail
 
@@ -35,8 +36,17 @@ poster() {
   echo "$path"
 }
 
+# nfo <路径> <根元素> <TMDB id>：只有一个 uniqueid 的 NFO，让条目带上 ProviderIds，不改标题和年份
+nfo() {
+  local path="$MEDIA/$1"
+  mkdir -p "$(dirname "$path")"
+  printf '<?xml version="1.0" encoding="utf-8"?>\n<%s>\n  <uniqueid type="tmdb" default="true">%s</uniqueid>\n</%s>\n' "$2" "$3" "$2" >"$path"
+  echo "$path"
+}
+
 # 番剧（tvshows）
 # 星海旅人 (2019)：特别篇、多集文件、同一集两个版本、第 2 季、自带 JPEG 海报
+nfo "番剧/星海旅人 (2019)/tvshow.nfo" tvshow 900001
 poster "番剧/星海旅人 (2019)/poster.jpg" testsrc2
 video "番剧/星海旅人 (2019)/Season 00/星海旅人 S00E01.mkv" 20
 video "番剧/星海旅人 (2019)/Season 01/星海旅人 S01E01-E02.mkv" 50
@@ -47,10 +57,12 @@ video "番剧/星海旅人 (2019)/Season 02/星海旅人 S02E01.mkv" 30
 video "番剧/星海旅人 (2019)/Season 02/星海旅人 S02E02.mkv" 30
 
 # 星海旅人 (2023)：与上面同名、年份不同，没有海报
+nfo "番剧/星海旅人 (2023)/tvshow.nfo" tvshow 900002
 video "番剧/星海旅人 (2023)/Season 01/星海旅人 S01E01.mkv" 30
 video "番剧/星海旅人 (2023)/Season 01/星海旅人 S01E02.mkv" 30
 
 # 雾港谜案 (2021)：中文季文件夹；第1季的文件名不带季号，第2季的带季号；自带 PNG 海报
+nfo "番剧/雾港谜案 (2021)/tvshow.nfo" tvshow 900003
 poster "番剧/雾港谜案 (2021)/poster.png" smptebars
 video "番剧/雾港谜案 (2021)/第1季/雾港谜案 - 01.mkv" 30
 video "番剧/雾港谜案 (2021)/第1季/雾港谜案 - 02.mkv" 30
@@ -58,12 +70,20 @@ video "番剧/雾港谜案 (2021)/第2季/雾港谜案 S02E01.mkv" 30
 video "番剧/雾港谜案 (2021)/第2季/雾港谜案 S02E02.mkv" 30
 
 # 青石巷日常 (2022)：之后不绑定的季
+nfo "番剧/青石巷日常 (2022)/tvshow.nfo" tvshow 900004
 video "番剧/青石巷日常 (2022)/Season 01/青石巷日常 S01E01.mkv" 30
 video "番剧/青石巷日常 (2022)/Season 01/青石巷日常 S01E02.mkv" 30
 
+# 山间来信 (2024)：没有 NFO，算作没刮削，同步时跳过
+video "番剧/山间来信 (2024)/Season 01/山间来信 S01E01.mkv" 30
+
 # 电影（movies）
+nfo "电影/长夜灯塔 (2020)/长夜灯塔 (2020).nfo" movie 900101
 poster "电影/长夜灯塔 (2020)/poster.jpg" testsrc
 video "电影/长夜灯塔 (2020)/长夜灯塔 (2020).mkv" 45
+
+# 旧港夜航 (2018)：没有 NFO，算作没刮削，同步时跳过
+video "电影/旧港夜航 (2018)/旧港夜航 (2018).mkv" 40
 
 # 其他（不指定类型的混合库）：同步时应被跳过
 video "其他/片段.mkv" 10

@@ -4,6 +4,7 @@
 
 ## 同步与海报
 
+- Jellyfin 适配器只同步刮削过的剧和电影：列清单时带上 `Fields=ProviderIds`（Jellyfin 默认不返回），有任意一个非空的外部 id 才算刮削过；没刮削的产出 `Series` 为 nil 的 Item 和一条警告，不取季和集、不下载海报。没刮削的剧标题、年份取自文件夹名，刮削后会变，剧的自然键（类型、标题、年份）对不上，同步就会多出一部剧。文件夹名里的 `[tmdbid-123]` 这类 id 也会进 ProviderIds，同样算刮削过。这是 Jellyfin 适配器的规则，目录核心不知道"刮削"。
 - 目录源返回 `*catalog.Error`：同步页上的失败原因和海报警告只显示它的 Message。
 - `series.poster_image_id` 不级联，顺序固定：同步换图为插入新图 → 剧指向新图 → 删除旧图；删除剧为先删剧、再删图：用 `DeleteSeries` 的 `RETURNING poster_image_id` 拿到海报 ID，在同一个事务里再删这张图，不先 SELECT。
 - 图片接口 `GET /api/images/:id` 是统一响应的例外：成功时直接返回原始字节和存下的 content-type（`c.Blob`），加 `Cache-Control: public, max-age=31536000, immutable`（海报换了会换新的图片 ID）；出错时照常 return error，由 errorHandler 输出统一结构。前端用 `src/api/images.ts` 的 `imageUrl(id)` 交给 `<img>` 加载，不经过 `request()`。
