@@ -38,7 +38,7 @@ catalog_source:
     poster_timeout: 30s # 下载一张海报的超时
 
 sync:
-  interval: 0 # 定时同步的间隔，例如 24h；0 表示关闭。启动时不立即同步
+  interval: 0 # 定时同步的间隔，例如 24h；0 表示关闭。距最近一次同步（含手动的）满一个间隔就同步，启动时已经到期就立即同步
   keep_runs: 20 # 同步记录保留最近几次，至少 1
 
 # 季绑定的追更。调大 refetch_window 或调小 check_interval 都会增加 B 站请求量

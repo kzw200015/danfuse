@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"slices"
@@ -542,49 +544,118 @@ func TestTriggerRejected(t *testing.T) {
 
 func TestScheduledSync(t *testing.T) {
 	t.Parallel()
-	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &fakeCatalog{items: []catalog.Item{item(tv("甲", nil, season(1, "", episode(1, "", 30))))}, gate: make(chan struct{})}
-		var logs lockedBuffer
-		svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{Interval: time.Hour, KeepRuns: 20}, slogTo(&logs))
-		runInBackground(t, svc)
-
-		statuses := func() []string {
+	// newScheduled 构造定时同步间隔为 1 小时的 SyncService（不运行），返回它和按时间先后列出同步记录的检查函数
+	newScheduled := func(t *testing.T, pool *pgxpool.Pool, src catalog.Source, logs io.Writer) (*SyncService, func(when string, want ...string)) {
+		svc := NewSyncService(repository.NewStore(pool), pool, src, config.Sync{Interval: time.Hour, KeepRuns: 20}, slogTo(logs))
+		check := func(when string, want ...string) {
 			t.Helper()
+			synctest.Wait()
 			runs, err := svc.ListRuns(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}
-			var result []string
+			var got []string
 			for _, r := range slices.Backward(runs) {
-				result = append(result, r.Trigger+" "+r.Status)
+				got = append(got, r.Trigger+" "+r.Status)
 			}
-			return result
-		}
-		check := func(when string, want ...string) {
-			t.Helper()
-			synctest.Wait()
-			if got := statuses(); !slices.Equal(got, want) {
+			if !slices.Equal(got, want) {
 				t.Errorf("%s：同步记录 = %q, want %q", when, got, want)
 			}
 		}
+		return svc, check
+	}
+	src := func() *fakeCatalog {
+		return &fakeCatalog{items: []catalog.Item{item(tv("甲", nil, season(1, "", episode(1, "", 30))))}}
+	}
 
-		check("启动时不立即同步")
-		time.Sleep(time.Hour - time.Second)
-		check("间隔未到")
-		time.Sleep(time.Second)
-		check("到达间隔", "schedule running")
+	t.Run("从没同步过时启动即同步，之后每隔一个间隔", func(t *testing.T) {
+		t.Parallel()
+		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+			src := src()
+			src.gate = make(chan struct{})
+			var logs lockedBuffer
+			svc, check := newScheduled(t, pool, src, &logs)
+			runInBackground(t, svc)
 
-		time.Sleep(time.Hour)
-		check("有同步在跑时定时触发被跳过", "schedule running")
-		if !strings.Contains(logs.String(), `level=INFO msg="sync already running, skipped" trigger=schedule`) {
-			t.Errorf("跳过定时同步应记 info 日志，实际日志：\n%s", logs.String())
-		}
+			check("启动时", "schedule running")
+			time.Sleep(time.Hour)
+			check("有同步在跑时定时触发被跳过", "schedule running")
+			if !strings.Contains(logs.String(), `level=INFO msg="sync already running, skipped" trigger=schedule`) {
+				t.Errorf("跳过定时同步应记 info 日志，实际日志：\n%s", logs.String())
+			}
 
-		src.gate <- struct{}{}
-		check("第一次同步结束", "schedule succeeded")
-		time.Sleep(time.Hour)
-		src.gate <- struct{}{}
-		check("下一个间隔", "schedule succeeded", "schedule succeeded")
+			src.gate <- struct{}{}
+			check("第一次同步结束", "schedule succeeded")
+			time.Sleep(time.Hour - time.Second)
+			check("间隔未到", "schedule succeeded")
+			time.Sleep(time.Second)
+			src.gate <- struct{}{}
+			check("下一个间隔", "schedule succeeded", "schedule succeeded")
+		})
+	})
+
+	t.Run("重启后从最近一次同步算", func(t *testing.T) {
+		t.Parallel()
+		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+			insertRun(t, pool, statusSucceeded, time.Now().Add(-40*time.Minute))
+			svc, check := newScheduled(t, pool, src(), t.Output())
+			runInBackground(t, svc)
+
+			check("启动时间隔未到", "manual succeeded")
+			time.Sleep(20*time.Minute - time.Second)
+			check("间隔未到", "manual succeeded")
+			time.Sleep(time.Second)
+			check("距上次同步满一个间隔", "manual succeeded", "schedule succeeded")
+		})
+	})
+
+	t.Run("启动时已经到期就立即同步", func(t *testing.T) {
+		t.Parallel()
+		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+			insertRun(t, pool, statusSucceeded, time.Now().Add(-3*time.Hour))
+			svc, check := newScheduled(t, pool, src(), t.Output())
+			runInBackground(t, svc)
+
+			check("启动时", "manual succeeded", "schedule succeeded")
+		})
+	})
+
+	t.Run("手动同步推迟定时同步", func(t *testing.T) {
+		t.Parallel()
+		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+			insertRun(t, pool, statusSucceeded, time.Now())
+			svc, check := newScheduled(t, pool, src(), t.Output())
+			runInBackground(t, svc)
+
+			time.Sleep(30 * time.Minute)
+			triggerSync(t, svc)
+			time.Sleep(time.Hour - time.Second)
+			check("距手动同步不满一个间隔", "manual succeeded", "manual succeeded")
+			time.Sleep(time.Second)
+			check("距手动同步满一个间隔", "manual succeeded", "manual succeeded", "schedule succeeded")
+		})
+	})
+
+	t.Run("拿到锁之后已经不到期时跳过", func(t *testing.T) {
+		t.Parallel()
+		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+			insertRun(t, pool, statusSucceeded, time.Now().Add(-3*time.Hour))
+			// 启动时到期、定时同步拿到锁之前，另一个实例做完了一次同步：先拿走锁，插入它的记录，再放开
+			unlock := holdSyncLock(t, pool)
+			svc, check := newScheduled(t, pool, src(), t.Output())
+			runInBackground(t, svc)
+			insertRun(t, pool, statusSucceeded, time.Now())
+			unlock()
+
+			err := svc.loop.call(t.Context(), func(ctx context.Context) error {
+				svc.startScheduled(ctx)
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			check("拿到锁之后", "manual succeeded", "manual succeeded")
+		})
 	})
 }
 
@@ -635,21 +706,11 @@ func TestSyncInterruptedOnShutdown(t *testing.T) {
 
 func TestStaleRunningRuns(t *testing.T) {
 	t.Parallel()
-	insertRun := func(t *testing.T, pool *pgxpool.Pool, status string) int64 {
-		t.Helper()
-		var id int64
-		err := pool.QueryRow(t.Context(), "INSERT INTO sync_runs (trigger, status) VALUES ('manual', $1) RETURNING id", status).Scan(&id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return id
-	}
-
 	t.Run("启动时清理", func(t *testing.T) {
 		t.Parallel()
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-			stale := insertRun(t, pool, statusRunning)
-			done := insertRun(t, pool, statusSucceeded)
+			stale := insertRun(t, pool, statusRunning, time.Now())
+			done := insertRun(t, pool, statusSucceeded, time.Now())
 
 			svc := newTestService(t, pool, &fakeCatalog{})
 
@@ -667,7 +728,7 @@ func TestStaleRunningRuns(t *testing.T) {
 		syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 			// 另一个实例正在同步：它持有锁，它的记录是 running
 			unlock := holdSyncLock(t, pool)
-			other := insertRun(t, pool, statusRunning)
+			other := insertRun(t, pool, statusRunning, time.Now())
 
 			svc := newTestService(t, pool, &fakeCatalog{})
 			if got := getRun(t, svc, other).Status; got != statusRunning {
@@ -685,4 +746,15 @@ func TestStaleRunningRuns(t *testing.T) {
 			}
 		})
 	})
+}
+
+// insertRun 直接插入一条手动触发的同步记录，返回它的 ID。
+func insertRun(t *testing.T, pool *pgxpool.Pool, status string, startedAt time.Time) int64 {
+	t.Helper()
+	var id int64
+	err := pool.QueryRow(t.Context(), "INSERT INTO sync_runs (trigger, status, started_at) VALUES ('manual', $1, $2) RETURNING id", status, startedAt).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

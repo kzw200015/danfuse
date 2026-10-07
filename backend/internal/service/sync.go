@@ -39,6 +39,9 @@ var (
 	errSyncRunning     = apierr.ErrConflict.WithMessage("同步正在进行")
 	errNoCatalogSource = apierr.ErrConflict.WithMessage("未配置目录源")
 	errSyncRunNotFound = apierr.ErrNotFound.WithMessage("同步记录不存在")
+
+	// errSyncNotDue 定时同步拿到租约之后发现已经不到期：判定到期之后、拿到租约之前，其他实例刚做完一次同步。
+	errSyncNotDue = errors.New("scheduled sync not due")
 )
 
 // SyncService 同步：触发、定时、互斥、同步核心（按剧写入目录）、同步记录。
@@ -72,17 +75,45 @@ func NewSyncService(store *repository.Store, pool *pgxpool.Pool, catalogSource c
 }
 
 // Run 后台循环，阻塞到 ctx 取消；返回前等进行中的同步写完最终状态。只能调用一次。
-// 启动时先清理残留的 running；配置了目录源且 interval > 0 时每隔一个间隔触发一次，启动时不立即同步。
+// 启动时先清理残留的 running；配置了目录源且 interval > 0 时，距最近一次同步（含手动触发的，按开始时间）满一个间隔就定时同步：
+// 下一次的时间从同步记录算，重启不会推迟，启动时已经到期（或从没同步过）就立即同步。
 func (s *SyncService) Run(ctx context.Context) {
 	s.cleanupStale(ctx)
 
-	var tick <-chan time.Time
-	if s.catalogSource != nil && s.interval > 0 {
-		ticker := time.NewTicker(s.interval)
-		defer ticker.Stop()
-		tick = ticker.C
+	if s.catalogSource == nil || s.interval <= 0 {
+		s.loop.run(ctx, nil, nil)
+		return
 	}
-	s.loop.run(ctx, tick, s.startScheduled)
+	timer := time.NewTimer(s.untilDue(ctx))
+	defer timer.Stop()
+	s.loop.run(ctx, timer.C, func(ctx context.Context) {
+		// 到点时再算一次：定时器设下之后可能有过手动触发的同步。开始了的话距下一次正好一个间隔，
+		// 没开始（其他实例或手动触发的同步在跑）时从那次同步算；仍然到期（开始失败）时等一个间隔再试，不连续重试
+		d := s.untilDue(ctx)
+		if d <= 0 {
+			s.startScheduled(ctx)
+			if d = s.untilDue(ctx); d <= 0 {
+				d = s.interval
+			}
+		}
+		timer.Reset(d)
+	})
+}
+
+// untilDue 距下一次定时同步还有多久：最近一次同步的开始时间加一个间隔，减去现在；已经到期时不大于 0，从没同步过时为 0。
+// 读不到同步记录时记日志、按一个间隔算。
+func (s *SyncService) untilDue(ctx context.Context) time.Duration {
+	run, err := s.LatestRun(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.Error("schedule sync failed", "error", err)
+		}
+		return s.interval
+	}
+	if run == nil {
+		return 0
+	}
+	return time.Until(run.StartedAt.Add(s.interval))
 }
 
 // Trigger 手动触发一次同步，同步开始后立即返回它的 ID，同步在后台进行。
@@ -163,9 +194,10 @@ func (s *SyncService) interruptStale(ctx context.Context) error {
 	return nil
 }
 
-// startScheduled 开始一次定时同步，出错（包括已有同步在跑）只记日志。
+// startScheduled 开始一次定时同步，出错（包括已有同步在跑）只记日志；拿到租约之后已经不到期时什么都不做。
 func (s *SyncService) startScheduled(ctx context.Context) {
 	switch _, err := s.tryStart(ctx, triggerSchedule); {
+	case errors.Is(err, errSyncNotDue):
 	case errors.Is(err, errSyncRunning):
 		s.logger.Info("sync already running, skipped", "trigger", triggerSchedule)
 	case err != nil && ctx.Err() == nil:
@@ -175,6 +207,7 @@ func (s *SyncService) startScheduled(ctx context.Context) {
 
 // tryStart 拿租约 → 清理残留的 running → 删掉最近 sync.keep_runs 次以前的记录 → 插入 running 记录 → 在后台执行，返回这次同步的 ID。
 // 租约由执行同步的 goroutine 持有到结束；拿不到租约时返回 errSyncRunning。
+// 定时触发拿到租约之后再确认一次仍然到期，不到期时返回 errSyncNotDue，多实例同时到点时不会接连同步两次。
 func (s *SyncService) tryStart(ctx context.Context, trigger string) (int64, error) {
 	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSync)
 	if err != nil {
@@ -182,6 +215,10 @@ func (s *SyncService) tryStart(ctx context.Context, trigger string) (int64, erro
 	}
 	if !ok {
 		return 0, errSyncRunning
+	}
+	if trigger == triggerSchedule && s.untilDue(lease.Context()) > 0 {
+		lease.Release()
+		return 0, errSyncNotDue
 	}
 
 	runID, err := s.createRun(lease.Context(), trigger)
@@ -203,7 +240,7 @@ func (s *SyncService) createRun(ctx context.Context, trigger string) (int64, err
 	if err := s.store.DeleteOldSyncRuns(ctx, s.keepRuns-1); err != nil {
 		return 0, fmt.Errorf("delete old sync runs: %w", err)
 	}
-	runID, err := s.store.CreateSyncRun(ctx, trigger)
+	runID, err := s.store.CreateSyncRun(ctx, repository.CreateSyncRunParams{Trigger: trigger, StartedAt: time.Now()})
 	if err != nil {
 		return 0, fmt.Errorf("create sync run: %w", err)
 	}

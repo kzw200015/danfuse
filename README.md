@@ -140,7 +140,7 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `catalog_source.jellyfin.libraries` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES` | 空 | 要同步的媒体库名。YAML 里写成列表，环境变量里用逗号分隔，例如 `番剧,电影`。媒体库的类型必须是节目或电影，其他类型的会被跳过 |
 | `catalog_source.jellyfin.list_timeout` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT` | `2m` | 同步时列出媒体库、剧和电影、季和集，每个请求的超时。媒体库很大或 Jellyfin 很慢、同步提示"请求 Jellyfin 超时"时调大 |
 | `catalog_source.jellyfin.poster_timeout` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT` | `30s` | 同步时下载一张海报的超时 |
-| `sync.interval` | `DANFUSE_SYNC_INTERVAL` | `0` | 定时同步的间隔，例如 `24h`；`0` 表示关闭，只手动同步。启动时不会立即同步 |
+| `sync.interval` | `DANFUSE_SYNC_INTERVAL` | `0` | 定时同步的间隔，例如 `24h`；`0` 表示关闭，只手动同步。按最近一次同步（含手动的）的开始时间算，重启不会推迟；启动时已经到期就立即同步 |
 | `sync.keep_runs` | `DANFUSE_SYNC_KEEP_RUNS` | `20` | 同步记录保留最近几次，至少 `1` |
 | `follow.scan_interval` | `DANFUSE_FOLLOW_SCAN_INTERVAL` | `1m` | 追更的后台扫描间隔：目录同步进来新的集后，最迟过这么久补建 |
 | `follow.check_interval` | `DANFUSE_FOLLOW_CHECK_INTERVAL` | `12h` | 追更检查合集的周期，也是季绑定建出的绑定自动重新拉取的最短间隔 |
