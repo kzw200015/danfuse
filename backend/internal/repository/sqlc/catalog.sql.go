@@ -230,7 +230,7 @@ func (q *Queries) ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]Li
 }
 
 const listSeries = `-- name: ListSeries :many
-SELECT s.id, s.type, s.title, s.original_title, s.year, s.poster_image_id,
+SELECT s.id, s.type, s.title, s.original_title, s.year, s.tmdb_id, s.poster_image_id,
        count(DISTINCT se.id)::int                         AS season_count,
        count(DISTINCT e.id)::int                          AS episode_count,
        count(DISTINCT b.episode_id)::int                  AS bound_episode_count,
@@ -255,6 +255,7 @@ type ListSeriesRow struct {
 	Title             string  `json:"title"`
 	OriginalTitle     *string `json:"originalTitle"`
 	Year              *int32  `json:"year"`
+	TmdbID            *int64  `json:"tmdbId"`
 	PosterImageID     *int64  `json:"posterImageId"`
 	SeasonCount       int32   `json:"seasonCount"`
 	EpisodeCount      int32   `json:"episodeCount"`
@@ -266,6 +267,7 @@ type ListSeriesRow struct {
 
 // 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。
 // 一集有多个绑定时连接出多行，所以季数、集数、已绑定集数都按 DISTINCT 计。following 表示有开着追更的季绑定。
+// tmdb_id 用来在列表上标出没有 TMDB ID、按标题和年份对应的剧。
 func (q *Queries) ListSeries(ctx context.Context) ([]ListSeriesRow, error) {
 	rows, err := q.db.Query(ctx, listSeries)
 	if err != nil {
@@ -281,6 +283,7 @@ func (q *Queries) ListSeries(ctx context.Context) ([]ListSeriesRow, error) {
 			&i.Title,
 			&i.OriginalTitle,
 			&i.Year,
+			&i.TmdbID,
 			&i.PosterImageID,
 			&i.SeasonCount,
 			&i.EpisodeCount,

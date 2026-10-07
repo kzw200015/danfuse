@@ -83,13 +83,13 @@ func TestListSeries(t *testing.T) {
 	seedCatalog(t, pool)
 	_, _, data := call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK)
 	assertJSON(t, data, `[
-		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019,
+		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "tmdbId": 60735,
 		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3,
 		 "boundEpisodeCount": 2, "bindingCount": 3, "deadBindingCount": 2, "following": false},
-		{"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020,
+		{"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020, "tmdbId": null,
 		 "posterImageId": null, "seasonCount": 1, "episodeCount": 1,
 		 "boundEpisodeCount": 1, "bindingCount": 1, "deadBindingCount": 0, "following": false},
-		{"id": 3, "type": "tv", "title": "空无一季", "originalTitle": null, "year": null,
+		{"id": 3, "type": "tv", "title": "空无一季", "originalTitle": null, "year": null, "tmdbId": null,
 		 "posterImageId": null, "seasonCount": 0, "episodeCount": 0,
 		 "boundEpisodeCount": 0, "bindingCount": 0, "deadBindingCount": 0, "following": false}
 	]`)
