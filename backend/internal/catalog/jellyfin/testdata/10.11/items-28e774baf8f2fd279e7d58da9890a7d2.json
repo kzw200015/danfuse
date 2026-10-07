@@ -12,6 +12,25 @@
       "MediaType": "Unknown",
       "Name": "青石巷日常 (2022)",
       "ProductionYear": 2022,
+      "ProviderIds": {
+        "Tmdb": "900004"
+      },
+      "ServerId": "c2864eca44d049ff9bdea4fc26a44859",
+      "Type": "Series"
+    },
+    {
+      "AirDays": [],
+      "BackdropImageTags": [],
+      "ChannelId": null,
+      "Id": "b9ced9ff836c7b7021de9e69b095ff22",
+      "ImageBlurHashes": {},
+      "ImageTags": {},
+      "IsFolder": true,
+      "LocationType": "FileSystem",
+      "MediaType": "Unknown",
+      "Name": "山间来信 (2024)",
+      "ProductionYear": 2024,
+      "ProviderIds": {},
       "ServerId": "c2864eca44d049ff9bdea4fc26a44859",
       "Type": "Series"
     },
@@ -22,17 +41,20 @@
       "Id": "c311548d3a5ebeef512b28ff37a80d62",
       "ImageBlurHashes": {
         "Primary": {
-          "dcfc7d1a448a12ab39685bced9305733": "dhF=~_.iv:zrxtTAr_=fRksrSdI:a$Rkj]bbowovjbsC"
+          "57431d65a52f8c5da086a93167aa1088": "dhF=~_.iv:zrxtTAr_=fRksrSdI:a$Rkj]bbowovjbsC"
         }
       },
       "ImageTags": {
-        "Primary": "dcfc7d1a448a12ab39685bced9305733"
+        "Primary": "57431d65a52f8c5da086a93167aa1088"
       },
       "IsFolder": true,
       "LocationType": "FileSystem",
       "MediaType": "Unknown",
       "Name": "雾港谜案 (2021)",
       "ProductionYear": 2021,
+      "ProviderIds": {
+        "Tmdb": "900003"
+      },
       "ServerId": "c2864eca44d049ff9bdea4fc26a44859",
       "Type": "Series"
     },
@@ -43,17 +65,20 @@
       "Id": "a2e82866ba1950c858d34adbd471dda5",
       "ImageBlurHashes": {
         "Primary": {
-          "16a039ee8fa1de16c3e726b00bd5d6e9": "d~KBt0,$tJ@Bt8W,W.nmWqWoWpa}oyjrW.ahn,W.W.jc"
+          "83a08eb6dd44e01dfdb1060bf1ccc5ec": "d~KBt0,$tJ@Bt8W,W.nmWqWoWpa}oyjrW.ahn,W.W.jc"
         }
       },
       "ImageTags": {
-        "Primary": "16a039ee8fa1de16c3e726b00bd5d6e9"
+        "Primary": "83a08eb6dd44e01dfdb1060bf1ccc5ec"
       },
       "IsFolder": true,
       "LocationType": "FileSystem",
       "MediaType": "Unknown",
       "Name": "星海旅人 (2019)",
       "ProductionYear": 2019,
+      "ProviderIds": {
+        "Tmdb": "900001"
+      },
       "ServerId": "c2864eca44d049ff9bdea4fc26a44859",
       "Type": "Series"
     },
@@ -69,10 +94,13 @@
       "MediaType": "Unknown",
       "Name": "星海旅人 (2023)",
       "ProductionYear": 2023,
+      "ProviderIds": {
+        "Tmdb": "900002"
+      },
       "ServerId": "c2864eca44d049ff9bdea4fc26a44859",
       "Type": "Series"
     }
   ],
   "StartIndex": 0,
-  "TotalRecordCount": 4
+  "TotalRecordCount": 5
 }

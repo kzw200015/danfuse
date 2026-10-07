@@ -291,7 +291,7 @@ func checkRequest(t *testing.T, r *http.Request, apiKey string) {
 		switch query.Get("IncludeItemTypes") {
 		case "Series,Movie": // 列出媒体库里的剧和电影
 			want.Set("IncludeItemTypes", "Series,Movie")
-			want.Set("Fields", "OriginalTitle")
+			want["Fields"] = []string{"OriginalTitle", "ProviderIds"}
 		case "Season,Episode": // 按剧取季和集
 			want.Set("IncludeItemTypes", "Season,Episode")
 		}

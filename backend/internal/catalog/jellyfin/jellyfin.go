@@ -36,7 +36,7 @@ func New(cfg config.Jellyfin) *Source {
 
 // List 见 catalog.Source。
 //  1. GET /Library/VirtualFolders，按名字找配置的媒体库；找不到或类型不对的放进 Warnings，全部不可用则失败；
-//  2. 媒体库按名称排序，逐个列出剧和电影，各自按 Id 排序，得到 Total；
+//  2. 媒体库按名称排序，逐个列出剧和电影（带上 ProviderIds），各自按 Id 排序，得到 Total；
 //  3. Items 逐部取季和集、下载海报，见 items。
 func (s *Source) List(ctx context.Context) (catalog.Listing, error) {
 	folders, err := s.client.virtualFolders(ctx)
@@ -54,7 +54,7 @@ func (s *Source) List(ctx context.Context) (catalog.Listing, error) {
 
 	var listed []item
 	for _, lib := range libraries {
-		items, err := s.client.listItems(ctx, lib.ItemID, typeSeries+","+typeMovie, "OriginalTitle")
+		items, err := s.client.listItems(ctx, lib.ItemID, typeSeries+","+typeMovie, "OriginalTitle", "ProviderIds")
 		if err != nil {
 			return catalog.Listing{}, failed(fmt.Sprintf("列出媒体库「%s」的剧和电影失败", lib.Name), err)
 		}
@@ -84,13 +84,17 @@ func pickLibraries(names []string, folders []virtualFolder) (libraries []virtual
 // items Listing.Items 的实现：列出的剧和电影已经带着名称、年份和图片 tag，不用再请求一次；
 // 电影自带时长，不用取季和集。请求都在调用方要下一项时才发：剧取季和集，有 Primary 图的再下载海报。
 // 海报下载失败只放进这部剧的 PosterErr，不结束迭代；整部跳过的剧不下载海报。
+// 没有刮削的剧和电影整部跳过，不发请求，见 scraped。
 func (s *Source) items(ctx context.Context, listed []item) iter.Seq2[catalog.Item, error] {
 	return func(yield func(catalog.Item, error) bool) {
 		for _, it := range listed {
 			var result catalog.Item
-			if it.Type == typeMovie {
+			switch {
+			case !scraped(it):
+				result = catalog.Item{Name: displayName(it), Warnings: []string{"没有刮削元数据，整部跳过"}}
+			case it.Type == typeMovie:
 				result = mapMovie(it)
-			} else {
+			default:
 				children, err := s.client.listItems(ctx, it.ID, typeSeason+","+typeEpisode)
 				if err != nil {
 					yield(catalog.Item{}, failed(fmt.Sprintf("取「%s」的季和集失败", displayName(it)), err))
@@ -106,6 +110,18 @@ func (s *Source) items(ctx context.Context, listed []item) iter.Seq2[catalog.Ite
 			}
 		}
 	}
+}
+
+// scraped 剧或电影是否刮削过：ProviderIds 里有任意一个外部数据库的 id。
+// 没刮削的剧标题、年份来自文件夹名，刮削后会变，同步就会多出一部剧（剧按标题和年份对应），所以不同步。
+// 文件夹名里带的 id（如 [tmdbid-123]）也算，Jellyfin 通常会随后按它刮削。
+func scraped(it item) bool {
+	for _, id := range it.ProviderIDs {
+		if strings.TrimSpace(id) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // failed 给 client 返回的错误加上在做什么，例如"列出媒体库失败：无法连接 Jellyfin"；底层原因不变。

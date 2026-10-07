@@ -4,20 +4,41 @@
       "BackdropImageTags": [],
       "ChannelId": null,
       "Container": "mkv",
+      "Id": "bccf15e8838149c87ac88c53efe870d2",
+      "ImageBlurHashes": {},
+      "ImageTags": {},
+      "IsFolder": false,
+      "LocationType": "FileSystem",
+      "MediaType": "Video",
+      "Name": "旧港夜航 (2018)",
+      "ProductionYear": 2018,
+      "ProviderIds": {},
+      "RunTimeTicks": 400210000,
+      "ServerId": "a742f1cbbfa24c10832ded44a7df7061",
+      "Type": "Movie",
+      "VideoType": "VideoFile"
+    },
+    {
+      "BackdropImageTags": [],
+      "ChannelId": null,
+      "Container": "mkv",
       "Id": "2028c556be6ed0b7cb33571dfdc33b24",
       "ImageBlurHashes": {
         "Primary": {
-          "cf7079373c46349fb1090093cf972d47": "drKUsByXx0?W%2R=Oro?jFmPrpMTxunfrsj0oLidS_WF"
+          "98450c8fa3243f798f6576387198990d": "drKUsByXx0?W%2R=Oro?jFmPrpMTxunfrsj0oLidS_WF"
         }
       },
       "ImageTags": {
-        "Primary": "cf7079373c46349fb1090093cf972d47"
+        "Primary": "98450c8fa3243f798f6576387198990d"
       },
       "IsFolder": false,
       "LocationType": "FileSystem",
       "MediaType": "Video",
       "Name": "长夜灯塔 (2020)",
       "ProductionYear": 2020,
+      "ProviderIds": {
+        "Tmdb": "900101"
+      },
       "RunTimeTicks": 450210000,
       "ServerId": "a742f1cbbfa24c10832ded44a7df7061",
       "Type": "Movie",
@@ -25,5 +46,5 @@
     }
   ],
   "StartIndex": 0,
-  "TotalRecordCount": 1
+  "TotalRecordCount": 2
 }

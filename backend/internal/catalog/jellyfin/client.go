@@ -48,6 +48,7 @@ type item struct {
 	SeriesID          string            `json:"SeriesId"`          // 季和集实际所在的剧
 	SeasonName        string            `json:"SeasonName"`        // 集所在季的名称，只用于警告
 	ImageTags         map[string]string `json:"ImageTags"`         // 图片类型 → tag；有 Primary 的剧和电影才下载海报
+	ProviderIDs       map[string]string `json:"ProviderIds"`       // 外部数据库 → id，要显式请求；剧和电影有值才同步
 }
 
 const (
