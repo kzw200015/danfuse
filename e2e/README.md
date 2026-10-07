@@ -103,7 +103,7 @@ docker compose down -v && ./gen-media.sh &&
 
 视频都是几十秒的黑屏，时长各不相同，方便核对时长的换算。剧名、年份都是虚构的。
 
-danfuse 只同步刮削过的剧和电影。除了特别注明没刮削的，每部剧的文件夹里都有一个 `tvshow.nfo`，电影旁边有一个与视频同名的 `.nfo`，里面只写了一个虚构的 TMDB ID（`<uniqueid type="tmdb">`），让条目带上 ProviderIds，标题和年份仍由文件夹名决定。
+danfuse 只同步刮削过的剧和电影。除了特别注明没刮削的，每部剧的文件夹里都有一个 `tvshow.nfo`，电影旁边有一个与视频同名的 `.nfo`，里面只写了一个虚构的 TMDB ID（`<uniqueid type="tmdb">`，剧集为 900001 起、电影为 900101 起，见 `gen-media.sh`），让条目带上 ProviderIds，标题和年份仍由文件夹名决定。同步后这些剧以 TMDB ID 为身份：改文件夹名里的剧名或年份再同步，剧不会多出来，标题年份跟着变；改 NFO 里的 TMDB ID 则会多出一部。
 
 | 路径（`media/` 下） | 覆盖的情况 |
 |---|---|
