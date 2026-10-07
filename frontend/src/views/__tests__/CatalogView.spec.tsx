@@ -15,6 +15,7 @@ import {
   createBinding,
   createFileBinding,
   deleteBinding,
+  listBindingDanmaku,
   listBindingFiles,
   refetchBinding,
   reparseBinding,
@@ -827,4 +828,210 @@ describe('删除剧、季、集', () => {
       expect(router.state.location.pathname).toBe(path)
     },
   )
+})
+
+/** 一页弹幕：按顺序每隔 61.5 秒一条，白色滚动 */
+function danmakuPage(texts: string[], next: string | null) {
+  return {
+    items: texts.map((text, i) => ({
+      timeMs: i * 61_500,
+      mode: 1 as const,
+      color: 0xffffff,
+      text,
+    })),
+    next,
+  }
+}
+
+/** 表格一行的各个单元格的文本 */
+function cells(row: HTMLElement) {
+  return within(row)
+    .getAllByRole('cell')
+    .map((c) => c.textContent)
+}
+
+describe('查看弹幕', () => {
+  it('点弹幕条数打开对话框：按弹幕源时间列出，非默认的颜色和类型才标出，可以加载下一页', async () => {
+    vi.mocked(listBindingDanmaku).mockImplementation(async (_id, _from, after) =>
+      after === undefined
+        ? {
+            items: [
+              { timeMs: 1500, mode: 1, color: 0xffffff, text: '前排' },
+              { timeMs: 61_250, mode: 5, color: 0xff0000, text: '顶部红字' },
+            ],
+            next: 'c1',
+          }
+        : danmakuPage(['最后一条'], null),
+    )
+    renderRoutes('/catalog/1/11/110')
+    const first = await card('弹幕源 1')
+    // 打开时才取
+    expect(listBindingDanmaku).not.toHaveBeenCalled()
+
+    fireEvent.click(first.getByRole('button', { name: '弹幕 1,234 条' }))
+
+    const dialog = within(await screen.findByRole('dialog'))
+    const table = within(await dialog.findByRole('table', { name: '弹幕' }))
+    expect(listBindingDanmaku).toHaveBeenCalledWith(1, null, undefined)
+    const [header, plain, styled] = table.getAllByRole('row')
+    expect(header).toHaveTextContent('弹幕源时间类型颜色内容')
+    expect(cells(plain!)).toEqual(['0:01', '', '', '前排'])
+    expect(cells(styled!)).toEqual(['1:01', '顶部', '', '顶部红字'])
+    expect(within(styled!).getByLabelText('颜色 #ff0000')).toBeInTheDocument()
+
+    fireEvent.click(dialog.getByRole('button', { name: '加载更多' }))
+
+    expect(await table.findByText('最后一条')).toBeInTheDocument()
+    expect(listBindingDanmaku).toHaveBeenLastCalledWith(1, null, 'c1')
+    expect(dialog.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument()
+  })
+
+  it('跳转：回车跳到输入的弹幕源时间，不合法时标红不跳，清空后回车回到开头', async () => {
+    vi.mocked(listBindingDanmaku).mockImplementation(async (_id, fromMs) =>
+      fromMs === null
+        ? danmakuPage(['开头'], null)
+        : fromMs === 90_000
+          ? danmakuPage(['一分半'], null)
+          : danmakuPage([], null),
+    )
+    renderRoutes('/catalog/1/11/110')
+    fireEvent.click((await card('弹幕源 1')).getByRole('button', { name: '弹幕 1,234 条' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(await dialog.findByText('开头')).toBeInTheDocument()
+    const input = dialog.getByLabelText('跳到弹幕源时间')
+    const jump = (text: string) => {
+      fireEvent.change(input, { target: { value: text } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    }
+
+    jump('1:30')
+    expect(await dialog.findByText('一分半')).toBeInTheDocument()
+    expect(listBindingDanmaku).toHaveBeenLastCalledWith(1, 90_000, undefined)
+
+    jump('1:99')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(dialog.getByText('一分半')).toBeInTheDocument()
+
+    jump('9:00')
+    expect(await dialog.findByText('这个时间之后没有弹幕')).toBeInTheDocument()
+
+    jump('')
+    expect(await dialog.findByText('开头')).toBeInTheDocument()
+  })
+
+  it('拖动条：长度到最晚一条弹幕，松手时跳转，输入框跟着显示时间', async () => {
+    vi.mocked(listBindingDanmaku).mockImplementation(async (_id, fromMs) =>
+      danmakuPage([fromMs === null ? '开头' : `从 ${fromMs}`], null),
+    )
+    renderRoutes('/catalog/1/11/110')
+    fireEvent.click((await card('弹幕源 1')).getByRole('button', { name: '弹幕 1,234 条' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    // 滑块要等量出尺寸才显示，jsdom 里一直是 visibility: hidden，按名称查不到
+    const slider = await dialog.findByRole('slider', { hidden: true })
+    expect(slider).toHaveAttribute('aria-label', '弹幕源时间轴')
+    // 最晚一条在 23:40.5，拖动条到 23:41
+    expect(slider).toHaveAttribute('max', '1421000')
+
+    fireEvent.keyDown(slider, { key: 'End' })
+
+    expect(await dialog.findByText('从 1421000')).toBeInTheDocument()
+    expect(dialog.getByLabelText('跳到弹幕源时间')).toHaveValue('23:41')
+    expect(slider).toHaveAttribute('aria-valuetext', '23:41')
+
+    fireEvent.keyDown(slider, { key: 'Home' })
+
+    expect(await dialog.findByText('开头')).toBeInTheDocument()
+    expect(dialog.getByLabelText('跳到弹幕源时间')).toHaveValue('')
+  })
+
+  it('拖动条：鼠标悬停时显示那个位置的时间，移开后消失', async () => {
+    vi.mocked(listBindingDanmaku).mockResolvedValue(danmakuPage(['开头'], null))
+    renderRoutes('/catalog/1/11/110')
+    fireEvent.click((await card('弹幕源 1')).getByRole('button', { name: '弹幕 1,234 条' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    const slider = await dialog.findByRole('slider', { hidden: true })
+    const bar = slider.closest('[data-slot=slider]')!.parentElement!
+    // 宽 1012 像素、滑块宽 12 像素：去掉两端各半个滑块后每像素 1421 毫秒
+    const thumb = bar.querySelector('[data-slot=slider-thumb]')!
+    Object.defineProperty(thumb, 'offsetWidth', { value: 12 })
+    vi.spyOn(bar, 'getBoundingClientRect').mockReturnValue(
+      DOMRect.fromRect({ x: 100, width: 1012 }),
+    )
+
+    fireEvent.mouseMove(bar, { clientX: 100 + 6 + 400 })
+
+    expect(dialog.getByRole('tooltip')).toHaveTextContent('9:28')
+
+    fireEvent.mouseLeave(bar)
+
+    expect(dialog.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('跳转时新的一页到达之前保留原来的表格，不显示加载中', async () => {
+    let finish!: () => void
+    vi.mocked(listBindingDanmaku).mockImplementation((_id, fromMs) =>
+      fromMs === null
+        ? Promise.resolve(danmakuPage(['开头'], null))
+        : new Promise((resolve) => {
+            finish = () => resolve(danmakuPage(['一分半'], null))
+          }),
+    )
+    renderRoutes('/catalog/1/11/110')
+    fireEvent.click((await card('弹幕源 1')).getByRole('button', { name: '弹幕 1,234 条' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(await dialog.findByText('开头')).toBeInTheDocument()
+    const input = dialog.getByLabelText('跳到弹幕源时间')
+
+    fireEvent.change(input, { target: { value: '1:30' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(listBindingDanmaku).toHaveBeenLastCalledWith(1, 90_000, undefined))
+    expect(dialog.getByText('开头')).toBeInTheDocument()
+    expect(dialog.queryByText('加载中…')).not.toBeInTheDocument()
+
+    act(() => finish())
+
+    expect(await dialog.findByText('一分半')).toBeInTheDocument()
+    expect(dialog.queryByText('开头')).not.toBeInTheDocument()
+  })
+
+  it('没有弹幕时条数不可点', async () => {
+    renderRoutes('/catalog/1/11/110')
+    const second = await card('弹幕源 2')
+
+    expect(second.getByText('弹幕 0 条')).toBeInTheDocument()
+    expect(second.queryByRole('button', { name: '弹幕 0 条' })).not.toBeInTheDocument()
+  })
+
+  it('弹幕内容变了（剧详情重新加载后内容版本变了）就从头重新加载，对话框开着时也一样', async () => {
+    let round = 1
+    vi.mocked(listBindingDanmaku).mockImplementation(async () =>
+      danmakuPage([`第 ${round} 次`], null),
+    )
+    const first110 = () => all[0]!.seasons[1]!.episodes[0]!.bindings[0]!
+    vi.mocked(refetchBinding).mockImplementation(async () => {
+      round = 2
+      first110().contentVersion += 1
+      return { binding: first110(), added: 1 }
+    })
+    const { queryClient } = renderRoutes('/catalog/1/11/110')
+    const first = await card('弹幕源 1')
+    fireEvent.click(first.getByRole('button', { name: '弹幕 1,234 条' }))
+    expect(await screen.findByText('第 1 次')).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    // 界面上的重新拉取：再打开时是新的
+    fireEvent.click(first.getByRole('button', { name: '重新拉取' }))
+    expect(await screen.findByText('新增 1 条弹幕')).toBeInTheDocument()
+    fireEvent.click(first.getByRole('button', { name: '弹幕 1,234 条' }))
+    expect(await screen.findByText('第 2 次')).toBeInTheDocument()
+
+    // 后台的定时拉取：对话框开着，剧详情重新加载后就换成新的
+    round = 3
+    first110().contentVersion += 1
+    await act(() => queryClient.invalidateQueries({ queryKey: seriesKeys.list }))
+
+    expect(await screen.findByText('第 3 次')).toBeInTheDocument()
+  })
 })

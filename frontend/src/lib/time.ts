@@ -30,9 +30,10 @@ export function secondsBetween(from: string, to: string) {
   return Math.round((Date.parse(to) - Date.parse(from)) / 1000)
 }
 
-/** 时长（秒）显示为 m:ss 或 h:mm:ss，没有时显示"—" */
-export function formatDuration(seconds: number | null) {
+/** 时长（秒）显示为 m:ss 或 h:mm:ss，负数前面加"-"，没有时显示"—" */
+export function formatDuration(seconds: number | null): string {
   if (seconds === null) return '—'
+  if (seconds < 0) return `-${formatDuration(-seconds)}`
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   const ss = String(seconds % 60).padStart(2, '0')

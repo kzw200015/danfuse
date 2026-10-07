@@ -14,6 +14,7 @@ import { useReloadSeries } from '@/hooks/use-series'
 import { formatAgo, formatDateTime, formatDuration } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
+import BindingDanmakuDialog from './BindingDanmakuDialog'
 import BindingFilesPopover from './BindingFilesPopover'
 import { FileBindingActions, LinkBindingActions } from './BindingSourceActions'
 import { durationMismatch, MAX_OFFSET, parseOffset } from './catalog'
@@ -22,7 +23,7 @@ import { SourceLink, StatusBadge } from './shared'
 const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间的秒数，小数最多三位`
 
 /**
- * 一个绑定的卡片：状态、弹幕源标题、来源标签、弹幕条数、上次拉取时间、与本集时长的对比；偏移输入框、删除。
+ * 一个绑定的卡片：状态、弹幕源标题、来源标签、弹幕条数（点开是保存的弹幕）、上次拉取时间、与本集时长的对比；偏移输入框、删除。
  * 按弹幕源的形态：贴链接建的，标题链接到原页面，可以重新拉取、清空后重新拉取；
  * 用弹幕文件建的，标签点开是文件列表，可以追加文件、重新解析，没有时长与拉取时间。
  * 操作成功用 toast；失败的提示显示在卡片下方，保留到下次操作或手动关闭。
@@ -102,8 +103,8 @@ export default function BindingCard({
           </Badge>
         )}
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>弹幕 {binding.danmakuCount.toLocaleString()} 条</span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <BindingDanmakuDialog binding={binding} />
         {binding.lastFetchedAt && (
           <span title={formatDateTime(binding.lastFetchedAt)}>
             上次拉取 {formatAgo(binding.lastFetchedAt)}
