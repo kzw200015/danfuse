@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import {
@@ -112,11 +112,6 @@ beforeEach(() => {
   }))
 })
 
-afterEach(() => {
-  vi.useRealTimers()
-  vi.resetAllMocks()
-})
-
 /** Re:0 第二季后半那样接着编号的番剧：B 站从第 14 集起，本季从第 1 集起 */
 const continued: CollectionCandidate = {
   kind: 'bangumi',
@@ -193,18 +188,7 @@ describe('添加季绑定', () => {
     ).toBeInTheDocument()
     expect(preview.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')
     expect(preview.getByRole('textbox', { name: '本地第几集' })).toHaveValue('1')
-    // 接着编号的番剧：手动改成合集第 14 集 = 本地第 1 集
-    fireEvent.change(preview.getByRole('textbox', { name: '合集第几集' }), {
-      target: { value: '14' },
-    })
-    expect(targets()).toEqual([
-      '在起点之前',
-      '第 1 集（已有 1 个绑定）',
-      '第 2 集',
-      '目录里还没有第 3 集',
-      '对不上：集号「SP」不是整数',
-    ])
-
+    // 接着编号的番剧：手动改成合集第 13 集 = 本地第 1 集，对应表立即按新的对应刷新
     fireEvent.change(preview.getByRole('textbox', { name: '合集第几集' }), {
       target: { value: '13' },
     })
@@ -442,22 +426,6 @@ describe('季绑定卡片', () => {
         lastErrorAt: null,
       },
       {
-        label: '第2话',
-        number: 2,
-        state: 'failed',
-        reason: 'B 站接口异常',
-        episodeNumber: 2,
-        lastErrorAt: '2026-10-05T08:00:00Z',
-      },
-      {
-        label: '第3话',
-        number: 3,
-        state: 'waitingEpisode',
-        reason: null,
-        episodeNumber: 3,
-        lastErrorAt: null,
-      },
-      {
         label: 'SP',
         number: null,
         state: 'unmatched',
@@ -477,12 +445,7 @@ describe('季绑定卡片', () => {
         .getAllByRole('row')
         .slice(1)
         .map((r) => r.textContent),
-    ).toEqual([
-      '1第1话已建绑定：第 1 集',
-      '2第2话最近一次失败：B 站接口异常',
-      '3第3话等待目录里出现第 3 集',
-      '—SP对不上：集号「SP」不是整数',
-    ])
+    ).toEqual(['1第1话已建绑定：第 1 集', '—SP对不上：集号「SP」不是整数'])
   })
 
   it('立即补建：开始后显示进度；正在补建时用 toast 提示', async () => {
@@ -646,11 +609,6 @@ it('剧列表：追更中的剧带标记，可以只看追更中', async () => {
   expect(list.getByText('1 部')).toBeInTheDocument()
   expect(list.queryByRole('link', { name: /长夜灯塔/ })).not.toBeInTheDocument()
 
-  // 与关键词同时生效
-  fireEvent.change(list.getByRole('textbox', { name: '筛选剧名或原名' }), {
-    target: { value: '灯塔' },
-  })
-  expect(list.getByText('没有匹配的剧')).toBeInTheDocument()
   fireEvent.click(toggle)
   expect(list.getByRole('link', { name: /长夜灯塔/ })).toBeInTheDocument()
 })

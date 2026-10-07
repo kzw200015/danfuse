@@ -84,8 +84,13 @@ async function openSettings() {
   return screen.findByRole('dialog')
 }
 
+/** 设置弹出层里 term 这一项的值 */
+async function settingValue(dialog: HTMLElement, term: string) {
+  return (await within(dialog).findByText(term)).nextElementSibling?.textContent
+}
+
 describe('设置弹出层', () => {
-  it('只读显示目录源的配置，API key 只显示已配置', async () => {
+  it('只读显示配置，API key、SESSDATA 只显示已配置', async () => {
     vi.mocked(getSettings).mockResolvedValue(
       settings({
         catalogSource: {
@@ -94,27 +99,35 @@ describe('设置弹出层', () => {
           libraries: ['番剧', '电影'],
         },
         syncInterval: 86400,
+        bilibiliSessdataConfigured: true,
       }),
     )
     renderRoutes('/catalog')
 
     const dialog = await openSettings()
 
-    const value = async (term: string) =>
-      (await within(dialog).findByText(term)).nextElementSibling?.textContent
-    expect(await value('种类')).toBe('Jellyfin')
-    expect(await value('地址')).toBe('http://192.168.1.10:8096')
-    expect(await value('媒体库')).toBe('番剧电影')
-    expect(await value('定时同步')).toBe('每 24 小时')
-    expect(await value('API key')).toBe('已配置')
+    expect(await settingValue(dialog, '种类')).toBe('Jellyfin')
+    expect(await settingValue(dialog, '地址')).toBe('http://192.168.1.10:8096')
+    expect(await settingValue(dialog, '媒体库')).toBe('番剧电影')
+    expect(await settingValue(dialog, '定时同步')).toBe('每 24 小时')
+    expect(await settingValue(dialog, 'API key')).toBe('已配置')
+    expect(await settingValue(dialog, '定时拉取')).toBe(
+      '绑定建出后 336 小时内，每 12 小时重新拉取一次',
+    )
+    expect(await settingValue(dialog, 'SESSDATA')).toBe('已配置')
   })
 
-  it('未配置目录源', async () => {
+  it('未配置目录源、SESSDATA，关闭定时拉取', async () => {
+    vi.mocked(getSettings).mockResolvedValue(
+      settings({ scheduledFetch: { interval: 43200, window: 0 } }),
+    )
     renderRoutes('/catalog')
 
     const dialog = await openSettings()
 
     expect(await within(dialog).findByText('未配置目录源')).toBeInTheDocument()
+    expect(await settingValue(dialog, '定时拉取')).toBe('关闭')
+    expect(await settingValue(dialog, 'SESSDATA')).toBe('未配置，以未登录的身份拉取，弹幕可能不全')
   })
 
   it('弹弹 API 地址按当前页面的地址拼出，可以复制', async () => {
@@ -144,31 +157,5 @@ describe('设置弹出层', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: '复制' }))
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('手动复制')
-  })
-
-  it.each([
-    { window: 1209600, want: '绑定建出后 336 小时内，每 12 小时重新拉取一次' },
-    { window: 0, want: '关闭' },
-  ])('定时拉取的规则：$want', async ({ window, want }) => {
-    vi.mocked(getSettings).mockResolvedValue(
-      settings({ scheduledFetch: { interval: 43200, window } }),
-    )
-    renderRoutes('/catalog')
-
-    const dialog = await openSettings()
-
-    expect((await within(dialog).findByText('定时拉取')).nextElementSibling).toHaveTextContent(want)
-  })
-
-  it.each([
-    { configured: true, want: '已配置' },
-    { configured: false, want: '未配置，以未登录的身份拉取，弹幕可能不全' },
-  ])('B 站 SESSDATA 只显示是否已配置：$want', async ({ configured, want }) => {
-    vi.mocked(getSettings).mockResolvedValue(settings({ bilibiliSessdataConfigured: configured }))
-    renderRoutes('/catalog')
-
-    const dialog = await openSettings()
-
-    expect((await within(dialog).findByText('SESSDATA')).nextElementSibling).toHaveTextContent(want)
   })
 })

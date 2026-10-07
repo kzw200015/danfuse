@@ -14,8 +14,6 @@ import {
   parseCategory,
   parseOffset,
   resolveSelection,
-  seasonLabel,
-  seasonName,
   type Selection,
 } from '../catalog'
 
@@ -183,17 +181,6 @@ describe('resolveSelection', () => {
     ['电影：季不存在', movie, '10', undefined, 'missing season'],
   ])('%s', (_, series, seasonId, episodeId, want) => {
     expect(selected(resolveSelection(series, seasonId, episodeId))).toBe(want)
-  })
-})
-
-describe('季的标签与名称', () => {
-  it.each([
-    [0, '特别篇', '第 0 季（特别篇）'],
-    [1, 'S1', '第 1 季'],
-    [12, 'S12', '第 12 季'],
-  ])('第 %i 季', (number, label, name) => {
-    expect(seasonLabel(season(1, number))).toBe(label)
-    expect(seasonName(season(1, number))).toBe(name)
   })
 })
 

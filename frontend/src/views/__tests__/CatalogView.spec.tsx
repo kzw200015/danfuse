@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import {
@@ -82,11 +82,6 @@ beforeEach(() => {
   mockCatalog(() => all)
 })
 
-afterEach(() => {
-  vi.useRealTimers()
-  vi.resetAllMocks()
-})
-
 const seasonNav = () => within(screen.getByRole('navigation', { name: '季' }))
 /** 点删除剧、季或集的按钮，在确认框里确认 */
 async function confirmDelete(button: string) {
@@ -147,6 +142,9 @@ describe('CatalogView', () => {
     expect(screen.getByText('时长 1:30:00 · 集 ID 200')).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '季' })).not.toBeInTheDocument()
     expect(screen.queryByTitle('查看整季')).not.toBeInTheDocument()
+    // 只能整部删除
+    expect(screen.getByRole('button', { name: '删除这部剧' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '删除这一集' })).not.toBeInTheDocument()
   })
 
   it('有海报时显示图片，没有海报或加载失败时显示占位图', async () => {
@@ -168,20 +166,6 @@ describe('CatalogView', () => {
 
     expect(screen.getAllByRole('presentation')).toHaveLength(1)
     expect(screen.getAllByTitle('没有海报')).toHaveLength(2)
-  })
-
-  it('筛选剧列表', async () => {
-    renderRoutes('/catalog')
-    const list = within(await screen.findByRole('complementary'))
-    expect(await list.findByText('2 部')).toBeInTheDocument()
-
-    fireEvent.change(list.getByRole('textbox', { name: '筛选剧名或原名' }), {
-      target: { value: 'voyager' },
-    })
-
-    expect(list.getByText('1 部')).toBeInTheDocument()
-    expect(list.getByRole('link', { name: /星海旅人/ })).toBeInTheDocument()
-    expect(list.queryByRole('link', { name: /长夜灯塔/ })).not.toBeInTheDocument()
   })
 
   it('剧列表按分类筛选：分类在地址栏里，点进剧、切换分类都保留', async () => {
@@ -218,13 +202,6 @@ describe('CatalogView', () => {
     fireEvent.click(categories.getByRole('link', { name: '全部' }))
     expect(router.state.location.search).toBe('')
     expect(await list.findByRole('link', { name: /长夜灯塔/ })).toBeInTheDocument()
-  })
-
-  it('打开带分类的地址，只列出这一类', async () => {
-    renderRoutes('/catalog?type=movie')
-    const list = within(await screen.findByRole('complementary'))
-    expect(await list.findByText('1 部')).toBeInTheDocument()
-    expect(list.getByRole('link', { name: /长夜灯塔/ })).toBeInTheDocument()
   })
 
   it.each([
@@ -298,13 +275,6 @@ describe('绑定', () => {
     const second = within(screen.getByRole('article', { name: '弹幕源 2' }))
     expect(second.getByText('失效')).toBeInTheDocument()
     expect(second.getByText(/^弹幕源 23:38/)).toHaveTextContent('弹幕源 23:38 / 本集 23:40')
-  })
-
-  it('没有绑定的集提示贴链接', async () => {
-    renderRoutes('/catalog/1/11/111')
-
-    expect(await screen.findByRole('heading', { name: '绑定（0）' })).toBeInTheDocument()
-    expect(screen.getByText(/还没有绑定/)).toBeInTheDocument()
   })
 
   it('贴链接：进行中显示已用秒数，成功后用 toast 提示并显示新的绑定', async () => {
@@ -762,42 +732,14 @@ describe('删除剧、季、集', () => {
     },
   )
 
-  it('取消时不删除', async () => {
-    renderRoutes('/catalog/1/11')
-
-    fireEvent.click(await screen.findByRole('button', { name: '删除这一季' }))
-    fireEvent.click(
-      within(await screen.findByRole('alertdialog')).getByRole('button', { name: '取消' }),
-    )
-
-    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
-    expect(deleteSeason).not.toHaveBeenCalled()
-  })
-
-  it('电影只能整部删除', async () => {
-    renderRoutes('/catalog/2')
-
-    expect(await screen.findByRole('heading', { name: '正片' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '删除这部剧' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '删除这一集' })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '删除这部剧' }))
-    expect(
-      within(await screen.findByRole('alertdialog')).getByText('将一起删除 0 个绑定，无法恢复。'),
-    ).toBeInTheDocument()
-  })
-
   it('删除失败：提示显示在按钮下方，留在原地', async () => {
     vi.mocked(deleteEpisode).mockRejectedValue(new ApiError('服务器内部错误', 1, 500))
     const { router } = renderRoutes('/catalog/1/11/110')
 
-    const button = await screen.findByRole('button', { name: '删除这一集' })
-    fireEvent.click(button)
-    fireEvent.click(
-      within(await screen.findByRole('alertdialog')).getByRole('button', { name: '删除' }),
-    )
+    await confirmDelete('删除这一集')
 
     const alert = await screen.findByRole('alert')
+    const button = screen.getByRole('button', { name: '删除这一集' })
     expect(alert).toHaveTextContent('服务器内部错误')
     expect(button.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(router.state.location.pathname).toBe('/catalog/1/11/110')

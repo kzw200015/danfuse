@@ -11,9 +11,14 @@ import { getLatestSyncRun, getSyncRun, listSyncRuns, type SyncRunDetail } from '
 import { seriesKeys } from '@/hooks/use-series'
 import { routes } from '@/router/routes'
 
+/** 每个用例新建的 QueryClient，与应用的一样失败不重试 */
+export function newQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } })
+}
+
 /** 在 path 渲染完整的路由（根布局加页面），每次用新的 QueryClient */
 export function renderRoutes(path: string) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = newQueryClient()
   const router = createMemoryRouter(routes, { initialEntries: [path] })
   render(
     <QueryClientProvider client={queryClient}>
