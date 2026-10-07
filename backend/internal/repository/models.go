@@ -27,6 +27,7 @@ type Binding struct {
 	Kind             string     `json:"kind"`
 	FileCount        int32      `json:"fileCount"`
 	FetchAttemptedAt *time.Time `json:"fetchAttemptedAt"`
+	MaxTimeMs        int32      `json:"maxTimeMs"`
 }
 
 type BindingFile struct {

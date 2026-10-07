@@ -170,9 +170,10 @@ func (s *BindingService) Reparse(ctx context.Context, id int64) (BindingView, er
 		return BindingView{}, err
 	}
 	var (
-		b     repository.Binding
-		added int64
-		files int
+		b      repository.Binding
+		added  int64
+		files  int
+		latest int32
 	)
 	err := s.store.ExecTx(ctx, func(q *repository.Queries) error {
 		if err := lockBinding(ctx, q, id); err != nil {
@@ -200,8 +201,9 @@ func (s *BindingService) Reparse(ctx context.Context, id int64) (BindingView, er
 				return err
 			}
 			added += n
+			latest = max(latest, latestTime(items))
 		}
-		b, err = recordDanmaku(ctx, q, id, true, added)
+		b, err = recordDanmaku(ctx, q, id, true, added, latest)
 		return err
 	})
 	if err != nil {

@@ -84,7 +84,7 @@ func (q *Queries) EpisodeExists(ctx context.Context, id int64) (bool, error) {
 }
 
 const getBinding = `-- name: GetBinding :one
-SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at
+SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms
 FROM bindings
 WHERE id = $1
 `
@@ -112,6 +112,7 @@ func (q *Queries) GetBinding(ctx context.Context, id int64) (Binding, error) {
 		&i.Kind,
 		&i.FileCount,
 		&i.FetchAttemptedAt,
+		&i.MaxTimeMs,
 	)
 	return i, err
 }
@@ -287,7 +288,7 @@ func (q *Queries) ListBindingFiles(ctx context.Context, bindingID int64) ([]List
 }
 
 const listBindingsBySeries = `-- name: ListBindingsBySeries :many
-SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at, b.season_binding_id, b.kind, b.file_count, b.fetch_attempted_at
+SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at, b.season_binding_id, b.kind, b.file_count, b.fetch_attempted_at, b.max_time_ms
 FROM bindings b
 JOIN episodes e ON e.id = b.episode_id
 JOIN seasons se ON se.id = e.season_id
@@ -324,6 +325,7 @@ func (q *Queries) ListBindingsBySeries(ctx context.Context, seriesID int64) ([]B
 			&i.Kind,
 			&i.FileCount,
 			&i.FetchAttemptedAt,
+			&i.MaxTimeMs,
 		); err != nil {
 			return nil, err
 		}
@@ -431,23 +433,31 @@ const recordDanmaku = `-- name: RecordDanmaku :one
 UPDATE bindings
 SET danmaku_count   = CASE WHEN $1::boolean THEN 0 ELSE danmaku_count END + $2::int,
     content_version = content_version + ($1::boolean OR $2::int > 0)::int,
+    max_time_ms     = GREATEST(CASE WHEN $1::boolean THEN 0 ELSE max_time_ms END, $3::int),
     updated_at      = now()
-WHERE id = $3
-RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at
+WHERE id = $4
+RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms
 `
 
 type RecordDanmakuParams struct {
-	Replace bool  `json:"replace"`
-	Added   int32 `json:"added"`
-	ID      int64 `json:"id"`
+	Replace  bool  `json:"replace"`
+	Added    int32 `json:"added"`
+	LatestMs int32 `json:"latestMs"`
+	ID       int64 `json:"id"`
 }
 
 // 写入弹幕之后更新绑定的计数（拉取、追加文件、重新解析共用）：
 //
-//	只增不删时，新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1；
-//	替换（清空后重新拉取、重新解析）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1。
+//	只增不删时，新增条数计入 danmaku_count，插入了新弹幕时 content_version 加 1，max_time_ms 取与这批最晚时间中较大的；
+//	替换（清空后重新拉取、重新解析）时，danmaku_count 设为这次插入的条数，content_version 不论插入几条都加 1，
+//	max_time_ms 设为这批的最晚时间。latest_ms 是这次写入的整批弹幕（含已有、跳过的）的最晚时间，不早于 0。
 func (q *Queries) RecordDanmaku(ctx context.Context, arg RecordDanmakuParams) (Binding, error) {
-	row := q.db.QueryRow(ctx, recordDanmaku, arg.Replace, arg.Added, arg.ID)
+	row := q.db.QueryRow(ctx, recordDanmaku,
+		arg.Replace,
+		arg.Added,
+		arg.LatestMs,
+		arg.ID,
+	)
 	var i Binding
 	err := row.Scan(
 		&i.ID,
@@ -468,6 +478,7 @@ func (q *Queries) RecordDanmaku(ctx context.Context, arg RecordDanmakuParams) (B
 		&i.Kind,
 		&i.FileCount,
 		&i.FetchAttemptedAt,
+		&i.MaxTimeMs,
 	)
 	return i, err
 }
@@ -527,7 +538,7 @@ UPDATE bindings
 SET "offset"   = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at
+RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms
 `
 
 type UpdateBindingOffsetParams struct {
@@ -558,6 +569,7 @@ func (q *Queries) UpdateBindingOffset(ctx context.Context, arg UpdateBindingOffs
 		&i.Kind,
 		&i.FileCount,
 		&i.FetchAttemptedAt,
+		&i.MaxTimeMs,
 	)
 	return i, err
 }

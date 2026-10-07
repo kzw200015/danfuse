@@ -57,11 +57,11 @@ func seedCatalog(t *testing.T, pool *pgxpool.Pool) {
 			(2, 1, NULL, NULL),   -- 集 3
 			(4, 1, NULL, 5400);   -- 集 4
 		-- 集 1 有两个绑定（一个失效），集 3 的绑定失效，集 2 没有绑定
-		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", status, danmaku_count) VALUES
-			(1, 'fake', '{"name": "a"}', '弹幕源 a', 1440, 1.5, 'active', 2), -- 绑定 1
-			(1, 'fake', '{"name": "b"}', '弹幕源 b', 1380, 0, 'dead', 0),     -- 绑定 2
-			(3, 'fake', '{"name": "c"}', '弹幕源 c', 600, 0, 'dead', 0),      -- 绑定 3
-			(4, 'fake', '{"name": "d"}', '弹幕源 d', 5400, -2, 'active', 0);  -- 绑定 4
+		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", status, danmaku_count, max_time_ms) VALUES
+			(1, 'fake', '{"name": "a"}', '弹幕源 a', 1440, 1.5, 'active', 2, 1500), -- 绑定 1
+			(1, 'fake', '{"name": "b"}', '弹幕源 b', 1380, 0, 'dead', 0, 0),        -- 绑定 2
+			(3, 'fake', '{"name": "c"}', '弹幕源 c', 600, 0, 'dead', 0, 0),         -- 绑定 3
+			(4, 'fake', '{"name": "d"}', '弹幕源 d', 5400, -2, 'active', 0, 0);     -- 绑定 4
 		INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES
 			(1, 1, 0, 1, 0, '前排'),
 			(1, 2, 1500, 1, 16777215, '来了');
@@ -113,16 +113,16 @@ func TestGetSeries(t *testing.T) {
 				{"id": 2, "number": 0, "title": null, "seasonBindings": [], "episodes": [
 					{"id": 3, "number": 1, "title": null, "duration": null, "bindings": [
 						{"id": 3, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/c", "sourceLabel": "假弹幕源 c",
-						 "title": "弹幕源 c", "duration": 600, "offset": 0, "status": "dead", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
+						 "title": "弹幕源 c", "duration": 600, "offset": 0, "status": "dead", "contentVersion": 0, "danmakuCount": 0, "maxTimeMs": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]},
 				{"id": 1, "number": 1, "title": "第 1 季", "seasonBindings": [], "episodes": [
 					{"id": 2, "number": 1, "title": "启程", "duration": 1420, "bindings": []},
 					{"id": 1, "number": 2, "title": "归航", "duration": 1440, "bindings": [
 						{"id": 1, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
-						 "title": "弹幕源 a", "duration": 1440, "offset": 1.5, "status": "active", "danmakuCount": 2, "seasonBindingId": null, "lastFetchedAt": null},
+						 "title": "弹幕源 a", "duration": 1440, "offset": 1.5, "status": "active", "contentVersion": 0, "danmakuCount": 2, "maxTimeMs": 1500, "seasonBindingId": null, "lastFetchedAt": null},
 						{"id": 2, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/b", "sourceLabel": "假弹幕源 b",
-						 "title": "弹幕源 b", "duration": 1380, "offset": 0, "status": "dead", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
+						 "title": "弹幕源 b", "duration": 1380, "offset": 0, "status": "dead", "contentVersion": 0, "danmakuCount": 0, "maxTimeMs": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]},
 				{"id": 3, "number": 2, "title": "第 2 季", "seasonBindings": [], "episodes": []}
@@ -134,7 +134,7 @@ func TestGetSeries(t *testing.T) {
 				{"id": 4, "number": 1, "title": null, "seasonBindings": [], "episodes": [
 					{"id": 4, "number": 1, "title": null, "duration": 5400, "bindings": [
 						{"id": 4, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/d", "sourceLabel": "假弹幕源 d",
-						 "title": "弹幕源 d", "duration": 5400, "offset": -2, "status": "active", "danmakuCount": 0, "seasonBindingId": null, "lastFetchedAt": null}
+						 "title": "弹幕源 d", "duration": 5400, "offset": -2, "status": "active", "contentVersion": 0, "danmakuCount": 0, "maxTimeMs": 0, "seasonBindingId": null, "lastFetchedAt": null}
 					]}
 				]}
 			]

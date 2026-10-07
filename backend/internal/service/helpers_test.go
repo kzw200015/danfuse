@@ -43,7 +43,8 @@ func syncTest(t *testing.T, f func(t *testing.T, pool *pgxpool.Pool)) {
 	})
 }
 
-// assertInvariants 检查任何时候都成立的不变量：每个绑定的 danmaku_count 等于它实际的弹幕条数、file_count 等于它的弹幕文件份数；
+// assertInvariants 检查任何时候都成立的不变量：每个绑定的 danmaku_count 等于它实际的弹幕条数、
+// max_time_ms 等于它最晚一条弹幕的时间（不早于 0）、file_count 等于它的弹幕文件份数；
 // images 表里没有不被任何剧引用的图片；每条处理过的记录都指向存在的集；
 // 带 season_binding_id 的绑定，所在的集属于那个季绑定的季。
 func assertInvariants(t *testing.T, pool *pgxpool.Pool) {
@@ -68,6 +69,18 @@ func assertInvariants(t *testing.T, pool *pgxpool.Pool) {
 	}
 	for _, m := range mismatches {
 		t.Errorf("绑定 %d 的 danmaku_count 为 %d，实际有 %d 条弹幕", m[0], m[1], m[2])
+	}
+
+	var badMaxTimes []int64
+	err = pool.QueryRow(ctx, `
+		SELECT coalesce(array_agg(b.id ORDER BY b.id), '{}')
+		FROM bindings b
+		WHERE b.max_time_ms <> GREATEST(0, (SELECT max(time_ms) FROM danmaku d WHERE d.binding_id = b.id))`).Scan(&badMaxTimes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(badMaxTimes) > 0 {
+		t.Errorf("绑定 %v 的 max_time_ms 与实际最晚一条弹幕的时间不符", badMaxTimes)
 	}
 
 	var badFileCounts []int64

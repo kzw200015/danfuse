@@ -94,7 +94,7 @@ func TestSyncMatchesNaturalKeys(t *testing.T) {
 
 		// 年份或标题变化：新增一部剧，旧剧连同绑定保留。给旧剧的那一集（集 1）绑定一个弹幕源
 		_, err := pool.Exec(t.Context(), `
-			INSERT INTO bindings (episode_id, adapter, ref, title, duration, danmaku_count) VALUES (1, 'fake', '{"name": "a"}', 'a', 101, 2);
+			INSERT INTO bindings (episode_id, adapter, ref, title, duration, danmaku_count, max_time_ms) VALUES (1, 'fake', '{"name": "a"}', 'a', 101, 2, 1500);
 			INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text) VALUES (1, 1, 0, 1, 0, '前排'), (1, 2, 1500, 1, 0, '来了');`)
 		if err != nil {
 			t.Fatal(err)

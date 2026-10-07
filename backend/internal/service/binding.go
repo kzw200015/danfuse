@@ -44,19 +44,23 @@ func NewBindingService(store *repository.Store, sources *source.Registry, logger
 	return &BindingService{store: store, sources: sources, logger: logger}
 }
 
-// BindingView 绑定的 JSON。不对外暴露原始 ref 和 contentVersion。sourceUrl / sourceLabel：贴链接建的由适配器的
+// BindingView 绑定的 JSON。不对外暴露原始 ref。sourceUrl / sourceLabel：贴链接建的由适配器的
 // Describe 生成；用弹幕文件建的没有链接，标签写明文件的份数。
 type BindingView struct {
-	ID            int64      `json:"id"`
-	Kind          string     `json:"kind"`        // link | file
-	Adapter       *string    `json:"adapter"`     // 用弹幕文件建的为 null
-	SourceURL     *string    `json:"sourceUrl"`   // 用弹幕文件建的为 null
-	SourceLabel   string     `json:"sourceLabel"` // 例如"B 站投稿 BV1xx411c7XX P2"、"弹幕文件 · 5 份"
-	Title         string     `json:"title"`       // 弹幕源的标题
-	Duration      *int32     `json:"duration"`    // 弹幕源视频的时长，秒；用弹幕文件建的没有时长，为 null
-	Offset        float64    `json:"offset"`      // 秒，正数表示弹幕延后
-	Status        string     `json:"status"`      // active | dead
-	DanmakuCount  int32      `json:"danmakuCount"`
+	ID           int64   `json:"id"`
+	Kind         string  `json:"kind"`        // link | file
+	Adapter      *string `json:"adapter"`     // 用弹幕文件建的为 null
+	SourceURL    *string `json:"sourceUrl"`   // 用弹幕文件建的为 null
+	SourceLabel  string  `json:"sourceLabel"` // 例如"B 站投稿 BV1xx411c7XX P2"、"弹幕文件 · 5 份"
+	Title        string  `json:"title"`       // 弹幕源的标题
+	Duration     *int32  `json:"duration"`    // 弹幕源视频的时长，秒；用弹幕文件建的没有时长，为 null
+	Offset       float64 `json:"offset"`      // 秒，正数表示弹幕延后
+	Status       string  `json:"status"`      // active | dead
+	DanmakuCount int32   `json:"danmakuCount"`
+	// ContentVersion 弹幕内容的版本：插入了新弹幕、或替换了全部弹幕时加 1，改偏移不变。管理界面据此刷新已打开的弹幕列表
+	ContentVersion int32 `json:"contentVersion"`
+	// MaxTimeMs 最晚一条弹幕的时间（毫秒，未校正），管理界面查看弹幕时作为拖动条的长度；没有弹幕时为 0
+	MaxTimeMs     int32      `json:"maxTimeMs"`
 	LastFetchedAt *time.Time `json:"lastFetchedAt"`
 	// SeasonBindingID 建出这个绑定的季绑定；手动贴链接建的、或季绑定已被删除的为 null
 	SeasonBindingID *int64 `json:"seasonBindingId"`
@@ -316,17 +320,29 @@ func writeDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, i
 	if err != nil {
 		return repository.Binding{}, 0, err
 	}
-	b, err := recordDanmaku(ctx, q, bindingID, replace, added)
+	b, err := recordDanmaku(ctx, q, bindingID, replace, added, latestTime(items))
 	return b, added, err
 }
 
-// recordDanmaku 写入弹幕之后更新绑定的 danmaku_count 与 content_version（规则见 RecordDanmaku），返回更新后的绑定。
-func recordDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, replace bool, added int64) (repository.Binding, error) {
-	b, err := q.RecordDanmaku(ctx, repository.RecordDanmakuParams{ID: bindingID, Replace: replace, Added: int32(added)})
+// recordDanmaku 写入弹幕之后更新绑定的 danmaku_count、content_version 与 max_time_ms（规则见 RecordDanmaku），返回更新后的绑定。
+// latestMs 是这次写入的整批弹幕的 latestTime。
+func recordDanmaku(ctx context.Context, q *repository.Queries, bindingID int64, replace bool, added int64, latestMs int32) (repository.Binding, error) {
+	b, err := q.RecordDanmaku(ctx, repository.RecordDanmakuParams{
+		ID: bindingID, Replace: replace, Added: int32(added), LatestMs: latestMs,
+	})
 	if err != nil {
 		return repository.Binding{}, fmt.Errorf("record danmaku of binding %d: %w", bindingID, err)
 	}
 	return b, nil
+}
+
+// latestTime 一批弹幕里最晚的时间，不早于 0（没有弹幕时为 0）。
+func latestTime(items []danmaku.Danmaku) int32 {
+	var latest int32
+	for _, d := range items {
+		latest = max(latest, d.TimeMs)
+	}
+	return latest
 }
 
 // insertDanmaku 一条语句写入一批弹幕，按原始 ID 去重（已有的跳过），返回实际插入的条数。
@@ -376,6 +392,8 @@ func bindingView(sources *source.Registry, b repository.Binding) (BindingView, e
 		Offset:          b.Offset,
 		Status:          b.Status,
 		DanmakuCount:    b.DanmakuCount,
+		ContentVersion:  b.ContentVersion,
+		MaxTimeMs:       b.MaxTimeMs,
 		LastFetchedAt:   b.LastFetchedAt,
 		SeasonBindingID: b.SeasonBindingID,
 	}

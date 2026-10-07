@@ -220,6 +220,7 @@ func TestCreateBinding(t *testing.T) {
 		fetched     source.Fetched
 		wantDanmaku []danmaku.Danmaku // 按原始 ID 排序
 		wantVersion int32
+		wantMaxTime int32
 	}{
 		{
 			name:    "有弹幕：源内重复的只留一条，content_version 为 1",
@@ -228,6 +229,7 @@ func TestCreateBinding(t *testing.T) {
 				video.Danmaku[2], video.Danmaku[3], video.Danmaku[0],
 			},
 			wantVersion: 1,
+			wantMaxTime: 61000,
 		},
 		{
 			name:        "弹幕已关闭：0 条，content_version 为 0",
@@ -252,24 +254,23 @@ func TestCreateBinding(t *testing.T) {
 			}
 			got.LastFetchedAt = nil
 			want := BindingView{
-				ID:           1,
-				Kind:         "link",
-				Adapter:      new("fake"),
-				SourceURL:    new("https://fake.test/s1"),
-				SourceLabel:  "假弹幕源 s1",
-				Title:        tt.fetched.Title,
-				Duration:     new(int32(tt.fetched.Duration)),
-				Status:       "active",
-				DanmakuCount: int32(len(tt.wantDanmaku)),
+				ID:             1,
+				Kind:           "link",
+				Adapter:        new("fake"),
+				SourceURL:      new("https://fake.test/s1"),
+				SourceLabel:    "假弹幕源 s1",
+				Title:          tt.fetched.Title,
+				Duration:       new(int32(tt.fetched.Duration)),
+				Status:         "active",
+				DanmakuCount:   int32(len(tt.wantDanmaku)),
+				ContentVersion: tt.wantVersion,
+				MaxTimeMs:      tt.wantMaxTime,
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("Create() = %+v\nwant %+v", got, want)
 			}
 			if items := readDanmaku(t, pool, got.ID); !slices.Equal(items, tt.wantDanmaku) {
 				t.Errorf("落库的弹幕 = %+v\nwant %+v", items, tt.wantDanmaku)
-			}
-			if v := queryInt(t, pool, `SELECT content_version FROM bindings WHERE id = $1`, got.ID); v != int64(tt.wantVersion) {
-				t.Errorf("content_version = %d, want %d", v, tt.wantVersion)
 			}
 
 			// 拉取结束的 info 日志：适配器的统计加上新增条数和总条数
@@ -500,13 +501,14 @@ func TestRefetch(t *testing.T) {
 		wantAdded   int64
 		wantIDs     []int64
 		wantVersion int32
+		wantMaxTime int32 // 最晚一条弹幕的时间
 	}{
-		{"重新拉取：只插入新弹幕，B 站上删掉的继续保留", videoV2, false, 2, []int64{10, 20, 30, 40, 50}, 2},
-		{"重新拉取没有新弹幕：content_version 不变", videoV2, false, 0, []int64{10, 20, 30, 40, 50}, 2},
-		{"清空后重新拉取：恰好是这次的结果，新增条数为总条数", videoV2, true, 4, []int64{20, 30, 40, 50}, 3},
-		{"清空后重新拉取结果没变：content_version 照样加 1", videoV2, true, 4, []int64{20, 30, 40, 50}, 4},
-		{"清空后重新拉取，弹幕已关闭：0 条", closed, true, 0, nil, 5},
-		{"重新拉取又有了弹幕", video, false, 3, []int64{10, 20, 30}, 6},
+		{"重新拉取：只插入新弹幕，B 站上删掉的继续保留", videoV2, false, 2, []int64{10, 20, 30, 40, 50}, 2, 1_200_000},
+		{"重新拉取没有新弹幕：content_version 不变", videoV2, false, 0, []int64{10, 20, 30, 40, 50}, 2, 1_200_000},
+		{"清空后重新拉取：恰好是这次的结果，新增条数为总条数", videoV2, true, 4, []int64{20, 30, 40, 50}, 3, 1_200_000},
+		{"清空后重新拉取结果没变：content_version 照样加 1", videoV2, true, 4, []int64{20, 30, 40, 50}, 4, 1_200_000},
+		{"清空后重新拉取，弹幕已关闭：0 条", closed, true, 0, nil, 5, 0},
+		{"重新拉取又有了弹幕", video, false, 3, []int64{10, 20, 30}, 6, 61000},
 	}
 	prev := getBinding(t, pool, id)
 	for _, step := range steps {
@@ -526,16 +528,18 @@ func TestRefetch(t *testing.T) {
 			}
 			got.LastFetchedAt = nil
 			want := BindingView{
-				ID:           id,
-				Kind:         "link",
-				Adapter:      new("fake"),
-				SourceURL:    new("https://fake.test/s1"),
-				SourceLabel:  "假弹幕源 s1",
-				Title:        step.fetched.Title,
-				Duration:     new(int32(step.fetched.Duration)),
-				Offset:       1.5,
-				Status:       "active",
-				DanmakuCount: int32(len(step.wantIDs)),
+				ID:             id,
+				Kind:           "link",
+				Adapter:        new("fake"),
+				SourceURL:      new("https://fake.test/s1"),
+				SourceLabel:    "假弹幕源 s1",
+				Title:          step.fetched.Title,
+				Duration:       new(int32(step.fetched.Duration)),
+				Offset:         1.5,
+				Status:         "active",
+				DanmakuCount:   int32(len(step.wantIDs)),
+				ContentVersion: step.wantVersion,
+				MaxTimeMs:      step.wantMaxTime,
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("Refetch() = %+v\nwant %+v", got, want)
@@ -544,9 +548,6 @@ func TestRefetch(t *testing.T) {
 				t.Errorf("落库的弹幕 = %v, want %v", ids, step.wantIDs)
 			}
 			prev = getBinding(t, pool, id)
-			if prev.ContentVersion != step.wantVersion {
-				t.Errorf("content_version = %d, want %d", prev.ContentVersion, step.wantVersion)
-			}
 
 			wantLog := fetchedLog(step.fetched, int(step.wantAdded), len(step.wantIDs))
 			if last := strings.TrimSpace(logs.String()); !strings.HasSuffix(last, wantLog) {
