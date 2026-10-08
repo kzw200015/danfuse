@@ -30,8 +30,11 @@ type CollectionItem struct {
 	Ref       Ref    // 弹幕源 ref，与单集绑定同一套格式，手动绑过的同一个弹幕源能被认出来
 	Number    int    // 合集序号，Unmatched 为空时才有意义
 	Unmatched string // 非空表示对不上，内容是原因，例如"集号「SP」不是整数"
-	Label     string // 展示标签，也是集号规则认集号的名称
+	Label     string // 展示标签，也是集号规则认集号的名称；条目有两级标题时为"上级 / 下级"（LabelSeparator），越靠后越具体
 }
+
+// LabelSeparator 条目标签里两级标题之间的分隔，如"稿件标题 / 分 P 标题"。默认集号规则认紧跟它、在结尾的数字（下级标题只写了集号）。
+const LabelSeparator = " / "
 
 // ParseCollectionLink 依次交给各个适配器，返回第一个认识这个链接的适配器和它给出的候选。
 // 适配器返回 ErrUnrecognized 以外的错误时直接返回；都不认识时返回 Kind 为 InvalidLink 的 *Error（"无法识别的链接"）。

@@ -837,7 +837,7 @@ func TestUpdateEpisodeRule(t *testing.T) {
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &fakeCollector{
 			collections: map[string]source.Collection{"s": {NumberedByRule: true, Items: []source.CollectionItem{
-				titled("x", "合辑 / 03"), titled("a", "第1集"), titled("b", "第2集"),
+				titled("x", "合辑 [03]"), titled("a", "第1集"), titled("b", "第2集"),
 			}}},
 			videos: fakeVideos("x", "a", "b"),
 		}
@@ -847,21 +847,21 @@ func TestUpdateEpisodeRule(t *testing.T) {
 			t.Errorf("创建的季绑定 = %+v, want 按规则编号、默认规则", d.SeasonBindingView)
 		}
 		id := d.ID
-		assertStrings(t, "改之前的条目", states(env.get(id)), []string{"合辑 / 03 unmatched - 不符合集号规则", "第1集 bound 1", "第2集 bound 2"})
+		assertStrings(t, "改之前的条目", states(env.get(id)), []string{"合辑 [03] unmatched - 不符合集号规则", "第1集 bound 1", "第2集 bound 2"})
 		lists := src.listCount()
 
-		got, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Rule: new(mustRule(t, `/ (\d+)`))})
+		got, err := env.svc.Update(t.Context(), id, UpdateSeasonBinding{Rule: new(mustRule(t, `\[(\d+)\]`))})
 		if err != nil {
 			t.Fatalf("Update: %v", err)
 		}
-		if !slices.Equal(got.EpisodePatterns, []string{`/ (\d+)`}) || !got.Running {
+		if !slices.Equal(got.EpisodePatterns, []string{`\[(\d+)\]`}) || !got.Running {
 			t.Errorf("Update() = %+v, want 新规则、正在补建", got.SeasonBindingView)
 		}
-		assertStrings(t, "返回的条目", states(got), []string{"合辑 / 03 pending 3", "第1集 bound 1", "第2集 bound 2"})
+		assertStrings(t, "返回的条目", states(got), []string{"合辑 [03] pending 3", "第1集 bound 1", "第2集 bound 2"})
 		synctest.Wait()
 
 		assertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 x 1"})
-		assertStrings(t, "条目", states(env.get(id)), []string{"合辑 / 03 bound 3", "第1集 bound 1", "第2集 bound 2"})
+		assertStrings(t, "条目", states(env.get(id)), []string{"合辑 [03] bound 3", "第1集 bound 1", "第2集 bound 2"})
 		if n := src.listCount(); n != lists+1 {
 			t.Errorf("列出合集 %d 次, want 只有后台补建的 1 次", n-lists)
 		}
@@ -883,7 +883,7 @@ func TestUpdateEpisodeRuleDuringBackfill(t *testing.T) {
 	syncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &fakeCollector{
 			collections: map[string]source.Collection{"s": {NumberedByRule: true, Items: []source.CollectionItem{
-				titled("a", "第1集 / 3"), titled("b", "第2集 / 1"), titled("c", "第3集 / 2"),
+				titled("a", "第1集 [3]"), titled("b", "第2集 [1]"), titled("c", "第3集 [2]"),
 			}}},
 			videos: fakeVideos("a", "b", "c"),
 		}
@@ -891,7 +891,7 @@ func TestUpdateEpisodeRuleDuringBackfill(t *testing.T) {
 		src.gate()
 		d := env.createAsync("list/s")
 		<-src.started // a，按默认规则对到第 1 集
-		if _, err := env.svc.Update(t.Context(), d.ID, UpdateSeasonBinding{Rule: new(mustRule(t, `/ (\d+)`))}); err != nil {
+		if _, err := env.svc.Update(t.Context(), d.ID, UpdateSeasonBinding{Rule: new(mustRule(t, `\[(\d+)\]`))}); err != nil {
 			t.Fatalf("Update: %v", err)
 		}
 		src.release <- struct{}{}
@@ -902,7 +902,7 @@ func TestUpdateEpisodeRuleDuringBackfill(t *testing.T) {
 		synctest.Wait()
 
 		assertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "1 b 1", "2 c 1"})
-		assertStrings(t, "条目", states(env.get(d.ID)), []string{"第1集 / 3 bound 1", "第2集 / 1 bound 1", "第3集 / 2 bound 2"})
+		assertStrings(t, "条目", states(env.get(d.ID)), []string{"第1集 [3] bound 1", "第2集 [1] bound 1", "第3集 [2] bound 2"})
 	})
 }
 

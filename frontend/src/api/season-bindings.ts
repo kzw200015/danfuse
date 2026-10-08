@@ -20,7 +20,7 @@ export interface SeasonBinding {
   mappingTo: number
   /** 合集的序号由集号规则从条目的标题认出（投稿合集、多 P 投稿） */
   numberedByRule: boolean
-  /** 集号规则：按优先级排列的正则，第一条匹配上的给出集号 */
+  /** 集号规则：一组正则，取标题里最靠后的集号，位置一样时排在前面的优先 */
   episodePatterns: string[]
   /** 追更：定期检查合集、同步后补建、新建出的绑定定期重新拉取，时间规则见 Settings.follow */
   follow: boolean

@@ -309,7 +309,7 @@ func pageLabel(title, part string) string {
 	if part == "" || part == title {
 		return title
 	}
-	return title + " / " + part
+	return title + source.LabelSeparator + part
 }
 
 // archivesData x/polymer/web-space/seasons_archives_list 的 data：合集的一页条目，顺序与 view 里各小节展开后的顺序一致。

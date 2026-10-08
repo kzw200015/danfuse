@@ -67,13 +67,23 @@ func TestNumberItems(t *testing.T) {
 			want: []CollectionItem{
 				numbered("正式版【某番】第1集 中文字幕 / 01", 1), numbered("某番 EP02", 2), numbered("某番 S01E03", 3),
 				numbered("某番 ＥＰ０４", 4), unmatched("某番 PV", "不符合集号规则"),
-				unmatched("【合辑】全12集 周更 / 05", "不符合集号规则"), unmatched("12", "不符合集号规则"),
+				numbered("【合辑】全12集 周更 / 05", 5), unmatched("12", "不符合集号规则"),
 			},
 		},
 		{
-			name: "默认规则：按优先级，S01E03 先于第N集",
-			col:  Collection{NumberedByRule: true, Items: []CollectionItem{named("某番 第1集 S01E03")}},
-			want: []CollectionItem{numbered("某番 第1集 S01E03", 3)},
+			name: "取结束得最靠后的集号：同一条正则取最后一处，不同的正则之间也比位置",
+			col: Collection{NumberedByRule: true, Items: []CollectionItem{
+				named("某番 第1集 / 第3集"), named("某番 S01E03 / 第5话"), named("某番 S01E06 / 中文字幕"),
+			}},
+			want: []CollectionItem{
+				numbered("某番 第1集 / 第3集", 3), numbered("某番 S01E03 / 第5话", 5), numbered("某番 S01E06 / 中文字幕", 6),
+			},
+		},
+		{
+			name:     "最靠后的不是整数时对不上，不退而取前面的",
+			patterns: []string{`第(\d+)集`, `/ (.+)$`},
+			col:      Collection{NumberedByRule: true, Items: []CollectionItem{named("某番 第2集 / 上")}},
+			want:     []CollectionItem{unmatched("某番 第2集 / 上", "集号「上」不是整数")},
 		},
 		{
 			name:     "正则：第一个捕获组为集号",
@@ -87,7 +97,7 @@ func TestNumberItems(t *testing.T) {
 			},
 		},
 		{
-			name:     "正则：捕获到的清洗为 NFKC 之后不是整数时对不上，不再试后面的",
+			name:     "正则：捕获到的清洗为 NFKC 之后不是整数时对不上；结束位置一样时取排在前面的正则",
 			patterns: []string{`第(.+?)话`, `(\d+)`},
 			col: Collection{NumberedByRule: true, Items: []CollectionItem{
 				named("第１２话"), named("第一话"), named("第99999999999话"), named("第-1话"),
