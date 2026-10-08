@@ -54,7 +54,7 @@ func (fakeAdapter) ListCollection(_ context.Context, ref source.CollectionRef) (
 	if r.List == "ugc" { // 按集号规则编号的合集
 		return source.Collection{Title: "投稿合集", NumberedByRule: true, Items: []source.CollectionItem{
 			{Ref: item("a"), Label: "某番 第1集"},
-			{Ref: item("b"), Label: "某番 / 02"},
+			{Ref: item("b"), Label: "某番 [02]"},
 		}}, nil
 	}
 	return source.Collection{Title: "合集 " + r.List, Items: []source.CollectionItem{
@@ -118,13 +118,13 @@ func TestSeasonBindingAPI(t *testing.T) {
 
 		// 按集号规则编号的合集：按请求里的规则认出序号（每条去掉前后的空白）
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/preview",
-			`{"link": "fakelist/ugc", "episodePatterns": [" (\\d+)$ "]}`, http.StatusOK)
+			`{"link": "fakelist/ugc", "episodePatterns": [" \\[(\\d+)\\]$ "]}`, http.StatusOK)
 		assertJSON(t, data, `{"candidates": [{
 			"kind": "list", "title": "投稿合集", "sourceUrl": "https://fake.test/list/ugc", "sourceLabel": "假合集 ugc",
 			"finished": false, "numberedByRule": true,
 			"items": [
 				{"label": "某番 第1集", "number": null, "reason": "不符合集号规则"},
-				{"label": "某番 / 02", "number": 2, "reason": null}
+				{"label": "某番 [02]", "number": 2, "reason": null}
 			]
 		}]}`)
 
@@ -226,9 +226,9 @@ func TestSeasonBindingAPI(t *testing.T) {
 
 		// 按集号规则编号的合集：创建时保存规则，改规则时条目随即按新规则重新认出序号
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/2/season-bindings",
-			`{"link": "fakelist/ugc", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["/ (\\d+)$"]}`, http.StatusCreated)
+			`{"link": "fakelist/ugc", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["\\[(\\d+)\\]$"]}`, http.StatusCreated)
 		ugc := decodeObject(t, data)
-		if string(ugc["numberedByRule"]) != "true" || string(ugc["episodePatterns"]) != `["/ (\\d+)$"]` {
+		if string(ugc["numberedByRule"]) != "true" || string(ugc["episodePatterns"]) != `["\\[(\\d+)\\]$"]` {
 			t.Errorf("创建的季绑定 numberedByRule = %s, episodePatterns = %s", ugc["numberedByRule"], ugc["episodePatterns"])
 		}
 		synctest.Wait()
