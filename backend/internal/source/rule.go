@@ -22,7 +22,8 @@ const (
 const notMatchPattern = "不符合集号规则"
 
 // EpisodeRule 集号规则：季绑定从条目名称（标签）认出合集序号的规则，只用于按规则编号的合集（Collection.NumberedByRule）。
-// 是一组按优先级排列的正则：每个条目依次试，第一条匹配上的给出集号；有名为 episode 的捕获组时取它，否则取第一个捕获组。
+// 是一组正则：每一条都在条目的标签里找，取集号结束得最靠后的那一处，一样靠后时取排在前面的正则（见 match）；
+// 有名为 episode 的捕获组时取它，否则取第一个捕获组。
 // 由 ParseEpisodeRule 或 DefaultEpisodeRule 得到，零值不可用。
 type EpisodeRule struct {
 	patterns []episodePattern
@@ -33,9 +34,12 @@ type episodePattern struct {
 	group int // 集号所在捕获组的下标
 }
 
-// defaultRule 默认规则：catalog.EpisodePatterns，与搜索、match 认集号的写法相同。
+// lastLevelEpisode 标签结尾、紧跟 LabelSeparator 的数字：下级标题只写了集号（"某番 / 05"）。
+const lastLevelEpisode = `/ (?P<episode>\d{1,4})$`
+
+// defaultRule 默认规则：catalog.EpisodePatterns（与搜索、match 认集号的写法相同），再加上 lastLevelEpisode。
 var defaultRule = func() EpisodeRule {
-	r, err := ParseEpisodeRule(catalog.EpisodePatterns())
+	r, err := ParseEpisodeRule(append(catalog.EpisodePatterns(), lastLevelEpisode))
 	if err != nil {
 		panic(err)
 	}
@@ -47,7 +51,7 @@ func DefaultEpisodeRule() EpisodeRule {
 	return defaultRule
 }
 
-// ParseEpisodeRule 解析一组按优先级排列的正则：至少 1 条、至多 10 条，每条是 RE2 正则，要有捕获组、不超过 200 个字符。
+// ParseEpisodeRule 解析一组正则（排在前面的优先）：至少 1 条、至多 10 条，每条是 RE2 正则，要有捕获组、不超过 200 个字符。
 // 错误的内容是给用户看的提示。
 func ParseEpisodeRule(patterns []string) (EpisodeRule, error) {
 	switch {
@@ -114,36 +118,46 @@ func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
 	return NormalizeItems(numbered)
 }
 
-// match 认一个条目的序号：按优先级逐条试，每条先按标签原文匹配（用户照着看到的标签写），匹配不上、且清洗为 NFKC 后有变化时
-// 再按清洗后的标签匹配（全角的数字、字母也能认出）；集号的捕获组没有参与匹配时算这一条匹配不上。第一条匹配上的为准：
-// 捕获到的（清洗为 NFKC 之后）不是不小于 0 的整数时对不上，原因写明捕获到的内容，不再试后面的。
+// match 认一个条目的序号：每一条正则都在标签里找，取集号（捕获组）结束得最靠后的那一处，一样靠后时取排在前面的正则。
+// 标签越靠后越具体（见 CollectionItem.Label），两级都写了集号时以下级的为准。先按标签原文匹配（用户照着看到的标签写），
+// 每一条都匹配不上、且清洗为 NFKC 后有变化时，再按清洗后的标签匹配（全角的数字、字母也能认出）；集号的捕获组没有参与匹配时
+// 算这一处匹配不上。取到的（清洗为 NFKC 之后）不是不小于 0 的整数时对不上，原因写明捕获到的内容，不退而取别的匹配。
 func (r EpisodeRule) match(it CollectionItem) CollectionItem {
-	normalized := norm.NFKC.String(it.Label)
-	for _, p := range r.patterns {
-		captured, ok := p.find(it.Label)
-		if !ok && normalized != it.Label {
-			captured, ok = p.find(normalized)
-		}
-		if !ok {
-			continue
-		}
-		n, err := strconv.ParseUint(norm.NFKC.String(captured), 10, 31)
-		if err != nil {
-			it.Number, it.Unmatched = 0, fmt.Sprintf("集号「%s」不是整数", captured)
-		} else {
-			it.Number, it.Unmatched = int(n), ""
-		}
+	captured, ok := r.findLast(it.Label)
+	if normalized := norm.NFKC.String(it.Label); !ok && normalized != it.Label {
+		captured, ok = r.findLast(normalized)
+	}
+	if !ok {
+		it.Number, it.Unmatched = 0, notMatchPattern
 		return it
 	}
-	it.Number, it.Unmatched = 0, notMatchPattern
+	n, err := strconv.ParseUint(norm.NFKC.String(captured), 10, 31)
+	if err != nil {
+		it.Number, it.Unmatched = 0, fmt.Sprintf("集号「%s」不是整数", captured)
+	} else {
+		it.Number, it.Unmatched = int(n), ""
+	}
 	return it
 }
 
-// find 在 s 里匹配，返回集号的捕获组捕获到的内容。
-func (p episodePattern) find(s string) (string, bool) {
-	m := p.re.FindStringSubmatchIndex(s)
-	if m == nil || m[2*p.group] < 0 {
-		return "", false
+// findLast 在 s 里用每一条正则匹配，返回结束得最靠后的集号；一样靠后时取排在前面的正则捕获到的。
+func (r EpisodeRule) findLast(s string) (string, bool) {
+	captured, end := "", -1
+	for _, p := range r.patterns {
+		if c, e := p.last(s); e > end {
+			captured, end = c, e
+		}
 	}
-	return s[m[2*p.group]:m[2*p.group+1]], true
+	return captured, end >= 0
+}
+
+// last 在 s 里找这条正则的每一处匹配，返回最后一处集号的捕获组捕获到的内容和结束位置；匹配不上时结束位置为 -1。
+func (p episodePattern) last(s string) (string, int) {
+	captured, end := "", -1
+	for _, m := range p.re.FindAllStringSubmatchIndex(s, -1) {
+		if m[2*p.group] >= 0 {
+			captured, end = s[m[2*p.group]:m[2*p.group+1]], m[2*p.group+1]
+		}
+	}
+	return captured, end
 }

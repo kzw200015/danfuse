@@ -72,7 +72,7 @@ type SeasonBindingView struct {
 	MappingTo   int32  `json:"mappingTo"`
 	// NumberedByRule 合集的序号由集号规则从条目的标签认出（投稿合集、多 P 投稿），上次列出时由适配器给出
 	NumberedByRule  bool       `json:"numberedByRule"`
-	EpisodePatterns []string   `json:"episodePatterns"` // 集号规则：按优先级排列的正则
+	EpisodePatterns []string   `json:"episodePatterns"` // 集号规则：一组正则，取法见 source.EpisodeRule
 	Follow          bool       `json:"follow"`
 	Status          string     `json:"status"`        // active | dead
 	LastError       *string    `json:"lastError"`     // 上次检查结束时的错误
