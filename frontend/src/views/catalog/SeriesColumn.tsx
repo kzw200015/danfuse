@@ -20,6 +20,7 @@ export default function SeriesColumn({
 }) {
   const path = useCatalogPath()
   const tmdb = tmdbUrl(series)
+  const bilibiliSearchLabel = `在 B 站搜索「${series.title}」`
   const seasonPanelOpen = !episode && !missing
   return (
     <section className="flex min-h-0 flex-col border-r">
@@ -30,17 +31,28 @@ export default function SeriesColumn({
           {series.originalTitle && (
             <div className="truncate text-xs text-muted-foreground">{series.originalTitle}</div>
           )}
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <span>{seriesMeta(series)}</span>
+          <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+            <span className="whitespace-nowrap">{seriesMeta(series)}</span>
             {/* 核对 Jellyfin 识别得对不对；同步按 TMDB ID 对应这部剧 */}
             {tmdb && (
-              <>
+              <span className="inline-flex shrink-0 items-center gap-1">
                 <span>·</span>
-                <SourceLink href={tmdb} className="font-normal">
+                <SourceLink href={tmdb} className="font-normal whitespace-nowrap">
                   TMDB
                 </SourceLink>
-              </>
+              </span>
             )}
+            <span className="inline-flex shrink-0 items-center gap-1">
+              <span>·</span>
+              <SourceLink
+                href={`https://search.bilibili.com/all?keyword=${encodeURIComponent(series.title)}`}
+                title={bilibiliSearchLabel}
+                aria-label={bilibiliSearchLabel}
+                className="font-normal whitespace-nowrap"
+              >
+                B 站
+              </SourceLink>
+            </span>
           </div>
           <DeleteButton
             key={series.id}
