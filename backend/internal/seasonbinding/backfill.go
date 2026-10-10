@@ -188,14 +188,14 @@ func (s *Service) backfill(ctx context.Context, id int64, trigger string, due []
 }
 
 // runBackfill 一轮补建的步骤 1、2。上游错误记在 r 里正常返回；季绑定被删除时返回 errSeasonBindingGone；
-// 其余返回的错误是服务器内部错误。
+// 其余返回的错误是服务器内部错误。只会遇到合集的季绑定：文件夹的季绑定追更恒为关，手动触发补建的入口都拒绝它。
 func (s *Service) runBackfill(ctx context.Context, r *backfillRound) error {
 	sb, err := s.getSeasonBinding(ctx, r.id, errSeasonBindingGone)
 	if err != nil {
 		return err
 	}
 	r.seasonID = sb.SeasonID
-	adapter, err := s.sources.Get(sb.Adapter)
+	adapter, err := s.sources.Get(*sb.Adapter)
 	if err != nil {
 		return err
 	}
@@ -293,7 +293,7 @@ func (s *Service) backfillItem(ctx context.Context, r *backfillRound, adapter so
 		return true, fmt.Errorf("get episode %d of season %d: %w", target, sb.SeasonID, err)
 	}
 
-	switch bound, err := s.bindings.Exists(ctx, episodeID, sb.Adapter, it.Ref); {
+	switch bound, err := s.bindings.Exists(ctx, episodeID, *sb.Adapter, it.Ref); {
 	case err != nil:
 		return true, err
 	case bound:
@@ -345,7 +345,7 @@ func (s *Service) saveBackfilled(ctx context.Context, r *backfillRound, sb seaso
 		var err error
 		saved, err = s.bindings.CreateBackfilledInTx(ctx, tx, binding.Backfilled{
 			EpisodeID:       episodeID,
-			Adapter:         sb.Adapter,
+			Adapter:         *sb.Adapter,
 			Ref:             ref,
 			SeasonBindingID: sb.ID,
 			Fetched:         fetched,

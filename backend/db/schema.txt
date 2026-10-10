@@ -46,7 +46,7 @@ Indexes:
 Check constraints:
     "bindings_file_fetch_attempted_check" CHECK (kind = 'link'::text OR fetch_attempted_at IS NULL)
     "bindings_kind_check" CHECK (kind = ANY (ARRAY['link'::text, 'file'::text]))
-    "bindings_kind_columns_check" CHECK (kind = 'link'::text AND adapter IS NOT NULL AND ref IS NOT NULL AND duration IS NOT NULL AND file_count = 0 OR kind = 'file'::text AND adapter IS NULL AND ref IS NULL AND duration IS NULL AND status = 'active'::text AND last_fetched_at IS NULL AND season_binding_id IS NULL)
+    "bindings_kind_columns_check" CHECK (kind = 'link'::text AND adapter IS NOT NULL AND ref IS NOT NULL AND duration IS NOT NULL AND file_count = 0 OR kind = 'file'::text AND adapter IS NULL AND ref IS NULL AND duration IS NULL AND status = 'active'::text AND last_fetched_at IS NULL)
     "bindings_status_check" CHECK (status = ANY (ARRAY['active'::text, 'dead'::text]))
 Foreign-key constraints:
     "bindings_episode_id_fkey" FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
@@ -163,25 +163,28 @@ Foreign-key constraints:
 ------------------+--------------------------+-----------+----------+------------------------------
  id               | bigint                   |           | not null | generated always as identity
  season_id        | bigint                   |           | not null |
- adapter          | text                     |           | not null |
- ref              | jsonb                    |           | not null |
+ adapter          | text                     |           |          |
+ ref              | jsonb                    |           |          |
  title            | text                     |           | not null |
  finished         | boolean                  |           | not null | false
- mapping_from     | integer                  |           | not null |
- mapping_to       | integer                  |           | not null |
+ mapping_from     | integer                  |           |          |
+ mapping_to       | integer                  |           |          |
  follow           | boolean                  |           | not null | true
  status           | text                     |           | not null | 'active'::text
  last_error       | text                     |           |          |
  last_checked_at  | timestamp with time zone |           |          |
  created_at       | timestamp with time zone |           | not null | now()
  updated_at       | timestamp with time zone |           | not null | now()
- episode_patterns | text[]                   |           | not null |
- numbered_by_rule | boolean                  |           | not null |
+ episode_patterns | text[]                   |           |          |
+ numbered_by_rule | boolean                  |           |          |
+ kind             | text                     |           | not null | 'collection'::text
 Indexes:
     "season_bindings_pkey" PRIMARY KEY, btree (id)
     "season_bindings_season_id_adapter_ref_key" UNIQUE CONSTRAINT, btree (season_id, adapter, ref)
 Check constraints:
     "season_bindings_episode_patterns_check" CHECK (cardinality(episode_patterns) >= 1)
+    "season_bindings_kind_check" CHECK (kind = ANY (ARRAY['collection'::text, 'folder'::text]))
+    "season_bindings_kind_columns_check" CHECK (kind = 'collection'::text AND adapter IS NOT NULL AND ref IS NOT NULL AND mapping_from IS NOT NULL AND mapping_to IS NOT NULL AND episode_patterns IS NOT NULL AND numbered_by_rule IS NOT NULL OR kind = 'folder'::text AND adapter IS NULL AND ref IS NULL AND mapping_from IS NULL AND mapping_to IS NULL AND episode_patterns IS NULL AND numbered_by_rule IS NULL AND NOT follow AND NOT finished AND status = 'active'::text AND last_checked_at IS NULL AND last_error IS NULL)
     "season_bindings_mapping_from_check" CHECK (mapping_from >= 0)
     "season_bindings_mapping_to_check" CHECK (mapping_to >= 0)
     "season_bindings_status_check" CHECK (status = ANY (ARRAY['active'::text, 'dead'::text]))

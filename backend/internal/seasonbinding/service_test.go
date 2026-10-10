@@ -151,11 +151,11 @@ func (e *seasonEnv) get(id int64) seasonbinding.Detail {
 	return d
 }
 
-// bindings 库里的全部绑定："集号 弹幕源名字 季绑定"，手动建的季绑定写作 -，按集号、绑定 ID 排序。
+// bindings 库里的全部绑定："集号 弹幕源名字 季绑定"，文件绑定没有弹幕源、写作标题，手动建的季绑定写作 -，按集号、绑定 ID 排序。
 func (e *seasonEnv) bindings() []string {
 	e.t.Helper()
 	rows, err := e.pool.Query(e.t.Context(), `
-		SELECT format('%s %s %s', e.number, b.ref->>'name', coalesce(b.season_binding_id::text, '-'))
+		SELECT format('%s %s %s', e.number, coalesce(b.ref->>'name', b.title), coalesce(b.season_binding_id::text, '-'))
 		FROM bindings b
 		JOIN episodes e ON e.id = b.episode_id
 		ORDER BY e.number, b.id`)
@@ -318,9 +318,11 @@ func TestCreateSeasonBinding(t *testing.T) {
 
 		got := env.get(created.ID)
 		want := seasonbinding.View{
-			ID: 1, SeasonID: 1, Adapter: "fake", SourceURL: "https://fake.test/list/s", SourceLabel: "假合集 s",
-			Title: "某番剧", Finished: true, MappingFrom: 1, MappingTo: 1, Follow: true, Status: "active",
-			EpisodePatterns: source.DefaultEpisodeRule().Patterns(), LastCheckedAt: &start, BindingCount: 2,
+			ID: 1, SeasonID: 1, Kind: "collection", Title: "某番剧",
+			Adapter: new("fake"), SourceURL: new("https://fake.test/list/s"), SourceLabel: new("假合集 s"), Finished: new(true),
+			MappingFrom: new(int32(1)), MappingTo: new(int32(1)), NumberedByRule: new(false),
+			EpisodePatterns: source.DefaultEpisodeRule().Patterns(), LastCheckedAt: &start,
+			Follow: true, Status: "active", BindingCount: 2,
 		}
 		if got.LastCheckedAt == nil || !got.LastCheckedAt.Equal(start) {
 			t.Errorf("lastCheckedAt = %v, want 这一轮的开始时间 %v", got.LastCheckedAt, start)
@@ -610,7 +612,7 @@ func TestUpdateMapping(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Update: %v", err)
 		}
-		if got.MappingFrom != 14 || got.MappingTo != 1 || !got.Running {
+		if *got.MappingFrom != 14 || *got.MappingTo != 1 || !got.Running {
 			t.Errorf("Update() = %+v, want 14 = 1、正在补建", got.View)
 		}
 		synctest.Wait()
@@ -682,7 +684,7 @@ func TestUpdateEpisodeRule(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2, 3)
 		d := env.create(1, 1)
-		if !d.NumberedByRule || !slices.Equal(d.EpisodePatterns, source.DefaultEpisodeRule().Patterns()) {
+		if !*d.NumberedByRule || !slices.Equal(d.EpisodePatterns, source.DefaultEpisodeRule().Patterns()) {
 			t.Errorf("创建的季绑定 = %+v, want 按规则编号、默认规则", d.View)
 		}
 		id := d.ID

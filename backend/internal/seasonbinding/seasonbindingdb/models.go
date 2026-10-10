@@ -11,12 +11,12 @@ import (
 type SeasonBinding struct {
 	ID              int64      `json:"id"`
 	SeasonID        int64      `json:"seasonId"`
-	Adapter         string     `json:"adapter"`
+	Adapter         *string    `json:"adapter"`
 	Ref             []byte     `json:"ref"`
 	Title           string     `json:"title"`
 	Finished        bool       `json:"finished"`
-	MappingFrom     int32      `json:"mappingFrom"`
-	MappingTo       int32      `json:"mappingTo"`
+	MappingFrom     *int32     `json:"mappingFrom"`
+	MappingTo       *int32     `json:"mappingTo"`
 	Follow          bool       `json:"follow"`
 	Status          string     `json:"status"`
 	LastError       *string    `json:"lastError"`
@@ -24,7 +24,8 @@ type SeasonBinding struct {
 	CreatedAt       time.Time  `json:"createdAt"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
 	EpisodePatterns []string   `json:"episodePatterns"`
-	NumberedByRule  bool       `json:"numberedByRule"`
+	NumberedByRule  *bool      `json:"numberedByRule"`
+	Kind            string     `json:"kind"`
 }
 
 type SeasonBindingItem struct {

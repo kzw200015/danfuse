@@ -21,7 +21,7 @@
 - service 的测试写在领域包里，是外部测试包（`package binding_test`），只经导出的 API 测试；少数要碰内部的（扫描间隔、定时同步的入口）由同一个包里的 `export_test.go` 导出。
 - 只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`、`source.Adapter`），不替换数据库访问。
 - 并发用例让假适配器停在 channel 上（例如 `binding/service_test.go` 的 `fakeAdapter` 在 `started` 上报到、等 `release` 放行），期间直接执行 SQL（删除集等），再放行。
-- `testenv.AssertInvariants` 检查不变量：每个绑定的 `danmaku_count` 等于它实际的弹幕条数、`file_count` 等于它的弹幕文件份数，images 表里没有孤儿图片，处理过的记录都指向存在的集，带 `season_binding_id` 的绑定所在的集属于那个季绑定的季。绑定测试由 `newBindingService` 在每个用例结束时检查，气泡里的测试由 `testenv.SyncTest` 检查。
+- `testenv.AssertInvariants` 检查不变量：每个绑定的 `danmaku_count` 等于它实际的弹幕条数、`file_count` 等于它的弹幕文件份数，images 表里没有孤儿图片，处理过的记录都指向存在的集，带 `season_binding_id` 的绑定所在的集属于那个季绑定的季，链接绑定只指向合集的季绑定、文件绑定只指向文件夹的季绑定，文件夹的季绑定没有条目和处理过的记录。绑定测试由 `newBindingService` 在每个用例结束时检查，气泡里的测试由 `testenv.SyncTest` 检查。
 
 ### 后台 goroutine 与定时器（synctest）
 

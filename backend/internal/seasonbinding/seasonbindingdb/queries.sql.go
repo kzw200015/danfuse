@@ -98,7 +98,7 @@ func (q *Queries) GetEpisodeIDByNumber(ctx context.Context, arg GetEpisodeIDByNu
 }
 
 const getSeasonBinding = `-- name: GetSeasonBinding :one
-SELECT id, season_id, adapter, ref, title, finished, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, updated_at, episode_patterns, numbered_by_rule
+SELECT id, season_id, adapter, ref, title, finished, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, updated_at, episode_patterns, numbered_by_rule, kind
 FROM season_bindings
 WHERE id = $1
 `
@@ -124,6 +124,7 @@ func (q *Queries) GetSeasonBinding(ctx context.Context, id int64) (SeasonBinding
 		&i.UpdatedAt,
 		&i.EpisodePatterns,
 		&i.NumberedByRule,
+		&i.Kind,
 	)
 	return i, err
 }
@@ -149,7 +150,7 @@ func (q *Queries) GetSeasonBindingItemNumber(ctx context.Context, arg GetSeasonB
 }
 
 const getSeasonBindingSummary = `-- name: GetSeasonBindingSummary :one
-SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at, sb.episode_patterns, sb.numbered_by_rule,
+SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at, sb.episode_patterns, sb.numbered_by_rule, sb.kind,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
                FROM leases l
@@ -192,6 +193,7 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 		&i.SeasonBinding.UpdatedAt,
 		&i.SeasonBinding.EpisodePatterns,
 		&i.SeasonBinding.NumberedByRule,
+		&i.SeasonBinding.Kind,
 		&i.BindingCount,
 		&i.Running,
 	)
@@ -199,8 +201,9 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 }
 
 const insertSeasonBinding = `-- name: InsertSeasonBinding :one
-INSERT INTO season_bindings (season_id, adapter, ref, title, finished, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO season_bindings (season_id, kind, adapter, ref, title, finished, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
+VALUES ($1, 'collection', $2::text, $3::jsonb, $4, $5, $6::int, $7::int,
+        $8::text[], $9::boolean)
 RETURNING id
 `
 
@@ -216,7 +219,7 @@ type InsertSeasonBindingParams struct {
 	NumberedByRule  bool     `json:"numberedByRule"`
 }
 
-// 同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
+// 合集的季绑定。同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
 func (q *Queries) InsertSeasonBinding(ctx context.Context, arg InsertSeasonBindingParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertSeasonBinding,
 		arg.SeasonID,
@@ -460,7 +463,7 @@ func (q *Queries) ListSeasonBindingItemsWithHandled(ctx context.Context, seasonB
 }
 
 const listSeasonBindingSummariesBySeries = `-- name: ListSeasonBindingSummariesBySeries :many
-SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at, sb.episode_patterns, sb.numbered_by_rule,
+SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at, sb.episode_patterns, sb.numbered_by_rule, sb.kind,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
                FROM leases l
@@ -510,6 +513,7 @@ func (q *Queries) ListSeasonBindingSummariesBySeries(ctx context.Context, arg Li
 			&i.SeasonBinding.UpdatedAt,
 			&i.SeasonBinding.EpisodePatterns,
 			&i.SeasonBinding.NumberedByRule,
+			&i.SeasonBinding.Kind,
 			&i.BindingCount,
 			&i.Running,
 		); err != nil {
@@ -614,19 +618,19 @@ const recordSeasonBindingListed = `-- name: RecordSeasonBindingListed :one
 UPDATE season_bindings
 SET status           = 'active',
     last_error       = NULL,
-    title            = $2,
-    finished         = $3,
-    numbered_by_rule = $4,
+    title            = $1,
+    finished         = $2,
+    numbered_by_rule = $3::boolean,
     updated_at       = now()
-WHERE id = $1
+WHERE id = $4
 RETURNING episode_patterns
 `
 
 type RecordSeasonBindingListedParams struct {
-	ID             int64  `json:"id"`
 	Title          string `json:"title"`
 	Finished       bool   `json:"finished"`
 	NumberedByRule bool   `json:"numberedByRule"`
+	ID             int64  `json:"id"`
 }
 
 // 一次检查成功列出合集：季绑定恢复为正常、清掉错误，更新合集标题、完结标志与是否按集号规则编号。
@@ -634,10 +638,10 @@ type RecordSeasonBindingListedParams struct {
 // 季绑定已被删除时没有行。
 func (q *Queries) RecordSeasonBindingListed(ctx context.Context, arg RecordSeasonBindingListedParams) ([]string, error) {
 	row := q.db.QueryRow(ctx, recordSeasonBindingListed,
-		arg.ID,
 		arg.Title,
 		arg.Finished,
 		arg.NumberedByRule,
+		arg.ID,
 	)
 	var episode_patterns []string
 	err := row.Scan(&episode_patterns)
@@ -645,7 +649,7 @@ func (q *Queries) RecordSeasonBindingListed(ctx context.Context, arg RecordSeaso
 }
 
 const seasonBindingExists = `-- name: SeasonBindingExists :one
-SELECT EXISTS (SELECT 1 FROM season_bindings WHERE season_id = $1 AND adapter = $2 AND ref = $3)
+SELECT EXISTS (SELECT 1 FROM season_bindings WHERE season_id = $1 AND adapter = $2::text AND ref = $3::jsonb)
 `
 
 type SeasonBindingExistsParams struct {
@@ -721,7 +725,7 @@ type UpdateSeasonBindingParams struct {
 
 // 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号：改了集号规则时，同一个事务里随后重新认出条目的序号。
 // 不存在时没有行。
-func (q *Queries) UpdateSeasonBinding(ctx context.Context, arg UpdateSeasonBindingParams) (bool, error) {
+func (q *Queries) UpdateSeasonBinding(ctx context.Context, arg UpdateSeasonBindingParams) (*bool, error) {
 	row := q.db.QueryRow(ctx, updateSeasonBinding,
 		arg.Follow,
 		arg.MappingFrom,
@@ -729,7 +733,7 @@ func (q *Queries) UpdateSeasonBinding(ctx context.Context, arg UpdateSeasonBindi
 		arg.EpisodePatterns,
 		arg.ID,
 	)
-	var numbered_by_rule bool
+	var numbered_by_rule *bool
 	err := row.Scan(&numbered_by_rule)
 	return numbered_by_rule, err
 }
