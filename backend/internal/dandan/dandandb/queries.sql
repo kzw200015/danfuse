@@ -26,8 +26,11 @@ JOIN series s ON s.id = se.series_id
 WHERE se.id = $1;
 
 -- name: ListEpisodesBySeasons :many
--- 搜索结果、作品详情里各季的全部集，按季、集号排序。
-SELECT id, season_id, number, title
-FROM episodes
-WHERE season_id = ANY (sqlc.arg(season_ids)::bigint[])
+-- 搜索结果、作品详情里各季的集，按季、集号排序，每行带着这一季的总集数。
+-- 给了 number 时只要这个集号的集（按集号搜索、识别），总集数仍是全部的集。
+SELECT id, season_id, number, title, episode_count
+FROM (SELECT id, season_id, number, title, count(*) OVER (PARTITION BY season_id) AS episode_count
+      FROM episodes
+      WHERE season_id = ANY (sqlc.arg(season_ids)::bigint[])) e
+WHERE sqlc.narg(number)::int IS NULL OR number = sqlc.narg(number)::int
 ORDER BY season_id, number;

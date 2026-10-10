@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"fmt"
 )
 
 // CollectionRef 合集在平台内的引用，是适配器自己定义的 JSON，存入 season_bindings.ref（jsonb），
@@ -31,6 +32,11 @@ type CollectionItem struct {
 	Number    int    // 合集序号，Unmatched 为空时才有意义
 	Unmatched string // 非空表示对不上，内容是原因，例如"集号「SP」不是整数"
 	Label     string // 展示标签，也是集号规则认集号的名称；条目有两级标题时为"上级 / 下级"（LabelSeparator），越靠后越具体
+}
+
+// NotInteger 认出的集号 s 不是整数时条目对不上的原因。
+func NotInteger(s string) string {
+	return fmt.Sprintf("集号「%s」不是整数", s)
 }
 
 // LabelSeparator 条目标签里两级标题之间的分隔，如"稿件标题 / 分 P 标题"。默认集号规则认紧跟它、在结尾的数字（下级标题只写了集号）。

@@ -535,7 +535,7 @@ func TestTriggerRejected(t *testing.T) {
 	t.Run("服务正在关闭", func(t *testing.T) {
 		t.Parallel()
 		testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-			svc := catalog.NewSyncService(pool, &testenv.FakeCatalog{}, config.Sync{KeepRuns: 20}, testenv.Logger(t))
+			svc := catalog.NewSyncService(pool, &testenv.FakeCatalog{}, config.Defaults().Sync, testenv.Logger(t))
 			stop := testenv.RunInBackground(t, svc)
 			stop() // Run 已返回：不再等它接收触发
 
@@ -562,11 +562,18 @@ func TestTriggerRejected(t *testing.T) {
 	})
 }
 
+// hourly 定时同步间隔为 1 小时的配置。
+func hourly() config.Sync {
+	cfg := config.Defaults().Sync
+	cfg.Interval = time.Hour
+	return cfg
+}
+
 func TestScheduledSync(t *testing.T) {
 	t.Parallel()
 	// newScheduled 构造定时同步间隔为 1 小时的 catalog.SyncService（不运行），返回它和按时间先后列出同步记录的检查函数
 	newScheduled := func(t *testing.T, pool *pgxpool.Pool, src catalog.Source, logs io.Writer) (*catalog.SyncService, func(when string, want ...string)) {
-		svc := catalog.NewSyncService(pool, src, config.Sync{Interval: time.Hour, KeepRuns: 20}, testenv.SlogTo(logs))
+		svc := catalog.NewSyncService(pool, src, hourly(), testenv.SlogTo(logs))
 		check := func(when string, want ...string) {
 			t.Helper()
 			synctest.Wait()
@@ -678,7 +685,7 @@ func TestScheduledSync(t *testing.T) {
 func TestNoScheduleWithoutSource(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		svc := catalog.NewSyncService(pool, nil, config.Sync{Interval: time.Hour, KeepRuns: 20}, testenv.Logger(t))
+		svc := catalog.NewSyncService(pool, nil, hourly(), testenv.Logger(t))
 		testenv.RunInBackground(t, svc)
 
 		time.Sleep(3 * time.Hour)
@@ -699,7 +706,7 @@ func TestSyncInterruptedOnShutdown(t *testing.T) {
 			},
 			Gate: make(chan struct{}),
 		}
-		svc := catalog.NewSyncService(pool, src, config.Sync{KeepRuns: 20}, testenv.Logger(t))
+		svc := catalog.NewSyncService(pool, src, config.Defaults().Sync, testenv.Logger(t))
 		stop := testenv.RunInBackground(t, svc)
 		id := testenv.TriggerSync(t, svc)
 		src.Gate <- struct{}{}

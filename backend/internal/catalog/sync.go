@@ -39,9 +39,6 @@ var (
 	errSyncRunning     = apierr.ErrConflict.WithMessage("同步正在进行")
 	errNoCatalogSource = apierr.ErrConflict.WithMessage("未配置目录源")
 	errSyncRunNotFound = apierr.ErrNotFound.WithMessage("同步记录不存在")
-
-	// errSyncNotDue 定时同步拿到租约之后发现已经不到期：判定到期之后、拿到租约之前，其他实例刚做完一次同步。
-	errSyncNotDue = errors.New("scheduled sync not due")
 )
 
 // internalErrorMessage 同步遇到服务器内部错误时存在同步记录上给管理界面看的原因，完整的错误进日志。
@@ -128,8 +125,11 @@ func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 	}
 	var runID int64
 	err := s.loop.Call(ctx, func(ctx context.Context) error {
-		var err error
-		runID, err = s.tryStart(ctx, triggerManual)
+		lease, err := s.acquire(ctx)
+		if err != nil {
+			return err
+		}
+		runID, err = s.start(lease, triggerManual)
 		return err
 	})
 	return runID, err
@@ -197,10 +197,19 @@ func (s *SyncService) interruptStale(ctx context.Context) error {
 	return nil
 }
 
-// startScheduled 开始一次定时同步，出错（包括已有同步在跑）只记日志；拿到租约之后已经不到期时什么都不做。
+// startScheduled 开始一次定时同步，出错（包括已有同步在跑）只记日志。
+// 拿到租约之后再确认一次仍然到期（判定到期之后、拿到租约之前，其他实例可能刚做完一次同步），不到期时什么都不做，
+// 多实例同时到点时不会接连同步两次。
 func (s *SyncService) startScheduled(ctx context.Context) {
-	switch _, err := s.tryStart(ctx, triggerSchedule); {
-	case errors.Is(err, errSyncNotDue):
+	lease, err := s.acquire(ctx)
+	if err == nil {
+		if s.untilDue(lease.Context()) > 0 {
+			lease.Release()
+			return
+		}
+		_, err = s.start(lease, triggerSchedule)
+	}
+	switch {
 	case errors.Is(err, errSyncRunning):
 		s.logger.Info("sync already running, skipped", "trigger", triggerSchedule)
 	case err != nil && ctx.Err() == nil:
@@ -208,22 +217,21 @@ func (s *SyncService) startScheduled(ctx context.Context) {
 	}
 }
 
-// tryStart 拿租约 → 清理残留的 running → 删掉最近 sync.keep_runs 次以前的记录 → 插入 running 记录 → 在后台执行，返回这次同步的 ID。
-// 租约由执行同步的 goroutine 持有到结束；拿不到租约时返回 errSyncRunning。
-// 定时触发拿到租约之后再确认一次仍然到期，不到期时返回 errSyncNotDue，多实例同时到点时不会接连同步两次。
-func (s *SyncService) tryStart(ctx context.Context, trigger string) (int64, error) {
+// acquire 拿同步的租约；拿不到时返回 errSyncRunning。
+func (s *SyncService) acquire(ctx context.Context) (*database.Lease, error) {
 	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSync)
 	if err != nil {
-		return 0, fmt.Errorf("acquire sync lease: %w", err)
+		return nil, fmt.Errorf("acquire sync lease: %w", err)
 	}
 	if !ok {
-		return 0, errSyncRunning
+		return nil, errSyncRunning
 	}
-	if trigger == triggerSchedule && s.untilDue(lease.Context()) > 0 {
-		lease.Release()
-		return 0, errSyncNotDue
-	}
+	return lease, nil
+}
 
+// start 持有同步的租约时开始一次同步：清理残留的 running → 删掉最近 sync.keep_runs 次以前的记录 → 插入 running 记录 →
+// 在后台执行，返回这次同步的 ID。租约交给执行同步的 goroutine 持有到结束，开始失败时释放。
+func (s *SyncService) start(lease *database.Lease, trigger string) (int64, error) {
 	runID, err := s.createRun(lease.Context(), trigger)
 	if err != nil {
 		lease.Release()
@@ -308,6 +316,7 @@ type syncRun struct {
 	createdSeries, createdSeasons, createdEpisodes int32
 	warnings                                       []string // 只保留前 maxSyncWarnings 条
 	warningCount                                   int32    // 警告总数
+	savedWarnings                                  int      // 上次写入进度时 warnings 的条数
 }
 
 func newSyncRun(id int64) *syncRun {

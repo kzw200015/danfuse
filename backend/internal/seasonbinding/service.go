@@ -334,13 +334,9 @@ func (s *Service) Get(ctx context.Context, id int64) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	items, err := s.q.ListSeasonBindingItems(ctx, id)
+	items, err := s.q.ListSeasonBindingItemsWithHandled(ctx, id)
 	if err != nil {
 		return Detail{}, fmt.Errorf("list items of season binding %d: %w", id, err)
-	}
-	handled, err := s.q.ListSeasonBindingHandled(ctx, id)
-	if err != nil {
-		return Detail{}, fmt.Errorf("list handled of season binding %d: %w", id, err)
 	}
 	bound, err := s.q.ListBoundSources(ctx, id)
 	if err != nil {
@@ -350,7 +346,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Detail, error) {
 	if err != nil {
 		return Detail{}, fmt.Errorf("list episodes of season %d: %w", row.SeasonBinding.SeasonID, err)
 	}
-	return Detail{View: view, Items: itemViews(row.SeasonBinding, items, handled, bound, numbers)}, nil
+	return Detail{View: view, Items: itemViews(row.SeasonBinding, items, bound, numbers)}, nil
 }
 
 // ListBySeries 一部剧的全部季绑定（不含条目表），按季 ID 分组，组内按创建顺序。剧详情用。
@@ -378,33 +374,29 @@ type sourceAt struct {
 	ref     string
 }
 
-// itemViews 算出各条目的状态（见 itemView）。条目、处理过的记录与绑定的 ref 都读自 jsonb 列，格式相同，可以直接比较。
-func itemViews(sb seasonbindingdb.SeasonBinding, items []seasonbindingdb.SeasonBindingItem, handled []seasonbindingdb.ListSeasonBindingHandledRow, bound []seasonbindingdb.ListBoundSourcesRow, numbers []int32) []ItemView {
-	builtAt := make(map[string]int32, len(handled)) // 处理过的弹幕源建在哪一集
-	for _, h := range handled {
-		builtAt[string(h.Ref)] = h.EpisodeNumber
-	}
+// itemViews 算出各条目的状态（见 itemView）。条目与绑定的 ref 都读自 jsonb 列，格式相同，可以直接比较。
+func itemViews(sb seasonbindingdb.SeasonBinding, items []seasonbindingdb.ListSeasonBindingItemsWithHandledRow, bound []seasonbindingdb.ListBoundSourcesRow, numbers []int32) []ItemView {
 	own := make(map[sourceAt]bool, len(bound)) // 本季现有的绑定是不是这个季绑定建出的
 	for _, b := range bound {
 		own[sourceAt{b.EpisodeNumber, string(b.Ref)}] = b.Own
 	}
 	views := make([]ItemView, len(items))
 	for i, it := range items {
-		views[i] = itemView(sb, it, builtAt, own, numbers)
+		views[i] = itemView(sb, it.SeasonBindingItem, it.HandledEpisodeNumber, own, numbers)
 	}
 	return views
 }
 
-// itemView 一个条目的状态。处理过的（在 builtAt 里，值是绑定建在的那一集）看那一集上这个弹幕源的绑定：
+// itemView 一个条目的状态。处理过的（builtAt 不为 nil，是绑定建在的那一集）看那一集上这个弹幕源的绑定：
 // 是它建出的为已建绑定，别人建的为集上已有，没有了为绑定已被删除。
 // 没处理过的依次判断：对不上（含集号重复）、在起点之前、对应的集不存在（等待）、对应的集上已有这个弹幕源、最近一次失败、待补建。
 // own 是本季现有的绑定（见 ListBoundSources），numbers 是本季的集号。
-func itemView(sb seasonbindingdb.SeasonBinding, it seasonbindingdb.SeasonBindingItem, builtAt map[string]int32, own map[sourceAt]bool, numbers []int32) ItemView {
+func itemView(sb seasonbindingdb.SeasonBinding, it seasonbindingdb.SeasonBindingItem, builtAt *int32, own map[sourceAt]bool, numbers []int32) ItemView {
 	v := ItemView{Label: it.Label, Number: it.Number}
 	ref := string(it.Ref)
-	if episode, ok := builtAt[ref]; ok {
-		v.EpisodeNumber = &episode
-		switch mine, bound := own[sourceAt{episode, ref}]; {
+	if builtAt != nil {
+		v.EpisodeNumber = builtAt
+		switch mine, bound := own[sourceAt{*builtAt, ref}]; {
 		case !bound:
 			v.State = itemBindingDeleted
 		case mine:
@@ -487,27 +479,23 @@ type UpdateParams struct {
 	Rule        *source.EpisodeRule
 }
 
-// Update 改集号对应、集号规则，开关追更。只改了追更、集号对应时是单条 UPDATE，不锁其他行；
-// 改了集号规则时在同一个事务里按保存的标签重新认出条目的序号（不请求平台）：UPDATE 锁住季绑定的行，
-// 与补建保存条目的事务前后排队，不会被旧规则认出的序号覆盖。
+// Update 改集号对应、集号规则，开关追更。改了集号规则时在同一个事务里按保存的标签重新认出条目的序号（不请求平台）：
+// UPDATE 锁住季绑定的行，与补建保存条目的事务前后排队，不会被旧规则认出的序号覆盖。
 // 打开追更、传了集号对应或集号规则时随即在后台补建一次，正在补建时不另起一轮
 // （进行中的那一轮处理每个条目之前都重新读季绑定和条目的序号，会用上新的对应和规则）。不存在时返回 404。
 func (s *Service) Update(ctx context.Context, id int64, p UpdateParams) (Detail, error) {
 	params := seasonbindingdb.UpdateSeasonBindingParams{ID: id, Follow: p.Follow, MappingFrom: p.MappingFrom, MappingTo: p.MappingTo}
-	var err error
-	if p.Rule == nil {
-		_, err = s.q.UpdateSeasonBinding(ctx, params)
-	} else {
+	if p.Rule != nil {
 		params.EpisodePatterns = p.Rule.Patterns()
-		err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-			q := s.q.WithTx(tx)
-			byRule, err := q.UpdateSeasonBinding(ctx, params)
-			if err != nil || !byRule {
-				return err
-			}
-			return renumberItems(ctx, q, id, *p.Rule)
-		})
 	}
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		byRule, err := q.UpdateSeasonBinding(ctx, params)
+		if err != nil || p.Rule == nil || !byRule {
+			return err
+		}
+		return renumberItems(ctx, q, id, *p.Rule)
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, errSeasonBindingNotFound

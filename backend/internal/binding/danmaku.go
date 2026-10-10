@@ -94,6 +94,7 @@ func (s *Service) EpisodeDanmaku(ctx context.Context, episodeID int64) ([]danmak
 	}
 	tracks := make([]danmaku.Track, len(bindings))
 	ids := make([]int64, len(bindings))
+	byBinding := make(map[int64][]danmaku.Danmaku, len(bindings))
 	for i, b := range bindings {
 		platform, err := s.platform(b)
 		if err != nil {
@@ -101,12 +102,12 @@ func (s *Service) EpisodeDanmaku(ctx context.Context, episodeID int64) ([]danmak
 		}
 		tracks[i] = danmaku.Track{BindingID: b.ID, Platform: platform, Offset: b.Offset, Scale: b.Scale}
 		ids[i] = b.ID
+		byBinding[b.ID] = make([]danmaku.Danmaku, 0, b.DanmakuCount)
 	}
 	rows, err := s.q.ListDanmakuByBindings(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("list danmaku of episode %d: %w", episodeID, err)
 	}
-	byBinding := make(map[int64][]danmaku.Danmaku, len(bindings))
 	for _, r := range rows {
 		byBinding[r.BindingID] = append(byBinding[r.BindingID],
 			danmaku.Danmaku{TimeMs: r.TimeMs, Mode: danmaku.Mode(r.Mode), Color: uint32(r.Color), Text: r.Text, SourceID: r.SourceID})

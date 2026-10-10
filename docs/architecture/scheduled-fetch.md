@@ -8,7 +8,7 @@
 - 到期的判定见 `ListDueScheduledFetches`：`kind = 'link'`、建出时间在窗口内、上次尝试拉取（`bindings.fetch_attempted_at`）距现在已满一个间隔，按上次尝试拉取的时间从早到晚。
 - `fetch_attempted_at` 由所有拉取写入，成功失败都算：创建、补建、拉取成功时与 `last_fetched_at` 一起写（`RecordFetch`），标为失效时同样（`MarkBindingDead`），其余上游错误（包括限流、超时）只写它（`RecordFetchAttempt`）。失败的绑定因此也要等满一个间隔才重试；手动重新拉取过的同样推后。服务器内部错误、关闭服务打断的拉取不算一次尝试。
 - 失效的绑定照样定时拉取，拉取成功即恢复正常。
-- 与定时拉取比较的时间（建出时间、上次尝试拉取的时间）都取自应用的时钟，不用数据库的 `now()`：`InsertBinding`、`InsertBackfilledBinding` 都由应用写入建出时间。
+- 与定时拉取比较的时间（建出时间、上次尝试拉取的时间）都取自应用的时钟，不用数据库的 `now()`：`InsertLinkBinding` 由应用写入建出时间。
 
 ## 运行
 

@@ -14,11 +14,12 @@ FOR KEY SHARE;
 -- 这一集是否已经绑定过这个弹幕源。只用于在拉取前省掉一次注定 409 的拉取，并发时以唯一约束为准。
 SELECT EXISTS (SELECT 1 FROM bindings WHERE episode_id = @episode_id AND adapter = @adapter::text AND ref = @ref::jsonb);
 
--- name: InsertBinding :one
--- 贴链接建出的绑定。同一集重复绑定同一个弹幕源时撞上唯一约束 (episode_id, adapter, ref)。
--- 建出时间由应用写入（定时拉取按它算窗口）。
-INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, created_at)
-VALUES (@episode_id, 'link', @adapter::text, @ref::jsonb, @title, @duration::int, @created_at)
+-- name: InsertLinkBinding :one
+-- 贴链接或季绑定补建出的绑定，补建的带上建出它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
+-- 这一集已有同一个弹幕源的绑定时（唯一约束 (episode_id, adapter, ref)）什么都不做，没有行。
+INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, season_binding_id, created_at)
+VALUES (@episode_id, 'link', @adapter::text, @ref::jsonb, @title, @duration::int, sqlc.narg(season_binding_id)::bigint, @created_at)
+ON CONFLICT (episode_id, adapter, ref) DO NOTHING
 RETURNING id;
 
 -- name: InsertFileBinding :one
@@ -188,11 +189,3 @@ WHERE binding_id = @binding_id
        OR (time_ms, source_id) > (sqlc.narg(after_time_ms)::int, sqlc.narg(after_source_id)::bigint))
 ORDER BY time_ms, source_id
 LIMIT @page_limit;
-
--- name: InsertBackfilledBinding :one
--- 补建出一个绑定，带上建出它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
--- 这一集已有同一个弹幕源的绑定时什么都不做，没有行。
-INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, season_binding_id, created_at)
-VALUES (@episode_id, 'link', @adapter::text, @ref::jsonb, @title, @duration::int, @season_binding_id::bigint, @created_at)
-ON CONFLICT (episode_id, adapter, ref) DO NOTHING
-RETURNING id;

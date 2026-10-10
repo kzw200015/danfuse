@@ -120,9 +120,7 @@ func jsonString(v any) string {
 func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*catalog.SyncService, *pgxpool.Pool) {
 	t.Helper()
 	pool := dbtest.Open(t, cfg)
-	svc := catalog.NewSyncService(pool, src, config.Sync{KeepRuns: 20}, slog.New(slog.DiscardHandler))
-	testenv.RunInBackground(t, svc)
-	return svc, pool
+	return testenv.StartSync(t, pool, src), pool
 }
 
 func TestHealth(t *testing.T) {

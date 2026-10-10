@@ -12,7 +12,7 @@
 - 合集 ref（`source.CollectionRef`）与弹幕源 ref 是两种类型；合集条目的弹幕源 ref 与单集绑定同一套格式，所以手动绑过的同一个弹幕源能被认出来。
 - 集号对应（`source.Mapping`）、集号规则（`source.EpisodeRule`）、条目的整理（`source.NumberItems`）是 `source` 包里的纯计算，不在适配器里做：
   - 集号规则（ADR 0005）：投稿合集与多 P 投稿的适配器只给出展开到分 P 的条目和标签、标明 `Collection.NumberedByRule`，序号由季绑定上的规则从标签认出。规则是一组正则，取标签里结束得最靠后的集号、一样靠后时取排在前面的正则（`naming.Parse` 仍按表的优先级认，两者只共用正则），季绑定存它的副本；默认规则取自 `naming.EpisodePatterns`（`catalog/naming`），即 `naming.Parse` 那张表里带 `episode` 组的写法，再加上认结尾 `/ N` 的一条：标签有两级标题时用 `source.LabelSeparator`（` / `）拼成"上级 / 下级"，越靠后越具体（见 `CollectionItem.Label`），新的源适配器拼标签也要照这个约定。
-  - `NumberItems` 按规则认出序号，再交给 `NormalizeItems` 按 ref 去重、标出重复序号。
+  - `NumberItems` 按规则认出序号，再交给 `normalizeItems` 按 ref 去重、标出重复序号。
 - B 站适配器的链接解析（`bilibili/link.go`）只做字符串分类（短链先跳转一次再分类），集面板与季面板各自决定接受哪些（集面板遇到合集的链接时提示到季面板）。
 - 源适配器返回 `*source.Error`（带 Kind）：补建、定时拉取、标为失效都按 Kind 分支；管理 API 由 `binding.SourceAPIError`（季绑定的预览、创建也用它）按 Kind 转成 400/422/502，只包装 Err，日志里提示不重复。
 

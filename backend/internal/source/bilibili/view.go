@@ -21,7 +21,6 @@ type viewData struct {
 // ugcSeason 稿件所在的投稿合集，含全部小节和条目，条目很多时也一次给全。
 type ugcSeason struct {
 	ID       int64        `json:"id"`
-	Title    string       `json:"title"`
 	Mid      int64        `json:"mid"` // 合集作者
 	Sections []ugcSection `json:"sections"`
 }
@@ -34,7 +33,6 @@ type ugcSection struct {
 // ugcEpisode 合集里的一个稿件。它的 cid 只是 P1 的，pages 才是这个稿件的全部分 P。
 type ugcEpisode struct {
 	Aid   int64     `json:"aid"`
-	Title string    `json:"title"`
 	Pages []ugcPage `json:"pages"`
 }
 
@@ -52,7 +50,7 @@ type viewPage struct {
 }
 
 // videoMeta 取投稿第 page 个分 P 的 cid、标题和时长。分 P 超出范围为 NotFound。
-// 标题为"视频标题 / 分 P 标题"；只有一个分 P 时，分 P 标题多与视频标题重复或是上传的文件名，只用视频标题。
+// 标题与合集条目的标签相同（见 pageLabel）；只有一个分 P 时，分 P 标题多与视频标题重复或是上传的文件名，只用视频标题。
 //
 // 带 redirect_url 的稿件其实是番剧的单集，按番剧处理：再取它所在的季，标题为"番剧名 集标题"。
 // 一个稿件可能有多个分 P、分别是不同的单集（例如先导 PV 和正式 PV），redirect_url 只指向第一个，
@@ -83,8 +81,8 @@ func (a *Adapter) videoMeta(ctx context.Context, aid int64, page int) (meta, err
 	}
 
 	title := strings.TrimSpace(data.Title)
-	if part := strings.TrimSpace(p.Part); len(data.Pages) > 1 && part != "" {
-		title += " / " + part
+	if len(data.Pages) > 1 {
+		title = pageLabel(data.Title, p.Part)
 	}
 	return meta{cid: p.CID, title: title, duration: p.Duration}, nil
 }

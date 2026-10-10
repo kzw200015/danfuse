@@ -495,20 +495,23 @@ func (q *Queries) ListSyncRuns(ctx context.Context, limit int32) ([]ListSyncRuns
 	return items, nil
 }
 
-const setSeasonSearchVector = `-- name: SetSeasonSearchVector :exec
-UPDATE seasons
-SET search_vector = $1::text::tsvector
-WHERE id = $2
+const setSeasonSearchVectors = `-- name: SetSeasonSearchVectors :exec
+UPDATE seasons se
+SET search_vector = u.vector::tsvector
+FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::text[]) AS vector) u
+WHERE se.id = u.id
+  AND se.search_vector IS DISTINCT FROM u.vector::tsvector
 `
 
-type SetSeasonSearchVectorParams struct {
-	SearchVector string `json:"searchVector"`
-	ID           int64  `json:"id"`
+type SetSeasonSearchVectorsParams struct {
+	Ids     []int64  `json:"ids"`
+	Vectors []string `json:"vectors"`
 }
 
+// 一条语句写入多季的搜索列，没变的不重写（列上有 GIN 索引，重写一行要重新插入它的全部词条）。
 // 搜索列是 Go 生成的 tsvector 文本（catalog.SearchVector），直接转换，不经过 PostgreSQL 的分词器。
-func (q *Queries) SetSeasonSearchVector(ctx context.Context, arg SetSeasonSearchVectorParams) error {
-	_, err := q.db.Exec(ctx, setSeasonSearchVector, arg.SearchVector, arg.ID)
+func (q *Queries) SetSeasonSearchVectors(ctx context.Context, arg SetSeasonSearchVectorsParams) error {
+	_, err := q.db.Exec(ctx, setSeasonSearchVectors, arg.Ids, arg.Vectors)
 	return err
 }
 
@@ -581,7 +584,7 @@ SET status           = $1,
     created_series   = $4,
     created_seasons  = $5,
     created_episodes = $6,
-    warnings         = $7,
+    warnings         = coalesce($7, warnings),
     warning_count    = $8,
     error            = $9,
     finished_at      = CASE WHEN $1 = 'running' THEN NULL ELSE now() END
@@ -601,7 +604,7 @@ type UpdateSyncRunParams struct {
 	ID              int64    `json:"id"`
 }
 
-// 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。
+// 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。warnings 为 null 时不改（警告没有新增的进度）。
 func (q *Queries) UpdateSyncRun(ctx context.Context, arg UpdateSyncRunParams) error {
 	_, err := q.db.Exec(ctx, updateSyncRun,
 		arg.Status,
@@ -618,39 +621,44 @@ func (q *Queries) UpdateSyncRun(ctx context.Context, arg UpdateSyncRunParams) er
 	return err
 }
 
-const upsertEpisode = `-- name: UpsertEpisode :one
-INSERT INTO episodes (season_id, number, title, duration)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (season_id, number) DO UPDATE
-SET title      = excluded.title,
-    duration   = excluded.duration,
-    updated_at = now()
-RETURNING id, (xmax = 0)::boolean AS created
+const upsertEpisodes = `-- name: UpsertEpisodes :one
+WITH written AS (
+    INSERT INTO episodes (season_id, number, title, duration)
+    SELECT $1::bigint,
+           unnest($2::int[]),
+           nullif(unnest($3::text[]), ''),
+           nullif(unnest($4::int[]), -1)
+    ON CONFLICT (season_id, number) DO UPDATE
+    SET title      = excluded.title,
+        duration   = excluded.duration,
+        updated_at = now()
+    WHERE (episodes.title, episodes.duration) IS DISTINCT FROM (excluded.title, excluded.duration)
+    RETURNING xmax = 0 AS created
+)
+SELECT count(*) FILTER (WHERE created)::int
+FROM written
 `
 
-type UpsertEpisodeParams struct {
-	SeasonID int64   `json:"seasonId"`
-	Number   int32   `json:"number"`
-	Title    *string `json:"title"`
-	Duration *int32  `json:"duration"`
+type UpsertEpisodesParams struct {
+	SeasonID  int64    `json:"seasonId"`
+	Numbers   []int32  `json:"numbers"`
+	Titles    []string `json:"titles"`
+	Durations []int32  `json:"durations"`
 }
 
-type UpsertEpisodeRow struct {
-	ID      int64 `json:"id"`
-	Created bool  `json:"created"`
-}
-
-// 按自然键 (season_id, number) 写入一集，规则同 UpsertSeason。
-func (q *Queries) UpsertEpisode(ctx context.Context, arg UpsertEpisodeParams) (UpsertEpisodeRow, error) {
-	row := q.db.QueryRow(ctx, upsertEpisode,
+// 一条语句写入一季的集，按自然键 (season_id, number) 匹配：匹配上且标题或时长变了就覆盖，没变的不重写；匹配不上就新增。
+// 返回新增的集数（新插入的行 xmax 为 0）。标题空串、时长 -1 存为 null。
+// 同一批里集号不能重复（ON CONFLICT DO UPDATE 不能在一条语句里改同一行两次），调用方先去重。
+func (q *Queries) UpsertEpisodes(ctx context.Context, arg UpsertEpisodesParams) (int32, error) {
+	row := q.db.QueryRow(ctx, upsertEpisodes,
 		arg.SeasonID,
-		arg.Number,
-		arg.Title,
-		arg.Duration,
+		arg.Numbers,
+		arg.Titles,
+		arg.Durations,
 	)
-	var i UpsertEpisodeRow
-	err := row.Scan(&i.ID, &i.Created)
-	return i, err
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const upsertSeason = `-- name: UpsertSeason :one

@@ -44,15 +44,25 @@ SET title      = excluded.title,
     updated_at = now()
 RETURNING id, (xmax = 0)::boolean AS created;
 
--- name: UpsertEpisode :one
--- 按自然键 (season_id, number) 写入一集，规则同 UpsertSeason。
-INSERT INTO episodes (season_id, number, title, duration)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (season_id, number) DO UPDATE
-SET title      = excluded.title,
-    duration   = excluded.duration,
-    updated_at = now()
-RETURNING id, (xmax = 0)::boolean AS created;
+-- name: UpsertEpisodes :one
+-- 一条语句写入一季的集，按自然键 (season_id, number) 匹配：匹配上且标题或时长变了就覆盖，没变的不重写；匹配不上就新增。
+-- 返回新增的集数（新插入的行 xmax 为 0）。标题空串、时长 -1 存为 null。
+-- 同一批里集号不能重复（ON CONFLICT DO UPDATE 不能在一条语句里改同一行两次），调用方先去重。
+WITH written AS (
+    INSERT INTO episodes (season_id, number, title, duration)
+    SELECT @season_id::bigint,
+           unnest(@numbers::int[]),
+           nullif(unnest(@titles::text[]), ''),
+           nullif(unnest(@durations::int[]), -1)
+    ON CONFLICT (season_id, number) DO UPDATE
+    SET title      = excluded.title,
+        duration   = excluded.duration,
+        updated_at = now()
+    WHERE (episodes.title, episodes.duration) IS DISTINCT FROM (excluded.title, excluded.duration)
+    RETURNING xmax = 0 AS created
+)
+SELECT count(*) FILTER (WHERE created)::int
+FROM written;
 
 -- name: ListSeries :many
 -- 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。
@@ -154,7 +164,7 @@ DELETE FROM sync_runs
 WHERE id NOT IN (SELECT id FROM sync_runs ORDER BY id DESC LIMIT sqlc.arg(keep));
 
 -- name: UpdateSyncRun :exec
--- 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。
+-- 写入一次同步的进度或最终状态；状态不再是 running 时记下结束时间。warnings 为 null 时不改（警告没有新增的进度）。
 UPDATE sync_runs
 SET status           = sqlc.arg(status),
     total            = sqlc.arg(total),
@@ -162,7 +172,7 @@ SET status           = sqlc.arg(status),
     created_series   = sqlc.arg(created_series),
     created_seasons  = sqlc.arg(created_seasons),
     created_episodes = sqlc.arg(created_episodes),
-    warnings         = sqlc.arg(warnings),
+    warnings         = coalesce(sqlc.narg(warnings), warnings),
     warning_count    = sqlc.arg(warning_count),
     error            = sqlc.arg(error),
     finished_at      = CASE WHEN sqlc.arg(status) = 'running' THEN NULL ELSE now() END
@@ -181,8 +191,11 @@ SELECT *
 FROM sync_runs
 WHERE id = $1;
 
--- name: SetSeasonSearchVector :exec
+-- name: SetSeasonSearchVectors :exec
+-- 一条语句写入多季的搜索列，没变的不重写（列上有 GIN 索引，重写一行要重新插入它的全部词条）。
 -- 搜索列是 Go 生成的 tsvector 文本（catalog.SearchVector），直接转换，不经过 PostgreSQL 的分词器。
-UPDATE seasons
-SET search_vector = sqlc.arg(search_vector)::text::tsvector
-WHERE id = sqlc.arg(id);
+UPDATE seasons se
+SET search_vector = u.vector::tsvector
+FROM (SELECT unnest(@ids::bigint[]) AS id, unnest(@vectors::text[]) AS vector) u
+WHERE se.id = u.id
+  AND se.search_vector IS DISTINCT FROM u.vector::tsvector;

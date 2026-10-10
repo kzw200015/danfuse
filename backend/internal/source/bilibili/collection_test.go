@@ -42,13 +42,13 @@ func ewcSeason(pages int) *ugcSeason {
 		return p
 	}
 	return &ugcSeason{
-		ID: 8597253, Title: "2026EWC", Mid: 50329118,
+		ID: 8597253, Mid: 50329118,
 		Sections: []ugcSection{
 			{Episodes: []ugcEpisode{
-				{Aid: 170001, Title: "合集里的稿件", Pages: parts("第", pages)},
-				{Aid: 170002, Title: "第二个", Pages: append(parts("局", 3), ugcPage{Page: 0, Part: "坏的分 P"})},
+				{Aid: 170001, Pages: parts("第", pages)},
+				{Aid: 170002, Pages: append(parts("局", 3), ugcPage{Page: 0, Part: "坏的分 P"})},
 			}},
-			{Episodes: []ugcEpisode{{Aid: 170003, Title: "下一节", Pages: []ugcPage{{Page: 1, Part: "下一节"}}}}},
+			{Episodes: []ugcEpisode{{Aid: 170003, Pages: []ugcPage{{Page: 1, Part: "下一节"}}}}},
 		},
 	}
 }

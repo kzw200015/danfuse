@@ -204,7 +204,7 @@ func (a *Adapter) listBangumi(ctx context.Context, seasonID int64) (source.Colle
 		if n, ok := episodeNumber(e.Title); ok {
 			item.Number = n
 		} else {
-			item.Unmatched = fmt.Sprintf("集号「%s」不是整数", strings.TrimSpace(e.Title))
+			item.Unmatched = source.NotInteger(strings.TrimSpace(e.Title))
 		}
 		c.Items = append(c.Items, item)
 	}
@@ -213,11 +213,7 @@ func (a *Adapter) listBangumi(ctx context.Context, seasonID int64) (source.Colle
 
 // episodeNumber 番剧的集号是整数时的值；"SP""OAD02""24.9" 这类不是。
 func episodeNumber(title string) (int, bool) {
-	s := strings.TrimSpace(title)
-	if s == "" || strings.ContainsFunc(s, func(r rune) bool { return r < '0' || r > '9' }) {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(s, 10, 32) // 超出 int32 时报错
+	n, err := strconv.ParseUint(strings.TrimSpace(title), 10, 31) // 不接受正负号，超出 int32 时报错
 	return int(n), err == nil
 }
 

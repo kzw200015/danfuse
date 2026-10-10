@@ -49,7 +49,7 @@ type Season struct {
 	Name         string   // 按 catalog.SeasonName 拼
 	Titles       []string // 所属剧的标题，有原名时加上原名；识别时用来判断文件名里的标题是不是这部剧
 	Kind         catalog.SeasonKind
-	Year         *int
+	Year         *int32
 	Episodes     []Episode // 按集号升序
 	EpisodeCount int       // 这一季的总集数；按集号过滤时 Episodes 只有那一集，总集数不变
 }
@@ -94,20 +94,17 @@ func (d *Service) search(ctx context.Context, name naming.Parsed, episode *int, 
 	for i, r := range rows {
 		ids[i] = r.ID
 	}
-	episodes, err := d.listEpisodes(ctx, ids)
+	episodes, err := d.listEpisodes(ctx, ids, episode)
 	if err != nil {
 		return SearchResult{}, err
 	}
 	result.Seasons = make([]Season, 0, len(rows))
 	for _, r := range rows {
-		s := seasonOf(r, episodes[r.ID])
-		if episode != nil {
-			s.Episodes = slices.DeleteFunc(s.Episodes, func(e Episode) bool { return e.Number != *episode })
-			if len(s.Episodes) == 0 { // 查完季之后这一集被删除了，不返回，保证返回的季都带着这一集
-				continue
-			}
+		e := episodes[r.ID]
+		if episode != nil && len(e.list) == 0 { // 查完季之后这一集被删除了，不返回，保证返回的季都带着这一集
+			continue
 		}
-		result.Seasons = append(result.Seasons, s)
+		result.Seasons = append(result.Seasons, seasonOf(r, e))
 	}
 	return result, nil
 }
@@ -148,7 +145,7 @@ func (d *Service) Season(ctx context.Context, id int64) (Season, bool, error) {
 	if err != nil {
 		return Season{}, false, fmt.Errorf("get season %d: %w", id, err)
 	}
-	episodes, err := d.listEpisodes(ctx, []int64{id})
+	episodes, err := d.listEpisodes(ctx, []int64{id}, nil)
 	if err != nil {
 		return Season{}, false, err
 	}
@@ -156,21 +153,30 @@ func (d *Service) Season(ctx context.Context, id int64) (Season, bool, error) {
 	return seasonOf(dandandb.SearchSeasonsRow(row), episodes[id]), true, nil
 }
 
-// listEpisodes 各季的全部集，按季 ID 分组，组内按集号升序。
-func (d *Service) listEpisodes(ctx context.Context, seasonIDs []int64) (map[int64][]Episode, error) {
-	rows, err := d.q.ListEpisodesBySeasons(ctx, seasonIDs)
+// seasonEpisodes 一季查出的集（按集号升序）与总集数。
+type seasonEpisodes struct {
+	list  []Episode
+	count int
+}
+
+// listEpisodes 各季的集，按季 ID 分组；number 不为 nil 时只要这个集号的集，总集数不变。
+func (d *Service) listEpisodes(ctx context.Context, seasonIDs []int64, number *int) (map[int64]seasonEpisodes, error) {
+	rows, err := d.q.ListEpisodesBySeasons(ctx, dandandb.ListEpisodesBySeasonsParams{SeasonIds: seasonIDs, Number: int32Ptr(number)})
 	if err != nil {
 		return nil, fmt.Errorf("list episodes of seasons: %w", err)
 	}
-	bySeason := make(map[int64][]Episode, len(seasonIDs)) // 查询已按集号排序
+	bySeason := make(map[int64]seasonEpisodes, len(seasonIDs)) // 查询已按集号排序
 	for _, e := range rows {
-		bySeason[e.SeasonID] = append(bySeason[e.SeasonID], Episode{ID: e.ID, Number: int(e.Number), Title: emptyIfNull(e.Title)})
+		s := bySeason[e.SeasonID]
+		s.list = append(s.list, Episode{ID: e.ID, Number: int(e.Number), Title: emptyIfNull(e.Title)})
+		s.count = int(e.EpisodeCount)
+		bySeason[e.SeasonID] = s
 	}
 	return bySeason, nil
 }
 
-// seasonOf 由查出的一季（季号与所属剧的类型、剧名、原名、年份）和它的全部集组装一季，名称和类别按目录的规则得出。
-func seasonOf(r dandandb.SearchSeasonsRow, episodes []Episode) Season {
+// seasonOf 由查出的一季（季号与所属剧的类型、剧名、原名、年份）和它的集组装一季，名称和类别按目录的规则得出。
+func seasonOf(r dandandb.SearchSeasonsRow, episodes seasonEpisodes) Season {
 	typ, n := catalog.SeriesType(r.Type), int(r.Number)
 	titles := []string{r.Title}
 	if r.OriginalTitle != nil {
@@ -181,9 +187,9 @@ func seasonOf(r dandandb.SearchSeasonsRow, episodes []Episode) Season {
 		Name:         catalog.SeasonName(typ, r.Title, n),
 		Titles:       titles,
 		Kind:         catalog.KindOf(typ, n),
-		Year:         intPtr(r.Year),
-		Episodes:     episodes,
-		EpisodeCount: len(episodes),
+		Year:         r.Year,
+		Episodes:     episodes.list,
+		EpisodeCount: episodes.count,
 	}
 }
 
@@ -197,13 +203,6 @@ func int32Ptr(v *int) *int32 {
 		return nil
 	}
 	return new(int32(*v))
-}
-
-func intPtr(v *int32) *int {
-	if v == nil {
-		return nil
-	}
-	return new(int(*v))
 }
 
 // emptyIfNull null 读作空串。

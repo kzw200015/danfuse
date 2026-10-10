@@ -131,71 +131,6 @@ func (q *Queries) GetBindingFileContent(ctx context.Context, id int64) ([]byte, 
 	return content, err
 }
 
-const insertBackfilledBinding = `-- name: InsertBackfilledBinding :one
-INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, season_binding_id, created_at)
-VALUES ($1, 'link', $2::text, $3::jsonb, $4, $5::int, $6::bigint, $7)
-ON CONFLICT (episode_id, adapter, ref) DO NOTHING
-RETURNING id
-`
-
-type InsertBackfilledBindingParams struct {
-	EpisodeID       int64     `json:"episodeId"`
-	Adapter         string    `json:"adapter"`
-	Ref             []byte    `json:"ref"`
-	Title           string    `json:"title"`
-	Duration        int32     `json:"duration"`
-	SeasonBindingID int64     `json:"seasonBindingId"`
-	CreatedAt       time.Time `json:"createdAt"`
-}
-
-// 补建出一个绑定，带上建出它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
-// 这一集已有同一个弹幕源的绑定时什么都不做，没有行。
-func (q *Queries) InsertBackfilledBinding(ctx context.Context, arg InsertBackfilledBindingParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertBackfilledBinding,
-		arg.EpisodeID,
-		arg.Adapter,
-		arg.Ref,
-		arg.Title,
-		arg.Duration,
-		arg.SeasonBindingID,
-		arg.CreatedAt,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const insertBinding = `-- name: InsertBinding :one
-INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, created_at)
-VALUES ($1, 'link', $2::text, $3::jsonb, $4, $5::int, $6)
-RETURNING id
-`
-
-type InsertBindingParams struct {
-	EpisodeID int64     `json:"episodeId"`
-	Adapter   string    `json:"adapter"`
-	Ref       []byte    `json:"ref"`
-	Title     string    `json:"title"`
-	Duration  int32     `json:"duration"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-// 贴链接建出的绑定。同一集重复绑定同一个弹幕源时撞上唯一约束 (episode_id, adapter, ref)。
-// 建出时间由应用写入（定时拉取按它算窗口）。
-func (q *Queries) InsertBinding(ctx context.Context, arg InsertBindingParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertBinding,
-		arg.EpisodeID,
-		arg.Adapter,
-		arg.Ref,
-		arg.Title,
-		arg.Duration,
-		arg.CreatedAt,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
 const insertBindingFile = `-- name: InsertBindingFile :execrows
 INSERT INTO binding_files (binding_id, name, sha256, size, content)
 VALUES ($1, $2, $3, $4, $5)
@@ -276,6 +211,40 @@ type InsertFileBindingParams struct {
 // 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。
 func (q *Queries) InsertFileBinding(ctx context.Context, arg InsertFileBindingParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertFileBinding, arg.EpisodeID, arg.Title)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertLinkBinding = `-- name: InsertLinkBinding :one
+INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, season_binding_id, created_at)
+VALUES ($1, 'link', $2::text, $3::jsonb, $4, $5::int, $6::bigint, $7)
+ON CONFLICT (episode_id, adapter, ref) DO NOTHING
+RETURNING id
+`
+
+type InsertLinkBindingParams struct {
+	EpisodeID       int64     `json:"episodeId"`
+	Adapter         string    `json:"adapter"`
+	Ref             []byte    `json:"ref"`
+	Title           string    `json:"title"`
+	Duration        int32     `json:"duration"`
+	SeasonBindingID *int64    `json:"seasonBindingId"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
+
+// 贴链接或季绑定补建出的绑定，补建的带上建出它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
+// 这一集已有同一个弹幕源的绑定时（唯一约束 (episode_id, adapter, ref)）什么都不做，没有行。
+func (q *Queries) InsertLinkBinding(ctx context.Context, arg InsertLinkBindingParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertLinkBinding,
+		arg.EpisodeID,
+		arg.Adapter,
+		arg.Ref,
+		arg.Title,
+		arg.Duration,
+		arg.SeasonBindingID,
+		arg.CreatedAt,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

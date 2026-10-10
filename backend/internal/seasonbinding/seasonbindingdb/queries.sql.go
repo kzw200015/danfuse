@@ -355,7 +355,7 @@ WHERE season_id = $1
 ORDER BY number
 `
 
-// 一季的全部集号：预览给出默认的集号对应，详情判断条目是否在等待对应的集。
+// 一季的全部集号：详情判断条目是否在等待对应的集。
 func (q *Queries) ListEpisodeNumbersBySeason(ctx context.Context, seasonID int64) ([]int32, error) {
 	rows, err := q.db.Query(ctx, listEpisodeNumbersBySeason, seasonID)
 	if err != nil {
@@ -369,40 +369,6 @@ func (q *Queries) ListEpisodeNumbersBySeason(ctx context.Context, seasonID int64
 			return nil, err
 		}
 		items = append(items, number)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSeasonBindingHandled = `-- name: ListSeasonBindingHandled :many
-SELECT h.ref,
-       e.number AS episode_number
-FROM season_binding_handled h
-JOIN episodes e ON e.id = h.episode_id
-WHERE h.season_binding_id = $1
-`
-
-type ListSeasonBindingHandledRow struct {
-	Ref           []byte `json:"ref"`
-	EpisodeNumber int32  `json:"episodeNumber"`
-}
-
-// 处理过的记录（季绑定建出过绑定的弹幕源），连同建在哪一集。
-func (q *Queries) ListSeasonBindingHandled(ctx context.Context, seasonBindingID int64) ([]ListSeasonBindingHandledRow, error) {
-	rows, err := q.db.Query(ctx, listSeasonBindingHandled, seasonBindingID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListSeasonBindingHandledRow{}
-	for rows.Next() {
-		var i ListSeasonBindingHandledRow
-		if err := rows.Scan(&i.Ref, &i.EpisodeNumber); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -436,6 +402,52 @@ func (q *Queries) ListSeasonBindingItems(ctx context.Context, seasonBindingID in
 			&i.Label,
 			&i.LastError,
 			&i.LastErrorAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSeasonBindingItemsWithHandled = `-- name: ListSeasonBindingItemsWithHandled :many
+SELECT i.season_binding_id, i.ref, i.position, i.number, i.unmatched_reason, i.label, i.last_error, i.last_error_at, e.number AS handled_episode_number
+FROM season_binding_items i
+LEFT JOIN season_binding_handled h ON h.season_binding_id = i.season_binding_id AND h.ref = i.ref
+LEFT JOIN episodes e ON e.id = h.episode_id
+WHERE i.season_binding_id = $1
+ORDER BY i.position
+`
+
+type ListSeasonBindingItemsWithHandledRow struct {
+	SeasonBindingItem    SeasonBindingItem `json:"seasonBindingItem"`
+	HandledEpisodeNumber *int32            `json:"handledEpisodeNumber"`
+}
+
+// 条目表：上次检查时的条目，按在合集里的顺序；处理过的（季绑定建出过绑定的弹幕源）带着绑定建在的那一集的集号，
+// 没处理过的为 null。ref 在这里按 jsonb 比较。
+func (q *Queries) ListSeasonBindingItemsWithHandled(ctx context.Context, seasonBindingID int64) ([]ListSeasonBindingItemsWithHandledRow, error) {
+	rows, err := q.db.Query(ctx, listSeasonBindingItemsWithHandled, seasonBindingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSeasonBindingItemsWithHandledRow{}
+	for rows.Next() {
+		var i ListSeasonBindingItemsWithHandledRow
+		if err := rows.Scan(
+			&i.SeasonBindingItem.SeasonBindingID,
+			&i.SeasonBindingItem.Ref,
+			&i.SeasonBindingItem.Position,
+			&i.SeasonBindingItem.Number,
+			&i.SeasonBindingItem.UnmatchedReason,
+			&i.SeasonBindingItem.Label,
+			&i.SeasonBindingItem.LastError,
+			&i.SeasonBindingItem.LastErrorAt,
+			&i.HandledEpisodeNumber,
 		); err != nil {
 			return nil, err
 		}
@@ -500,6 +512,47 @@ func (q *Queries) ListSeasonBindingSummariesBySeries(ctx context.Context, arg Li
 			&i.SeasonBinding.NumberedByRule,
 			&i.BindingCount,
 			&i.Running,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnhandledSeasonBindingItems = `-- name: ListUnhandledSeasonBindingItems :many
+SELECT i.season_binding_id, i.ref, i.position, i.number, i.unmatched_reason, i.label, i.last_error, i.last_error_at
+FROM season_binding_items i
+WHERE i.season_binding_id = $1
+  AND NOT EXISTS (SELECT 1
+                  FROM season_binding_handled h
+                  WHERE h.season_binding_id = i.season_binding_id
+                    AND h.ref = i.ref)
+ORDER BY i.position
+`
+
+// 补建要处理的条目：还没处理过的，按在合集里的顺序。ref 在这里按 jsonb 比较。
+func (q *Queries) ListUnhandledSeasonBindingItems(ctx context.Context, seasonBindingID int64) ([]SeasonBindingItem, error) {
+	rows, err := q.db.Query(ctx, listUnhandledSeasonBindingItems, seasonBindingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SeasonBindingItem{}
+	for rows.Next() {
+		var i SeasonBindingItem
+		if err := rows.Scan(
+			&i.SeasonBindingID,
+			&i.Ref,
+			&i.Position,
+			&i.Number,
+			&i.UnmatchedReason,
+			&i.Label,
+			&i.LastError,
+			&i.LastErrorAt,
 		); err != nil {
 			return nil, err
 		}

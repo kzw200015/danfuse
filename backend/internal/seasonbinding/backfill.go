@@ -227,30 +227,19 @@ func (s *Service) runBackfill(ctx context.Context, r *backfillRound) error {
 		if err != nil {
 			return fmt.Errorf("parse episode patterns of season binding %d: %w", r.id, err)
 		}
-		return saveItems(ctx, q, r.id, source.NumberItems(col, rule))
+		items := source.NumberItems(col, rule)
+		r.items = len(items)
+		return saveItems(ctx, q, r.id, items)
 	})
 	if err != nil {
 		return err
 	}
 
-	// 条目和处理过的记录都从库里读：两边的 ref 都是 jsonb 的输出格式，可以直接比较
-	items, err := s.q.ListSeasonBindingItems(ctx, r.id)
+	items, err := s.q.ListUnhandledSeasonBindingItems(ctx, r.id)
 	if err != nil {
-		return fmt.Errorf("list items of season binding %d: %w", r.id, err)
-	}
-	r.items = len(items)
-	handled, err := s.q.ListSeasonBindingHandled(ctx, r.id)
-	if err != nil {
-		return fmt.Errorf("list handled of season binding %d: %w", r.id, err)
-	}
-	done := make(map[string]bool, len(handled))
-	for _, h := range handled {
-		done[string(h.Ref)] = true
+		return fmt.Errorf("list unhandled items of season binding %d: %w", r.id, err)
 	}
 	for _, it := range items {
-		if done[string(it.Ref)] {
-			continue
-		}
 		if stop, err := s.backfillItem(ctx, r, adapter, it); stop || err != nil {
 			return err
 		}

@@ -41,22 +41,31 @@ func (q *Queries) GetSeason(ctx context.Context, id int64) (GetSeasonRow, error)
 }
 
 const listEpisodesBySeasons = `-- name: ListEpisodesBySeasons :many
-SELECT id, season_id, number, title
-FROM episodes
-WHERE season_id = ANY ($1::bigint[])
+SELECT id, season_id, number, title, episode_count
+FROM (SELECT id, season_id, number, title, count(*) OVER (PARTITION BY season_id) AS episode_count
+      FROM episodes
+      WHERE season_id = ANY ($1::bigint[])) e
+WHERE $2::int IS NULL OR number = $2::int
 ORDER BY season_id, number
 `
 
-type ListEpisodesBySeasonsRow struct {
-	ID       int64   `json:"id"`
-	SeasonID int64   `json:"seasonId"`
-	Number   int32   `json:"number"`
-	Title    *string `json:"title"`
+type ListEpisodesBySeasonsParams struct {
+	SeasonIds []int64 `json:"seasonIds"`
+	Number    *int32  `json:"number"`
 }
 
-// 搜索结果、作品详情里各季的全部集，按季、集号排序。
-func (q *Queries) ListEpisodesBySeasons(ctx context.Context, seasonIds []int64) ([]ListEpisodesBySeasonsRow, error) {
-	rows, err := q.db.Query(ctx, listEpisodesBySeasons, seasonIds)
+type ListEpisodesBySeasonsRow struct {
+	ID           int64   `json:"id"`
+	SeasonID     int64   `json:"seasonId"`
+	Number       int32   `json:"number"`
+	Title        *string `json:"title"`
+	EpisodeCount int64   `json:"episodeCount"`
+}
+
+// 搜索结果、作品详情里各季的集，按季、集号排序，每行带着这一季的总集数。
+// 给了 number 时只要这个集号的集（按集号搜索、识别），总集数仍是全部的集。
+func (q *Queries) ListEpisodesBySeasons(ctx context.Context, arg ListEpisodesBySeasonsParams) ([]ListEpisodesBySeasonsRow, error) {
+	rows, err := q.db.Query(ctx, listEpisodesBySeasons, arg.SeasonIds, arg.Number)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +78,7 @@ func (q *Queries) ListEpisodesBySeasons(ctx context.Context, seasonIds []int64) 
 			&i.SeasonID,
 			&i.Number,
 			&i.Title,
+			&i.EpisodeCount,
 		); err != nil {
 			return nil, err
 		}

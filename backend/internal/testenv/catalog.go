@@ -86,7 +86,7 @@ func Item(s *catalog.Series, warnings ...string) catalog.Item {
 // StartSync 构造不开定时同步的 SyncService 并在后台运行 Run（要在 synctest 的气泡里调用）。src 为 nil 表示未配置目录源。
 func StartSync(t *testing.T, pool *pgxpool.Pool, src catalog.Source) *catalog.SyncService {
 	t.Helper()
-	svc := catalog.NewSyncService(pool, src, config.Sync{KeepRuns: 20}, Logger(t))
+	svc := catalog.NewSyncService(pool, src, config.Defaults().Sync, Logger(t))
 	RunInBackground(t, svc)
 	return svc
 }

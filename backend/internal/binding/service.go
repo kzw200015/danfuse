@@ -15,7 +15,6 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
@@ -91,13 +90,6 @@ func SourceAPIError(err error) error {
 	return base.WithMessage(srcErr.Message).Wrap(srcErr.Err)
 }
 
-// fetch 拉取一个弹幕源的全部弹幕，总时限 source.FetchTimeout。调用方拉完才开写入事务。
-func fetch(ctx context.Context, adapter source.Adapter, ref source.Ref) (source.Fetched, error) {
-	ctx, cancel := context.WithTimeout(ctx, source.FetchTimeout)
-	defer cancel()
-	return adapter.Fetch(ctx, ref)
-}
-
 // Create 贴链接创建绑定：解析链接 → 确认这一集存在（404）→ 查重（409）→ 拉取 → 写入。拉取失败就不创建。
 // 拉取期间这一集被删除时返回 404"这一集已被删除"；同时两次给同一集贴同一个弹幕源时，后提交的撞上唯一约束返回 409。
 func (s *Service) Create(ctx context.Context, episodeID int64, link string) (View, error) {
@@ -122,7 +114,7 @@ func (s *Service) Create(ctx context.Context, episodeID int64, link string) (Vie
 		return View{}, errBindingExists
 	}
 
-	fetched, err := fetch(netCtx, adapter, ref)
+	fetched, err := adapter.Fetch(netCtx, ref)
 	if err != nil {
 		return View{}, SourceAPIError(err)
 	}
@@ -133,28 +125,20 @@ func (s *Service) Create(ctx context.Context, episodeID int64, link string) (Vie
 		added   int64
 	)
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		q := s.q.WithTx(tx)
-		// 锁住这一集到提交：之后的删除要等这个事务提交，再连同绑定和弹幕一起删掉
-		if err := lockEpisode(ctx, q, episodeID, errEpisodeDeleted); err != nil {
-			return err
-		}
-		id, err := q.InsertBinding(ctx, bindingdb.InsertBindingParams{
+		var err error
+		binding, added, err = insertLinkBinding(ctx, s.q.WithTx(tx), bindingdb.InsertLinkBindingParams{
 			EpisodeID: episodeID,
 			Adapter:   adapter.ID(),
 			Ref:       ref,
 			Title:     fetched.Title,
 			Duration:  int32(fetched.Duration),
 			CreatedAt: fetchedAt,
-		})
-		if err != nil {
-			if database.IsUniqueViolation(err) {
-				return errBindingExists
-			}
-			return fmt.Errorf("insert binding of episode %d: %w", episodeID, err)
-		}
-		binding, added, err = saveFetched(ctx, q, id, fetched, false, fetchedAt)
+		}, fetched, errEpisodeDeleted)
 		return err
 	})
+	if errors.Is(err, ErrSourceBound) {
+		return View{}, errBindingExists
+	}
 	if err != nil {
 		return View{}, err
 	}
@@ -217,30 +201,36 @@ type Saved struct {
 // 插入带来源季绑定的绑定（集上已有同一个弹幕源时返回 ErrSourceBound，什么都不写），写入弹幕。
 // 调用方开事务并先锁住季和季绑定，提交之后调用 LogFetched。
 func (s *Service) CreateBackfilledInTx(ctx context.Context, tx pgx.Tx, b Backfilled) (Saved, error) {
-	q := s.q.WithTx(tx)
-	if err := lockEpisode(ctx, q, b.EpisodeID, ErrEpisodeGone); err != nil {
-		return Saved{}, err
-	}
-	id, err := q.InsertBackfilledBinding(ctx, bindingdb.InsertBackfilledBindingParams{
+	binding, added, err := insertLinkBinding(ctx, s.q.WithTx(tx), bindingdb.InsertLinkBindingParams{
 		EpisodeID:       b.EpisodeID,
 		Adapter:         b.Adapter,
 		Ref:             b.Ref,
 		Title:           b.Fetched.Title,
 		Duration:        int32(b.Fetched.Duration),
-		SeasonBindingID: b.SeasonBindingID,
+		SeasonBindingID: &b.SeasonBindingID,
 		CreatedAt:       b.CreatedAt,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Saved{}, ErrSourceBound
-	}
-	if err != nil {
-		return Saved{}, fmt.Errorf("insert binding of episode %d: %w", b.EpisodeID, err)
-	}
-	binding, added, err := saveFetched(ctx, q, id, b.Fetched, false, b.CreatedAt)
+	}, b.Fetched, ErrEpisodeGone)
 	if err != nil {
 		return Saved{}, err
 	}
 	return Saved{Added: added, binding: binding, fetched: b.Fetched}, nil
+}
+
+// insertLinkBinding 在写入事务里建出一个链接绑定：锁住集到提交（之后的删除要等这个事务提交，再连同绑定和弹幕一起删掉；
+// 集已被删除时返回 gone），插入绑定（集上已有同一个弹幕源时返回 ErrSourceBound），写入拉取的结果。
+// 返回写入后的绑定和新增条数。
+func insertLinkBinding(ctx context.Context, q *bindingdb.Queries, p bindingdb.InsertLinkBindingParams, fetched source.Fetched, gone error) (bindingdb.Binding, int64, error) {
+	if err := lockEpisode(ctx, q, p.EpisodeID, gone); err != nil {
+		return bindingdb.Binding{}, 0, err
+	}
+	id, err := q.InsertLinkBinding(ctx, p)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return bindingdb.Binding{}, 0, ErrSourceBound
+	}
+	if err != nil {
+		return bindingdb.Binding{}, 0, fmt.Errorf("insert binding of episode %d: %w", p.EpisodeID, err)
+	}
+	return saveFetched(ctx, q, id, fetched, false, p.CreatedAt)
 }
 
 // LogFetched 补建出的绑定写入提交之后记一条 "danmaku fetched"，与其他拉取的日志相同。
@@ -276,7 +266,9 @@ func (s *Service) refetch(ctx context.Context, id int64, replace bool) (View, in
 		return View{}, 0, err
 	}
 
-	fetched, err := fetch(ctx, adapter, b.Ref)
+	fetchCtx, cancel := context.WithTimeout(ctx, source.FetchTimeout) // 拉完才开写入事务
+	fetched, err := adapter.Fetch(fetchCtx, b.Ref)
+	cancel()
 	if err != nil {
 		switch srcErr, ok := errors.AsType[*source.Error](err); {
 		case !ok || ctx.Err() != nil: // 服务器内部错误、关闭服务：不算一次尝试

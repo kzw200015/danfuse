@@ -36,8 +36,6 @@ import (
 // Env 按 app.New 的依赖关系组装好的各领域 service。后台循环（同步、补建、定时拉取）都不运行，
 // 要它们时测试自己构造、用 RunInBackground 运行。
 type Env struct {
-	Pool           *pgxpool.Pool
-	Sources        *source.Registry
 	Bindings       *binding.Service
 	SeasonBindings *seasonbinding.Service // 追更的时间规则取配置项的默认值
 	Catalog        *catalog.Service
@@ -50,8 +48,6 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *E
 	bindings := binding.NewService(pool, sources, logger)
 	seasonBindings := seasonbinding.NewService(pool, sources, bindings, config.Defaults().Follow, logger)
 	return &Env{
-		Pool:           pool,
-		Sources:        sources,
 		Bindings:       bindings,
 		SeasonBindings: seasonBindings,
 		Catalog:        catalog.NewService(pool, bindings, seasonBindings),

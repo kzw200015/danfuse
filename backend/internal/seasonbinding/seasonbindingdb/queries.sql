@@ -3,7 +3,7 @@
 SELECT EXISTS (SELECT 1 FROM seasons WHERE id = $1);
 
 -- name: ListEpisodeNumbersBySeason :many
--- 一季的全部集号：预览给出默认的集号对应，详情判断条目是否在等待对应的集。
+-- 一季的全部集号：详情判断条目是否在等待对应的集。
 SELECT number
 FROM episodes
 WHERE season_id = $1
@@ -94,13 +94,26 @@ FROM season_binding_items
 WHERE season_binding_id = $1
   AND ref = $2;
 
--- name: ListSeasonBindingHandled :many
--- 处理过的记录（季绑定建出过绑定的弹幕源），连同建在哪一集。
-SELECT h.ref,
-       e.number AS episode_number
-FROM season_binding_handled h
-JOIN episodes e ON e.id = h.episode_id
-WHERE h.season_binding_id = $1;
+-- name: ListSeasonBindingItemsWithHandled :many
+-- 条目表：上次检查时的条目，按在合集里的顺序；处理过的（季绑定建出过绑定的弹幕源）带着绑定建在的那一集的集号，
+-- 没处理过的为 null。ref 在这里按 jsonb 比较。
+SELECT sqlc.embed(i), e.number AS handled_episode_number
+FROM season_binding_items i
+LEFT JOIN season_binding_handled h ON h.season_binding_id = i.season_binding_id AND h.ref = i.ref
+LEFT JOIN episodes e ON e.id = h.episode_id
+WHERE i.season_binding_id = $1
+ORDER BY i.position;
+
+-- name: ListUnhandledSeasonBindingItems :many
+-- 补建要处理的条目：还没处理过的，按在合集里的顺序。ref 在这里按 jsonb 比较。
+SELECT i.*
+FROM season_binding_items i
+WHERE i.season_binding_id = $1
+  AND NOT EXISTS (SELECT 1
+                  FROM season_binding_handled h
+                  WHERE h.season_binding_id = i.season_binding_id
+                    AND h.ref = i.ref)
+ORDER BY i.position;
 
 -- name: ListBoundSources :many
 -- 季绑定的季里、它的适配器现有的全部绑定：在哪一集、哪个弹幕源、是不是它建出的。

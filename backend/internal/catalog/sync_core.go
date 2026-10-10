@@ -42,10 +42,16 @@ func (s *SyncService) syncCatalog(ctx context.Context, run *syncRun) error {
 	return nil
 }
 
+// saveProgress 写入进度。保存的警告没有新增时不重写 warnings 列（最多 maxSyncWarnings 条，每部剧都重写一遍不划算）。
 func (s *SyncService) saveProgress(ctx context.Context, run *syncRun) error {
-	if err := s.q.UpdateSyncRun(ctx, run.params(statusRunning, nil)); err != nil {
+	p := run.params(statusRunning, nil)
+	if len(run.warnings) == run.savedWarnings {
+		p.Warnings = nil
+	}
+	if err := s.q.UpdateSyncRun(ctx, p); err != nil {
 		return fmt.Errorf("保存同步进度失败：%w", err)
 	}
+	run.savedWarnings = len(run.warnings)
 	return nil
 }
 
@@ -79,8 +85,8 @@ func (s *SyncService) syncItem(ctx context.Context, run *syncRun, item Item) err
 
 type createdCounts struct{ series, seasons, episodes int32 }
 
-// writeSeries 同步核心，每部剧一个事务：按身份写入剧（见 upsertSeries），再按季号、集号依次 upsert 季、集，
-// 键以外的字段用目录源的数据覆盖，重算这部剧所有季的搜索列，最后按 sha256 处理海报（下载失败的保留旧海报）。
+// writeSeries 同步核心，每部剧一个事务：按身份写入剧（见 upsertSeries），再按季号依次 upsert 季、每季一条语句 upsert 它的集，
+// 键以外的字段用目录源的数据覆盖（没变的集不重写），重算这部剧所有季的搜索列，最后按 sha256 处理海报（下载失败的保留旧海报）。
 // 同一个身份出现多次时后写的覆盖先写的。返回这个事务里新增的剧、季、集数量。
 // 网络请求都在事务之外：适配在交出这部剧之前已经取完了它的季和集、下载完了海报。
 func (s *SyncService) writeSeries(ctx context.Context, series Series) (createdCounts, error) {
@@ -108,20 +114,11 @@ func (s *SyncService) writeSeries(ctx context.Context, series Series) (createdCo
 				created.seasons++
 			}
 
-			for _, ep := range season.Episodes {
-				epRow, err := q.UpsertEpisode(ctx, catalogdb.UpsertEpisodeParams{
-					SeasonID: seasonRow.ID,
-					Number:   int32(ep.Number),
-					Title:    nullIfEmpty(ep.Title),
-					Duration: int32Ptr(ep.Duration),
-				})
-				if err != nil {
-					return fmt.Errorf("upsert season %d episode %d: %w", season.Number, ep.Number, err)
-				}
-				if epRow.Created {
-					created.episodes++
-				}
+			n, err := upsertEpisodes(ctx, q, seasonRow.ID, season.Episodes)
+			if err != nil {
+				return fmt.Errorf("upsert episodes of season %d: %w", season.Number, err)
 			}
+			created.episodes += n
 		}
 
 		if err := writeSearchVectors(ctx, q, seriesRow.ID, series); err != nil {
@@ -138,6 +135,27 @@ func (s *SyncService) writeSeries(ctx context.Context, series Series) (createdCo
 		return createdCounts{}, err
 	}
 	return created, nil
+}
+
+// upsertEpisodes 一条语句写入一季的集（见 UpsertEpisodes），返回新增的集数。集号相同的以后出现的为准。
+func upsertEpisodes(ctx context.Context, q *catalogdb.Queries, seasonID int64, episodes []Episode) (int32, error) {
+	p := catalogdb.UpsertEpisodesParams{SeasonID: seasonID}
+	index := make(map[int]int, len(episodes)) // 集号 → 在参数数组里的下标
+	for _, ep := range episodes {
+		duration := int32(-1) // 存为 null
+		if ep.Duration != nil {
+			duration = int32(*ep.Duration)
+		}
+		if i, ok := index[ep.Number]; ok {
+			p.Titles[i], p.Durations[i] = ep.Title, duration
+			continue
+		}
+		index[ep.Number] = len(p.Numbers)
+		p.Numbers = append(p.Numbers, int32(ep.Number))
+		p.Titles = append(p.Titles, ep.Title)
+		p.Durations = append(p.Durations, duration)
+	}
+	return q.UpsertEpisodes(ctx, p)
 }
 
 // upsertSeries 按身份写入一部剧（见 docs/adr/0007），返回写入后的行和是否新增：
@@ -198,11 +216,13 @@ func writeSearchVectors(ctx context.Context, q *catalogdb.Queries, seriesID int6
 	if err != nil {
 		return fmt.Errorf("list seasons: %w", err)
 	}
-	for _, se := range seasons {
-		vector := SearchVector(series.Type, series.Title, series.OriginalTitle, int(se.Number), emptyIfNull(se.Title))
-		if err := q.SetSeasonSearchVector(ctx, catalogdb.SetSeasonSearchVectorParams{ID: se.ID, SearchVector: vector}); err != nil {
-			return fmt.Errorf("set search vector of season %d: %w", se.Number, err)
-		}
+	p := catalogdb.SetSeasonSearchVectorsParams{Ids: make([]int64, len(seasons)), Vectors: make([]string, len(seasons))}
+	for i, se := range seasons {
+		p.Ids[i] = se.ID
+		p.Vectors[i] = SearchVector(series.Type, series.Title, series.OriginalTitle, int(se.Number), emptyIfNull(se.Title))
+	}
+	if err := q.SetSeasonSearchVectors(ctx, p); err != nil {
+		return fmt.Errorf("set search vectors: %w", err)
 	}
 	return nil
 }
