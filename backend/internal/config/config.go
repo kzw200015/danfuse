@@ -115,13 +115,16 @@ type Bilibili struct {
 	RequestTimeout time.Duration `mapstructure:"request_timeout"`
 }
 
+// maxMultipartParts Go 解析 multipart 时一个请求最多的 part 数（mime/multipart 的默认值，GODEBUG multipartmaxparts）。
+const maxMultipartParts = 1000
+
 // DanmakuFile 上传弹幕文件的上限，按一次上传计；一个绑定累计追加的文件不设上限。
 // 按季上传另有份数与合计的上限，单份仍受 MaxFileMB 限制。
 type DanmakuFile struct {
-	MaxFiles          int   `mapstructure:"max_files"`            // 一次最多几份
+	MaxFiles          int   `mapstructure:"max_files"`            // 一次最多几份，不超过 1000
 	MaxFileMB         int64 `mapstructure:"max_file_mb"`          // 单份的上限，单位 MB
 	MaxUploadMB       int64 `mapstructure:"max_upload_mb"`        // 一次合计的上限，单位 MB
-	SeasonMaxFiles    int   `mapstructure:"season_max_files"`     // 按季上传一次最多几份
+	SeasonMaxFiles    int   `mapstructure:"season_max_files"`     // 按季上传一次最多几份，不超过 998
 	SeasonMaxUploadMB int64 `mapstructure:"season_max_upload_mb"` // 按季上传一次合计的上限，单位 MB
 }
 
@@ -315,6 +318,14 @@ func (c *Config) validate() error {
 	}
 	if df := c.DanmakuFile; df.MaxFiles < 1 || df.MaxFileMB < 1 || df.MaxUploadMB < 1 || df.SeasonMaxFiles < 1 || df.SeasonMaxUploadMB < 1 {
 		return errors.New("config: danmaku_file.max_files, max_file_mb, max_upload_mb, season_max_files and season_max_upload_mb must be at least 1")
+	}
+	// Go 解析 multipart 时一个请求最多 1000 个 part，超出时只能报"请求参数错误"：
+	// 单集上传每份文件一个 part，按季上传另有 paths、targets 两个字段
+	if c.DanmakuFile.MaxFiles > maxMultipartParts {
+		return fmt.Errorf("config: danmaku_file.max_files must be at most %d (Go's multipart limit of %d parts per request)", maxMultipartParts, maxMultipartParts)
+	}
+	if c.DanmakuFile.SeasonMaxFiles > maxMultipartParts-2 {
+		return fmt.Errorf("config: danmaku_file.season_max_files must be at most %d (Go's multipart limit of %d parts per request, minus the paths and targets fields)", maxMultipartParts-2, maxMultipartParts)
 	}
 	return nil
 }
