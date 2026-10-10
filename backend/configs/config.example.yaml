@@ -7,8 +7,10 @@
 server:
   addr: ":8080"
   graceful_timeout: 10s
-  read_timeout: 30s
-  write_timeout: 30s # 0 表示不限；否则不能小于 30s：创建绑定、重新拉取要当场拉取弹幕，最长约 25 秒
+  # 读整个请求、从读完请求头到写完响应的超时，默认 0（不限）；请求头固定 10 秒内读完，空闲的长连接 2 分钟后断开。
+  # 要设 write_timeout 的话不能小于 30s：创建绑定、重新拉取要当场拉取弹幕，最长约 25 秒
+  read_timeout: 0
+  write_timeout: 0
 
 log:
   level: debug # debug | info | warn | error
@@ -63,8 +65,8 @@ bilibili:
   request_timeout: 10s # 单个请求的超时，超时后照常重试；整次拉取另有约 25 秒的总时限
 
 # 上传弹幕文件的上限，按一次上传计；一个绑定累计追加的文件不设上限。
-# 调大时注意反向代理的请求体上限（例如 nginx 的 client_max_body_size），上传还受 server.read_timeout、write_timeout 限制
-# （write_timeout 从读完请求头起算，包括接收上传的文件）；按季上传一次可能有上百 MB，网速慢时调大这两项。
+# 调大时注意反向代理的请求体上限（例如 nginx 的 client_max_body_size）和超时；
+# 设了 server.read_timeout、write_timeout 时，它们也要容得下传完文件（write_timeout 从读完请求头起算）。
 danmaku_file:
   max_files: 50 # 一次最多几份，不超过 1000（Go 解析一个上传请求最多 1000 个 part）
   max_file_mb: 10 # 单份的上限，单位 MB

@@ -31,8 +31,8 @@ type Config struct {
 type Server struct {
 	Addr            string        `mapstructure:"addr"`
 	GracefulTimeout time.Duration `mapstructure:"graceful_timeout"`
-	ReadTimeout     time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout    time.Duration `mapstructure:"write_timeout"` // 0 表示不限；否则不能小于 MinWriteTimeout
+	ReadTimeout     time.Duration `mapstructure:"read_timeout"`  // 读整个请求（含上传的文件）的超时，0（默认）表示不限
+	WriteTimeout    time.Duration `mapstructure:"write_timeout"` // 从读完请求头到写完响应的超时，0（默认）表示不限；否则不能小于 MinWriteTimeout
 }
 
 // MinWriteTimeout server.write_timeout 的下限：创建绑定、重新拉取要当场拉取弹幕，最长 25 秒（source.FetchTimeout），
@@ -175,8 +175,8 @@ func Load(path string) (*Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.addr", ":8080")
 	v.SetDefault("server.graceful_timeout", 10*time.Second)
-	v.SetDefault("server.read_timeout", 30*time.Second)
-	v.SetDefault("server.write_timeout", 30*time.Second)
+	v.SetDefault("server.read_timeout", time.Duration(0))
+	v.SetDefault("server.write_timeout", time.Duration(0))
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "text")

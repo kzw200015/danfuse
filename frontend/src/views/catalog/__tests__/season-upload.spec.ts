@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Episode } from '@/api/series'
-import { defaultMapping, groupFolderFiles } from '../season-upload'
+import { groupFolderFiles } from '../season-upload'
 
 /** 目录选择选出的一份文件：jsdom 不实现 webkitRelativePath，手动补上 */
 function picked(path: string) {
@@ -100,37 +99,5 @@ describe('groupFolderFiles', () => {
     ],
   ])('%s', (_, paths, error) => {
     expect(shape(paths)).toEqual({ ok: false, error })
-  })
-})
-
-/** 本季的集，只看集号 */
-const local = (...numbers: number[]): Episode[] =>
-  numbers.map((n) => ({ id: 100 + n, number: n, title: null, duration: null, bindings: [] }))
-
-/** 预览的条目，只看认出的集号 */
-const numbered = (...numbers: (number | null)[]) =>
-  numbers.map((n) => ({ label: `番 / ${n}`, number: n, reason: n === null ? '认不出' : null }))
-
-describe('defaultMapping', () => {
-  it.each([
-    ['最小的集号本地有同号的集：同号对应', numbered(1, 2, 3), local(1, 2, 3), { from: 1, to: 1 }],
-    [
-      '存档接着上一季编号、本地也是：同号对应',
-      numbered(13, 14),
-      local(13, 14),
-      { from: 13, to: 13 },
-    ],
-    [
-      '存档接着上一季编号、本地从 1 起：最小对最小',
-      numbered(14, 13),
-      local(1, 2),
-      { from: 13, to: 1 },
-    ],
-    ['存档从 0 起、本地从 1 起：最小对最小', numbered(0, 1), local(1, 2), { from: 0, to: 1 }],
-    ['对不上的条目不参与', numbered(null, 3, 2), local(2, 3), { from: 2, to: 2 }],
-    ['本地还没有集：同号对应', numbered(5, 6), local(), { from: 5, to: 5 }],
-    ['全都对不上：1 = 1', numbered(null, null), local(3, 4), { from: 1, to: 1 }],
-  ])('%s', (_, items, episodes, want) => {
-    expect(defaultMapping(items, episodes)).toEqual(want)
   })
 })

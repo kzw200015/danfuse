@@ -63,7 +63,7 @@ func TestLoadDefaultsWithoutCatalogSource(t *testing.T) {
 func TestLoadTunablesFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{
 		"DATABASE_DSN":                           "postgres://localhost/danfuse",
-		"SERVER_WRITE_TIMEOUT":                   "0", // 不限
+		"SERVER_WRITE_TIMEOUT":                   "5m",
 		"DATABASE_CONNECT_TIMEOUT":               "1m",
 		"CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT":   "10m",
 		"CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT": "2m",
@@ -87,8 +87,8 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.WriteTimeout != 0 {
-		t.Errorf("write_timeout = %v, want 0", cfg.Server.WriteTimeout)
+	if got := cfg.Server.WriteTimeout; got != 5*time.Minute {
+		t.Errorf("write_timeout = %v, want 5m", got)
 	}
 	if got := cfg.Database.ConnectTimeout; got != time.Minute {
 		t.Errorf("connect_timeout = %v, want 1m", got)

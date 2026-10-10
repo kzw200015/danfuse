@@ -124,8 +124,8 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 |---|---|---|---|
 | `server.addr` | `DANFUSE_SERVER_ADDR` | `:8080` | 监听地址 |
 | `server.graceful_timeout` | `DANFUSE_SERVER_GRACEFUL_TIMEOUT` | `10s` | 退出时等待进行中的请求结束的最长时间 |
-| `server.read_timeout` | `DANFUSE_SERVER_READ_TIMEOUT` | `30s` | 读取请求的超时，包括接收上传的文件。[按季上传](#按季上传)网速慢、文件多时要调大它和 `server.write_timeout` |
-| `server.write_timeout` | `DANFUSE_SERVER_WRITE_TIMEOUT` | `30s` | 写响应的超时，从读完请求头起算（包括接收上传的文件），`0` 表示不限。创建绑定和重新拉取要当场拉取弹幕，最长约 25 秒，所以不能小于 `30s` |
+| `server.read_timeout` | `DANFUSE_SERVER_READ_TIMEOUT` | `0` | 读整个请求（包括上传的文件）的超时，`0` 表示不限。一般不用设：请求头固定要在 10 秒内读完，空闲的长连接 2 分钟后断开 |
+| `server.write_timeout` | `DANFUSE_SERVER_WRITE_TIMEOUT` | `0` | 从读完请求头到写完响应的超时（包括接收上传的文件），`0` 表示不限。创建绑定和重新拉取要当场拉取弹幕，最长约 25 秒，所以设的话不能小于 `30s` |
 | `log.level` | `DANFUSE_LOG_LEVEL` | `info` | 日志级别：`debug`、`info`、`warn`、`error` |
 | `log.format` | `DANFUSE_LOG_FORMAT` | `text` | 日志格式：`text`、`json` |
 | `database.dsn` | `DANFUSE_DATABASE_DSN` | 无，必填 | PostgreSQL 连接串，例如 `postgres://user:pass@host:5432/danfuse?sslmode=disable` |
@@ -154,9 +154,9 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `bilibili.request_timeout` | `DANFUSE_BILIBILI_REQUEST_TIMEOUT` | `10s` | 请求 B 站时单个请求的超时，超时后照常重试；整次拉取另有约 25 秒的总时限 |
 | `danmaku_file.max_files` | `DANFUSE_DANMAKU_FILE_MAX_FILES` | `50` | 上传弹幕文件时一次最多几份，不超过 1000：Go 解析一个上传请求最多 1000 个部分（每份文件一个） |
 | `danmaku_file.max_file_mb` | `DANFUSE_DANMAKU_FILE_MAX_FILE_MB` | `10` | 上传弹幕文件时单份的上限，单位 MB |
-| `danmaku_file.max_upload_mb` | `DANFUSE_DANMAKU_FILE_MAX_UPLOAD_MB` | `50` | 上传弹幕文件时一次合计的上限，单位 MB。调大时注意反向代理的请求体上限（例如 nginx 的 `client_max_body_size`）；上传还受 `server.read_timeout`、`server.write_timeout` 和管理界面 35 秒请求超时的限制 |
+| `danmaku_file.max_upload_mb` | `DANFUSE_DANMAKU_FILE_MAX_UPLOAD_MB` | `50` | 上传弹幕文件时一次合计的上限，单位 MB。调大时注意反向代理的请求体上限（例如 nginx 的 `client_max_body_size`）；上传还受管理界面 35 秒请求超时的限制 |
 | `danmaku_file.season_max_files` | `DANFUSE_DANMAKU_FILE_SEASON_MAX_FILES` | `500` | [按季上传](#按季上传)时一次最多几份，不超过 998：同样受 1000 个部分的限制，请求里除了文件还有两个字段 |
-| `danmaku_file.season_max_upload_mb` | `DANFUSE_DANMAKU_FILE_SEASON_MAX_UPLOAD_MB` | `200` | 按季上传时一次合计的上限，单位 MB；单份仍受 `max_file_mb` 限制。同样注意反向代理的请求体上限；管理界面不限这个请求的时长，以 `server.read_timeout` 和 `server.write_timeout` 为准 |
+| `danmaku_file.season_max_upload_mb` | `DANFUSE_DANMAKU_FILE_SEASON_MAX_UPLOAD_MB` | `200` | 按季上传时一次合计的上限，单位 MB；单份仍受 `max_file_mb` 限制。同样注意反向代理的请求体上限；管理界面不限这个请求的时长 |
 
 - `catalog_source.kind` 为 `jellyfin` 时，`url`、`api_key`、`libraries` 都必须填写；`sync.interval` 大于 0 时必须配置目录源。
 - 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；`database.connect_timeout` 不大于 0；`server.write_timeout` 不是 `0` 又小于 `30s`；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名，或 `list_timeout`、`poster_timeout` 不大于 0；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；`sync.keep_runs` 小于 1；`follow.scan_interval`、`follow.check_interval`、`scheduled_fetch.interval` 不大于 0，或 `scheduled_fetch.window` 为负；token 或 SESSDATA 含不允许的字符；`bilibili.requests_per_second`、`bilibili.request_timeout` 不大于 0，或 `bilibili.burst`、`bilibili.fetch_concurrency` 小于 1；上传弹幕文件的五个上限有小于 1 的。
@@ -364,11 +364,11 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 - 所选文件夹下的每个子目录是一个**条目**，里面的全部 XML 合起来是这一集的一个弹幕源，快照之间重复的弹幕只留一条；顶层平铺的每份 XML（例如 `1-「标题」.xml`）也各是一个条目，两种可以混在一起。不是 `.xml` 的文件（压缩包、`README.html` 这类）忽略，界面上写明忽略了几份。
 - 目录最多两层（文件夹 / 子目录 / 文件），更深的地方有 XML 时直接拒绝，提示第一份越界的文件；一份 XML 都没有、子目录 `1` 和顶层的 `1.xml` 同时存在时也拒绝。
 - 条目名称是"文件夹名 / 子目录名"（平铺的文件为"文件夹名 / 文件名去掉扩展名"），也是建出的绑定的标题。按[季绑定](#季绑定)的**集号规则**从条目名称认集号：默认规则认得出"来自新世界 / 1"这样子目录名只写了集号的；认不出时（例如 `1-「标题」`）改规则，点"重新预览"。认不出集号、集号重复的条目对不上。
-- 选好文件夹就预览，不上传文件、不保存任何东西，关掉对话框就当没发生过。集号对应写作"第 X 集 = 本地第 Y 集"，预填：认出的最小集号在本季有同号的集时同号对应，否则对到本季最小的集号；不对就改。选错了层级时（例如选了装着好几部番的上级目录），XML 超出两层的直接拒绝、提示第一份越界的文件；只有两层时（每部番一个子目录、里面平铺 XML），条目名称是番名，认不出集号，这些行都对不上。
+- 选好文件夹就预览，不上传文件、不保存任何东西，关掉对话框就当没发生过。集号对应写作"第 X 集 = 本地第 Y 集"，和季绑定一样预填 1 = 1，不按条目去猜；存档的编号与本地不一致时（例如接着上一季编号）自己改。选错了层级时（例如选了装着好几部番的上级目录），XML 超出两层的直接拒绝、提示第一份越界的文件；只有两层时（每部番一个子目录、里面平铺 XML），条目名称是番名，认不出集号，这些行都对不上。
 - 预览逐行显示对到本地第几集、那一集已有几个绑定。对到本地已有的集的行默认勾上；那一集已经有用弹幕文件建的绑定时默认不勾、标注"已有文件绑定"，同一个文件夹传第二次不会重复建绑定，真想再传一份就手动勾上。目录里还没有这一集、在起点之前、对不上的行不能勾。
 - 点"上传 N 个条目"只上传勾选的行，显示上传进度，传完显示"正在保存"。勾选的条目要么全部建出绑定，要么一个都不建：有一份 XML 认不出（提示带着它在文件夹里的路径）、超过上限、预览之后目标集被删掉了，整次失败，对话框保持原样，处理好之后直接再点一次。成功后提示建出了几个绑定、一共多少条弹幕。
 - 默认一次最多 500 份，合计不超过 200 MB，单份不超过 10 MB，可以用 `danmaku_file` 下的[配置项](#配置)调整，与集面板上传的上限分开。
-- 管理界面不限这个请求的时长，以服务端的超时为准：`server.read_timeout` 和 `server.write_timeout`（默认都是 30 秒）都要容得下传完整个文件夹的时间。网速慢、文件多时调大这两项（例如 200 MB 按 10 Mbps 上传约需 3 分钟），`write_timeout` 也可以设为 `0`。超时时界面上提示的是"请求参数错误"或网络错误，不会写明是超时；只是 `write_timeout` 不够时，绑定可能已经建出、只是结果没能发回来，重传之前先看看各集的绑定。经反向代理访问时，也要放宽它的请求体上限和超时。
+- 管理界面不限这个请求的时长，服务端默认也不限（例如 200 MB 按 10 Mbps 上传约需 3 分钟）。设了 `server.read_timeout`、`server.write_timeout` 的话，两项都要容得下传完整个文件夹的时间：`write_timeout` 从读完请求头起算，不够时绑定可能已经建出、只是结果没能发回来，重传之前先看看各集的绑定。经反向代理访问时，也要放宽它的请求体上限和超时。
 
 ### 季绑定
 

@@ -31,14 +31,14 @@
 - 创建 `POST /api/seasons/:id/file-bindings`（multipart，`CreateFromSeasonFiles`）：`files` 多份；`paths` 与 `targets` 各是一个 JSON 数组字段。`paths` 与 `files` 一一对应、顺序相同，是以所选文件夹名开头的相对路径：Go 的 multipart 会把上传文件名裁成 base name，所以另传；逐份一个字段时 500 份文件就超过 `multipart.ReadForm` 默认 1000 个 part 的上限，所以合成一个字段。`targets` 每个条目一项 `{label, episodeId}`，`episodeId` 取自预览。
 - 分组与校验在请求的 `Validate`（`groupSeasonPaths`）：只看请求本身就能判断，属于 handler；路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"，扩展名不分大小写，文件夹名都相同；子目录合成一个条目"文件夹名 / 子目录名"，顶层的文件各自一个条目"文件夹名 / 文件名去掉扩展名"，名称不能重复；条目与 `targets` 一一对应。有一项不满足就整次 400。前端的 `groupFolderFiles`（`season-upload.ts`）按同样的规则先分组，另外忽略不是 `.xml` 的文件。
 - service 先在事务外解析全部文件，有一份认不出就整次 422，提示用它的相对路径，存下的文件名取 base name；两个条目对到同一集时 400。再在一个事务里锁住季、逐个锁住目标集（`LockSeasonEpisode` 同时确认它属于这一季，否则整次 404、提示重新预览）、插入文件绑定（标题为条目名称）、`addFiles`。目标集上已有绑定（包括文件绑定）时照常再建一个。返回 201 `{bindings, added}`，记一条 info 日志。
-- 份数与合计大小另有上限 `danmaku_file.season_max_files` / `season_max_upload_mb`，单份仍是 `max_file_mb`。加上 `paths`、`targets` 两个字段不能超过 1000 个 part（超过时只能报"请求参数错误"），所以启动时校验 `season_max_files` 不超过 998、`max_files` 不超过 1000。这个请求是同步的，前端不设超时（`timeout: 0`），时长以服务端的 `server.read_timeout` / `write_timeout` 为准；Go 的 `WriteTimeout` 从读完请求头起算，包括接收请求体的时间，所以两个都要容得下整次上传。
+- 份数与合计大小另有上限 `danmaku_file.season_max_files` / `season_max_upload_mb`，单份仍是 `max_file_mb`。加上 `paths`、`targets` 两个字段不能超过 1000 个 part（超过时只能报"请求参数错误"），所以启动时校验 `season_max_files` 不超过 998、`max_files` 不超过 1000。这个请求是同步的，前端不设超时（`timeout: 0`）；服务端的 `server.read_timeout` / `write_timeout` 默认也不限（只固定限制读请求头和空闲连接，见 `server.go`），部署者设了的话两个都要容得下整次上传（Go 的 `WriteTimeout` 从读完请求头起算，包括接收请求体的时间）。
 
 ## 管理界面
 
 - 创建绑定、重新拉取由后端当场拉取（最长约 25 秒），`bindings.ts` 里用 `slowRequestTimeout` 放宽超时，界面上用 `useElapsed` 显示已用秒数。
 - 绑定卡片（`BindingCard`）按 `kind` 分出两组操作（`BindingSourceActions.tsx`：重新拉取 / 追加文件、重新解析），各自持有 mutation；一个绑定上改动弹幕的变更都带 `bindingKeys.write(id)` 前缀（`use-bindings.ts`），卡片用 `useIsMutating` 在任何一个进行中时禁用其他操作。
 - 弹幕文件列表的键 `['binding-files', id]`，弹出层打开时才取。
-- 按季上传的对话框（`SeasonUploadButton`，入口在季面板"季绑定"一节的标题行）复用季绑定的 `EpisodeRuleRepreview`（集号规则与重新预览）、`MappingInputs`、`previewTarget` 的现算和 `CollectionItemsTable`（传 `selection` 加勾选列）；集号对应预填 `defaultMapping`（最小的集号在本季有同号的集时同号对应，否则对到本季最小的集号），季绑定仍预填 1 = 1。"已有文件绑定"看目标集的绑定里有没有 `kind` 为 `file` 的，有就默认不勾。上传显示 axios 的上传进度，传完显示"正在保存"；成功后让剧详情失效，失败时对话框保持原样。
+- 按季上传的对话框（`SeasonUploadButton`，入口在季面板"季绑定"一节的标题行）复用季绑定的 `EpisodeRuleRepreview`（集号规则与重新预览）、`MappingInputs`、`previewTarget` 的现算和 `CollectionItemsTable`（传 `selection` 加勾选列）；集号对应和季绑定一样预填 1 = 1。"已有文件绑定"看目标集的绑定里有没有 `kind` 为 `file` 的，有就默认不勾。上传显示 axios 的上传进度，传完显示"正在保存"；成功后让剧详情失效，失败时对话框保持原样。
 - 查看绑定的弹幕（`BindingDanmakuDialog`，点卡片上的弹幕条数打开）：`GET /api/bindings/:id/danmaku?fromMs=&after=` 按 `(time_ms, source_id)` 游标分页，每页 200 条，时间未校正，不输出原始 ID（可能超出 JS 的安全整数）；`fromMs` 用于跳转，翻页时照传。绑定 JSON 带着 `contentVersion`（插入了新弹幕或替换全部弹幕时加 1）和 `maxTimeMs`（最晚一条弹幕的时间，拖动条的长度），两者与 `danmaku_count` 一样在写入弹幕的事务里维护。前端的无限查询键是 `['binding-danmaku', id, contentVersion, fromMs]`：不论弹幕怎么变的，剧详情重新加载后版本一变就换一份数据，同一个键不会过时，不重新请求。
 
 ## B 站适配器的测试

@@ -25,12 +25,7 @@ import CollectionItemsTable from './CollectionItemsTable'
 import { cleanPatterns, EpisodeRuleRepreview, samePatterns } from './EpisodeRuleInput'
 import MappingInputs, { useMappingDraft } from './MappingInputs'
 import { previewTarget, previewTargetClass, previewTargetText } from './season-binding'
-import {
-  defaultMapping,
-  groupFolderFiles,
-  type FolderGrouping,
-  type UploadEntry,
-} from './season-upload'
+import { groupFolderFiles, type FolderGrouping, type UploadEntry } from './season-upload'
 import { takeFiles } from './shared'
 
 /** 一季的上传请求的变更键：上传进行中对话框不能关 */
@@ -166,7 +161,7 @@ function SeasonUpload({
 }
 
 /**
- * 预览：集号规则（改了之后重新预览才能上传）、可改的集号对应（预填 defaultMapping），以及按对应现算的表格。
+ * 预览：集号规则（改了之后重新预览才能上传）、可改的集号对应（预填 1 = 1，同季绑定），以及按对应现算的表格。
  * 对到本地已有的集的行可以勾，默认勾上；那一集已有用弹幕文件建的绑定时默认不勾。确认后只上传勾选的行
  */
 function UploadPreview({
@@ -185,9 +180,7 @@ function UploadPreview({
   onDone: () => void
 }) {
   const reload = useReloadSeries()
-  const { from, to, setFrom, setTo, mapping } = useMappingDraft(
-    defaultMapping(items, season.episodes),
-  )
+  const { from, to, setFrom, setTo, mapping } = useMappingDraft({ from: 1, to: 1 })
   const [rule, setRule] = useState(patterns)
   const ruleChanged = !samePatterns(cleanPatterns(rule), patterns)
   const repreview = useMutation({

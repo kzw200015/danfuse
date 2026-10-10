@@ -137,7 +137,7 @@ describe('按季上传', () => {
       expect(previewSeasonFileBindings).toHaveBeenCalledWith(11, labels, defaultPatterns),
     )
     expect(await dialog.findByText('5 个条目，忽略了 1 份不是 XML 的文件')).toBeInTheDocument()
-    // 最小的集号 1 本地有第 1 集：同号对应
+    // 集号对应预填 1 = 1，同季绑定
     expect(dialog.getByRole('textbox', { name: '第几集' })).toHaveValue('1')
     expect(dialog.getByRole('textbox', { name: '本地第几集' })).toHaveValue('1')
     expect(rows(dialog)).toEqual([
