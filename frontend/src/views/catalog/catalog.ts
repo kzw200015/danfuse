@@ -112,6 +112,11 @@ export function tmdbUrl(series: Pick<SeriesDetail, 'type' | 'tmdbId'>) {
   return `https://www.themoviedb.org/${series.type === 'movie' ? 'movie' : 'tv'}/${series.tmdbId}`
 }
 
+/** 用标题在 B 站综合搜索弹幕源 */
+export function bilibiliSearchUrl(title: string) {
+  return `https://search.bilibili.com/all?keyword=${encodeURIComponent(title)}`
+}
+
 /** 一组集的绑定统计：已绑定的集数（至少有一个绑定）、失效的绑定数 */
 export function bindingStats(episodes: Episode[]) {
   return {
