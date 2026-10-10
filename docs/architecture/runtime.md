@@ -3,8 +3,8 @@
 ## 启动流程
 
 - `cmd/server/main.go` 依次做 配置加载 → 日志 → 连接数据库（`database.Connect`）→ 自动迁移（`database.Migrate`），再用 `app.New` 组装、`App.Run` 运行，不连目录源和 B 站。
-- `App.Run` 用 errgroup 同时运行 HTTP 服务、后台同步（`SyncService.Run`）、季绑定的补建（`SeasonBindingService.Run`）与定时拉取（`ScheduledFetchService.Run`，见 [`scheduled-fetch.md`](scheduled-fetch.md)）。HTTP 服务出错（例如端口被占用）时后台任务也随之退出。
-- 同步与补建的 Run 共用 `service/background.go` 的 `backgroundLoop`：定时与手动触发都在循环里处理，后台任务用循环的 ctx，循环返回前等它们结束。
+- `App.Run` 用 errgroup 同时运行 HTTP 服务、后台同步（`catalog.SyncService.Run`）、季绑定的补建（`seasonbinding.Service.Run`）与定时拉取（`binding.ScheduledFetchService.Run`，见 [`scheduled-fetch.md`](scheduled-fetch.md)）。HTTP 服务出错（例如端口被占用）时后台任务也随之退出。
+- 同步与补建的 Run 共用 `internal/background` 的 `Loop`：定时与手动触发都在循环里处理，后台任务用循环的 ctx，循环返回前等它们结束。
 - 定时同步的时间从同步记录算（最近一次同步的开始时间加 `sync.interval`，开始时间取自应用的时钟），不从进程启动算：重启不会推迟，启动时已经到期就立即同步，手动同步也会把下一次推后。多实例同时到点时只有拿到同步租约的那个同步，拿到租约之后还会再确认一次仍然到期（同追更的扫描），不会接连同步两次。追更同样按季绑定的上次检查时间判断是否到期，扫描本身按 `follow.scan_interval` 从启动开始计时。
 - Run 等进行中的同步写完最终状态、补建与定时拉取停下才返回，之后 main 才关闭连接池（`defer pool.Close()`）。
 

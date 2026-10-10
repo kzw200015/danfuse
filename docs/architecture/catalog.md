@@ -1,6 +1,6 @@
 # 目录：同步、海报与搜索
 
-从目录源（目前只有 Jellyfin，`catalog/jellyfin` 实现 `catalog.Source`）同步出剧、季、集，同步核心在 `service.SyncService`。术语见 `GLOSSARY.md`。
+从目录源（目前只有 Jellyfin，`catalog/jellyfin` 实现 `catalog.Source`）同步出剧、季、集，同步在 `catalog.SyncService`（`internal/catalog/sync.go`，按剧写入目录的同步核心在 `sync_core.go`）。术语见 `GLOSSARY.md`。
 
 ## 同步与海报
 
@@ -28,9 +28,9 @@
 
 ## 名称里的季号、集号
 
-- 搜索关键词和弹弹 API `match` 的文件名都用 `catalog.ParseName` 按一张按优先级排列的正则表（`namePatterns`，命名捕获组 `season`、`episode`）认出写明了的季号、集号（`S01E11`、`S01`、`第2季`、`特别篇`、`第11话`、`EP11`），按季号、集号在 SQL 里精确过滤。
+- 搜索关键词和弹弹 API `match` 的文件名都用 `naming.Parse`（`catalog/naming`）按一张按优先级排列的正则表（`namePatterns`，命名捕获组 `season`、`episode`）认出写明了的季号、集号（`S01E11`、`S01`、`第2季`、`特别篇`、`第11话`、`EP11`），按季号、集号在 SQL 里精确过滤。
 - 没有标注的数字（"剧名2"、"Mob Psycho 100"）分不出是标题的一部分还是季号，不拆，交给全文搜索。
-- `SeasonName` 输出的名称（"剧名 第2季""剧名 特别篇"）能被 `ParseName` 拆回剧名和季号。
+- `SeasonName` 输出的名称（"剧名 第2季""剧名 特别篇"）能被 `naming.Parse` 拆回剧名和季号。
 
 ## Jellyfin 适配器的测试
 
