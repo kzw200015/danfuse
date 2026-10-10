@@ -1,4 +1,4 @@
-import { request, slowRequestTimeout } from './request'
+import { request, slowRequestTimeout, uploadRequestTimeout } from './request'
 
 export type SeasonBindingStatus = 'active' | 'dead'
 
@@ -185,4 +185,61 @@ export function deleteSeasonBinding(id: number, withBindings: boolean) {
 /** 默认的集号规则：贴链接预览时作为编辑的起点，"恢复默认"时取它 */
 export function getDefaultEpisodePatterns() {
   return request<{ episodePatterns: string[] }>({ url: '/episode-rules/default' })
+}
+
+/** 按季上传的预览：按集号规则从条目名称认出集号，不上传文件、不保存任何东西 */
+export function previewSeasonFileBindings(
+  seasonId: number,
+  labels: string[],
+  episodePatterns: string[],
+) {
+  return request<{ items: PreviewItem[] }>({
+    url: `/seasons/${seasonId}/file-bindings/preview`,
+    method: 'POST',
+    data: { labels, episodePatterns },
+  })
+}
+
+/** 按季上传的一个条目对到的集 */
+export interface SeasonUploadTarget {
+  label: string
+  episodeId: number
+}
+
+export interface SeasonUpload {
+  /** 勾选的条目的全部文件 */
+  files: File[]
+  /** 与 files 一一对应、顺序相同的相对路径，以所选文件夹名开头 */
+  paths: string[]
+  /** 每个条目一项 */
+  targets: SeasonUploadTarget[]
+}
+
+export interface SeasonUploadResult {
+  /** 建出的绑定数 */
+  bindings: number
+  /** 新增的弹幕总条数 */
+  added: number
+}
+
+/**
+ * 按季上传：每个条目各建一个用弹幕文件建的绑定，在一个事务里，要么全部建出、要么一个都不建。
+ * 每份文件以相对路径作为文件名上传，后端按它分条目；targets 是一个 JSON 字段。
+ * 一季的文件可能有上百 MB，不设超时；onProgress 收到上传的进度（0～1）
+ */
+export function createSeasonFileBindings(
+  seasonId: number,
+  { files, paths, targets }: SeasonUpload,
+  onProgress?: (progress: number) => void,
+) {
+  const form = new FormData()
+  form.append('targets', JSON.stringify(targets))
+  files.forEach((f, i) => form.append('files', f, paths[i]))
+  return request<SeasonUploadResult>({
+    url: `/seasons/${seasonId}/file-bindings`,
+    method: 'POST',
+    data: form,
+    timeout: uploadRequestTimeout,
+    onUploadProgress: (e) => onProgress?.(e.progress ?? (e.total ? e.loaded / e.total : 0)),
+  })
 }

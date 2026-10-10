@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { groupFolderFiles } from '../season-upload'
+import { picked } from '@/__tests__/utils'
 
-/** 目录选择选出的一份文件：jsdom 不实现 webkitRelativePath，手动补上 */
-function picked(path: string) {
-  const file = new File(['<i></i>'], path.split('/').at(-1)!, { type: 'text/xml' })
-  Object.defineProperty(file, 'webkitRelativePath', { value: path })
-  return file
-}
+import { groupFolderFiles } from '../season-upload'
 
 /** 分组结果里看得到的部分：条目名称与各自的相对路径（文件与路径一一对应、顺序相同） */
 function shape(paths: string[]) {

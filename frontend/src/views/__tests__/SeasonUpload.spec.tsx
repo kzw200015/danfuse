@@ -3,15 +3,20 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import {
   binding,
+  defaultPatterns,
   fileBinding,
   lighthouse,
   mockCatalog,
   mockRootLayout,
+  picked,
   renderRoutes,
 } from '@/__tests__/utils'
-import { createSeasonFileBindings, previewSeasonFileBindings } from '@/api/bindings'
 import { ApiError } from '@/api/request'
-import { getDefaultEpisodePatterns } from '@/api/season-bindings'
+import {
+  createSeasonFileBindings,
+  getDefaultEpisodePatterns,
+  previewSeasonFileBindings,
+} from '@/api/season-bindings'
 import { getSeries, type SeriesDetail } from '@/api/series'
 
 vi.mock('@/api/bindings')
@@ -20,9 +25,6 @@ vi.mock('@/api/series')
 // 根布局会取最近一次同步和设置
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
-
-/** 默认的集号规则（假的，只要是两条） */
-const defaultPatterns = ['第(\\d+)集', '/ (\\d+)$']
 
 /** 星海旅人的第 1 季（季 11）：第 1 集（集 110）没有绑定，第 2 集（集 111）有文件绑定，第 3 集（集 112）有链接绑定 */
 function starVoyager(): SeriesDetail {
@@ -67,13 +69,6 @@ beforeEach(() => {
     }),
   }))
 })
-
-/** 目录选择选出的一份文件：jsdom 不实现 webkitRelativePath，手动补上 */
-function picked(path: string) {
-  const file = new File(['<i></i>'], path.split('/').at(-1)!, { type: 'text/xml' })
-  Object.defineProperty(file, 'webkitRelativePath', { value: path })
-  return file
-}
 
 /** 一季的存档：第 1～4 集各一个子目录（第 1 集有两份快照），一个认不出集号的 SP，一份说明 */
 const archive = [

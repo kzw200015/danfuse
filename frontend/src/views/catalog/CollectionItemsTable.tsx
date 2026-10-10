@@ -33,7 +33,7 @@ export interface RowSelection {
  * 合集的条目，按在合集里的顺序：序号 | 条目 | 第三栏（季绑定的状态，或预览时对到本地的哪一集）。
  * 传了 selection 时最前面加一列勾选框（按季上传挑出要上传的条目），勾选框的名称为"上传 条目"
  */
-export default function CollectionItemsTable<R extends CollectionItemRow>({
+export default function CollectionItemsTable({
   label,
   heading,
   rows,
@@ -43,9 +43,9 @@ export default function CollectionItemsTable<R extends CollectionItemRow>({
   label: string
   /** 第三栏的表头 */
   heading: string
-  rows: R[]
-  /** 每一行的勾选框 */
-  selection?: (row: R) => RowSelection
+  rows: CollectionItemRow[]
+  /** 第 i 行的勾选框 */
+  selection?: (i: number) => RowSelection
 }) {
   return (
     <Table aria-label={label} className="text-xs">
@@ -64,7 +64,7 @@ export default function CollectionItemsTable<R extends CollectionItemRow>({
       <TableBody>
         {rows.map((row, i) => (
           <TableRow key={i}>
-            {selection && <SelectionCell label={row.label} {...selection(row)} />}
+            {selection && <SelectionCell label={row.label} {...selection(i)} />}
             <TableCell className="text-right tabular-nums">{row.number ?? '—'}</TableCell>
             <TableCell className="whitespace-normal">{row.label}</TableCell>
             <TableCell className={cn('whitespace-normal', row.className)} title={row.title}>

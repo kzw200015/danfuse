@@ -253,3 +253,10 @@ export function seedSeries(queryClient: QueryClient) {
 
 /** 名称为 name 的卡片（绑定或季绑定） */
 export const card = async (name: string) => within(await screen.findByRole('article', { name }))
+
+/** 目录选择选出的一份文件：jsdom 不实现 webkitRelativePath，手动补上 */
+export function picked(path: string) {
+  const file = new File(['<i></i>'], path.split('/').at(-1)!, { type: 'text/xml' })
+  Object.defineProperty(file, 'webkitRelativePath', { value: path })
+  return file
+}

@@ -3,8 +3,11 @@ import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-quer
 import { FolderOpenIcon, FolderUpIcon, Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { createSeasonFileBindings, previewSeasonFileBindings } from '@/api/bindings'
-import type { PreviewItem } from '@/api/season-bindings'
+import {
+  createSeasonFileBindings,
+  previewSeasonFileBindings,
+  type PreviewItem,
+} from '@/api/season-bindings'
 import type { Season } from '@/api/series'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
@@ -204,7 +207,7 @@ function UploadPreview({
   })
   const selected = rows.filter((r) => r.checked)
 
-  // 上传的进度（0～1），上传完是"正在保存"
+  // 上传的进度（整数百分比，同一个百分比不重复渲染），上传完是"正在保存"
   const [progress, setProgress] = useState(0)
   const create = useMutation({
     mutationKey: uploadKey(season.id),
@@ -216,7 +219,7 @@ function UploadPreview({
           paths: selected.flatMap((r) => r.entry.paths),
           targets: selected.map((r) => ({ label: r.entry.label, episodeId: r.episode!.id })),
         },
-        setProgress,
+        (p) => setProgress(Math.floor(p * 100)),
       ),
     onMutate: () => setProgress(0),
     onSuccess: (result) => {
@@ -226,7 +229,7 @@ function UploadPreview({
       return reload()
     },
   })
-  const saving = create.isPending && progress >= 1
+  const saving = create.isPending && progress >= 100
   const savingElapsed = useElapsed(saving)
   const busy = create.isPending || repreview.isPending
 
@@ -257,15 +260,15 @@ function UploadPreview({
           label: r.entry.label,
           text: r.target ? previewTargetText(r.target) + (r.hasFile ? ' · 已有文件绑定' : '') : '—',
           className: previewTargetClass(r.target),
-          toggleKey: r.key,
-          checked: r.checked,
         }))}
-        selection={({ toggleKey, checked }) => ({
-          checked,
-          disabled: toggleKey === null || create.isPending,
-          onCheckedChange: (c) =>
-            toggleKey !== null && setToggled((prev) => new Map(prev).set(toggleKey, c)),
-        })}
+        selection={(i) => {
+          const { key, checked } = rows[i]!
+          return {
+            checked,
+            disabled: key === null || create.isPending,
+            onCheckedChange: (c) => key !== null && setToggled((prev) => new Map(prev).set(key, c)),
+          }
+        }}
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -284,12 +287,8 @@ function UploadPreview({
             <span className="text-xs text-muted-foreground">正在保存 {savingElapsed}s…</span>
           ) : (
             <span className="flex min-w-40 flex-1 items-center gap-2 text-xs text-muted-foreground">
-              <Progress
-                className="flex-1"
-                value={Math.round(progress * 100)}
-                aria-label="上传进度"
-              />
-              上传中 {Math.round(progress * 100)}%
+              <Progress className="flex-1" value={progress} aria-label="上传进度" />
+              上传中 {progress}%
             </span>
           ))}
       </div>
