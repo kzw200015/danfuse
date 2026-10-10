@@ -14,10 +14,6 @@ FROM episodes
 WHERE id = $1
 FOR KEY SHARE;
 
--- name: SeasonExists :one
--- 按季上传的预览、创建前确认这一季存在。
-SELECT EXISTS (SELECT 1 FROM seasons WHERE id = $1);
-
 -- name: LockSeason :one
 -- 按季上传的写入事务的第一句：锁住这一季到提交，期间删不掉它（随后再锁其中的集，与删季的级联同一个顺序）。
 -- 这一季已被删除时没有行。

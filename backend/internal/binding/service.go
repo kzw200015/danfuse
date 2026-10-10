@@ -23,7 +23,6 @@ var (
 	errEpisodeNotFound = apierr.ErrNotFound.WithMessage("集不存在")
 	errSeasonNotFound  = apierr.ErrNotFound.WithMessage("季不存在")
 	errEpisodeDeleted  = apierr.ErrNotFound.WithMessage("这一集已被删除")
-	errSeasonNotFound  = apierr.ErrNotFound.WithMessage("季不存在")
 	errSeasonDeleted   = apierr.ErrNotFound.WithMessage("这一季已被删除")
 	errBindingExists   = apierr.ErrConflict.WithMessage("这一集已经绑定过这个弹幕源")
 	errBindingNotFound = apierr.ErrNotFound.WithMessage("绑定不存在")
