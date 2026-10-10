@@ -101,26 +101,20 @@ export function takeFiles(input: HTMLInputElement) {
 /** 在新标签页打开的外链，带外链图标；默认是弹幕源、合集标题的加粗样式，其他地方用 className 调整 */
 export function SourceLink({
   href,
-  title,
-  'aria-label': ariaLabel,
   className,
   children,
 }: {
   href: string
-  title?: string
-  'aria-label'?: string
   className?: string
   children: ReactNode
 }) {
   return (
     <a
       href={href}
-      title={title}
-      aria-label={ariaLabel}
       target="_blank"
       rel="noreferrer"
       className={cn(
-        'inline-flex items-center gap-1 font-medium break-all hover:underline focus-visible:underline',
+        'inline-flex items-center gap-1 font-medium break-all hover:underline',
         className,
       )}
     >
