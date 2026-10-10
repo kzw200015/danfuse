@@ -38,7 +38,7 @@
 - 创建绑定、重新拉取由后端当场拉取（最长约 25 秒），`bindings.ts` 里用 `slowRequestTimeout` 放宽超时，界面上用 `useElapsed` 显示已用秒数。
 - 绑定卡片（`BindingCard`）按 `kind` 分出两组操作（`BindingSourceActions.tsx`：重新拉取 / 追加文件、重新解析），各自持有 mutation；一个绑定上改动弹幕的变更都带 `bindingKeys.write(id)` 前缀（`use-bindings.ts`），卡片用 `useIsMutating` 在任何一个进行中时禁用其他操作。
 - 弹幕文件列表的键 `['binding-files', id]`，弹出层打开时才取。
-- 按季上传的对话框（`SeasonUploadDialog`，入口在季面板"季绑定"一节的标题行）复用季绑定的 `EpisodeRuleInput`、`MappingInputs`、`previewTarget` 的现算和 `CollectionItemsTable`（`selectable` 加勾选列）；集号对应预填 `defaultMapping`（最小的集号在本季有同号的集时同号对应，否则对到本季最小的集号），季绑定仍预填 1 = 1。"已有文件绑定"看目标集的绑定里有没有 `kind` 为 `file` 的，有就默认不勾。上传显示 axios 的上传进度，传完显示"正在保存"；成功后让剧详情失效，失败时对话框保持原样。
+- 按季上传的对话框（`SeasonUploadButton`，入口在季面板"季绑定"一节的标题行）复用季绑定的 `EpisodeRuleRepreview`（集号规则与重新预览）、`MappingInputs`、`previewTarget` 的现算和 `CollectionItemsTable`（传 `selection` 加勾选列）；集号对应预填 `defaultMapping`（最小的集号在本季有同号的集时同号对应，否则对到本季最小的集号），季绑定仍预填 1 = 1。"已有文件绑定"看目标集的绑定里有没有 `kind` 为 `file` 的，有就默认不勾。上传显示 axios 的上传进度，传完显示"正在保存"；成功后让剧详情失效，失败时对话框保持原样。
 - 查看绑定的弹幕（`BindingDanmakuDialog`，点卡片上的弹幕条数打开）：`GET /api/bindings/:id/danmaku?fromMs=&after=` 按 `(time_ms, source_id)` 游标分页，每页 200 条，时间未校正，不输出原始 ID（可能超出 JS 的安全整数）；`fromMs` 用于跳转，翻页时照传。绑定 JSON 带着 `contentVersion`（插入了新弹幕或替换全部弹幕时加 1）和 `maxTimeMs`（最晚一条弹幕的时间，拖动条的长度），两者与 `danmaku_count` 一样在写入弹幕的事务里维护。前端的无限查询键是 `['binding-danmaku', id, contentVersion, fromMs]`：不论弹幕怎么变的，剧详情重新加载后版本一变就换一份数据，同一个键不会过时，不重新请求。
 
 ## B 站适配器的测试
