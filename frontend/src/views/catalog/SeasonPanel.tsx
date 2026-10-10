@@ -5,7 +5,7 @@ import AddSeasonBindingForm from './AddSeasonBindingForm'
 import { bindingStats, seasonName } from './catalog'
 import DeleteButton from './DeleteButton'
 import SeasonBindingCard from './SeasonBindingCard'
-import SeasonUploadButton from './SeasonUploadDialog'
+import SeasonUploadButton from './SeasonUploadButton'
 import { useCatalogPath } from './shared'
 
 /** 右栏：选中整季、没选集时的季面板：这一季的信息、季绑定，以及"删除这一季" */

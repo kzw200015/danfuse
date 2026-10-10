@@ -42,6 +42,18 @@ export function previewTarget(
   return episode ? { kind: 'episode', episode } : { kind: 'waiting', episode: number }
 }
 
+/** 预览表格里"对到"一栏的样式；target 为 null（集号对应不合法）时同对不到集 */
+export function previewTargetClass(target: PreviewTarget | null) {
+  switch (target?.kind) {
+    case 'episode':
+      return 'text-foreground'
+    case 'unmatched':
+      return 'text-amber-700'
+    default:
+      return 'text-muted-foreground'
+  }
+}
+
 /** 预览表格里"对到"一栏的文字 */
 export function previewTargetText(target: PreviewTarget) {
   switch (target.kind) {

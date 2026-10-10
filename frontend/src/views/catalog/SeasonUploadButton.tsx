@@ -22,9 +22,9 @@ import { useReloadSeries } from '@/hooks/use-series'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
-import EpisodeRuleInput, { cleanPatterns, samePatterns } from './EpisodeRuleInput'
+import { cleanPatterns, EpisodeRuleRepreview, samePatterns } from './EpisodeRuleInput'
 import MappingInputs, { useMappingDraft } from './MappingInputs'
-import { previewTarget, previewTargetText } from './season-binding'
+import { previewTarget, previewTargetClass, previewTargetText } from './season-binding'
 import {
   defaultMapping,
   groupFolderFiles,
@@ -235,31 +235,17 @@ function UploadPreview({
   })
   const saving = create.isPending && progress >= 1
   const savingElapsed = useElapsed(saving)
-  const repreviewElapsed = useElapsed(repreview.isPending)
   const busy = create.isPending || repreview.isPending
 
   return (
     <section aria-label="预览" className="grid min-w-0 gap-3 rounded-lg border bg-muted/30 p-3">
-      <div className="grid gap-1.5">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            repreview.mutate(cleanPatterns(rule))
-          }}
-        >
-          <EpisodeRuleInput value={rule} onChange={setRule} disabled={busy}>
-            {ruleChanged && (
-              <Button type="submit" size="xs" variant="outline" disabled={busy}>
-                {repreview.isPending && <Loader2Icon className="animate-spin" />}
-                {repreview.isPending ? `重新预览中 ${repreviewElapsed}s` : '重新预览'}
-              </Button>
-            )}
-          </EpisodeRuleInput>
-        </form>
-        {repreview.error && (
-          <ErrorNote onClose={repreview.reset}>{repreview.error.message}</ErrorNote>
-        )}
-      </div>
+      <EpisodeRuleRepreview
+        value={rule}
+        onChange={setRule}
+        changed={ruleChanged}
+        disabled={busy}
+        repreview={repreview}
+      />
 
       <MappingInputs
         prefix=""
@@ -273,22 +259,20 @@ function UploadPreview({
       <CollectionItemsTable
         label="上传预览"
         heading="对到本地"
-        selectable
         rows={rows.map((r) => ({
           number: r.item.number,
           label: r.entry.label,
           text: r.target ? previewTargetText(r.target) + (r.hasFile ? ' · 已有文件绑定' : '') : '—',
-          className: cn(
-            r.target?.kind === 'episode' ? 'text-foreground' : 'text-muted-foreground',
-            r.target?.kind === 'unmatched' && 'text-amber-700',
-          ),
-          selection: {
-            checked: r.checked,
-            disabled: r.key === null || create.isPending,
-            onCheckedChange: (checked) =>
-              r.key !== null && setToggled((prev) => new Map(prev).set(r.key!, checked)),
-          },
+          className: previewTargetClass(r.target),
+          toggleKey: r.key,
+          checked: r.checked,
         }))}
+        selection={({ toggleKey, checked }) => ({
+          checked,
+          disabled: toggleKey === null || create.isPending,
+          onCheckedChange: (c) =>
+            toggleKey !== null && setToggled((prev) => new Map(prev).set(toggleKey, c)),
+        })}
       />
 
       <div className="flex flex-wrap items-center gap-2">

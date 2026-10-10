@@ -20,8 +20,6 @@ export interface CollectionItemRow {
   className?: string
   /** 第三栏的悬停提示 */
   title?: string
-  /** 勾选框的状态；表格带勾选列时才用，没有时不能勾 */
-  selection?: RowSelection
 }
 
 /** 一行的勾选框 */
@@ -33,26 +31,27 @@ export interface RowSelection {
 
 /**
  * 合集的条目，按在合集里的顺序：序号 | 条目 | 第三栏（季绑定的状态，或预览时对到本地的哪一集）。
- * selectable 时最前面加一列勾选框（按季上传挑出要上传的条目），勾选框的名称为"上传 条目"
+ * 传了 selection 时最前面加一列勾选框（按季上传挑出要上传的条目），勾选框的名称为"上传 条目"
  */
-export default function CollectionItemsTable({
+export default function CollectionItemsTable<R extends CollectionItemRow>({
   label,
   heading,
   rows,
-  selectable = false,
+  selection,
 }: {
   /** 表格的无障碍名称，例如"条目表" */
   label: string
   /** 第三栏的表头 */
   heading: string
-  rows: CollectionItemRow[]
-  selectable?: boolean
+  rows: R[]
+  /** 每一行的勾选框 */
+  selection?: (row: R) => RowSelection
 }) {
   return (
     <Table aria-label={label} className="text-xs">
       <TableHeader>
         <TableRow>
-          {selectable && (
+          {selection && (
             <TableHead className="w-8">
               <span className="sr-only">上传</span>
             </TableHead>
@@ -65,16 +64,7 @@ export default function CollectionItemsTable({
       <TableBody>
         {rows.map((row, i) => (
           <TableRow key={i}>
-            {selectable && (
-              <TableCell>
-                <Checkbox
-                  aria-label={`上传 ${row.label}`}
-                  checked={row.selection?.checked ?? false}
-                  disabled={row.selection?.disabled ?? true}
-                  onCheckedChange={(checked) => row.selection?.onCheckedChange(checked)}
-                />
-              </TableCell>
-            )}
+            {selection && <SelectionCell label={row.label} {...selection(row)} />}
             <TableCell className="text-right tabular-nums">{row.number ?? '—'}</TableCell>
             <TableCell className="whitespace-normal">{row.label}</TableCell>
             <TableCell className={cn('whitespace-normal', row.className)} title={row.title}>
@@ -84,5 +74,23 @@ export default function CollectionItemsTable({
         ))}
       </TableBody>
     </Table>
+  )
+}
+
+function SelectionCell({
+  label,
+  checked,
+  disabled,
+  onCheckedChange,
+}: RowSelection & { label: string }) {
+  return (
+    <TableCell>
+      <Checkbox
+        aria-label={`上传 ${label}`}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(c) => onCheckedChange(c)}
+      />
+    </TableCell>
   )
 }
