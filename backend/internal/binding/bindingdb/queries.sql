@@ -10,12 +10,12 @@ FROM episodes
 WHERE id = $1
 FOR KEY SHARE;
 
--- name: LockSeasonEpisode :one
--- 按季上传的写入事务在锁住季、插入季绑定之后逐个锁住目标集到提交（与补建一样先锁季，所以不会和删季的级联死锁）。
--- 这一集已被删除或不属于这一季时没有行。
+-- name: LockSeasonEpisodes :many
+-- 按季上传的写入事务在锁住季、插入季绑定之后一次锁住全部目标集到提交（与补建一样先锁季，所以不会和删季的级联死锁）。
+-- 已被删除或不属于这一季的集没有行。
 SELECT id
 FROM episodes
-WHERE id = @id AND season_id = @season_id
+WHERE id = ANY(@ids::bigint[]) AND season_id = @season_id
 FOR KEY SHARE;
 
 -- name: BindingExists :one

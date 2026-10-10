@@ -94,7 +94,7 @@ func TestDeleteFolderSeasonBinding(t *testing.T) {
 				}
 				env := newSeasonEnv(t, pool, src, 1, 2)
 				env.bindManually(1, "m")
-				if _, err := env.bindingSvc.CreateFromFiles(t.Context(), 1, []binding.UploadedFile{snapshot1("手动上传.xml")}); err != nil {
+				if _, err := env.bindingSvc.CreateFromFiles(t.Context(), 1, []binding.UploadedFile{testenv.Snapshot1("手动上传.xml")}); err != nil {
 					t.Fatal(err)
 				}
 				collection := env.create(1, 1).ID

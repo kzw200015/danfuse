@@ -63,8 +63,8 @@ bilibili:
 # 上传弹幕文件的上限，按一次上传计；一个绑定累计追加的文件不设上限。
 # 调大时注意反向代理的请求体上限（例如 nginx 的 client_max_body_size）和超时。
 danmaku_file:
-  max_files: 50 # 一次最多几份，不超过 1000（Go 解析一个上传请求最多 1000 个 part）
+  max_files: 50 # 一次最多几份
   max_file_mb: 10 # 单份的上限，单位 MB
   max_upload_mb: 50 # 一次合计的上限，单位 MB
-  season_max_files: 500 # 按季上传一次最多几份，不超过 998（请求里另有两个字段）；单份仍受 max_file_mb 限制
+  season_max_files: 500 # 按季上传一次最多几份；单份仍受 max_file_mb 限制
   season_max_upload_mb: 200 # 按季上传一次合计的上限，单位 MB

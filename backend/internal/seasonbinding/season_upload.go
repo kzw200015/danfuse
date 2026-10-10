@@ -31,16 +31,7 @@ func (s *Service) PreviewSeasonUpload(ctx context.Context, seasonID int64, label
 		// 条目没有弹幕源，ref 只用来让每个条目各不相同（NumberItems 会去掉 ref 重复的条目）
 		col.Items[i] = source.CollectionItem{Ref: source.Ref(strconv.Itoa(i)), Label: label}
 	}
-	items := source.NumberItems(col, rule)
-	preview := SeasonUploadPreview{Items: make([]PreviewItem, len(items))}
-	for i, it := range items {
-		item := PreviewItem{Label: it.Label, Reason: nullIfEmpty(it.Unmatched)}
-		if it.Unmatched == "" {
-			item.Number = new(it.Number)
-		}
-		preview.Items[i] = item
-	}
-	return preview, nil
+	return SeasonUploadPreview{Items: previewItems(source.NumberItems(col, rule))}, nil
 }
 
 // SeasonFilesCreated 按季上传的结果。
@@ -51,10 +42,10 @@ type SeasonFilesCreated struct {
 
 // CreateFromSeasonFiles 按季上传：留下一个名为 folder（所选的文件夹名）的文件夹的季绑定，
 // 每个条目在它的目标集上建一个指向它的文件绑定，标题为条目名称。
-// 先在事务之外由 binding.Service.ParseSeasonFiles 解析全部文件（两个条目对到同一集为 400，有一份认不出就整次 422，提示带着它的相对路径），
-// 再在一个事务里锁住季、插入季绑定，把事务交给 binding.Service.CreateSeasonFilesInTx 逐个锁住目标集、建出绑定、
+// 先在事务之外由 binding.Service.ParseSeasonFiles 解析全部文件（有一份认不出就整次 422，提示带着它的相对路径），
+// 再在一个事务里锁住季、插入季绑定，把事务交给 binding.Service.CreateSeasonFilesInTx 锁住全部目标集、建出绑定、
 // 存下原文件、写入弹幕（与补建一样先锁季）。季不存在为 404，保存前被删除为 404"这一季已被删除"；
-// 目标集已被删除或不属于这一季时整次 404。失败时季绑定和绑定都不保存。
+// 目标集已被删除或不属于这一季时整次 404。失败时季绑定和绑定都不保存。各条目的目标集互不相同，由请求的校验保证。
 func (s *Service) CreateFromSeasonFiles(ctx context.Context, seasonID int64, folder string, entries []binding.SeasonEntry) (SeasonFilesCreated, error) {
 	if err := s.checkSeason(ctx, seasonID); err != nil {
 		return SeasonFilesCreated{}, err
@@ -86,7 +77,7 @@ func (s *Service) CreateFromSeasonFiles(ctx context.Context, seasonID int64, fol
 		return SeasonFilesCreated{}, err
 	}
 	s.logger.LogAttrs(ctx, slog.LevelInfo, "season danmaku files added",
-		slog.Int64("season_id", seasonID), slog.Int64("season_binding_id", id), slog.Int("bindings", saved.Bindings),
+		slog.Int64("season_id", seasonID), slog.Int64("season_binding_id", id), slog.Int("bindings", len(entries)),
 		slog.Int("files", saved.Files), slog.Int64("added", saved.Added))
-	return SeasonFilesCreated{Bindings: saved.Bindings, Added: saved.Added}, nil
+	return SeasonFilesCreated{Bindings: len(entries), Added: saved.Added}, nil
 }

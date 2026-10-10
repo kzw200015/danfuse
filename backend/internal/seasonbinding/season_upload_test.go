@@ -12,30 +12,6 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// xmlFile 一份 B 站导出的 XML 弹幕文件，名称为在所选文件夹里的相对路径。ds 是 <d> 的 p 与正文交替排列。
-func xmlFile(path string, ds ...string) binding.UploadedFile {
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>934042</chatid>`)
-	for i := 0; i < len(ds); i += 2 {
-		b.WriteString(`<d p="` + ds[i] + `">` + ds[i+1] + "</d>\n")
-	}
-	b.WriteString("</i>")
-	return binding.UploadedFile{Name: path, Data: []byte(b.String())}
-}
-
-// snapshot1、snapshot2 同一个视频不同日期的两份快照：dmid 2 两份都有，dmid 1、3 各在一份里。
-func snapshot1(path string) binding.UploadedFile {
-	return xmlFile(path,
-		"1.5,1,25,16777215,1373250214,0,d9df08a7,1", "前排",
-		"61.25,1,25,16777215,1373250228,0,500cea0d,2", "好看")
-}
-
-func snapshot2(path string) binding.UploadedFile {
-	return xmlFile(path,
-		"61.2499980927,1,25,16777215,1373250228,0,500cea0d,2", "好看",
-		"120,5,25,16711680,1373250271,0,3ae9ab45,3", "顶部")
-}
-
 // uploadEntry 按季上传的一个条目。
 func uploadEntry(label string, episodeID int64, files ...binding.UploadedFile) binding.SeasonEntry {
 	return binding.SeasonEntry{Label: label, EpisodeID: episodeID, Files: files}
@@ -48,7 +24,7 @@ func (e *seasonEnv) upload(episodeIDs ...int64) int64 {
 	entries := make([]binding.SeasonEntry, len(episodeIDs))
 	for i, id := range episodeIDs {
 		n := string(rune('1' + i))
-		entries[i] = uploadEntry(folder+" / "+n, id, snapshot1(folder+"/"+n+".xml"))
+		entries[i] = uploadEntry(folder+" / "+n, id, testenv.Snapshot1(folder+"/"+n+".xml"))
 	}
 	if _, err := e.svc.CreateFromSeasonFiles(e.t.Context(), 1, folder, entries); err != nil {
 		e.t.Fatalf("CreateFromSeasonFiles: %v", err)
@@ -77,20 +53,6 @@ func (e *seasonEnv) episodeBindings(episodeID int64) []binding.View {
 	return views[episodeID]
 }
 
-// fileNames 绑定里的弹幕文件名，按加入的顺序。
-func (e *seasonEnv) fileNames(id int64) []string {
-	e.t.Helper()
-	files, err := e.bindingSvc.ListFiles(e.t.Context(), id)
-	if err != nil {
-		e.t.Fatal(err)
-	}
-	names := make([]string, len(files))
-	for i, f := range files {
-		names[i] = f.Name
-	}
-	return names
-}
-
 // TestCreateFromSeasonFiles 按季上传留下一个文件夹的季绑定，名称为文件夹名；每个条目在目标集上建出一个指向它的文件绑定：
 // 标题是条目名称，原文件按 base name 存下，同一条目的快照按原始 ID 去重。
 func TestCreateFromSeasonFiles(t *testing.T) {
@@ -99,8 +61,8 @@ func TestCreateFromSeasonFiles(t *testing.T) {
 		env := newSeasonEnv(t, pool, &testenv.FakeCollector{}, 1, 2)
 
 		got, err := env.svc.CreateFromSeasonFiles(t.Context(), 1, "星海旅人", []binding.SeasonEntry{
-			uploadEntry("星海旅人 / 1", 1, snapshot1("星海旅人/1/20130709.xml"), snapshot2("星海旅人/1/20130711.xml")),
-			uploadEntry("星海旅人 / 2", 2, snapshot1("星海旅人/2.xml")),
+			uploadEntry("星海旅人 / 1", 1, testenv.Snapshot1("星海旅人/1/20130709.xml"), testenv.Snapshot2("星海旅人/1/20130711.xml")),
+			uploadEntry("星海旅人 / 2", 2, testenv.Snapshot1("星海旅人/2.xml")),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -132,8 +94,8 @@ func TestCreateFromSeasonFiles(t *testing.T) {
 		if b := second[0]; b.Title != "星海旅人 / 2" || b.SourceLabel != "弹幕文件 · 1 份" || b.DanmakuCount != 2 {
 			t.Errorf("第 2 集的绑定 = %+v, want 标题为条目名称、1 份、2 条", b)
 		}
-		testenv.AssertStrings(t, "第 1 集的弹幕文件", env.fileNames(first[0].ID), []string{"20130709.xml", "20130711.xml"})
-		testenv.AssertStrings(t, "第 2 集的弹幕文件", env.fileNames(second[0].ID), []string{"2.xml"})
+		testenv.AssertStrings(t, "第 1 集的弹幕文件", testenv.FileNames(t, env.bindingSvc, first[0].ID), []string{"20130709.xml", "20130711.xml"})
+		testenv.AssertStrings(t, "第 2 集的弹幕文件", testenv.FileNames(t, env.bindingSvc, second[0].ID), []string{"2.xml"})
 		wantLog := `level=INFO msg="season danmaku files added" season_id=1 season_binding_id=1 bindings=2 files=3 added=5`
 		if logs := env.logs.String(); !strings.Contains(logs, wantLog) {
 			t.Errorf("日志 = %q, want 含 %q", logs, wantLog)
@@ -146,13 +108,13 @@ func TestCreateFromSeasonFilesExisting(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		env := newSeasonEnv(t, pool, &testenv.FakeCollector{}, 1, 2)
-		existing, err := env.bindingSvc.CreateFromFiles(t.Context(), 1, []binding.UploadedFile{snapshot1("20130709.xml")})
+		existing, err := env.bindingSvc.CreateFromFiles(t.Context(), 1, []binding.UploadedFile{testenv.Snapshot1("20130709.xml")})
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		got, err := env.svc.CreateFromSeasonFiles(t.Context(), 1, "星海旅人", []binding.SeasonEntry{
-			uploadEntry("星海旅人 / 1", 1, snapshot1("星海旅人/1.xml")),
+			uploadEntry("星海旅人 / 1", 1, testenv.Snapshot1("星海旅人/1.xml")),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -199,7 +161,7 @@ func TestCreateFromSeasonFilesTwice(t *testing.T) {
 // TestCreateFromSeasonFilesErrors 任何一个条目出问题都整次失败，既不留下季绑定，也不建出绑定。
 func TestCreateFromSeasonFilesErrors(t *testing.T) {
 	t.Parallel()
-	first := uploadEntry("星海旅人 / 1", 1, snapshot1("星海旅人/1/20130709.xml"))
+	first := uploadEntry("星海旅人 / 1", 1, testenv.Snapshot1("星海旅人/1/20130709.xml"))
 	notDanmaku := binding.UploadedFile{Name: "星海旅人/2/README.html", Data: []byte("<html><body>历史弹幕</body></html>")}
 	tests := []struct {
 		name     string
@@ -210,27 +172,21 @@ func TestCreateFromSeasonFilesErrors(t *testing.T) {
 	}{
 		{
 			"有一份认不出：提示带着相对路径", 1,
-			[]binding.SeasonEntry{first, uploadEntry("星海旅人 / 2", 2, snapshot2("星海旅人/2/20130711.xml"), notDanmaku)},
+			[]binding.SeasonEntry{first, uploadEntry("星海旅人 / 2", 2, testenv.Snapshot2("星海旅人/2/20130711.xml"), notDanmaku)},
 			http.StatusUnprocessableEntity,
 			"无法识别「星海旅人/2/README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整",
 		},
 		{
 			"目标集不属于这一季", 1,
-			[]binding.SeasonEntry{first, uploadEntry("星海旅人 / 3", 3, snapshot2("星海旅人/3.xml"))},
+			[]binding.SeasonEntry{first, uploadEntry("星海旅人 / 3", 3, testenv.Snapshot2("星海旅人/3.xml"))},
 			http.StatusNotFound,
 			"「星海旅人 / 3」的目标集已被删除或不属于这一季，请重新预览",
 		},
 		{
 			"目标集已被删除", 1,
-			[]binding.SeasonEntry{first, uploadEntry("星海旅人 / 9", 99, snapshot2("星海旅人/9.xml"))},
+			[]binding.SeasonEntry{first, uploadEntry("星海旅人 / 9", 99, testenv.Snapshot2("星海旅人/9.xml"))},
 			http.StatusNotFound,
 			"「星海旅人 / 9」的目标集已被删除或不属于这一季，请重新预览",
-		},
-		{
-			"两个条目对到同一集", 1,
-			[]binding.SeasonEntry{first, uploadEntry("星海旅人 / 01", 1, snapshot2("星海旅人/01.xml"))},
-			http.StatusBadRequest,
-			"「星海旅人 / 1」和「星海旅人 / 01」对到了同一集，请重新预览",
 		},
 		{"季不存在", 99, []binding.SeasonEntry{first}, http.StatusNotFound, "季不存在"},
 	}

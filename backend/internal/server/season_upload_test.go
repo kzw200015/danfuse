@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
-	"path"
 	"slices"
 	"testing"
 
@@ -13,17 +12,10 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// seasonUpload 按季上传：files 的 name 是以所选文件夹名开头的相对路径。与浏览器一样，字段 files 里的文件名只有 base name，
-// 相对路径按相同顺序放进字段 paths（一个 JSON 数组）。
+// seasonUpload 按季上传：与管理界面一样，files 的文件名是以所选文件夹名开头的相对路径。
 func seasonUpload(t *testing.T, srv *Server, target string, files []uploadFile, targets string, wantStatus int) (message string, data json.RawMessage) {
 	t.Helper()
-	paths := make([]string, len(files))
-	parts := make([]uploadFile, len(files))
-	for i, f := range files {
-		paths[i] = f.name
-		parts[i] = uploadFile{name: path.Base(f.name), data: f.data}
-	}
-	return uploadForm(t, srv, target, parts, map[string]string{"paths": jsonString(paths), "targets": targets}, wantStatus)
+	return uploadForm(t, srv, target, files, map[string]string{"targets": targets}, wantStatus)
 }
 
 // TestSeasonUpload 按路径分成条目（子目录里的文件合成一个条目，顶层的文件各自一个条目，扩展名不分大小写），
@@ -73,7 +65,7 @@ func TestSeasonUploadErrors(t *testing.T) {
 		targets     string
 		wantMessage string
 	}{
-		{"没有文件", target, nil, oneTarget, "请选择弹幕文件"},
+		{"没有文件", target, nil, oneTarget, "请选择要上传的文件"},
 		{"超过 60 份", target, many, oneTarget, "一次最多上传 60 份文件"},
 		{"单份超过 10 MB", target, []uploadFile{big}, oneTarget, "「星海旅人/1/大.xml」超过 10 MB"},
 		{"合计超过 60 MB", target, nineMB, oneTarget, "一次上传的文件合计不能超过 60 MB"},
@@ -115,17 +107,18 @@ func TestSeasonUploadErrors(t *testing.T) {
 			`[{"label": "星海旅人 / 1", "episodeId": 1}, {"label": "星海旅人 / 1", "episodeId": 2}]`,
 			"「星海旅人 / 1」对应了多个目标集",
 		},
+		{
+			"两个条目对到同一集", target,
+			[]uploadFile{danmakuXML("星海旅人/1.xml", "1"), danmakuXML("星海旅人/01.xml", "1")},
+			`[{"label": "星海旅人 / 1", "episodeId": 1}, {"label": "星海旅人 / 01", "episodeId": 1}]`,
+			"「星海旅人 / 1」和「星海旅人 / 01」对到了同一集，请重新预览",
+		},
 		{"targets 不是 JSON", target, []uploadFile{danmakuXML("星海旅人/1.xml", "1")}, `[`, "请求参数错误"},
 		{"季 ID 不合法", "/api/seasons/0/file-bindings", []uploadFile{danmakuXML("星海旅人/1.xml", "1")}, oneTarget, "季 ID 不合法"},
 	} {
 		if message, _ := seasonUpload(t, srv, tt.target, tt.files, tt.targets, http.StatusBadRequest); message != tt.wantMessage {
 			t.Errorf("%s：message = %q, want %q", tt.name, message, tt.wantMessage)
 		}
-	}
-
-	fields := map[string]string{"paths": `["星海旅人/1.xml", "星海旅人/2.xml"]`, "targets": `[{"label": "星海旅人 / 1", "episodeId": 1}, {"label": "星海旅人 / 2", "episodeId": 2}]`}
-	if message, _ := uploadForm(t, srv, target, []uploadFile{danmakuXML("1.xml", "1")}, fields, http.StatusBadRequest); message != "文件路径与文件的份数不一致" {
-		t.Errorf("paths 与 files 份数不一致：message = %q", message)
 	}
 
 	if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM bindings WHERE kind = 'file'`); n != 0 {

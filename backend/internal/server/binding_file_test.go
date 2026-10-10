@@ -143,7 +143,7 @@ func TestFileBindingUploadErrors(t *testing.T) {
 		wantStatus  int
 		wantMessage string
 	}{
-		{"没有文件", "/api/episodes/2/file-bindings", nil, http.StatusBadRequest, "请选择弹幕文件"},
+		{"没有文件", "/api/episodes/2/file-bindings", nil, http.StatusBadRequest, "请选择要上传的文件"},
 		{"超过 50 份", "/api/episodes/2/file-bindings", many, http.StatusBadRequest, "一次最多上传 50 份文件"},
 		{"单份超过 10 MB", "/api/episodes/2/file-bindings", []uploadFile{big}, http.StatusBadRequest, "「大.xml」超过 10 MB"},
 		{

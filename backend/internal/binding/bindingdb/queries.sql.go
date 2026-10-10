@@ -557,25 +557,38 @@ func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 	return id_2, err
 }
 
-const lockSeasonEpisode = `-- name: LockSeasonEpisode :one
+const lockSeasonEpisodes = `-- name: LockSeasonEpisodes :many
 SELECT id
 FROM episodes
-WHERE id = $1 AND season_id = $2
+WHERE id = ANY($1::bigint[]) AND season_id = $2
 FOR KEY SHARE
 `
 
-type LockSeasonEpisodeParams struct {
-	ID       int64 `json:"id"`
-	SeasonID int64 `json:"seasonId"`
+type LockSeasonEpisodesParams struct {
+	Ids      []int64 `json:"ids"`
+	SeasonID int64   `json:"seasonId"`
 }
 
-// 按季上传的写入事务在锁住季、插入季绑定之后逐个锁住目标集到提交（与补建一样先锁季，所以不会和删季的级联死锁）。
-// 这一集已被删除或不属于这一季时没有行。
-func (q *Queries) LockSeasonEpisode(ctx context.Context, arg LockSeasonEpisodeParams) (int64, error) {
-	row := q.db.QueryRow(ctx, lockSeasonEpisode, arg.ID, arg.SeasonID)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+// 按季上传的写入事务在锁住季、插入季绑定之后一次锁住全部目标集到提交（与补建一样先锁季，所以不会和删季的级联死锁）。
+// 已被删除或不属于这一季的集没有行。
+func (q *Queries) LockSeasonEpisodes(ctx context.Context, arg LockSeasonEpisodesParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, lockSeasonEpisodes, arg.Ids, arg.SeasonID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markBindingDead = `-- name: MarkBindingDead :exec

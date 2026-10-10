@@ -61,8 +61,7 @@ func (s *Server) Start(ctx context.Context) error {
 		BeforeServeFunc: func(hs *http.Server) error {
 			hs.ReadHeaderTimeout = readHeaderTimeout
 			hs.IdleTimeout = idleTimeout
-			hs.ReadTimeout = 0
-			hs.WriteTimeout = 0
+			hs.ReadTimeout = 0 // Echo 默认 30 秒；它不设 WriteTimeout
 			return nil
 		},
 	}

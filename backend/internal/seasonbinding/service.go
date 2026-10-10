@@ -175,26 +175,29 @@ func (s *Service) Preview(ctx context.Context, seasonID int64, link string, rule
 		if err != nil {
 			return CollectionPreview{}, fmt.Errorf("describe collection %s: %w", c.Ref, err)
 		}
-		items := source.NumberItems(col, rule)
-		pc := PreviewCandidate{
+		preview.Candidates = append(preview.Candidates, PreviewCandidate{
 			Kind:           c.Kind,
 			Title:          col.Title,
 			SourceURL:      d.URL,
 			SourceLabel:    d.Label,
 			Finished:       col.Finished,
 			NumberedByRule: col.NumberedByRule,
-			Items:          make([]PreviewItem, len(items)),
-		}
-		for i, it := range items {
-			pi := PreviewItem{Label: it.Label, Reason: nullIfEmpty(it.Unmatched)}
-			if it.Unmatched == "" {
-				pi.Number = new(it.Number)
-			}
-			pc.Items[i] = pi
-		}
-		preview.Candidates = append(preview.Candidates, pc)
+			Items:          previewItems(source.NumberItems(col, rule)),
+		})
 	}
 	return preview, nil
+}
+
+// previewItems 认出序号的条目转为预览的条目：认出的带上序号，对不上的带上原因。
+func previewItems(items []source.CollectionItem) []PreviewItem {
+	out := make([]PreviewItem, len(items))
+	for i, it := range items {
+		out[i] = PreviewItem{Label: it.Label, Reason: nullIfEmpty(it.Unmatched)}
+		if it.Unmatched == "" {
+			out[i].Number = new(it.Number)
+		}
+	}
+	return out
 }
 
 // checkSeason 确认这一季存在，请求平台之前就能返回 404。
