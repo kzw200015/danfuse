@@ -31,13 +31,7 @@ type Config struct {
 type Server struct {
 	Addr            string        `mapstructure:"addr"`
 	GracefulTimeout time.Duration `mapstructure:"graceful_timeout"`
-	ReadTimeout     time.Duration `mapstructure:"read_timeout"`  // 读整个请求（含上传的文件）的超时，0（默认）表示不限
-	WriteTimeout    time.Duration `mapstructure:"write_timeout"` // 从读完请求头到写完响应的超时，0（默认）表示不限；否则不能小于 MinWriteTimeout
 }
-
-// MinWriteTimeout server.write_timeout 的下限：创建绑定、重新拉取要当场拉取弹幕，最长 25 秒（source.FetchTimeout），
-// 再留出写库和响应的时间。
-const MinWriteTimeout = 30 * time.Second
 
 type Log struct {
 	Level  string `mapstructure:"level"`  // debug | info | warn | error
@@ -175,8 +169,6 @@ func Load(path string) (*Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.addr", ":8080")
 	v.SetDefault("server.graceful_timeout", 10*time.Second)
-	v.SetDefault("server.read_timeout", time.Duration(0))
-	v.SetDefault("server.write_timeout", time.Duration(0))
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "text")
@@ -234,9 +226,6 @@ func (c *Config) normalize() {
 }
 
 func (c *Config) validate() error {
-	if t := c.Server.WriteTimeout; t != 0 && t < MinWriteTimeout {
-		return fmt.Errorf("config: server.write_timeout must be 0 (no limit) or at least %v: fetching danmaku takes up to 25s", MinWriteTimeout)
-	}
 	if c.Database.DSN == "" {
 		return errors.New("config: database.dsn is required")
 	}

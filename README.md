@@ -124,8 +124,6 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 |---|---|---|---|
 | `server.addr` | `DANFUSE_SERVER_ADDR` | `:8080` | 监听地址 |
 | `server.graceful_timeout` | `DANFUSE_SERVER_GRACEFUL_TIMEOUT` | `10s` | 退出时等待进行中的请求结束的最长时间 |
-| `server.read_timeout` | `DANFUSE_SERVER_READ_TIMEOUT` | `0` | 读整个请求（包括上传的文件）的超时，`0` 表示不限。一般不用设：请求头固定要在 10 秒内读完，空闲的长连接 2 分钟后断开 |
-| `server.write_timeout` | `DANFUSE_SERVER_WRITE_TIMEOUT` | `0` | 从读完请求头到写完响应的超时（包括接收上传的文件），`0` 表示不限。创建绑定和重新拉取要当场拉取弹幕，最长约 25 秒，所以设的话不能小于 `30s` |
 | `log.level` | `DANFUSE_LOG_LEVEL` | `info` | 日志级别：`debug`、`info`、`warn`、`error` |
 | `log.format` | `DANFUSE_LOG_FORMAT` | `text` | 日志格式：`text`、`json` |
 | `database.dsn` | `DANFUSE_DATABASE_DSN` | 无，必填 | PostgreSQL 连接串，例如 `postgres://user:pass@host:5432/danfuse?sslmode=disable` |
@@ -159,7 +157,7 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `danmaku_file.season_max_upload_mb` | `DANFUSE_DANMAKU_FILE_SEASON_MAX_UPLOAD_MB` | `200` | 按季上传时一次合计的上限，单位 MB；单份仍受 `max_file_mb` 限制。同样注意反向代理的请求体上限；管理界面不限这个请求的时长 |
 
 - `catalog_source.kind` 为 `jellyfin` 时，`url`、`api_key`、`libraries` 都必须填写；`sync.interval` 大于 0 时必须配置目录源。
-- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；`database.connect_timeout` 不大于 0；`server.write_timeout` 不是 `0` 又小于 `30s`；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名，或 `list_timeout`、`poster_timeout` 不大于 0；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；`sync.keep_runs` 小于 1；`follow.scan_interval`、`follow.check_interval`、`scheduled_fetch.interval` 不大于 0，或 `scheduled_fetch.window` 为负；token 或 SESSDATA 含不允许的字符；`bilibili.requests_per_second`、`bilibili.request_timeout` 不大于 0，或 `bilibili.burst`、`bilibili.fetch_concurrency` 小于 1；上传弹幕文件的五个上限有小于 1 的。
+- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；`database.connect_timeout` 不大于 0；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名，或 `list_timeout`、`poster_timeout` 不大于 0；Jellyfin 地址不是 http(s)，或带了查询串；同步间隔为负，或大于 0 但没有配置目录源；`sync.keep_runs` 小于 1；`follow.scan_interval`、`follow.check_interval`、`scheduled_fetch.interval` 不大于 0，或 `scheduled_fetch.window` 为负；token 或 SESSDATA 含不允许的字符；`bilibili.requests_per_second`、`bilibili.request_timeout` 不大于 0，或 `bilibili.burst`、`bilibili.fetch_concurrency` 小于 1；上传弹幕文件的五个上限有小于 1 的。
 - 启动时不连接 Jellyfin，两个服务的启动顺序互不影响；媒体库存不存在、类型对不对在每次同步时检查，有问题的会出现在同步记录的警告里。
 - **SESSDATA**：在浏览器里登录 B 站，从开发者工具的 Cookie 里找到 `SESSDATA`，原样复制它的值（里面的逗号显示为 `%2C`，不要还原），不能含空格、逗号、分号、引号和反斜杠。它会过期，过期后悄悄退化成未登录的效果，需要换上新的值后重启。没有配置时以未登录的身份拉取，弹幕可能不全。
 - Jellyfin 的 API key、SESSDATA 和 token 都不会写进日志；API key 和 SESSDATA 不入库，管理界面上只显示"已配置"。
@@ -368,7 +366,7 @@ Jellyfin 和 danfuse 都用内网的 http 地址访问，不需要反向代理�
 - 预览逐行显示对到本地第几集、那一集已有几个绑定。对到本地已有的集的行默认勾上；那一集已经有用弹幕文件建的绑定时默认不勾、标注"已有文件绑定"，同一个文件夹传第二次不会重复建绑定，真想再传一份就手动勾上。目录里还没有这一集、在起点之前、对不上的行不能勾。
 - 点"上传 N 个条目"只上传勾选的行，显示上传进度，传完显示"正在保存"。勾选的条目要么全部建出绑定，要么一个都不建：有一份 XML 认不出（提示带着它在文件夹里的路径）、超过上限、预览之后目标集被删掉了，整次失败，对话框保持原样，处理好之后直接再点一次。成功后提示建出了几个绑定、一共多少条弹幕。
 - 默认一次最多 500 份，合计不超过 200 MB，单份不超过 10 MB，可以用 `danmaku_file` 下的[配置项](#配置)调整，与集面板上传的上限分开。
-- 管理界面不限这个请求的时长，服务端默认也不限（例如 200 MB 按 10 Mbps 上传约需 3 分钟）。设了 `server.read_timeout`、`server.write_timeout` 的话，两项都要容得下传完整个文件夹的时间：`write_timeout` 从读完请求头起算，不够时绑定可能已经建出、只是结果没能发回来，重传之前先看看各集的绑定。经反向代理访问时，也要放宽它的请求体上限和超时。
+- 管理界面和服务端都不限这个请求的时长（例如 200 MB 按 10 Mbps 上传约需 3 分钟）。经反向代理访问时，要放宽它的请求体上限和超时，否则可能出现绑定已经建出、结果却没能发回来的情况，重传之前先看看各集的绑定。
 
 ### 季绑定
 

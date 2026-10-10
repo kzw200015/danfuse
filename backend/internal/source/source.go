@@ -51,7 +51,7 @@ type Adapter interface {
 }
 
 // FetchTimeout 调用方给一次拉取的总时限，创建绑定时也包括解析链接（跟随短链也要联网），季绑定的预览、创建与补建也用它限定
-// 识别链接、列出合集：server.write_timeout 不小于 config.MinWriteTimeout（30 秒），留出写库和响应的时间。改它时一起改那个下限。
+// 识别链接、列出合集。管理界面这些请求的超时（slowRequestTimeout，35 秒）比它多留出写库和响应的时间，改它时一起改那边。
 // 超时由适配器按 Upstream 返回。
 const FetchTimeout = 25 * time.Second
 

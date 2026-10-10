@@ -63,7 +63,6 @@ func TestLoadDefaultsWithoutCatalogSource(t *testing.T) {
 func TestLoadTunablesFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{
 		"DATABASE_DSN":                           "postgres://localhost/danfuse",
-		"SERVER_WRITE_TIMEOUT":                   "5m",
 		"DATABASE_CONNECT_TIMEOUT":               "1m",
 		"CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT":   "10m",
 		"CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT": "2m",
@@ -86,9 +85,6 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if got := cfg.Server.WriteTimeout; got != 5*time.Minute {
-		t.Errorf("write_timeout = %v, want 5m", got)
 	}
 	if got := cfg.Database.ConnectTimeout; got != time.Minute {
 		t.Errorf("connect_timeout = %v, want 1m", got)
@@ -186,7 +182,6 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"token 为 .", map[string]string{"DANDANPLAY_TOKEN": "."}, "dandanplay.token"},
 		{"token 为 ..", map[string]string{"DANDANPLAY_TOKEN": ".."}, "dandanplay.token"},
 		{"max_conns 为负", map[string]string{"DATABASE_MAX_CONNS": "-1"}, "database.max_conns"},
-		{"write_timeout 小于 30s", map[string]string{"SERVER_WRITE_TIMEOUT": "25s"}, "server.write_timeout"},
 		{"connect_timeout 为 0", map[string]string{"DATABASE_CONNECT_TIMEOUT": "0"}, "database.connect_timeout"},
 		{"list_timeout 为 0", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT", "0"), "jellyfin.list_timeout"},
 		{"poster_timeout 为 0", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT", "0"), "jellyfin.poster_timeout"},

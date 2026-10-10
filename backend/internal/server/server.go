@@ -15,8 +15,8 @@ import (
 	"github.com/kzw200015/danfuse/backend/web"
 )
 
-// 整个请求的读、写默认不限时（server.read_timeout / write_timeout 为 0），上传整季的文件、当场拉取弹幕都可能很久；
-// 只固定限制读请求头和空闲的长连接，防止慢速连接占着不放。
+// 整个请求的读、写不限时：上传整季的文件、当场拉取弹幕都可能很久（Echo 默认的 30 秒读超时要显式清掉）；
+// 只限制读请求头和空闲的长连接，防止慢速连接占着不放。
 const (
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 2 * time.Minute
@@ -61,8 +61,8 @@ func (s *Server) Start(ctx context.Context) error {
 		BeforeServeFunc: func(hs *http.Server) error {
 			hs.ReadHeaderTimeout = readHeaderTimeout
 			hs.IdleTimeout = idleTimeout
-			hs.ReadTimeout = s.cfg.ReadTimeout
-			hs.WriteTimeout = s.cfg.WriteTimeout
+			hs.ReadTimeout = 0
+			hs.WriteTimeout = 0
 			return nil
 		},
 	}
