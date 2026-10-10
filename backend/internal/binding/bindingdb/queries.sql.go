@@ -569,7 +569,7 @@ type LockSeasonEpisodeParams struct {
 	SeasonID int64 `json:"seasonId"`
 }
 
-// 按季上传的写入事务在锁住季、插入季绑定之后逐个锁住目标集到提交（与删季的级联同一个顺序）。
+// 按季上传的写入事务在锁住季、插入季绑定之后逐个锁住目标集到提交（与补建一样先锁季，所以不会和删季的级联死锁）。
 // 这一集已被删除或不属于这一季时没有行。
 func (q *Queries) LockSeasonEpisode(ctx context.Context, arg LockSeasonEpisodeParams) (int64, error) {
 	row := q.db.QueryRow(ctx, lockSeasonEpisode, arg.ID, arg.SeasonID)

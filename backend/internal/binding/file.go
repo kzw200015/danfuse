@@ -113,7 +113,7 @@ type SeasonEntry struct {
 	Files     []UploadedFile // 文件名是在所选文件夹里的相对路径
 }
 
-// SeasonFiles 按季上传解析好的条目，由 ParseSeasonFiles 在写入事务之前得到，交给 CreateSeasonFilesInTx 写入。
+// SeasonFiles 按季上传解析好的条目，由 Service.ParseSeasonFiles 在写入事务之前得到，交给 CreateSeasonFilesInTx 写入。
 type SeasonFiles struct {
 	entries []SeasonEntry
 	parsed  [][]parsedFile // 与 entries 一一对应
@@ -128,7 +128,7 @@ type SeasonFilesSaved struct {
 
 // ParseSeasonFiles 按季上传在写入事务之前的准备：两个条目对到同一集时为 400；
 // 解析全部文件，有一份认不出就整次 422，提示带着它的相对路径。
-func ParseSeasonFiles(entries []SeasonEntry) (SeasonFiles, error) {
+func (s *Service) ParseSeasonFiles(entries []SeasonEntry) (SeasonFiles, error) {
 	targets := make(map[int64]string, len(entries)) // 目标集 → 对到它的条目
 	for _, e := range entries {
 		if other, ok := targets[e.EpisodeID]; ok {
