@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ArrowDownIcon, ArrowUpIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
 
-import type { SeasonBinding } from '@/api/season-bindings'
+import type { CollectionSeasonBinding } from '@/api/season-bindings'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -122,7 +122,7 @@ export function EpisodeRuleEditor({
   disabled,
   onSave,
 }: {
-  binding: SeasonBinding
+  binding: CollectionSeasonBinding
   disabled: boolean
   onSave: (patterns: string[]) => void
 }) {

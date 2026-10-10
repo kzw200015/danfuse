@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 
 import type { FileBinding, LinkBinding } from '@/api/bindings'
 import { ApiError } from '@/api/request'
+import type { CollectionSeasonBinding, FolderSeasonBinding } from '@/api/season-bindings'
 import { getSeries, listSeries, type SeriesDetail, type SeriesSummary } from '@/api/series'
 import { getSettings, type Settings } from '@/api/settings'
 import { getLatestSyncRun, getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
@@ -135,6 +136,57 @@ export function fileBinding(id: number, patch: Partial<FileBinding> = {}): FileB
     maxTimeMs: 1_420_500,
     lastFetchedAt: null,
     seasonBindingId: null,
+    ...patch,
+  }
+}
+
+/** 默认的集号规则（假的，只要是两条） */
+export const defaultPatterns = ['第(\\d+)集', 'EP(\\d+)']
+
+/** 一个合集的季绑定，默认是季 11 上开着追更的 B 站番剧，建出了 1 个绑定 */
+export function seasonBinding(
+  id: number,
+  patch: Partial<CollectionSeasonBinding> = {},
+): CollectionSeasonBinding {
+  return {
+    id,
+    kind: 'collection',
+    seasonId: 11,
+    adapter: 'bilibili',
+    sourceUrl: 'https://www.bilibili.com/bangumi/play/ss41410',
+    sourceLabel: 'B 站番剧 ss41410',
+    title: '星海旅人 第一季',
+    finished: false,
+    mappingFrom: 1,
+    mappingTo: 1,
+    numberedByRule: false,
+    episodePatterns: defaultPatterns,
+    follow: true,
+    status: 'active',
+    lastError: null,
+    lastCheckedAt: '2026-10-05T08:00:00Z',
+    running: false,
+    bindingCount: 1,
+    createdAt: '2026-10-01T08:00:00Z',
+    ...patch,
+  }
+}
+
+/** 一个文件夹的季绑定：季 11 上按季上传「来自新世界」文件夹留下的，建出了 1 个绑定 */
+export function folderSeasonBinding(
+  id: number,
+  patch: Partial<FolderSeasonBinding> = {},
+): FolderSeasonBinding {
+  return {
+    id,
+    kind: 'folder',
+    seasonId: 11,
+    title: '来自新世界',
+    follow: false,
+    status: 'active',
+    running: false,
+    bindingCount: 1,
+    createdAt: '2026-10-03T08:00:00Z',
     ...patch,
   }
 }

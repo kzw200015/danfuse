@@ -4,6 +4,7 @@ import { Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteBinding, updateBindingOffset, type Binding } from '@/api/bindings'
+import type { SeasonBinding } from '@/api/season-bindings'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +19,7 @@ import BindingDanmakuDialog from './BindingDanmakuDialog'
 import BindingFilesPopover from './BindingFilesPopover'
 import { FileBindingActions, LinkBindingActions } from './BindingSourceActions'
 import { durationMismatch, MAX_OFFSET, parseOffset } from './catalog'
+import { seasonBindingTag } from './season-binding'
 import { SourceLink, StatusBadge } from './shared'
 
 const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间的秒数，小数最多三位`
@@ -26,15 +28,19 @@ const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间�
  * 一个绑定的卡片：状态、弹幕源标题、来源标签、弹幕条数（点开是保存的弹幕）、上次拉取时间、与本集时长的对比；偏移输入框、删除。
  * 按弹幕源的形态：贴链接建的，标题链接到原页面，可以重新拉取、清空后重新拉取；
  * 用弹幕文件建的，标签点开是文件列表，可以追加文件、重新解析，没有时长与拉取时间。
+ * 季绑定建出的绑定带一个写着季绑定名称的标签（只用来显示，不是链接）。
  * 操作成功用 toast；失败的提示显示在卡片下方，保留到下次操作或手动关闭。
  */
 export default function BindingCard({
   binding,
   episodeDuration,
+  seasonBindings,
 }: {
   binding: Binding
   /** 本集的时长，秒 */
   episodeDuration: number | null
+  /** 这一季的季绑定，按 binding.seasonBindingId 查出季绑定的名称 */
+  seasonBindings: SeasonBinding[]
 }) {
   const [error, setError] = useState<string | null>(null)
   const clearError = () => setError(null)
@@ -75,6 +81,7 @@ export default function BindingCard({
 
   const actions = { binding, busy, onStart: clearError, onError: showError }
   const dead = binding.status === 'dead'
+  const tag = seasonBindingTag(binding.seasonBindingId, seasonBindings)
   return (
     <article
       aria-label={binding.title}
@@ -97,9 +104,9 @@ export default function BindingCard({
             </>
           )}
         </div>
-        {binding.seasonBindingId !== null && (
-          <Badge variant="secondary" title="由季面板上的季绑定按集号对应自动建出">
-            季绑定
+        {tag && (
+          <Badge variant="secondary" className="max-w-48" title={tag.title}>
+            <span className="truncate">{tag.text}</span>
           </Badge>
         )}
       </div>

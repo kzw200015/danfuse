@@ -2,9 +2,33 @@ import type {
   CollectionCandidate,
   Mapping,
   PreviewItem,
+  SeasonBinding,
   SeasonBindingItem,
 } from '@/api/season-bindings'
 import type { Episode } from '@/api/series'
+
+/** 季绑定的名称：文件夹的季绑定为文件夹名；合集的季绑定为合集标题，标题为空时用合集的标签 */
+export function seasonBindingName(sb: SeasonBinding) {
+  return sb.kind === 'folder' ? sb.title : sb.title || sb.sourceLabel
+}
+
+/**
+ * 绑定卡片上季绑定的标签：文字写季绑定的名称，悬停提示写全名和来源。seasonBindings 是这一季的季绑定（剧详情里带着）；
+ * 不是季绑定建出的绑定为 null，找不到对应的季绑定时（理论上不会发生）只写"季绑定"
+ */
+export function seasonBindingTag(seasonBindingId: number | null, seasonBindings: SeasonBinding[]) {
+  if (seasonBindingId === null) return null
+  const sb = seasonBindings.find((s) => s.id === seasonBindingId)
+  if (!sb) return { text: '季绑定', title: '由季绑定建出' }
+  const name = seasonBindingName(sb)
+  return {
+    text: `季绑定 · ${name}`,
+    title:
+      sb.kind === 'folder'
+        ? `由文件夹的季绑定「${name}」建出`
+        : `由合集的季绑定「${name}」按集号对应建出`,
+  }
+}
 
 /** 集号对应的上限：与后端的 int 一致，九位数以内 */
 const maxMappingDigits = 9

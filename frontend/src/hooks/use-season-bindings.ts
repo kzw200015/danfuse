@@ -4,7 +4,7 @@ import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getDefaultEpisodePatterns,
   getSeasonBinding,
-  type SeasonBinding,
+  type CollectionSeasonBinding,
   type SeasonBindingDetail,
 } from '@/api/season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
@@ -36,13 +36,13 @@ function seasonBindingOptions(id: number) {
 }
 
 /**
- * 一个季绑定的详情与补建进度。binding 是剧详情里的这个季绑定（不含条目表），summaryUpdatedAt 是剧详情取到的时间。
+ * 一个合集的季绑定的详情与补建进度（文件夹的季绑定没有条目表、不补建，不用它）。binding 是剧详情里的这个季绑定（不含条目表），summaryUpdatedAt 是剧详情取到的时间。
  * 详情在展开条目表、或正在补建时才取；正在补建时每秒轮询。返回的 view 是剧详情与详情里较新的那一份：
  * 补建进行中建出的绑定数等随轮询逐条更新；剧详情重新加载后显示正在补建（例如追更的定时检查开始了）时，重新取一次详情。
  * 补建结束（running 由 true 变为 false）后让剧详情失效，各集的绑定数随之更新。
  */
 export function useSeasonBinding(
-  binding: SeasonBinding,
+  binding: CollectionSeasonBinding,
   summaryUpdatedAt: number,
   expanded: boolean,
 ) {
@@ -53,8 +53,9 @@ export function useSeasonBinding(
     refetchInterval: (q) => (q.state.data?.running ? pollInterval : false),
   })
   const { refetch } = query
-  const view: SeasonBinding =
-    query.data && query.dataUpdatedAt >= summaryUpdatedAt ? query.data : binding
+  // 详情与剧详情是同一个季绑定，kind 相同
+  const latest = query.data && query.dataUpdatedAt >= summaryUpdatedAt ? query.data : null
+  const view = latest?.kind === 'collection' ? latest : binding
   const { running } = view
 
   useEffect(() => {

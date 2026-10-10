@@ -5,10 +5,12 @@ import {
   binding,
   card,
   fileBinding,
+  folderSeasonBinding,
   lighthouse,
   mockCatalog,
   mockRootLayout,
   renderRoutes,
+  seasonBinding,
 } from '@/__tests__/utils'
 import {
   appendBindingFiles,
@@ -318,6 +320,24 @@ describe('绑定', () => {
     const second = within(screen.getByRole('article', { name: '弹幕源 2' }))
     expect(second.getByText('失效')).toBeInTheDocument()
     expect(second.getByText(/^弹幕源 23:38/)).toHaveTextContent('弹幕源 23:38 / 本集 23:40')
+  })
+
+  it('集面板：季绑定建出的绑定，标签写季绑定的名称，悬停提示全名和来源', async () => {
+    const season = all[0]!.seasons[1]!
+    season.seasonBindings = [seasonBinding(1), folderSeasonBinding(2)]
+    season.episodes[0]!.bindings.push(
+      binding(3, { seasonBindingId: 1 }),
+      fileBinding(4, { seasonBindingId: 2 }),
+    )
+    renderRoutes('/catalog/1/11/110')
+
+    expect(
+      (await card('弹幕源 3')).getByTitle('由合集的季绑定「星海旅人 第一季」按集号对应建出'),
+    ).toHaveTextContent('季绑定 · 星海旅人 第一季')
+    expect(
+      (await card('20130709')).getByTitle('由文件夹的季绑定「来自新世界」建出'),
+    ).toHaveTextContent('季绑定 · 来自新世界')
+    expect((await card('弹幕源 1')).queryByText(/季绑定/)).not.toBeInTheDocument()
   })
 
   it('贴链接：进行中显示已用秒数，成功后用 toast 提示并显示新的绑定', async () => {

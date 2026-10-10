@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import type { Mapping, SeasonBinding } from '@/api/season-bindings'
+import type { Mapping, CollectionSeasonBinding } from '@/api/season-bindings'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -73,7 +73,7 @@ export function MappingEditor({
   disabled,
   onSave,
 }: {
-  binding: SeasonBinding
+  binding: CollectionSeasonBinding
   disabled: boolean
   onSave: (mapping: Mapping) => void
 }) {
