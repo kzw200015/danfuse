@@ -2,6 +2,10 @@
 -- 创建绑定前确认这一集存在，拉取之前就能返回 404。
 SELECT EXISTS (SELECT 1 FROM episodes WHERE id = $1);
 
+-- name: SeasonExists :one
+-- 按季上传的预览、创建前确认这一季存在。
+SELECT EXISTS (SELECT 1 FROM seasons WHERE id = $1);
+
 -- name: LockEpisode :one
 -- 锁住这一集到提交，期间删不掉它：创建绑定的写入事务的第一句；补建的写入事务在锁住季、季绑定之后也用它锁集。
 -- FOR KEY SHARE 与同步的 upsert 兼容。这一集已被删除时没有行。
