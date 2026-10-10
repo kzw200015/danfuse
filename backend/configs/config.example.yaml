@@ -63,7 +63,8 @@ bilibili:
   request_timeout: 10s # 单个请求的超时，超时后照常重试；整次拉取另有约 25 秒的总时限
 
 # 上传弹幕文件的上限，按一次上传计；一个绑定累计追加的文件不设上限。
-# 调大时注意反向代理的请求体上限（例如 nginx 的 client_max_body_size），上传还受 server.read_timeout 限制。
+# 调大时注意反向代理的请求体上限（例如 nginx 的 client_max_body_size），上传还受 server.read_timeout、write_timeout 限制
+# （write_timeout 从读完请求头起算，包括接收上传的文件）；按季上传一次可能有上百 MB，网速慢时调大这两项。
 danmaku_file:
   max_files: 50 # 一次最多几份
   max_file_mb: 10 # 单份的上限，单位 MB
