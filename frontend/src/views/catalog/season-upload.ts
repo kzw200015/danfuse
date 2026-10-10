@@ -1,3 +1,6 @@
+import type { Mapping, PreviewItem } from '@/api/season-bindings'
+import type { Episode } from '@/api/series'
+
 /** 按季上传的一个条目：一个子目录，或顶层平铺的一份文件 */
 export interface UploadEntry {
   /** 条目名称："文件夹名 / 子目录名"或"文件夹名 / 文件名去掉扩展名" */
@@ -68,4 +71,20 @@ export function groupFolderFiles(files: readonly File[]): FolderGrouping {
     entries: [...entries.values()].toSorted((a, b) => naturalOrder.compare(a.label, b.label)),
     ignored,
   }
+}
+
+/**
+ * 按季上传预览时预填的集号对应：取认出的最小集号，本季有同号的集时同号对应，否则对到本季最小的集号；
+ * 本季还没有集时同号对应，一个都认不出时为 1 = 1。季绑定不用它（那边预填 1 = 1）
+ */
+export function defaultMapping(items: PreviewItem[], episodes: Episode[]): Mapping {
+  const numbers = items.flatMap((it) => (it.number === null ? [] : [it.number]))
+  if (numbers.length === 0) {
+    return { from: 1, to: 1 }
+  }
+  const from = Math.min(...numbers)
+  if (episodes.length === 0 || episodes.some((e) => e.number === from)) {
+    return { from, to: from }
+  }
+  return { from, to: Math.min(...episodes.map((e) => e.number)) }
 }
