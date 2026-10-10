@@ -55,6 +55,20 @@ Referenced by:
     TABLE "binding_files" CONSTRAINT "binding_files_binding_id_fkey" FOREIGN KEY (binding_id) REFERENCES bindings(id) ON DELETE CASCADE
     TABLE "danmaku" CONSTRAINT "danmaku_binding_id_fkey" FOREIGN KEY (binding_id) REFERENCES bindings(id) ON DELETE CASCADE
 
+                                Table "public.blocked_words"
+   Column   |           Type           | Collation | Nullable |           Default
+------------+--------------------------+-----------+----------+------------------------------
+ id         | bigint                   |           | not null | generated always as identity
+ kind       | text                     |           | not null |
+ pattern    | text                     |           | not null |
+ dedup_key  | text                     |           | not null |
+ created_at | timestamp with time zone |           | not null | now()
+Indexes:
+    "blocked_words_pkey" PRIMARY KEY, btree (id)
+    "blocked_words_kind_dedup_key_key" UNIQUE CONSTRAINT, btree (kind, dedup_key)
+Check constraints:
+    "blocked_words_kind_check" CHECK (kind = ANY (ARRAY['keyword'::text, 'regex'::text]))
+
                  Table "public.danmaku"
    Column   |   Type   | Collation | Nullable | Default
 ------------+----------+-----------+----------+---------

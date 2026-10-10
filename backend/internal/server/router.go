@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
@@ -22,6 +23,7 @@ type Handlers struct {
 	Sync          *catalog.SyncHandler
 	Binding       *binding.Handler
 	SeasonBinding *seasonbinding.Handler
+	BlockedWord   *blockword.Handler
 	Dandan        *dandan.Handler
 }
 
@@ -59,6 +61,10 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	api.GET("/sync-runs", h.Sync.List)
 	api.GET("/sync-runs/latest", h.Sync.Latest)
 	api.GET("/sync-runs/:id", h.Sync.Get)
+
+	api.GET("/blocked-words", h.BlockedWord.List)
+	api.POST("/blocked-words", h.BlockedWord.Create)
+	api.DELETE("/blocked-words/:id", h.BlockedWord.Delete)
 
 	api.GET("/settings", h.Settings.Get)
 }

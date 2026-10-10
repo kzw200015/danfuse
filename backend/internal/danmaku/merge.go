@@ -23,6 +23,7 @@ type Track struct {
 }
 
 // Merge 读取一集弹幕时的全部处理，与弹幕是否落库无关：
+//  0. 屏蔽：去掉正文命中 blocklist 的。被屏蔽的弹幕就像不存在，不参与之后的去重。
 //  1. 校正：t × Scale + Offset，四舍五入到毫秒。为负的丢弃，超出本集时长的保留。
 //  2. 按 ID 去重：不同绑定之间平台与原始 ID 都相同的，保留 BindingID 小的那条。
 //     兜底同一集的两个绑定实际指向同一个弹幕源，例如番剧的 ep 与同一稿件的 av。
@@ -31,7 +32,7 @@ type Track struct {
 //     同一绑定内部不去重：多人刷同一句话是真实的弹幕密度。
 //
 // 结果按校正后时间升序。
-func Merge(tracks []Track) []Item {
+func Merge(tracks []Track, blocklist Blocklist) []Item {
 	type idKey struct {
 		platform Platform
 		sourceID int64
@@ -44,6 +45,10 @@ func Merge(tracks []Track) []Item {
 	owners := make(map[idKey]int64, total) // (平台, 原始 ID) → 先拿到它的绑定
 	for _, tr := range slices.SortedFunc(slices.Values(tracks), func(a, b Track) int { return cmp.Compare(a.BindingID, b.BindingID) }) {
 		for _, d := range tr.Items {
+			text := normalize(d.Text)
+			if blocklist.blocks(d.Text, text) {
+				continue
+			}
 			t := math.Round(float64(d.TimeMs)*tr.Scale + tr.Offset*1000)
 			if t < 0 || t > math.MaxInt32 { // 超出 int32 的只会来自异常的 scale
 				continue
@@ -54,7 +59,7 @@ func Merge(tracks []Track) []Item {
 			}
 			owners[key] = tr.BindingID
 			d.TimeMs = int32(t)
-			entries = append(entries, entry{Item{Danmaku: d, Platform: tr.Platform}, tr.BindingID})
+			entries = append(entries, entry{Item{Danmaku: d, Platform: tr.Platform}, tr.BindingID, text})
 		}
 	}
 	slices.SortFunc(entries, func(a, b entry) int {
@@ -64,11 +69,10 @@ func Merge(tracks []Track) []Item {
 	result := make([]Item, 0, len(entries))
 	kept := make(map[string][]entry) // 归一化后的正文 → 保留下来的这句话，按时间升序
 	for _, e := range entries {
-		text := normalize(e.Text)
-		if duplicated(kept[text], e) {
+		if duplicated(kept[e.text], e) {
 			continue
 		}
-		kept[text] = append(kept[text], e)
+		kept[e.text] = append(kept[e.text], e)
 		result = append(result, e.Item)
 	}
 	return result
@@ -78,6 +82,7 @@ func Merge(tracks []Track) []Item {
 type entry struct {
 	Item
 	bindingID int64
+	text      string // 归一化后的正文，屏蔽时算出，按文本去重时接着用
 }
 
 // duplicated 从最近的往前看窗口内保留下来的同一句话（kept 按时间升序，都不晚于 e），有来自其他绑定的就算重复。

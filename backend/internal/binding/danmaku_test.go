@@ -162,7 +162,7 @@ func TestEpisodeDanmaku(t *testing.T) {
 		{"集不存在", 99, nil},
 	}
 	for _, tt := range tests {
-		got, err := svc.EpisodeDanmaku(t.Context(), tt.episodeID)
+		got, err := svc.EpisodeDanmaku(t.Context(), tt.episodeID, danmaku.Blocklist{})
 		if err != nil {
 			t.Fatalf("%s：EpisodeDanmaku(%d): %v", tt.name, tt.episodeID, err)
 		}
@@ -180,7 +180,7 @@ func TestEpisodeDanmakuUnknownAdapter(t *testing.T) {
 			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420),
 			(1, 'gone', '{"id": 1}', '没有注册的适配器', 1420);`)
 
-	if got, err := svc.EpisodeDanmaku(t.Context(), 1); err == nil || !strings.Contains(err.Error(), `"gone"`) {
+	if got, err := svc.EpisodeDanmaku(t.Context(), 1, danmaku.Blocklist{}); err == nil || !strings.Contains(err.Error(), `"gone"`) {
 		t.Errorf("EpisodeDanmaku() = %+v, %v；want 指出没有注册的适配器 gone 的错误", got, err)
 	}
 }

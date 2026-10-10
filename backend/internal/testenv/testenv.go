@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
@@ -39,6 +40,7 @@ type Env struct {
 	Bindings       *binding.Service
 	SeasonBindings *seasonbinding.Service // 追更的时间规则取配置项的默认值
 	Catalog        *catalog.Service
+	BlockedWords   *blockword.Service
 	Dandan         *dandan.Service
 }
 
@@ -47,11 +49,13 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *E
 	sources := source.NewRegistry(adapters...)
 	bindings := binding.NewService(pool, sources, logger)
 	seasonBindings := seasonbinding.NewService(pool, sources, bindings, config.Defaults().Follow, logger)
+	blockedWords := blockword.NewService(pool)
 	return &Env{
 		Bindings:       bindings,
 		SeasonBindings: seasonBindings,
 		Catalog:        catalog.NewService(pool, bindings, seasonBindings),
-		Dandan:         dandan.NewService(pool, bindings),
+		BlockedWords:   blockedWords,
+		Dandan:         dandan.NewService(pool, bindings, blockedWords),
 	}
 }
 

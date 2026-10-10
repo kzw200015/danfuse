@@ -22,7 +22,7 @@ linters:
     - unparam
     - whitespace
   settings:
-    # 业务按领域分包（internal/catalog、binding、seasonbinding、dandan），领域内的依赖方向：handler*.go → service → xxxdb（sqlc 生成）。
+    # 业务按领域分包（internal/catalog、binding、seasonbinding、dandan、blockword），领域内的依赖方向：handler*.go → service → xxxdb（sqlc 生成）。
     # 适配器（领域的子包）和纯计算包不访问数据库；只有 app 装配适配器。
     # depguard 只能按文件和包前缀匹配：新增领域时把它的 xxxdb 加进 handler 规则的 deny。
     depguard:
@@ -42,6 +42,8 @@ linters:
             - pkg: github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb
               desc: handler 经 service 访问数据库
             - pkg: github.com/kzw200015/danfuse/backend/internal/dandan/dandandb
+              desc: handler 经 service 访问数据库
+            - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/blockworddb
               desc: handler 经 service 访问数据库
         pure:
           files:

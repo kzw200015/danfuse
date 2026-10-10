@@ -82,9 +82,9 @@ func parseDanmakuCursor(cursor string) (timeMs int32, sourceID int64, ok bool) {
 }
 
 // EpisodeDanmaku 一集的全部弹幕（弹弹 API 的 comment）：读出这一集的绑定（失效的照常参与），再用一条查询取出这些绑定的全部弹幕，
-// 按绑定分组，交给 danmaku.Merge 校正、跨源去重、排序。集不存在或没有绑定时返回空。播放时不向平台现取（不做 live 存储模式，见 ADR 0002）。
+// 按绑定分组，交给 danmaku.Merge 按 blocklist 屏蔽、校正、跨源去重、排序。集不存在或没有绑定时返回空。播放时不向平台现取（不做 live 存储模式，见 ADR 0002）。
 // 不包事务：所有绑定的弹幕一条 SELECT 读完，不会读到某次重新拉取的一半；查完绑定列表后某个绑定被删除时，它的弹幕读成空的。
-func (s *Service) EpisodeDanmaku(ctx context.Context, episodeID int64) ([]danmaku.Item, error) {
+func (s *Service) EpisodeDanmaku(ctx context.Context, episodeID int64, blocklist danmaku.Blocklist) ([]danmaku.Item, error) {
 	bindings, err := s.q.ListBindingsByEpisode(ctx, episodeID)
 	if err != nil {
 		return nil, fmt.Errorf("list bindings of episode %d: %w", episodeID, err)
@@ -115,5 +115,5 @@ func (s *Service) EpisodeDanmaku(ctx context.Context, episodeID int64) ([]danmak
 	for i := range tracks {
 		tracks[i].Items = byBinding[tracks[i].BindingID]
 	}
-	return danmaku.Merge(tracks), nil
+	return danmaku.Merge(tracks, blocklist), nil
 }
