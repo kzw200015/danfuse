@@ -5,6 +5,8 @@ package blockword
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,7 +24,14 @@ var (
 
 // Service 屏蔽词的增删与读取。
 type Service struct {
-	q *blockworddb.Queries
+	q        *blockworddb.Queries
+	compiled atomic.Pointer[compiledBlocklist] // 上次编译的结果，屏蔽词没变时直接复用
+}
+
+// compiledBlocklist 一组屏蔽词和编译它们得到的 Blocklist。存进去之后不再修改，可以并发读。
+type compiledBlocklist struct {
+	words     []danmaku.BlockedWord
+	blocklist danmaku.Blocklist
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
@@ -74,7 +83,8 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Blocklist 编译全部屏蔽词，供弹弹 API 取一集的弹幕时使用。每次现读现编译、不缓存：屏蔽词改了下次取弹幕就生效。
+// Blocklist 编译好的全部屏蔽词，供弹弹 API 取一集的弹幕时使用。每次都读表，与上次编译时的相同才复用，否则重新编译：
+// 屏蔽词改了（包括在别的实例上改的）下次取弹幕就生效。
 func (s *Service) Blocklist(ctx context.Context) (danmaku.Blocklist, error) {
 	rows, err := s.q.ListBlockedWords(ctx)
 	if err != nil {
@@ -84,5 +94,13 @@ func (s *Service) Blocklist(ctx context.Context) (danmaku.Blocklist, error) {
 	for i, r := range rows {
 		words[i] = danmaku.BlockedWord{Kind: danmaku.BlockedWordKind(r.Kind), Pattern: r.Pattern}
 	}
-	return danmaku.NewBlocklist(words)
+	if c := s.compiled.Load(); c != nil && slices.Equal(c.words, words) {
+		return c.blocklist, nil
+	}
+	blocklist, err := danmaku.NewBlocklist(words)
+	if err != nil {
+		return danmaku.Blocklist{}, err
+	}
+	s.compiled.Store(&compiledBlocklist{words: words, blocklist: blocklist})
+	return blocklist, nil
 }

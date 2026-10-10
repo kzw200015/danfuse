@@ -122,8 +122,8 @@ func newDanmakuService(t *testing.T, sql string) *binding.Service {
 	return binding.NewService(pool, sources, testenv.Logger(t))
 }
 
-// TestEpisodeDanmaku 一集合并后的弹幕：弹弹 API 的 comment 取的就是它。
-func TestEpisodeDanmaku(t *testing.T) {
+// TestEpisodeTracks 一集各绑定的弹幕，合并后就是弹弹 API 的 comment（屏蔽词由 danmaku 的测试覆盖）。
+func TestEpisodeTracks(t *testing.T) {
 	t.Parallel()
 	svc := newDanmakuService(t, `
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", scale, status, danmaku_count) VALUES
@@ -162,25 +162,25 @@ func TestEpisodeDanmaku(t *testing.T) {
 		{"集不存在", 99, nil},
 	}
 	for _, tt := range tests {
-		got, err := svc.EpisodeDanmaku(t.Context(), tt.episodeID, danmaku.Blocklist{})
+		tracks, err := svc.EpisodeTracks(t.Context(), tt.episodeID)
 		if err != nil {
-			t.Fatalf("%s：EpisodeDanmaku(%d): %v", tt.name, tt.episodeID, err)
+			t.Fatalf("%s：EpisodeTracks(%d): %v", tt.name, tt.episodeID, err)
 		}
-		if !slices.Equal(got, tt.want) {
-			t.Errorf("%s：EpisodeDanmaku(%d) = %+v\nwant %+v", tt.name, tt.episodeID, got, tt.want)
+		if got := danmaku.Merge(tracks, danmaku.Blocklist{}); !slices.Equal(got, tt.want) {
+			t.Errorf("%s：合并 EpisodeTracks(%d) = %+v\nwant %+v", tt.name, tt.episodeID, got, tt.want)
 		}
 	}
 }
 
-// TestEpisodeDanmakuUnknownAdapter 绑定的适配器没有注册：不知道弹幕在哪个平台，跨源去重和 cid 都无从谈起，按服务器内部错误返回。
-func TestEpisodeDanmakuUnknownAdapter(t *testing.T) {
+// TestEpisodeTracksUnknownAdapter 绑定的适配器没有注册：不知道弹幕在哪个平台，跨源去重和 cid 都无从谈起，按服务器内部错误返回。
+func TestEpisodeTracksUnknownAdapter(t *testing.T) {
 	t.Parallel()
 	svc := newDanmakuService(t, `
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration) VALUES
 			(1, 'bilibili', '{"aid": 1}', 'B 站投稿', 1420),
 			(1, 'gone', '{"id": 1}', '没有注册的适配器', 1420);`)
 
-	if got, err := svc.EpisodeDanmaku(t.Context(), 1, danmaku.Blocklist{}); err == nil || !strings.Contains(err.Error(), `"gone"`) {
-		t.Errorf("EpisodeDanmaku() = %+v, %v；want 指出没有注册的适配器 gone 的错误", got, err)
+	if got, err := svc.EpisodeTracks(t.Context(), 1); err == nil || !strings.Contains(err.Error(), `"gone"`) {
+		t.Errorf("EpisodeTracks() = %+v, %v；want 指出没有注册的适配器 gone 的错误", got, err)
 	}
 }

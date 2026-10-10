@@ -70,7 +70,7 @@ func TestCreateListDelete(t *testing.T) {
 	}
 }
 
-// TestCommentsBlocked 弹弹 API 取一集的弹幕时去掉命中屏蔽词的；屏蔽词改了下次取弹幕就生效，保存的弹幕不受影响。
+// TestCommentsBlocked 弹弹 API 取一集的弹幕时去掉命中屏蔽词的；屏蔽词改了（包括在别的实例上改的）下次取弹幕就生效，保存的弹幕不受影响。
 func TestCommentsBlocked(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
@@ -114,6 +114,14 @@ func TestCommentsBlocked(t *testing.T) {
 	}
 	if got, want := comments(), []string{"前排", "前方剧透"}; !slices.Equal(got, want) {
 		t.Errorf("删掉屏蔽词后 Comments() = %q, want %q", got, want)
+	}
+
+	// 别的实例加的屏蔽词（这里直接写表）下次取弹幕也生效：编译好的屏蔽词只在表里的内容没变时复用
+	if _, err := pool.Exec(t.Context(), `INSERT INTO blocked_words (kind, pattern, dedup_key) VALUES ('keyword', '前排', '前排')`); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := comments(), []string{"前方剧透"}; !slices.Equal(got, want) {
+		t.Errorf("别的实例加了屏蔽词后 Comments() = %q, want %q", got, want)
 	}
 	testenv.AssertInvariants(t, pool)
 }
