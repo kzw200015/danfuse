@@ -95,6 +95,8 @@ type View struct {
 	Status       string `json:"status"`       // active | dead；文件夹的季绑定恒为 active
 	Running      bool   `json:"running"`      // 正在补建；文件夹的季绑定恒为 false
 	BindingCount int32  `json:"bindingCount"` // 它建出的、现存的绑定数
+	// CreatedAt 创建时间：合集的季绑定为创建的时间，文件夹的季绑定为上传的时间
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // Detail 季绑定的详情：另有条目表，显示的是上次检查时的合集内容，不实时请求平台。
@@ -466,6 +468,7 @@ func (s *Service) view(sb seasonbindingdb.SeasonBinding, bindingCount int32, run
 		Status:       sb.Status,
 		Running:      running,
 		BindingCount: bindingCount,
+		CreatedAt:    sb.CreatedAt,
 	}
 	if sb.Kind == kindFolder {
 		return v, nil

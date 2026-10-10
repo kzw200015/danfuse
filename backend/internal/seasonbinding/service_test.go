@@ -328,6 +328,10 @@ func TestCreateSeasonBinding(t *testing.T) {
 			t.Errorf("lastCheckedAt = %v, want 这一轮的开始时间 %v", got.LastCheckedAt, start)
 		}
 		got.LastCheckedAt = &start
+		if got.CreatedAt.IsZero() {
+			t.Error("createdAt 为空")
+		}
+		want.CreatedAt = got.CreatedAt // 由数据库写入，不是气泡里的假时间
 		if !reflect.DeepEqual(got.View, want) {
 			t.Errorf("Get() = %+v\nwant %+v", got.View, want)
 		}

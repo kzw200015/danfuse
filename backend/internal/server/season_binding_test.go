@@ -131,7 +131,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings",
 			`{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": `+defaultPatterns+`}`, http.StatusCreated)
 		wantFields := []string{
-			"adapter", "bindingCount", "episodePatterns", "finished", "follow", "id", "items", "kind", "lastCheckedAt", "lastError",
+			"adapter", "bindingCount", "createdAt", "episodePatterns", "finished", "follow", "id", "items", "kind", "lastCheckedAt", "lastError",
 			"mappingFrom", "mappingTo", "numberedByRule", "running", "seasonId", "sourceLabel", "sourceUrl", "status", "title",
 		}
 		if got := slices.Sorted(maps.Keys(decodeObject(t, data))); !slices.Equal(got, wantFields) {
@@ -142,6 +142,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 		_, _, data = call(t, srv, http.MethodGet, "/api/season-bindings/1", "", http.StatusOK)
 		detail := decodeObject(t, data)
 		popTime(t, detail, "lastCheckedAt") // 这一轮的开始时间
+		popTime(t, detail, "createdAt")
 		testenv.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
 			"id": 1, "seasonId": 1, "kind": "collection", "adapter": "fake", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"title": "合集 s", "finished": false, "mappingFrom": 1, "mappingTo": 1, "numberedByRule": false, "episodePatterns": `+defaultPatterns+`,
@@ -265,7 +266,9 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 		path := fmt.Sprintf("/api/season-bindings/%d", id)
 
 		_, _, data := call(t, srv, http.MethodGet, path, "", http.StatusOK)
-		testenv.AssertJSON(t, data, fmt.Sprintf(`{
+		detail := decodeObject(t, data)
+		popTime(t, detail, "createdAt") // 上传时间
+		testenv.AssertJSON(t, json.RawMessage(jsonString(detail)), fmt.Sprintf(`{
 			"id": %d, "seasonId": 1, "kind": "folder", "title": "来自新世界",
 			"adapter": null, "sourceUrl": null, "sourceLabel": null, "finished": null, "mappingFrom": null, "mappingTo": null,
 			"numberedByRule": null, "episodePatterns": null, "lastError": null, "lastCheckedAt": null,
