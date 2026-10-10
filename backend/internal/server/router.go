@@ -49,6 +49,7 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	api.GET("/bindings/:id/files", h.Binding.ListFiles)
 	api.POST("/bindings/:id/reparse", h.Binding.Reparse)
 	api.POST("/seasons/:id/file-bindings/preview", h.Binding.PreviewSeasonUpload)
+	api.POST("/seasons/:id/file-bindings", h.Binding.CreateFromSeasonFiles)
 
 	api.POST("/seasons/:id/season-bindings/preview", h.SeasonBinding.Preview)
 	api.POST("/seasons/:id/season-bindings", h.SeasonBinding.Create)

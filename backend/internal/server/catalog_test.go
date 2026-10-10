@@ -15,8 +15,9 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// uploadLimits 上传弹幕文件的上限，与默认值一致（TestFileBindingUploadErrors 断言这几个数）。
-var uploadLimits = config.DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 50}
+// uploadLimits 上传弹幕文件的上限：单集上传的与默认值一致（TestFileBindingUploadErrors 断言这几个数）；
+// 按季上传的比默认值小（TestSeasonUploadErrors 断言），免得测试发出几百 MB 的请求，又与单集上传的不同，能看出用的是哪组。
+var uploadLimits = config.DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 50, SeasonMaxFiles: 60, SeasonMaxUploadMB: 60}
 
 // catalogServer 起完整的 Echo，目录与绑定接口连到 pool，源适配器只注册了 fakeAdapter。
 func catalogServer(pool *pgxpool.Pool) *Server {
