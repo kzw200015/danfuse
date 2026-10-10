@@ -25,11 +25,12 @@ type createSeasonUploadRequest struct {
 	entries []seasonUploadEntry // 按 targets 的顺序
 }
 
-// seasonUploadEntry 按路径分出、对上了目标集的一个条目。
+// seasonUploadEntry 按路径分出的一个条目。
 type seasonUploadEntry struct {
 	label     string
-	episodeID int64
+	dir       bool  // 子目录合成的条目；false 为顶层的一份文件
 	files     []int // 它的文件在 paths（也是 files）里的下标
+	episodeID int64 // targets 给它指定的目标集
 }
 
 func (r *createSeasonUploadRequest) Validate() error {
@@ -66,7 +67,8 @@ func (r *createSeasonUploadRequest) Validate() error {
 			return request.InvalidParam(fmt.Sprintf("「%s」对应了多个目标集", target.Label))
 		}
 		taken[g] = true
-		r.entries[i] = seasonUploadEntry{label: target.Label, episodeID: target.EpisodeID, files: groups[g].files}
+		r.entries[i] = groups[g]
+		r.entries[i].episodeID = target.EpisodeID
 	}
 	if g := slices.Index(taken, false); g >= 0 {
 		return request.InvalidParam(fmt.Sprintf("「%s」没有指定目标集", groups[g].label))
@@ -74,18 +76,11 @@ func (r *createSeasonUploadRequest) Validate() error {
 	return nil
 }
 
-// seasonUploadGroup 按路径分出的一个条目。
-type seasonUploadGroup struct {
-	label string
-	dir   bool  // 子目录合成的条目；false 为顶层的一份文件
-	files []int // 它的文件在 paths 里的下标
-}
-
-// groupSeasonPaths 按相对路径把文件分成条目，按第一次出现的顺序返回。
+// groupSeasonPaths 按相对路径把文件分成条目（还没有目标集），按第一次出现的顺序返回。
 // 每个路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"，扩展名不分大小写，文件夹名都相同；
 // 子目录里的文件合成一个条目"文件夹名 / 子目录名"，顶层的文件各自一个条目"文件夹名 / 文件名去掉扩展名"，条目名称不能重复。
-func groupSeasonPaths(paths []string) ([]seasonUploadGroup, error) {
-	var groups []seasonUploadGroup
+func groupSeasonPaths(paths []string) ([]seasonUploadEntry, error) {
+	var groups []seasonUploadEntry
 	index := make(map[string]int)
 	for i, p := range paths {
 		parts := strings.Split(p, "/")
@@ -115,7 +110,7 @@ func groupSeasonPaths(paths []string) ([]seasonUploadGroup, error) {
 		case !ok:
 			g = len(groups)
 			index[label] = g
-			groups = append(groups, seasonUploadGroup{label: label, dir: dir})
+			groups = append(groups, seasonUploadEntry{label: label, dir: dir})
 		case !dir || !groups[g].dir:
 			return nil, request.InvalidParam("条目名称重复：" + label)
 		}
@@ -129,7 +124,7 @@ func groupSeasonPaths(paths []string) ([]seasonUploadGroup, error) {
 // 上限、路径结构、条目与目标的对应有一项不满足就整次 400，什么都不保存。
 func (h *Handler) CreateFromSeasonFiles(c *echo.Context) error {
 	limits := uploadLimits{maxFiles: h.upload.SeasonMaxFiles, maxFileMB: h.upload.MaxFileMB, maxUploadMB: h.upload.SeasonMaxUploadMB}
-	headers, err := parseUpload(c, limits)
+	uploads, err := parseUpload(c, limits)
 	if err != nil {
 		return err
 	}
@@ -137,18 +132,21 @@ func (h *Handler) CreateFromSeasonFiles(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(req.paths) != len(headers) {
+	if len(req.paths) != len(uploads) {
 		return request.InvalidParam("文件路径与文件的份数不一致")
 	}
-	files, err := readUploads(headers, req.paths, limits)
+	for i := range uploads {
+		uploads[i].name = req.paths[i]
+	}
+	files, err := readUploads(uploads, limits)
 	if err != nil {
 		return err
 	}
 	entries := make([]SeasonEntry, len(req.entries))
 	for i, e := range req.entries {
-		entries[i] = SeasonEntry{Label: e.label, EpisodeID: e.episodeID, Files: make([]SeasonFile, len(e.files))}
+		entries[i] = SeasonEntry{Label: e.label, EpisodeID: e.episodeID, Files: make([]UploadedFile, len(e.files))}
 		for j, f := range e.files {
-			entries[i].Files[j] = SeasonFile{Path: files[f].Name, Data: files[f].Data}
+			entries[i].Files[j] = files[f]
 		}
 	}
 	created, err := h.svc.CreateFromSeasonFiles(c.Request().Context(), req.SeasonID, entries)

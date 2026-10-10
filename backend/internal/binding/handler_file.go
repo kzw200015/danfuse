@@ -35,9 +35,15 @@ func (l uploadLimits) errUploadTooLarge() error {
 	return request.InvalidParam(fmt.Sprintf("一次上传的文件合计不能超过 %d MB", l.maxUploadMB))
 }
 
-// parseUpload 给请求体套上大小限制再解析 multipart，返回字段 files 的全部文件头；没有文件或份数超限时返回 400。
+// upload 一份待读出的上传文件。
+type upload struct {
+	name   string // 超限提示里和读出的 UploadedFile 里的名称，默认为上传的文件名
+	header *multipart.FileHeader
+}
+
+// parseUpload 给请求体套上大小限制再解析 multipart，返回字段 files 的全部文件；没有文件或份数超限时返回 400。
 // 在 request.Bind 之前调用：Bind 用的是解析好的表单。
-func parseUpload(c *echo.Context, limits uploadLimits) ([]*multipart.FileHeader, error) {
+func parseUpload(c *echo.Context, limits uploadLimits) ([]upload, error) {
 	r := c.Request()
 	r.Body = http.MaxBytesReader(c.Response(), r.Body, limits.maxUploadMB<<20+multipartOverhead)
 	if err := r.ParseMultipartForm(multipartMemory); err != nil {
@@ -53,31 +59,34 @@ func parseUpload(c *echo.Context, limits uploadLimits) ([]*multipart.FileHeader,
 	case len(headers) > limits.maxFiles:
 		return nil, request.InvalidParam(fmt.Sprintf("一次最多上传 %d 份文件", limits.maxFiles))
 	}
-	return headers, nil
+	uploads := make([]upload, len(headers))
+	for i, fh := range headers {
+		uploads[i] = upload{name: fh.Filename, header: fh}
+	}
+	return uploads, nil
 }
 
-// readUploads 读出 headers 里每份文件的内容，单份或合计超限时返回 400。
-// names 与 headers 一一对应，是超限提示里和结果里每份文件的名称。
-func readUploads(headers []*multipart.FileHeader, names []string, limits uploadLimits) ([]UploadedFile, error) {
+// readUploads 读出每份文件的内容，单份或合计超限时返回 400。
+func readUploads(uploads []upload, limits uploadLimits) ([]UploadedFile, error) {
 	var total int64
-	files := make([]UploadedFile, len(headers))
-	for i, h := range headers {
-		if h.Size > limits.maxFileMB<<20 {
-			return nil, request.InvalidParam(fmt.Sprintf("「%s」超过 %d MB", names[i], limits.maxFileMB))
+	files := make([]UploadedFile, len(uploads))
+	for i, u := range uploads {
+		if u.header.Size > limits.maxFileMB<<20 {
+			return nil, request.InvalidParam(fmt.Sprintf("「%s」超过 %d MB", u.name, limits.maxFileMB))
 		}
-		if total += h.Size; total > limits.maxUploadMB<<20 {
+		if total += u.header.Size; total > limits.maxUploadMB<<20 {
 			return nil, limits.errUploadTooLarge()
 		}
-		f, err := h.Open()
+		f, err := u.header.Open()
 		if err != nil {
-			return nil, fmt.Errorf("open uploaded file %q: %w", names[i], err)
+			return nil, fmt.Errorf("open uploaded file %q: %w", u.name, err)
 		}
 		data, err := io.ReadAll(f)
 		_ = f.Close()
 		if err != nil {
-			return nil, fmt.Errorf("read uploaded file %q: %w", names[i], err)
+			return nil, fmt.Errorf("read uploaded file %q: %w", u.name, err)
 		}
-		files[i] = UploadedFile{Name: names[i], Data: data}
+		files[i] = UploadedFile{Name: u.name, Data: data}
 	}
 	return files, nil
 }
@@ -86,15 +95,11 @@ func readUploads(headers []*multipart.FileHeader, names []string, limits uploadL
 // 在 request.Bind 之前调用。
 func (h *Handler) readUploadedFiles(c *echo.Context) ([]UploadedFile, error) {
 	limits := uploadLimits{maxFiles: h.upload.MaxFiles, maxFileMB: h.upload.MaxFileMB, maxUploadMB: h.upload.MaxUploadMB}
-	headers, err := parseUpload(c, limits)
+	uploads, err := parseUpload(c, limits)
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, len(headers))
-	for i, fh := range headers {
-		names[i] = fh.Filename
-	}
-	return readUploads(headers, names, limits)
+	return readUploads(uploads, limits)
 }
 
 // CreateFromFiles POST /api/episodes/:id/file-bindings（multipart，字段 files 可以有多份）

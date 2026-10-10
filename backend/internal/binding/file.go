@@ -21,6 +21,8 @@ var errNotFileBinding = apierr.ErrBadRequest.WithMessage("这个绑定不是用�
 
 // UploadedFile 上传的一份弹幕文件。
 type UploadedFile struct {
+	// Name 上传的文件名，认不出时的提示用它；按季上传时是在所选文件夹里的相对路径（以文件夹名开头、用 / 分隔），
+	// 存下的文件名取它的 base name
 	Name string
 	Data []byte
 }
@@ -47,26 +49,18 @@ type parsedFile struct {
 	danmaku []danmaku.Danmaku
 }
 
-// parseFiles 解析上传的全部弹幕文件、算出内容的哈希，在写入事务之前做完。有一份认不出就整次返回 422，提示写明是哪一份。
+// parseFiles 解析上传的全部弹幕文件、算出内容的哈希，在写入事务之前做完。
+// 有一份认不出就整次返回 422，提示里用文件的 Name 写明是哪一份。
 func parseFiles(files []UploadedFile) ([]parsedFile, error) {
 	parsed := make([]parsedFile, len(files))
 	for i, f := range files {
-		p, err := parseFile(f.Name, f)
+		items, err := danmakufile.Parse(f.Name, f.Data)
 		if err != nil {
-			return nil, err
+			return nil, fileAPIError(err)
 		}
-		parsed[i] = p
+		parsed[i] = parsedFile{UploadedFile: f, sum: sha256.Sum256(f.Data), danmaku: items}
 	}
 	return parsed, nil
-}
-
-// parseFile 解析一份弹幕文件、算出内容的哈希；认不出时返回 422，提示里用 shown 指明是哪一份。
-func parseFile(shown string, f UploadedFile) (parsedFile, error) {
-	items, err := danmakufile.Parse(shown, f.Data)
-	if err != nil {
-		return parsedFile{}, fileAPIError(err)
-	}
-	return parsedFile{UploadedFile: f, sum: sha256.Sum256(f.Data), danmaku: items}, nil
 }
 
 // fileAPIError 把 *danmakufile.Error 转成 422，提示用它的 Message，底层原因只进日志；其他错误原样返回。
@@ -114,15 +108,9 @@ func (s *Service) CreateFromFiles(ctx context.Context, episodeID int64, files []
 
 // SeasonEntry 按季上传的一个条目：所选文件夹下的一个子目录，或顶层的一份文件。它在目标集上建成一个绑定。
 type SeasonEntry struct {
-	Label     string // 条目名称，也是建出的绑定的标题
-	EpisodeID int64  // 目标集，取自预览
-	Files     []SeasonFile
-}
-
-// SeasonFile 按季上传的一份文件。
-type SeasonFile struct {
-	Path string // 在所选文件夹里的相对路径（以文件夹名开头、用 / 分隔），认不出时的提示用它；存下的文件名取它的 base name
-	Data []byte
+	Label     string         // 条目名称，也是建出的绑定的标题
+	EpisodeID int64          // 目标集，取自预览
+	Files     []UploadedFile // 文件名是在所选文件夹里的相对路径
 }
 
 // SeasonFilesCreated 按季上传的结果。
@@ -152,11 +140,8 @@ func (s *Service) CreateFromSeasonFiles(ctx context.Context, seasonID int64, ent
 	}
 	parsed := make([][]parsedFile, len(entries))
 	for i, e := range entries {
-		parsed[i] = make([]parsedFile, len(e.Files))
-		for j, f := range e.Files {
-			if parsed[i][j], err = parseFile(f.Path, UploadedFile{Name: path.Base(f.Path), Data: f.Data}); err != nil {
-				return SeasonFilesCreated{}, err
-			}
+		if parsed[i], err = parseFiles(e.Files); err != nil {
+			return SeasonFilesCreated{}, err
 		}
 	}
 	var (
@@ -236,7 +221,7 @@ func (s *Service) AppendFiles(ctx context.Context, id int64, files []UploadedFil
 	return FilesAdded{Binding: view, Files: newFiles, Skipped: len(files) - newFiles, Added: added}, nil
 }
 
-// addFiles 在写入事务里把解析好的文件加入绑定：存下原文件（绑定里已有内容相同的跳过），
+// addFiles 在写入事务里把解析好的文件加入绑定：存下原文件，文件名取 base name（绑定里已有内容相同的跳过），
 // 写入新加入的文件的弹幕，再更新绑定的文件份数与弹幕计数。调用方已在同一个事务里锁住或刚插入这个绑定。
 func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files []parsedFile) (bindingdb.Binding, int, int64, error) {
 	var (
@@ -246,7 +231,7 @@ func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files 
 	for _, f := range files {
 		n, err := q.InsertBindingFile(ctx, bindingdb.InsertBindingFileParams{
 			BindingID: bindingID,
-			Name:      f.Name,
+			Name:      path.Base(f.Name),
 			Sha256:    f.sum[:],
 			Size:      int32(len(f.Data)),
 			Content:   f.Data,

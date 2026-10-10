@@ -11,9 +11,10 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// seasonFile 按季上传的一份文件：相对路径加上 f 的内容（f 的文件名不用）。
-func seasonFile(path string, f binding.UploadedFile) binding.SeasonFile {
-	return binding.SeasonFile{Path: path, Data: f.Data}
+// seasonFile 按季上传的一份文件：名称为相对路径，内容取 f 的。
+func seasonFile(path string, f binding.UploadedFile) binding.UploadedFile {
+	f.Name = path
+	return f
 }
 
 // TestCreateFromSeasonFiles 每个条目在目标集上建出一个绑定：标题是条目名称，原文件按 base name 存下，同一条目的快照按原始 ID 去重。
@@ -23,11 +24,11 @@ func TestCreateFromSeasonFiles(t *testing.T) {
 	svc, pool := newBindingService(t, &fakeAdapter{}, testenv.SlogTo(&logs))
 
 	got, err := svc.CreateFromSeasonFiles(t.Context(), 1, []binding.SeasonEntry{
-		{Label: "星海旅人 / 1", EpisodeID: 1, Files: []binding.SeasonFile{
+		{Label: "星海旅人 / 1", EpisodeID: 1, Files: []binding.UploadedFile{
 			seasonFile("星海旅人/1/20130709.xml", snapshot1),
 			seasonFile("星海旅人/1/20130711.xml", snapshot2),
 		}},
-		{Label: "星海旅人 / 2", EpisodeID: 2, Files: []binding.SeasonFile{
+		{Label: "星海旅人 / 2", EpisodeID: 2, Files: []binding.UploadedFile{
 			seasonFile("星海旅人/2.xml", snapshot1),
 		}},
 	})
@@ -76,7 +77,7 @@ func TestCreateFromSeasonFilesExisting(t *testing.T) {
 	}
 
 	got, err := svc.CreateFromSeasonFiles(t.Context(), 1, []binding.SeasonEntry{
-		{Label: "星海旅人 / 1", EpisodeID: 1, Files: []binding.SeasonFile{seasonFile("星海旅人/1.xml", snapshot1)}},
+		{Label: "星海旅人 / 1", EpisodeID: 1, Files: []binding.UploadedFile{seasonFile("星海旅人/1.xml", snapshot1)}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -94,10 +95,10 @@ func TestCreateFromSeasonFilesExisting(t *testing.T) {
 	}
 }
 
-// TestCreateFromSeasonFilesErrors任何一个条目出问题都整次失败，什么都不保存。
+// TestCreateFromSeasonFilesErrors 任何一个条目出问题都整次失败，什么都不保存。
 func TestCreateFromSeasonFilesErrors(t *testing.T) {
 	t.Parallel()
-	entry := func(label string, episodeID int64, files ...binding.SeasonFile) binding.SeasonEntry {
+	entry := func(label string, episodeID int64, files ...binding.UploadedFile) binding.SeasonEntry {
 		return binding.SeasonEntry{Label: label, EpisodeID: episodeID, Files: files}
 	}
 	first := entry("星海旅人 / 1", 1, seasonFile("星海旅人/1/20130709.xml", snapshot1))
