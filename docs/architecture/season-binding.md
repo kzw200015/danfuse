@@ -1,6 +1,6 @@
 # 季绑定与补建
 
-在季上绑定一个合集，补建出普通的绑定（`seasonbinding.Service`，ADR 0001）。术语见 `GLOSSARY.md`，合集与集号规则见 [`sources.md`](sources.md)。
+季绑定分两种，由 `season_bindings.kind` 区分（ADR 0008）：合集的季绑定（`collection`）在季上绑定一个合集，补建出普通的绑定（ADR 0001）；文件夹的季绑定（`folder`）由按季上传留下，只记着那次上传建出的文件绑定。两种都归 `seasonbinding.Service`，除了[文件夹的季绑定](#文件夹的季绑定)一节，下文说的都是合集的季绑定。术语见 `GLOSSARY.md`，合集与集号规则、按季上传见 [`sources.md`](sources.md)。
 
 ## 数据
 
@@ -8,6 +8,14 @@
 - 补建按弹幕源记住处理过的条目（`season_binding_handled`，只记它自己建出过绑定的，集删除时级联删除）；对应的集上已有同一个弹幕源的绑定（手动绑的、别的季绑定建的）时跳过，不拉取、不记处理过，条目表里是 `alreadyBound`。
 - 条目表（`season_binding_items`）是上次检查时的合集内容，条目的状态读取时现算，不存储。
 - 改集号规则时在同一个事务里按保存的标签重新认序号；补建拉取每个条目之前重新读它的序号（正在拉取的那个照旧按拉取前的序号写入）。
+
+## 文件夹的季绑定
+
+- 只属于合集的季绑定的列（适配器、合集 ref、集号对应的两列、集号规则、按规则编号）对文件夹的季绑定为空，追更为关、未完结、状态为正常、没有上次检查和上次错误，由 CHECK 约束按 kind 守住；`title` 是所选的文件夹名。唯一约束 `(season_id, adapter, ref)` 在 NULL 上不生效，同一个文件夹可以传多次，每次各留下一个。
+- 链接绑定只指向合集的季绑定、文件绑定只指向文件夹的季绑定，文件夹的季绑定没有条目表和处理过的记录：这些跨表的规则约束表达不了，由代码保证，`testenv.AssertInvariants` 检查。
+- 只能查看和删除：`checkCollection` 让改追更、改集号对应或集号规则（PATCH）、立即补建对它返回 400"文件夹的季绑定只能删除"；追更恒为关，追更的扫描不会碰到它。`View` 的 `kind` 为 `folder`，合集专属的字段为 null，不经过源适配器；`running` 恒为 false，`createdAt` 即上传的时间；详情（`Get`）的条目表为空数组。
+- 删除与合集的季绑定是同一条路径（`Delete`）：`withBindings` 时它建出的文件绑定连同原文件、弹幕级联删除，否则变回普通的文件绑定。建出的绑定被逐个删光时它照样保留，`bindingCount` 为 0。
+- 由按季上传在写入事务里插入（`InsertFolderSeasonBinding`，要写明追更关着：列的默认值是开着），流程见 [`sources.md`](sources.md#按季上传)。
 
 ## 运行与追更
 
@@ -22,6 +30,7 @@
 
 ## 管理界面
 
+- 季绑定卡片（`SeasonBindingCard`）按 `kind` 分支，文件夹的季绑定的卡片只有文件夹名、建出的绑定数、上传时间和删除，不取详情也不轮询；前端的类型 `SeasonBinding` 是 `CollectionSeasonBinding | FolderSeasonBinding`。
 - 季绑定的详情（`use-season-bindings.ts`，键 `['season-bindings', id]`）只在展开条目表、或正在补建时取，正在补建时每秒轮询，结束后让剧详情失效；季绑定的列表在剧详情里。
 - 创建、立即补建、改集号对应、开关追更成功后用 `useWatchSeasonBinding` 把最新的详情放进缓存，轮询随即开始。
 

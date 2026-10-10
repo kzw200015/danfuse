@@ -6,12 +6,20 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/web"
+)
+
+// 整个请求的读、写不限时：上传整季的文件、当场拉取弹幕都可能很久（Echo 默认的 30 秒读超时要显式清掉）；
+// 只限制读请求头和空闲的长连接，防止慢速连接占着不放。
+const (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 2 * time.Minute
 )
 
 type Server struct {
@@ -51,8 +59,9 @@ func (s *Server) Start(ctx context.Context) error {
 		HideBanner:      true,
 		GracefulTimeout: s.cfg.GracefulTimeout,
 		BeforeServeFunc: func(hs *http.Server) error {
-			hs.ReadTimeout = s.cfg.ReadTimeout
-			hs.WriteTimeout = s.cfg.WriteTimeout
+			hs.ReadHeaderTimeout = readHeaderTimeout
+			hs.IdleTimeout = idleTimeout
+			hs.ReadTimeout = 0 // Echo 默认 30 秒；它不设 WriteTimeout
 			return nil
 		},
 	}

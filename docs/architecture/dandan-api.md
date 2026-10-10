@@ -9,7 +9,8 @@
 - `dandan.Service` 返回的类型（`dandan.Season`、`SearchResult`、`MatchResult` 等，季的类别用 `catalog.KindOf`）是内部结构，不含任何协议格式。
 - `Match` 按名称识别一集：名称里要写明集号，其余交给同一个搜索，候选唯一且标题与剧名或原名 `fulltext.SameWords` 时才算确定（`isMatched`）。
 - 搜索关键词和 match 的文件名按 `naming.Parse`（`catalog/naming`）认出季号、集号（规则见 [`catalog.md`](catalog.md)），集号以 `search/episodes` 的 `episode` 参数优先；按集号过滤时只返回有这一集的季，每季只带这一集（`Season.EpisodeCount` 仍是总集数）。
-- 取弹幕交给 `binding.Service.EpisodeDanmaku`：用一条查询读出这一集所有绑定落库的弹幕，平台取自绑定的适配器（弹幕文件为无平台），交给 `danmaku.Merge` 做校正和跨源去重；cid 由 `danmaku.CID` 在输出时现算，不存储。
+- 取弹幕时 `dandan.Service.Comments` 同时（errgroup）向 `binding.Service.EpisodeTracks` 要这一集各绑定的弹幕、向 `blockword.Service.Blocklist` 要一份编译好的屏蔽词（`danmaku.Blocklist`），再交给 `danmaku.Merge` 先去掉正文命中屏蔽词的，再做校正和跨源去重。`EpisodeTracks` 用一条查询读出这一集所有绑定落库的弹幕，平台取自绑定的适配器（弹幕文件为无平台）。`Blocklist` 每次都读表，内容与上次编译时相同就复用编译结果（`atomic.Pointer`），否则重新编译，所以改了屏蔽词（包括在别的实例上改的）下次取弹幕就生效；cid 由 `danmaku.CID` 在输出时现算，不存储。
+- 屏蔽词的匹配规则在 `danmaku/blocklist.go`：关键词与正文都按跨源去重的同一套规则归一化后看是否包含，全部正则合成一条、对原始正文匹配。屏蔽只作用于弹弹 API 的输出，保存的弹幕和管理界面查看绑定的弹幕都不受影响。
 
 ## 响应格式
 

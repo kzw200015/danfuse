@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,6 +22,8 @@ var errNotFileBinding = apierr.ErrBadRequest.WithMessage("这个绑定不是用�
 
 // UploadedFile 上传的一份弹幕文件。
 type UploadedFile struct {
+	// Name 上传的文件名，认不出时的提示用它；按季上传时是在所选文件夹里的相对路径（以文件夹名开头、用 / 分隔），
+	// 存下的文件名取它的 base name
 	Name string
 	Data []byte
 }
@@ -46,7 +50,8 @@ type parsedFile struct {
 	danmaku []danmaku.Danmaku
 }
 
-// parseFiles 解析上传的全部弹幕文件、算出内容的哈希，在写入事务之前做完。有一份认不出就整次返回 422，提示写明是哪一份。
+// parseFiles 解析上传的全部弹幕文件、算出内容的哈希，在写入事务之前做完。
+// 有一份认不出就整次返回 422，提示里用文件的 Name 写明是哪一份。
 func parseFiles(files []UploadedFile) ([]parsedFile, error) {
 	parsed := make([]parsedFile, len(files))
 	for i, f := range files {
@@ -102,6 +107,74 @@ func (s *Service) CreateFromFiles(ctx context.Context, episodeID int64, files []
 	return s.view(binding)
 }
 
+// SeasonEntry 按季上传的一个条目：所选文件夹下的一个子目录，或顶层的一份文件。它在目标集上建成一个绑定。
+type SeasonEntry struct {
+	Label     string         // 条目名称，也是建出的绑定的标题
+	EpisodeID int64          // 目标集，取自预览
+	Files     []UploadedFile // 文件名是在所选文件夹里的相对路径
+}
+
+// SeasonFiles 按季上传解析好的条目，由 Service.ParseSeasonFiles 在写入事务之前得到，交给 CreateSeasonFilesInTx 写入。
+type SeasonFiles struct {
+	entries []SeasonEntry
+	parsed  [][]parsedFile // 与 entries 一一对应
+}
+
+// SeasonFilesSaved CreateSeasonFilesInTx 写入的结果。每个条目建出一个绑定。
+type SeasonFilesSaved struct {
+	Files int   // 存下的文件份数（同一个条目里内容相同的只存一份）
+	Added int64 // 新增的弹幕总条数
+}
+
+// ParseSeasonFiles 按季上传在写入事务之前解析全部文件，有一份认不出就整次 422，提示带着它的相对路径。
+// 各条目的目标集互不相同，由请求的校验保证。
+func (s *Service) ParseSeasonFiles(entries []SeasonEntry) (SeasonFiles, error) {
+	files := SeasonFiles{entries: entries, parsed: make([][]parsedFile, len(entries))}
+	for i, e := range entries {
+		var err error
+		if files.parsed[i], err = parseFiles(e.Files); err != nil {
+			return SeasonFiles{}, err
+		}
+	}
+	return files, nil
+}
+
+// CreateSeasonFilesInTx 在按季上传的写入事务里，每个条目在它的目标集上建一个带来源季绑定的文件绑定，标题为条目名称：
+// 先一次锁住全部目标集（有一集已被删除或不属于这一季时为 404，什么都没写），再逐个建出绑定、存下原文件、写入弹幕。
+// 目标集上已有绑定（包括用弹幕文件建的）时照常再建一个。调用方开事务，先锁住季、插入季绑定。
+func (s *Service) CreateSeasonFilesInTx(ctx context.Context, tx pgx.Tx, seasonID, seasonBindingID int64, files SeasonFiles) (SeasonFilesSaved, error) {
+	q := s.q.WithTx(tx)
+	ids := make([]int64, len(files.entries))
+	for i, e := range files.entries {
+		ids[i] = e.EpisodeID
+	}
+	locked, err := q.LockSeasonEpisodes(ctx, bindingdb.LockSeasonEpisodesParams{Ids: ids, SeasonID: seasonID})
+	if err != nil {
+		return SeasonFilesSaved{}, fmt.Errorf("lock episodes of season %d: %w", seasonID, err)
+	}
+	for _, e := range files.entries {
+		if !slices.Contains(locked, e.EpisodeID) {
+			return SeasonFilesSaved{}, apierr.ErrNotFound.WithMessage(fmt.Sprintf("「%s」的目标集已被删除或不属于这一季，请重新预览", e.Label))
+		}
+	}
+	var saved SeasonFilesSaved
+	for i, e := range files.entries {
+		id, err := q.InsertFileBinding(ctx, bindingdb.InsertFileBindingParams{
+			EpisodeID: e.EpisodeID, Title: e.Label, SeasonBindingID: &seasonBindingID,
+		})
+		if err != nil {
+			return SeasonFilesSaved{}, fmt.Errorf("insert file binding of episode %d: %w", e.EpisodeID, err)
+		}
+		_, newFiles, added, err := addFiles(ctx, q, id, files.parsed[i])
+		if err != nil {
+			return SeasonFilesSaved{}, err
+		}
+		saved.Files += newFiles
+		saved.Added += added
+	}
+	return saved, nil
+}
+
 // AppendFiles 追加文件：往用弹幕文件建的绑定里再加入弹幕文件，只增不删。
 // 绑定里已有内容相同的文件时跳过它，全部跳过时什么都不改（Files 为 0）。弹幕按原始 ID 去重。
 func (s *Service) AppendFiles(ctx context.Context, id int64, files []UploadedFile) (FilesAdded, error) {
@@ -137,7 +210,7 @@ func (s *Service) AppendFiles(ctx context.Context, id int64, files []UploadedFil
 	return FilesAdded{Binding: view, Files: newFiles, Skipped: len(files) - newFiles, Added: added}, nil
 }
 
-// addFiles 在写入事务里把解析好的文件加入绑定：存下原文件（绑定里已有内容相同的跳过），
+// addFiles 在写入事务里把解析好的文件加入绑定：存下原文件，文件名取 base name（绑定里已有内容相同的跳过），
 // 写入新加入的文件的弹幕，再更新绑定的文件份数与弹幕计数。调用方已在同一个事务里锁住或刚插入这个绑定。
 func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files []parsedFile) (bindingdb.Binding, int, int64, error) {
 	var (
@@ -147,7 +220,7 @@ func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files 
 	for _, f := range files {
 		n, err := q.InsertBindingFile(ctx, bindingdb.InsertBindingFileParams{
 			BindingID: bindingID,
-			Name:      f.Name,
+			Name:      path.Base(f.Name),
 			Sha256:    f.sum[:],
 			Size:      int32(len(f.Data)),
 			Content:   f.Data,

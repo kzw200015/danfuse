@@ -35,8 +35,19 @@ func danmakuXML(name string, ids ...string) uploadFile {
 // upload 以 multipart 发出文件（字段 files），检查状态码，返回解出的统一响应。
 func upload(t *testing.T, srv *Server, target string, files []uploadFile, wantStatus int) (message string, data json.RawMessage) {
 	t.Helper()
+	return uploadForm(t, srv, target, files, nil, wantStatus)
+}
+
+// uploadForm 以 multipart 发出普通字段 fields 和文件（字段 files），检查状态码，返回解出的统一响应。
+func uploadForm(t *testing.T, srv *Server, target string, files []uploadFile, fields map[string]string, wantStatus int) (message string, data json.RawMessage) {
+	t.Helper()
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
+	for name, value := range fields {
+		if err := w.WriteField(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, f := range files {
 		part, err := w.CreateFormFile("files", f.name)
 		if err != nil {
@@ -132,7 +143,7 @@ func TestFileBindingUploadErrors(t *testing.T) {
 		wantStatus  int
 		wantMessage string
 	}{
-		{"没有文件", "/api/episodes/2/file-bindings", nil, http.StatusBadRequest, "请选择弹幕文件"},
+		{"没有文件", "/api/episodes/2/file-bindings", nil, http.StatusBadRequest, "请选择要上传的文件"},
 		{"超过 50 份", "/api/episodes/2/file-bindings", many, http.StatusBadRequest, "一次最多上传 50 份文件"},
 		{"单份超过 10 MB", "/api/episodes/2/file-bindings", []uploadFile{big}, http.StatusBadRequest, "「大.xml」超过 10 MB"},
 		{

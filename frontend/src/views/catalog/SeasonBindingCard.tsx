@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { ChevronDownIcon, ChevronRightIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -8,6 +8,8 @@ import {
   backfillSeasonBinding,
   deleteSeasonBinding,
   updateSeasonBinding,
+  type CollectionSeasonBinding,
+  type FolderSeasonBinding,
   type SeasonBinding,
   type SeasonBindingDetail,
   type SeasonBindingPatch,
@@ -29,14 +31,10 @@ import { cn } from '@/lib/utils'
 import CollectionItemsTable from './CollectionItemsTable'
 import { EpisodeRuleEditor } from './EpisodeRuleInput'
 import { MappingEditor } from './MappingInputs'
-import { itemStateText } from './season-binding'
+import { itemStateText, seasonBindingName } from './season-binding'
 import { SourceLink, StatusBadge } from './shared'
 
-/**
- * 一个季绑定的卡片：状态、合集标题（链接到原页面）与标签、建出的绑定数、上次检查的时间与错误、补建中的已用秒数；
- * 集号对应与集号规则（投稿合集、多 P 投稿；保存后后台补建）、追更开关、立即补建、删除，以及可展开的条目表。
- * 操作成功用 toast（立即补建被拒绝的 409 也用 toast）；其余失败的提示显示在卡片下方，保留到下次操作或手动关闭。
- */
+/** 一个季绑定的卡片，按 kind 分为合集的季绑定和文件夹的季绑定 */
 export default function SeasonBindingCard({
   binding,
   summaryUpdatedAt,
@@ -44,6 +42,25 @@ export default function SeasonBindingCard({
   /** 剧详情里的这个季绑定 */
   binding: SeasonBinding
   /** 剧详情取到的时间，与轮询到的详情比较哪个新 */
+  summaryUpdatedAt: number
+}) {
+  return binding.kind === 'folder' ? (
+    <FolderSeasonBindingCard binding={binding} />
+  ) : (
+    <CollectionSeasonBindingCard binding={binding} summaryUpdatedAt={summaryUpdatedAt} />
+  )
+}
+
+/**
+ * 合集的季绑定的卡片：状态、合集标题（链接到原页面）与标签、建出的绑定数、上次检查的时间与错误、补建中的已用秒数；
+ * 集号对应与集号规则（投稿合集、多 P 投稿；保存后后台补建）、追更开关、立即补建、删除，以及可展开的条目表。
+ * 操作成功用 toast（立即补建被拒绝的 409 也用 toast）；其余失败的提示显示在卡片下方，保留到下次操作或手动关闭。
+ */
+function CollectionSeasonBindingCard({
+  binding,
+  summaryUpdatedAt,
+}: {
+  binding: CollectionSeasonBinding
   summaryUpdatedAt: number
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -82,27 +99,12 @@ export default function SeasonBindingCard({
       showError(e)
     },
   })
-  const remove = useMutation({
-    mutationFn: (withBindings: boolean) => deleteSeasonBinding(binding.id, withBindings),
-    onMutate: clearError,
-    onSuccess: () => {
-      toast.success('已删除季绑定')
-      return reload()
-    },
-    onError: (e) => {
-      showError(e)
-      // 已经不在了（例如在别处删掉了）：重新加载，卡片随之消失
-      if (isApiStatus(e, 404)) return reload()
-    },
-  })
-  // 确认框里"同时删除建出的绑定"的勾选，每次打开时恢复成默认的不勾选
-  const [withBindings, setWithBindings] = useState(false)
+  const remove = useDeleteSeasonBinding(binding.id, clearError, showError)
   const busy = remove.isPending
   const { data: settings } = useSettings()
 
   const dead = view.status === 'dead'
-  // 合集标题为空时用标签代替
-  const name = view.title || view.sourceLabel
+  const name = seasonBindingName(view)
   return (
     <article
       aria-label={name}
@@ -171,35 +173,24 @@ export default function SeasonBindingCard({
             <RefreshCwIcon />
             立即补建
           </Button>
-          <ConfirmButton
-            trigger={
-              <Button variant="ghost" size="sm" className="text-destructive" disabled={busy}>
-                {busy && <Loader2Icon className="animate-spin" />}
-                删除
-              </Button>
-            }
-            title="删除这个季绑定？"
-            confirmLabel="删除"
-            onOpenChange={(open) => open && setWithBindings(false)}
-            onConfirm={() => remove.mutate(withBindings)}
+          <DeleteSeasonBindingButton
+            pending={busy}
+            bindingCount={view.bindingCount}
+            checkboxLabel={`同时删除它建出的 ${view.bindingCount} 个绑定（连同弹幕，无法恢复）`}
+            onConfirm={(withBindings) => remove.mutate(withBindings)}
           >
-            <p>「{name}」的条目表和处理过的记录会一起删除。</p>
-            {running && <p>正在进行的补建会随即停下。</p>}
-            {view.bindingCount > 0 ? (
+            {() => (
               <>
-                <p>它建出的 {view.bindingCount} 个绑定默认保留，变成普通绑定。</p>
-                <label className="flex items-center gap-2 font-medium text-foreground">
-                  <Checkbox
-                    checked={withBindings}
-                    onCheckedChange={(checked) => setWithBindings(checked)}
-                  />
-                  同时删除它建出的 {view.bindingCount} 个绑定（连同弹幕，无法恢复）
-                </label>
+                <p>「{name}」的条目表和处理过的记录会一起删除。</p>
+                {running && <p>正在进行的补建会随即停下。</p>}
+                {view.bindingCount > 0 ? (
+                  <p>它建出的 {view.bindingCount} 个绑定默认保留，变成普通绑定。</p>
+                ) : (
+                  <p>它还没有建出绑定。</p>
+                )}
               </>
-            ) : (
-              <p>它还没有建出绑定。</p>
             )}
-          </ConfirmButton>
+          </DeleteSeasonBindingButton>
         </div>
       </div>
 
@@ -230,6 +221,110 @@ export default function SeasonBindingCard({
 
       {error && <ErrorNote onClose={clearError}>{error}</ErrorNote>}
     </article>
+  )
+}
+
+/**
+ * 文件夹的季绑定的卡片：文件夹名、建出的绑定数、上传时间，只能删除。它不补建、不追更、不会失效，没有条目表，也不轮询。
+ * 删除成功用 toast；失败的提示显示在卡片下方，保留到下次操作或手动关闭。
+ */
+function FolderSeasonBindingCard({ binding }: { binding: FolderSeasonBinding }) {
+  const [error, setError] = useState<string | null>(null)
+  const clearError = () => setError(null)
+  const remove = useDeleteSeasonBinding(binding.id, clearError, (e) => setError(e.message))
+  const n = binding.bindingCount
+  return (
+    <article aria-label={binding.title} className="grid gap-2 rounded-lg border p-3">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <span className="font-medium break-all">{binding.title}</span>
+          <div className="text-xs text-muted-foreground">上传的弹幕文件夹</div>
+        </div>
+        <DeleteSeasonBindingButton
+          pending={remove.isPending}
+          bindingCount={n}
+          checkboxLabel={`同时删除它建出的 ${n} 个绑定`}
+          onConfirm={(withBindings) => remove.mutate(withBindings)}
+        >
+          {(withBindings) =>
+            n === 0 ? (
+              <p>它建出的绑定都已删除。</p>
+            ) : withBindings ? (
+              <p>它建出的 {n} 个绑定和上传的弹幕文件会一起删除，无法恢复。</p>
+            ) : (
+              <p>它建出的 {n} 个绑定默认保留，变成普通的文件绑定。</p>
+            )
+          }
+        </DeleteSeasonBindingButton>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span>建出 {n} 个绑定</span>
+        <span>上传于 {formatDateTime(binding.createdAt)}</span>
+      </div>
+      {error && <ErrorNote onClose={clearError}>{error}</ErrorNote>}
+    </article>
+  )
+}
+
+/** 删除季绑定：成功后用 toast 提示并重新加载剧详情；已经不在了（例如在别处删掉了）时也重新加载，卡片随之消失 */
+function useDeleteSeasonBinding(id: number, onMutate: () => void, onError: (e: Error) => void) {
+  const reload = useReloadSeries()
+  return useMutation({
+    mutationFn: (withBindings: boolean) => deleteSeasonBinding(id, withBindings),
+    onMutate,
+    onSuccess: () => {
+      toast.success('已删除季绑定')
+      return reload()
+    },
+    onError: (e) => {
+      onError(e)
+      if (isApiStatus(e, 404)) return reload()
+    },
+  })
+}
+
+/**
+ * 删除季绑定的按钮与确认框。还有建出的绑定时，确认框末尾是"同时删除建出的绑定"的勾选框，每次打开时恢复成默认的不勾选；
+ * children 按是否勾选写出后果
+ */
+function DeleteSeasonBindingButton({
+  pending,
+  bindingCount,
+  checkboxLabel,
+  onConfirm,
+  children,
+}: {
+  pending: boolean
+  bindingCount: number
+  checkboxLabel: string
+  onConfirm: (withBindings: boolean) => void
+  children: (withBindings: boolean) => ReactNode
+}) {
+  const [withBindings, setWithBindings] = useState(false)
+  return (
+    <ConfirmButton
+      trigger={
+        <Button variant="ghost" size="sm" className="text-destructive" disabled={pending}>
+          {pending && <Loader2Icon className="animate-spin" />}
+          删除
+        </Button>
+      }
+      title="删除这个季绑定？"
+      confirmLabel="删除"
+      onOpenChange={(open) => open && setWithBindings(false)}
+      onConfirm={() => onConfirm(withBindings)}
+    >
+      {children(withBindings)}
+      {bindingCount > 0 && (
+        <label className="flex items-center gap-2 font-medium text-foreground">
+          <Checkbox
+            checked={withBindings}
+            onCheckedChange={(checked) => setWithBindings(checked)}
+          />
+          {checkboxLabel}
+        </label>
+      )}
+    </ConfirmButton>
   )
 }
 

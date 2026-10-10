@@ -5,6 +5,7 @@ import AddSeasonBindingForm from './AddSeasonBindingForm'
 import { bindingStats, seasonName } from './catalog'
 import DeleteButton from './DeleteButton'
 import SeasonBindingCard from './SeasonBindingCard'
+import SeasonUploadButton from './SeasonUploadButton'
 import { useCatalogPath } from './shared'
 
 /** 右栏：选中整季、没选集时的季面板：这一季的信息、季绑定，以及"删除这一季" */
@@ -29,10 +30,14 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
       </div>
 
       <section aria-label="季绑定" className="grid gap-3 border-t pt-4">
-        <h3 className="text-sm font-medium">季绑定（{season.seasonBindings.length}）</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium">季绑定（{season.seasonBindings.length}）</h3>
+          {/* 手上有整季的弹幕存档时从这里上传 */}
+          <SeasonUploadButton key={season.id} season={season} />
+        </div>
         <p className="text-xs text-muted-foreground">
           把 B 站番剧的一季、投稿合集或多 P
-          投稿绑到这一季上，按集号对应在后台为各集建出绑定；开着追更时自动补建新出的集。
+          投稿绑到这一季上，按集号对应在后台为各集建出绑定；开着追更时自动补建新出的集。上传整季的弹幕文件夹也会在这里留下一个季绑定，删除时可以连同建出的绑定一起删。
         </p>
         {/* 换一季时重新挂载，上一季的输入和预览不带过来 */}
         <AddSeasonBindingForm key={season.id} season={season} />

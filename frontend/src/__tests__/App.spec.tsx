@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 
+import { listBlockedWords } from '@/api/blocked-words'
 import { listSeries } from '@/api/series'
 import { getSettings } from '@/api/settings'
 import { getLatestSyncRun, getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
 import { mockRootLayout, renderRoutes, settings, syncRun } from './utils'
 
+vi.mock('@/api/blocked-words')
 vi.mock('@/api/series')
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
 
 beforeEach(() => {
+  vi.mocked(listBlockedWords).mockResolvedValue([])
   vi.mocked(listSeries).mockResolvedValue([])
   mockRootLayout()
   vi.mocked(listSyncRuns).mockResolvedValue([])

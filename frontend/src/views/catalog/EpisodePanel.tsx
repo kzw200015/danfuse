@@ -45,7 +45,12 @@ export default function EpisodePanel({
       <section aria-label="绑定" className="grid gap-3 border-t pt-4">
         <h3 className="text-sm font-medium">绑定（{episode.bindings.length}）</h3>
         {episode.bindings.map((b) => (
-          <BindingCard key={b.id} binding={b} episodeDuration={episode.duration} />
+          <BindingCard
+            key={b.id}
+            binding={b}
+            episodeDuration={episode.duration}
+            seasonBindings={season.seasonBindings}
+          />
         ))}
         {episode.bindings.length === 0 && (
           <p className="text-sm text-muted-foreground">

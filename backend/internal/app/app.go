@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
 	"github.com/kzw200015/danfuse/backend/internal/config"
@@ -33,7 +34,7 @@ type App struct {
 }
 
 // New 组装各领域的 service 和 handler。pool 已连通、已迁移，由调用方在 Run 返回之后关闭。
-// 领域之间的依赖：catalog → seasonbinding → binding，dandan → binding；同步（catalog.SyncService）独立。
+// 领域之间的依赖：catalog → seasonbinding → binding，dandan → binding、blockword；同步（catalog.SyncService）独立。
 func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	// 适配器子包只由 app 引用，业务代码只依赖领域包的接口。
 	// B 站适配器里有全局令牌桶，整个进程只构造这一个。
@@ -45,7 +46,8 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	seasonBindings := seasonbinding.NewService(pool, sources, bindings, cfg.Follow, logger)
 	catalogs := catalog.NewService(pool, bindings, seasonBindings)
 	syncs := catalog.NewSyncService(pool, catalogSource, cfg.Sync, logger)
-	dandans := dandan.NewService(pool, bindings)
+	blockedWords := blockword.NewService(pool)
+	dandans := dandan.NewService(pool, bindings, blockedWords)
 
 	handlers := &server.Handlers{
 		Health:        server.NewHealthHandler(pool),
@@ -53,7 +55,8 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Catalog:       catalog.NewHandler(catalogs),
 		Sync:          catalog.NewSyncHandler(syncs),
 		Binding:       binding.NewHandler(bindings, cfg.DanmakuFile),
-		SeasonBinding: seasonbinding.NewHandler(seasonBindings),
+		SeasonBinding: seasonbinding.NewHandler(seasonBindings, cfg.DanmakuFile),
+		BlockedWord:   blockword.NewHandler(blockedWords),
 		Dandan:        dandan.NewHandler(dandans),
 	}
 	return &App{

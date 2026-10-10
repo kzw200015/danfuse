@@ -14,25 +14,10 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// xmlFile 一份 B 站导出的 XML 弹幕文件。ds 是 <d> 的 p 与正文交替排列。
-func xmlFile(name string, ds ...string) binding.UploadedFile {
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>934042</chatid>`)
-	for i := 0; i < len(ds); i += 2 {
-		b.WriteString(`<d p="` + ds[i] + `">` + ds[i+1] + "</d>\n")
-	}
-	b.WriteString("</i>")
-	return binding.UploadedFile{Name: name, Data: []byte(b.String())}
-}
-
-// 同一个视频不同日期的两份快照：dmid 2 两份都有（新快照里时间精度不同），dmid 1、3 各在一份里。
+// 同一个视频不同日期的两份快照（testenv.Snapshot1、Snapshot2）。
 var (
-	snapshot1 = xmlFile("20130709.xml",
-		"1.5,1,25,16777215,1373250214,0,d9df08a7,1", "前排",
-		"61.25,1,25,16777215,1373250228,0,500cea0d,2", "好看")
-	snapshot2 = xmlFile("20130711.xml",
-		"61.2499980927,1,25,16777215,1373250228,0,500cea0d,2", "好看",
-		"120,5,25,16711680,1373250271,0,3ae9ab45,3", "顶部")
+	snapshot1       = testenv.Snapshot1("20130709.xml")
+	snapshot2       = testenv.Snapshot2("20130711.xml")
 	snapshotDanmaku = []danmaku.Danmaku{
 		{SourceID: 1, TimeMs: 1500, Mode: danmaku.ModeScroll, Color: 0xFFFFFF, Text: "前排"},
 		{SourceID: 2, TimeMs: 61250, Mode: danmaku.ModeScroll, Color: 0xFFFFFF, Text: "好看"},
@@ -40,20 +25,6 @@ var (
 	}
 	notDanmaku = binding.UploadedFile{Name: "README.html", Data: []byte("<html><body>历史弹幕</body></html>")}
 )
-
-// fileNames 绑定里的弹幕文件名，按加入的顺序。
-func fileNames(t *testing.T, svc *binding.Service, id int64) []string {
-	t.Helper()
-	files, err := svc.ListFiles(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := make([]string, len(files))
-	for i, f := range files {
-		names[i] = f.Name
-	}
-	return names
-}
 
 func TestCreateFromFiles(t *testing.T) {
 	t.Parallel()
@@ -81,7 +52,7 @@ func TestCreateFromFiles(t *testing.T) {
 	if items := readDanmaku(t, pool, got.ID); !slices.Equal(items, snapshotDanmaku) {
 		t.Errorf("落库的弹幕 = %+v\nwant %+v", items, snapshotDanmaku)
 	}
-	if names := fileNames(t, svc, got.ID); !slices.Equal(names, []string{"20130709.xml", "20130711.xml"}) {
+	if names := testenv.FileNames(t, svc, got.ID); !slices.Equal(names, []string{"20130709.xml", "20130711.xml"}) {
 		t.Errorf("弹幕文件 = %v", names)
 	}
 	if wantLog := `level=INFO msg="danmaku files added" binding_id=1 files=2 added=3`; !strings.Contains(logs.String(), wantLog) {
@@ -185,9 +156,9 @@ func TestAppendFiles(t *testing.T) {
 	}
 
 	// 有一份认不出：什么都不加
-	_, err = svc.AppendFiles(t.Context(), created.ID, []binding.UploadedFile{xmlFile("新.xml", "1,1,25,0,0,0,x,9", "新"), notDanmaku})
+	_, err = svc.AppendFiles(t.Context(), created.ID, []binding.UploadedFile{testenv.XMLFile("新.xml", "1,1,25,0,0,0,x,9", "新"), notDanmaku})
 	testenv.AssertAppError(t, err, http.StatusUnprocessableEntity, "无法识别「README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
-	if names := fileNames(t, svc, created.ID); len(names) != 2 {
+	if names := testenv.FileNames(t, svc, created.ID); len(names) != 2 {
 		t.Errorf("有一份认不出：弹幕文件 = %v, want 仍是 2 份", names)
 	}
 }

@@ -21,9 +21,14 @@ import { followCostText } from '@/lib/follow'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
-import EpisodeRuleInput, { cleanPatterns, samePatterns } from './EpisodeRuleInput'
+import { cleanPatterns, EpisodeRuleRepreview, samePatterns } from './EpisodeRuleInput'
 import MappingInputs, { useMappingDraft } from './MappingInputs'
-import { candidateText, previewTarget, previewTargetText } from './season-binding'
+import {
+  candidateText,
+  previewTarget,
+  previewTargetClass,
+  previewTargetText,
+} from './season-binding'
 import { SourceLink } from './shared'
 
 /** 显示中的预览：最近一次成功的预览（贴链接的预览，或改了集号规则之后的重新预览），重新预览进行中、失败时仍然显示 */
@@ -238,7 +243,6 @@ function CandidatePreview({
     },
   })
   const elapsed = useElapsed(create.isPending)
-  const repreviewElapsed = useElapsed(repreview.isPending)
   const busy = create.isPending || repreview.isPending
 
   return (
@@ -257,26 +261,13 @@ function CandidatePreview({
       </div>
 
       {candidate.numberedByRule && (
-        <div className="grid gap-1.5">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              repreview.mutate(cleanPatterns(rule))
-            }}
-          >
-            <EpisodeRuleInput value={rule} onChange={setRule} disabled={busy}>
-              {ruleChanged && (
-                <Button type="submit" size="xs" variant="outline" disabled={busy}>
-                  {repreview.isPending && <Loader2Icon className="animate-spin" />}
-                  {repreview.isPending ? `重新预览中 ${repreviewElapsed}s` : '重新预览'}
-                </Button>
-              )}
-            </EpisodeRuleInput>
-          </form>
-          {repreview.error && (
-            <ErrorNote onClose={repreview.reset}>{repreview.error.message}</ErrorNote>
-          )}
-        </div>
+        <EpisodeRuleRepreview
+          value={rule}
+          onChange={setRule}
+          changed={ruleChanged}
+          disabled={busy}
+          repreview={repreview}
+        />
       )}
 
       <MappingInputs from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
@@ -293,10 +284,7 @@ function CandidatePreview({
               number: it.number,
               label: it.label,
               text: target ? previewTargetText(target) : '—',
-              className: cn(
-                target?.kind === 'episode' ? 'text-foreground' : 'text-muted-foreground',
-                target?.kind === 'unmatched' && 'text-amber-700',
-              ),
+              className: previewTargetClass(target),
             }
           })}
         />

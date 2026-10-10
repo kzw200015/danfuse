@@ -8,8 +8,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/naming"
 	"github.com/kzw200015/danfuse/backend/internal/dandan/dandandb"
@@ -20,12 +22,13 @@ import (
 // Service 弹弹 API 背后的查询：在目录里搜索季、按名称识别一集、按 ID 取季，读取一集所有绑定的弹幕。
 // 返回的是系统内部的结构，不是弹弹play 的 JSON：协议参数的转换与格式化归 handler。
 type Service struct {
-	q        *dandandb.Queries
-	bindings *binding.Service // 一集合并后的弹幕
+	q            *dandandb.Queries
+	bindings     *binding.Service   // 一集各绑定的弹幕
+	blockedWords *blockword.Service // 取弹幕时要去掉的屏蔽词
 }
 
-func NewService(pool *pgxpool.Pool, bindings *binding.Service) *Service {
-	return &Service{q: dandandb.New(pool), bindings: bindings}
+func NewService(pool *pgxpool.Pool, bindings *binding.Service, blockedWords *blockword.Service) *Service {
+	return &Service{q: dandandb.New(pool), bindings: bindings, blockedWords: blockedWords}
 }
 
 // SearchQuery 搜索条件。
@@ -193,9 +196,29 @@ func seasonOf(r dandandb.SearchSeasonsRow, episodes seasonEpisodes) Season {
 	}
 }
 
-// Comments 一集合并后的全部弹幕，见 binding.Service.EpisodeDanmaku。集不存在或没有绑定时返回空。
+// Comments 一集合并后的全部弹幕（danmaku.Merge），去掉了正文命中屏蔽词的。集不存在或没有绑定时返回空。
+// 弹幕（binding.Service.EpisodeTracks）与屏蔽词同时读，屏蔽词不多占一次数据库往返的时间。
 func (d *Service) Comments(ctx context.Context, episodeID int64) ([]danmaku.Item, error) {
-	return d.bindings.EpisodeDanmaku(ctx, episodeID)
+	var (
+		tracks    []danmaku.Track
+		blocklist danmaku.Blocklist
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() (err error) {
+		tracks, err = d.bindings.EpisodeTracks(gctx, episodeID)
+		return err
+	})
+	g.Go(func() (err error) {
+		blocklist, err = d.blockedWords.Blocklist(gctx)
+		return err
+	})
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if len(tracks) == 0 {
+		return nil, nil
+	}
+	return danmaku.Merge(tracks, blocklist), nil
 }
 
 func int32Ptr(v *int) *int32 {

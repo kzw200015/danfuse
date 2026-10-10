@@ -58,3 +58,11 @@ sql:
         <<: *go
         package: dandandb
         out: internal/dandan/dandandb
+  - engine: postgresql
+    schema: db/migrations
+    queries: internal/blockword/blockworddb
+    gen:
+      go:
+        <<: *go
+        package: blockworddb
+        out: internal/blockword/blockworddb

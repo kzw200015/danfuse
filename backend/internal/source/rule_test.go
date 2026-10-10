@@ -16,9 +16,12 @@ func TestParseEpisodeRule(t *testing.T) {
 	tests := []struct {
 		name     string
 		patterns []string
+		want     []string // 解析出的各条正则，nil 时与 patterns 相同
 		wantErr  string
 	}{
 		{name: "带捕获组的正则", patterns: []string{`第(\d+)集`, `EP(?P<episode>\d+)`}},
+		{name: "去掉前后的空白", patterns: []string{" 第(\\d+)集\t"}, want: []string{`第(\d+)集`}},
+		{name: "只有空白", patterns: []string{`(\d+)`, " "}, wantErr: "第 2 条集号规则是空的"},
 		{name: "空列表", patterns: []string{}, wantErr: "至少要有一条集号规则"},
 		{name: "太多", patterns: slices.Repeat([]string{`(\d+)`}, 11), wantErr: "集号规则最多 10 条"},
 		{name: "空的", patterns: []string{`(\d+)`, ""}, wantErr: "第 2 条集号规则是空的"},
@@ -35,8 +38,12 @@ func TestParseEpisodeRule(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || !slices.Equal(r.Patterns(), tt.patterns) {
-				t.Fatalf("ParseEpisodeRule(%q) = (%q, %v), want (%q, nil)", tt.patterns, r.Patterns(), err, tt.patterns)
+			want := tt.want
+			if want == nil {
+				want = tt.patterns
+			}
+			if err != nil || !slices.Equal(r.Patterns(), want) {
+				t.Fatalf("ParseEpisodeRule(%q) = (%q, %v), want (%q, nil)", tt.patterns, r.Patterns(), err, want)
 			}
 		})
 	}
@@ -57,6 +64,18 @@ func TestNumberItems(t *testing.T) {
 			want: []CollectionItem{
 				unmatched("第1话", "集号重复"), unmatched("第1话 另一个", "集号重复"), unmatched("SP", "集号「SP」不是整数"),
 			},
+		},
+		{
+			name: "先去掉重复的 ref，再判定重复的序号",
+			col:  Collection{Items: []CollectionItem{numbered("a", 1), numbered("a", 1), numbered("b", 2)}},
+			want: []CollectionItem{numbered("a", 1), numbered("b", 2)},
+		},
+		{
+			name: "按规则编号：ref 重复的只认第一个",
+			col: Collection{NumberedByRule: true, Items: []CollectionItem{
+				named("第1集"), {Ref: Ref(`"第1集"`), Label: "第2集"},
+			}},
+			want: []CollectionItem{numbered("第1集", 1)},
 		},
 		{
 			name: "默认规则：认写明的集号，不认没有标注的数字",
@@ -147,5 +166,20 @@ func TestNumberItems(t *testing.T) {
 				t.Errorf("改动了传入的切片：%+v", tt.col.Items)
 			}
 		})
+	}
+}
+
+// TestNumberLabels 与 NumberItems 同一套匹配（规则本身见 TestNumberItems），但不去重：结果与名称一一对应，名称相同的也各自保留。
+func TestNumberLabels(t *testing.T) {
+	labels := []string{"某番 / 01", "某番 / 02", "某番 / 02", "某番 / SP"}
+	got := NumberLabels(labels, DefaultEpisodeRule())
+	want := []CollectionItem{
+		{Label: "某番 / 01", Number: 1},
+		{Label: "某番 / 02", Unmatched: "集号重复"},
+		{Label: "某番 / 02", Unmatched: "集号重复"},
+		{Label: "某番 / SP", Unmatched: "不符合集号规则"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("NumberLabels() = %+v\nwant %+v", got, want)
 	}
 }

@@ -125,7 +125,7 @@ func TestMerge(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Merge(tt.tracks); !slices.Equal(got, tt.want) {
+			if got := Merge(tt.tracks, Blocklist{}); !slices.Equal(got, tt.want) {
 				t.Errorf("Merge() = %+v\nwant %+v", got, tt.want)
 			}
 		})
@@ -154,7 +154,7 @@ func TestMergeNormalizesText(t *testing.T) {
 			got := Merge([]Track{
 				track(1, PlatformBilibili, 0, dm(1, 10000, tt.earlier)),
 				track(2, PlatformBilibili, 0, dm(2, 11000, tt.later)),
-			})
+			}, Blocklist{})
 			if dups := len(got) == 1; dups != tt.wantDups {
 				t.Errorf("%q 与 %q：Merge() = %+v，want 算作重复 = %v", tt.earlier, tt.later, got, tt.wantDups)
 			}

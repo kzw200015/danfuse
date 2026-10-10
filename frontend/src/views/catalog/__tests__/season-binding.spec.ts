@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { folderSeasonBinding, seasonBinding } from '@/__tests__/utils'
 import type { Binding } from '@/api/bindings'
 import type { CollectionCandidate, PreviewItem, SeasonBindingItem } from '@/api/season-bindings'
 import type { Episode } from '@/api/series'
@@ -9,6 +10,7 @@ import {
   parseMappingNumber,
   previewTarget,
   previewTargetText,
+  seasonBindingTag,
 } from '../season-binding'
 
 function item(number: number | null, reason: string | null = null): PreviewItem {
@@ -115,5 +117,36 @@ describe('candidateText', () => {
     ['bangumi', '标签《标题》共 2 条'],
   ])('%s', (kind, want) => {
     expect(candidateText(candidate(kind))).toBe(want)
+  })
+})
+
+describe('seasonBindingTag', () => {
+  const seasonBindings = [
+    seasonBinding(1, { title: '星海旅人 第一季' }),
+    seasonBinding(2, { title: '', sourceLabel: 'B 站投稿合集 123' }),
+    folderSeasonBinding(3, { title: '来自新世界' }),
+  ]
+  it.each([
+    [null, null],
+    [
+      1,
+      {
+        text: '季绑定 · 星海旅人 第一季',
+        title: '由合集的季绑定「星海旅人 第一季」按集号对应建出',
+      },
+    ],
+    // 合集标题为空时用合集的标签
+    [
+      2,
+      {
+        text: '季绑定 · B 站投稿合集 123',
+        title: '由合集的季绑定「B 站投稿合集 123」按集号对应建出',
+      },
+    ],
+    [3, { text: '季绑定 · 来自新世界', title: '由文件夹的季绑定「来自新世界」建出' }],
+    // 找不到对应的季绑定
+    [9, { text: '季绑定', title: '由季绑定建出' }],
+  ])('%s', (id, want) => {
+    expect(seasonBindingTag(id, seasonBindings)).toEqual(want)
   })
 })

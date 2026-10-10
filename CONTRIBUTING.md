@@ -21,7 +21,7 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `fronten
 │   ├── configs/        # 配置模板
 │   ├── db/             # 数据库迁移（也是 sqlc 的 schema），以及由迁移生成的全部表结构 schema.txt
 │   ├── scripts/        # make 调用的脚本
-│   ├── internal/       # 应用代码：按领域分包（catalog、binding、seasonbinding、dandan，各带 handler、service 和 xxxdb/ 查询），
+│   ├── internal/       # 应用代码：按领域分包（catalog、binding、seasonbinding、dandan、blockword，各带 handler、service 和 xxxdb/ 查询），
 │   │                   #   source、danmaku 等纯计算包，以及 server、app、httpx、testenv 等公共部分
 │   └── web/            # 内嵌的前端构建产物与占位页
 ├── frontend/

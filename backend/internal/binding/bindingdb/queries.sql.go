@@ -198,19 +198,20 @@ func (q *Queries) InsertDanmaku(ctx context.Context, arg InsertDanmakuParams) (i
 }
 
 const insertFileBinding = `-- name: InsertFileBinding :one
-INSERT INTO bindings (episode_id, kind, title)
-VALUES ($1, 'file', $2)
+INSERT INTO bindings (episode_id, kind, title, season_binding_id)
+VALUES ($1, 'file', $2, $3::bigint)
 RETURNING id
 `
 
 type InsertFileBindingParams struct {
-	EpisodeID int64  `json:"episodeId"`
-	Title     string `json:"title"`
+	EpisodeID       int64  `json:"episodeId"`
+	Title           string `json:"title"`
+	SeasonBindingID *int64 `json:"seasonBindingId"`
 }
 
-// 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。
+// 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。按季上传建出的带上留下的文件夹的季绑定。
 func (q *Queries) InsertFileBinding(ctx context.Context, arg InsertFileBindingParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertFileBinding, arg.EpisodeID, arg.Title)
+	row := q.db.QueryRow(ctx, insertFileBinding, arg.EpisodeID, arg.Title, arg.SeasonBindingID)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -554,6 +555,40 @@ func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 	var id_2 int64
 	err := row.Scan(&id_2)
 	return id_2, err
+}
+
+const lockSeasonEpisodes = `-- name: LockSeasonEpisodes :many
+SELECT id
+FROM episodes
+WHERE id = ANY($1::bigint[]) AND season_id = $2
+FOR KEY SHARE
+`
+
+type LockSeasonEpisodesParams struct {
+	Ids      []int64 `json:"ids"`
+	SeasonID int64   `json:"seasonId"`
+}
+
+// 按季上传的写入事务在锁住季、插入季绑定之后一次锁住全部目标集到提交（与补建一样先锁季，所以不会和删季的级联死锁）。
+// 已被删除或不属于这一季的集没有行。
+func (q *Queries) LockSeasonEpisodes(ctx context.Context, arg LockSeasonEpisodesParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, lockSeasonEpisodes, arg.Ids, arg.SeasonID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markBindingDead = `-- name: MarkBindingDead :exec

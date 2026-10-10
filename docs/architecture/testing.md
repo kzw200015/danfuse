@@ -8,7 +8,7 @@
 
 - 数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库，测试之间互不干扰，可以 `t.Parallel()`。
 - `-short` 时 `dbtest.Pool` 跳过当前测试。要在别处创建连接池时（例如 synctest 的气泡里），先在外面用 `dbtest.Config(t)` 建好库、登记删库，拿到连接配置，再用 `dbtest.Open(t, cfg)` 新建连接池。
-- `internal/testenv` 是各领域的测试共用的环境：`testenv.New(pool, logger, adapters...)` 按 `app.New` 的依赖关系组装各领域的 service（后台循环不运行），另有准备数据和断言的辅助函数（`SeedEpisodes`、`QueryInt`、`AssertAppError`、`AssertJSON` 等）、假目录源 `FakeCatalog`（连同 `StartSync`、`SyncOnce`）和有合集的假源适配器 `FakeCollector`。
+- `internal/testenv` 是各领域的测试共用的环境：`testenv.New(pool, logger, adapters...)` 按 `app.New` 的依赖关系组装各领域的 service（后台循环不运行），另有准备数据和断言的辅助函数（`SeedEpisodes`、`QueryInt`、`AssertAppError`、`AssertJSON` 等，弹幕文件的 `XMLFile`、两份快照 `Snapshot1`/`Snapshot2` 和 `FileNames`）、假目录源 `FakeCatalog`（连同 `StartSync`、`SyncOnce`）和有合集的假源适配器 `FakeCollector`。
 
 ### HTTP
 
@@ -21,7 +21,7 @@
 - service 的测试写在领域包里，是外部测试包（`package binding_test`），只经导出的 API 测试；少数要碰内部的（扫描间隔、定时同步的入口）由同一个包里的 `export_test.go` 导出。
 - 只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`、`source.Adapter`），不替换数据库访问。
 - 并发用例让假适配器停在 channel 上（例如 `binding/service_test.go` 的 `fakeAdapter` 在 `started` 上报到、等 `release` 放行），期间直接执行 SQL（删除集等），再放行。
-- `testenv.AssertInvariants` 检查不变量：每个绑定的 `danmaku_count` 等于它实际的弹幕条数、`file_count` 等于它的弹幕文件份数，images 表里没有孤儿图片，处理过的记录都指向存在的集，带 `season_binding_id` 的绑定所在的集属于那个季绑定的季。绑定测试由 `newBindingService` 在每个用例结束时检查，气泡里的测试由 `testenv.SyncTest` 检查。
+- `testenv.AssertInvariants` 检查不变量：每个绑定的 `danmaku_count` 等于它实际的弹幕条数、`file_count` 等于它的弹幕文件份数，images 表里没有孤儿图片，处理过的记录都指向存在的集，带 `season_binding_id` 的绑定所在的集属于那个季绑定的季，链接绑定只指向合集的季绑定、文件绑定只指向文件夹的季绑定，文件夹的季绑定没有条目和处理过的记录。绑定测试由 `newBindingService` 在每个用例结束时检查，气泡里的测试由 `testenv.SyncTest` 检查。
 
 ### 后台 goroutine 与定时器（synctest）
 
@@ -37,9 +37,9 @@
 
 - 测试文件放在各目录的 `__tests__/` 下，命名 `*.spec.ts(x)`；jsdom 环境，未开启 globals，需从 `vitest` 显式 import。测试文件被 `tsconfig.app.json` 排除，由 `tsconfig.vitest.json` 单独做类型检查。
 - 组件测试用 `vi.mock('@/api/<资源>')` 自动 mock 请求函数，并为每个用例新建 `QueryClient`（`src/__tests__/utils.tsx` 的 `newQueryClient()`）；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应。
-- `vitest.setup.ts` 在每个用例结束后卸载组件、换回真实时间、`vi.resetAllMocks()`，测试文件不用再写这些 `afterEach`；mock 的返回值在 `beforeEach` 或用例里设置。
+- `vitest.setup.ts` 在每个用例结束后卸载组件、关掉还在显示的 toast、换回真实时间、`vi.resetAllMocks()`，测试文件不用再写这些 `afterEach`；mock 的返回值在 `beforeEach` 或用例里设置。
 - 涉及路由的测试用 `src/__tests__/utils.tsx` 的 `renderRoutes(path)`（`createMemoryRouter(routes)` 加新的 `QueryClient`）。根布局会取最近一次同步和设置，所以要 mock `@/api/sync`、`@/api/settings`，再调用同一文件的 `mockRootLayout()`。
-- 同一文件里还有共用的 fixture 与 mock（`settings`、`binding`、`lighthouse`、`mockCatalog`、`syncRun`、`mockSyncRuns`、`seedSeries`、`card`），新用例先找这里。
+- 同一文件里还有共用的 fixture 与 mock（`settings`、`binding`、`fileBinding`、`seasonBinding`、`folderSeasonBinding`、`defaultPatterns`、`lighthouse`、`mockCatalog`、`syncRun`、`mockSyncRuns`、`seedSeries`、`card`，以及目录选择选出的文件 `picked`），新用例先找这里。
 - 涉及轮询的用例用 `vi.useFakeTimers({ shouldAdvanceTime: true })`，`vi.advanceTimersByTimeAsync` 推进轮询；点按钮前先等依赖的查询取到（按钮渲染出来时查询可能还没发出）。
 - jsdom 缺少的 `matchMedia`、`scrollIntoView` 在 `vitest.setup.ts` 里补上；那里还把 `findBy`/`waitFor` 的超时放宽到 3 秒（每个文件的第一个用例要现加载懒加载的页面）。
 - 纯函数（`lib/`、`views/catalog/catalog.ts` 等）的分支用表格用例在单元测试里覆盖，组件测试只验证用户能看到的流程，不再逐个分支重复。

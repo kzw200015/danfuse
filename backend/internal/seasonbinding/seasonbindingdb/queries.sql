@@ -18,12 +18,19 @@ FOR KEY SHARE;
 
 -- name: SeasonBindingExists :one
 -- 这一季是否已经绑定过这个合集。只用于在列出合集前省掉一次注定 409 的请求，并发时以唯一约束为准。
-SELECT EXISTS (SELECT 1 FROM season_bindings WHERE season_id = $1 AND adapter = $2 AND ref = $3);
+SELECT EXISTS (SELECT 1 FROM season_bindings WHERE season_id = @season_id AND adapter = @adapter::text AND ref = @ref::jsonb);
 
 -- name: InsertSeasonBinding :one
--- 同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
-INSERT INTO season_bindings (season_id, adapter, ref, title, finished, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+-- 合集的季绑定。同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
+INSERT INTO season_bindings (season_id, kind, adapter, ref, title, finished, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
+VALUES (@season_id, 'collection', @adapter::text, @ref::jsonb, @title, @finished, @mapping_from::int, @mapping_to::int,
+        @episode_patterns::text[], @numbered_by_rule::boolean)
+RETURNING id;
+
+-- name: InsertFolderSeasonBinding :one
+-- 按季上传留下的文件夹的季绑定，名称为所选的文件夹名。追更的默认值是开着，这里要写明关着（CHECK 约束要求）。
+INSERT INTO season_bindings (season_id, kind, title, follow)
+VALUES (@season_id, 'folder', @title, false)
 RETURNING id;
 
 -- name: UpsertSeasonBindingItems :exec
@@ -169,11 +176,11 @@ WHERE season_binding_id = sqlc.arg(season_binding_id)
 UPDATE season_bindings
 SET status           = 'active',
     last_error       = NULL,
-    title            = $2,
-    finished         = $3,
-    numbered_by_rule = $4,
+    title            = @title,
+    finished         = @finished,
+    numbered_by_rule = @numbered_by_rule::boolean,
     updated_at       = now()
-WHERE id = $1
+WHERE id = @id
 RETURNING episode_patterns;
 
 -- name: FinishSeasonBindingCheck :exec

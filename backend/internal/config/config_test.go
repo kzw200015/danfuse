@@ -63,7 +63,6 @@ func TestLoadDefaultsWithoutCatalogSource(t *testing.T) {
 func TestLoadTunablesFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{
 		"DATABASE_DSN":                           "postgres://localhost/danfuse",
-		"SERVER_WRITE_TIMEOUT":                   "0", // 不限
 		"DATABASE_CONNECT_TIMEOUT":               "1m",
 		"CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT":   "10m",
 		"CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT": "2m",
@@ -79,14 +78,13 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 		"DANMAKU_FILE_MAX_FILES":                 "200",
 		"DANMAKU_FILE_MAX_FILE_MB":               "64",
 		"DANMAKU_FILE_MAX_UPLOAD_MB":             "256",
+		"DANMAKU_FILE_SEASON_MAX_FILES":          "800",
+		"DANMAKU_FILE_SEASON_MAX_UPLOAD_MB":      "512",
 	})
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if cfg.Server.WriteTimeout != 0 {
-		t.Errorf("write_timeout = %v, want 0", cfg.Server.WriteTimeout)
 	}
 	if got := cfg.Database.ConnectTimeout; got != time.Minute {
 		t.Errorf("connect_timeout = %v, want 1m", got)
@@ -109,7 +107,7 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 	if want := (Bilibili{RequestsPerSecond: 0.5, Burst: 1, FetchConcurrency: 2, RequestTimeout: 20 * time.Second}); cfg.Bilibili != want {
 		t.Errorf("bilibili = %+v, want %+v", cfg.Bilibili, want)
 	}
-	if want := (DanmakuFile{MaxFiles: 200, MaxFileMB: 64, MaxUploadMB: 256}); cfg.DanmakuFile != want {
+	if want := (DanmakuFile{MaxFiles: 200, MaxFileMB: 64, MaxUploadMB: 256, SeasonMaxFiles: 800, SeasonMaxUploadMB: 512}); cfg.DanmakuFile != want {
 		t.Errorf("danmaku_file = %+v, want %+v", cfg.DanmakuFile, want)
 	}
 }
@@ -182,7 +180,6 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"token 为 .", map[string]string{"DANDANPLAY_TOKEN": "."}, "dandanplay.token"},
 		{"token 为 ..", map[string]string{"DANDANPLAY_TOKEN": ".."}, "dandanplay.token"},
 		{"max_conns 为负", map[string]string{"DATABASE_MAX_CONNS": "-1"}, "database.max_conns"},
-		{"write_timeout 小于 30s", map[string]string{"SERVER_WRITE_TIMEOUT": "25s"}, "server.write_timeout"},
 		{"connect_timeout 为 0", map[string]string{"DATABASE_CONNECT_TIMEOUT": "0"}, "database.connect_timeout"},
 		{"list_timeout 为 0", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT", "0"), "jellyfin.list_timeout"},
 		{"poster_timeout 为 0", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_POSTER_TIMEOUT", "0"), "jellyfin.poster_timeout"},
@@ -199,6 +196,8 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"max_files 为 0", map[string]string{"DANMAKU_FILE_MAX_FILES": "0"}, "danmaku_file"},
 		{"max_file_mb 为 0", map[string]string{"DANMAKU_FILE_MAX_FILE_MB": "0"}, "danmaku_file"},
 		{"max_upload_mb 为 0", map[string]string{"DANMAKU_FILE_MAX_UPLOAD_MB": "0"}, "danmaku_file"},
+		{"season_max_files 为 0", map[string]string{"DANMAKU_FILE_SEASON_MAX_FILES": "0"}, "danmaku_file"},
+		{"season_max_upload_mb 为 0", map[string]string{"DANMAKU_FILE_SEASON_MAX_UPLOAD_MB": "0"}, "danmaku_file"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

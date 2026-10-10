@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
@@ -39,6 +40,7 @@ type Env struct {
 	Bindings       *binding.Service
 	SeasonBindings *seasonbinding.Service // 追更的时间规则取配置项的默认值
 	Catalog        *catalog.Service
+	BlockedWords   *blockword.Service
 	Dandan         *dandan.Service
 }
 
@@ -47,11 +49,13 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *E
 	sources := source.NewRegistry(adapters...)
 	bindings := binding.NewService(pool, sources, logger)
 	seasonBindings := seasonbinding.NewService(pool, sources, bindings, config.Defaults().Follow, logger)
+	blockedWords := blockword.NewService(pool)
 	return &Env{
 		Bindings:       bindings,
 		SeasonBindings: seasonBindings,
 		Catalog:        catalog.NewService(pool, bindings, seasonBindings),
-		Dandan:         dandan.NewService(pool, bindings),
+		BlockedWords:   blockedWords,
+		Dandan:         dandan.NewService(pool, bindings, blockedWords),
 	}
 }
 
@@ -72,7 +76,8 @@ func SyncTest(t *testing.T, f func(t *testing.T, pool *pgxpool.Pool)) {
 // AssertInvariants 检查任何时候都成立的不变量：每个绑定的 danmaku_count 等于它实际的弹幕条数、
 // max_time_ms 等于它最晚一条弹幕的时间（不早于 0）、file_count 等于它的弹幕文件份数；
 // images 表里没有不被任何剧引用的图片；每条处理过的记录都指向存在的集；
-// 带 season_binding_id 的绑定，所在的集属于那个季绑定的季。
+// 带 season_binding_id 的绑定，所在的集属于那个季绑定的季；链接绑定只指向合集的季绑定、文件绑定只指向文件夹的季绑定；
+// 文件夹的季绑定没有条目和处理过的记录。
 func AssertInvariants(t testing.TB, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background() // 在 t.Cleanup 里调用时 t.Context() 已经取消
@@ -157,6 +162,33 @@ func AssertInvariants(t testing.TB, pool *pgxpool.Pool) {
 	}
 	if len(misplaced) > 0 {
 		t.Errorf("绑定 %v 所在的集不属于建出它的季绑定的季", misplaced)
+	}
+
+	var wrongKind []int64
+	err = pool.QueryRow(ctx, `
+		SELECT coalesce(array_agg(b.id ORDER BY b.id), '{}')
+		FROM bindings b
+		JOIN season_bindings sb ON sb.id = b.season_binding_id
+		WHERE (b.kind = 'link') <> (sb.kind = 'collection')`).Scan(&wrongKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wrongKind) > 0 {
+		t.Errorf("绑定 %v 与建出它的季绑定种类不符：链接绑定只能由合集的季绑定、文件绑定只能由文件夹的季绑定建出", wrongKind)
+	}
+
+	var folderWithItems []int64
+	err = pool.QueryRow(ctx, `
+		SELECT coalesce(array_agg(sb.id ORDER BY sb.id), '{}')
+		FROM season_bindings sb
+		WHERE sb.kind = 'folder'
+		  AND (EXISTS (SELECT 1 FROM season_binding_items i WHERE i.season_binding_id = sb.id)
+		    OR EXISTS (SELECT 1 FROM season_binding_handled h WHERE h.season_binding_id = sb.id))`).Scan(&folderWithItems)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(folderWithItems) > 0 {
+		t.Errorf("文件夹的季绑定 %v 有条目或处理过的记录", folderWithItems)
 	}
 }
 

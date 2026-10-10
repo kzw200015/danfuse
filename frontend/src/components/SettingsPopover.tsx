@@ -3,6 +3,7 @@ import { CopyIcon, SettingsIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import type { Settings } from '@/api/settings'
+import BlockedWordsDialog from '@/components/BlockedWordsDialog'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
+import { useBlockedWords } from '@/hooks/use-blocked-words'
 import { useSettings } from '@/hooks/use-settings'
 import { dandanUrl } from '@/lib/dandan-url'
 import { formatSeconds } from '@/lib/time'
@@ -22,25 +24,40 @@ import { formatSeconds } from '@/lib/time'
 /** 目录源种类的显示名 */
 const catalogSourceKinds: Record<string, string> = { jellyfin: 'Jellyfin' }
 
-/** 设置：全部只读，内容少、很少看，放在顶栏右上角的弹出层里 */
+/**
+ * 设置：内容少、很少看，放在顶栏右上角的弹出层里。屏蔽词以外都来自配置、只读；
+ * 屏蔽词在弹出层里只显示条数，点"管理"关掉弹出层、打开管理的对话框。
+ */
 export default function SettingsPopover() {
+  const [open, setOpen] = useState(false)
+  const [managingBlockedWords, setManagingBlockedWords] = useState(false)
   return (
-    <Popover>
-      <PopoverTrigger render={<Button variant="ghost" size="icon-sm" title="设置" />}>
-        <SettingsIcon />
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[28rem] gap-3">
-        <PopoverHeader>
-          <PopoverTitle>设置</PopoverTitle>
-          <PopoverDescription>来自配置，只读；修改后重启服务生效</PopoverDescription>
-        </PopoverHeader>
-        <SettingsContent />
-      </PopoverContent>
-    </Popover>
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger render={<Button variant="ghost" size="icon-sm" title="设置" />}>
+          <SettingsIcon />
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-[28rem] gap-3">
+          <PopoverHeader>
+            <PopoverTitle>设置</PopoverTitle>
+            <PopoverDescription>
+              屏蔽词以外的设置来自配置，只读；修改后重启服务生效
+            </PopoverDescription>
+          </PopoverHeader>
+          <SettingsContent
+            onManageBlockedWords={() => {
+              setOpen(false)
+              setManagingBlockedWords(true)
+            }}
+          />
+        </PopoverContent>
+      </Popover>
+      <BlockedWordsDialog open={managingBlockedWords} onOpenChange={setManagingBlockedWords} />
+    </>
   )
 }
 
-function SettingsContent() {
+function SettingsContent({ onManageBlockedWords }: { onManageBlockedWords: () => void }) {
   const { data, error } = useSettings()
   if (error) return <ErrorNote>{error.message}</ErrorNote>
   if (!data) return <p className="text-xs text-muted-foreground">加载中…</p>
@@ -69,6 +86,11 @@ function SettingsContent() {
       </section>
       <Separator />
       <section className="grid gap-1.5">
+        <h3 className="text-sm font-medium">屏蔽词</h3>
+        <BlockedWordsSummary onManage={onManageBlockedWords} />
+      </section>
+      <Separator />
+      <section className="grid gap-1.5">
         <h3 className="text-sm font-medium">B 站</h3>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
           <dt className="text-muted-foreground">SESSDATA</dt>
@@ -80,6 +102,24 @@ function SettingsContent() {
         </dl>
       </section>
     </>
+  )
+}
+
+/** 屏蔽词的条数和"管理"按钮 */
+function BlockedWordsSummary({ onManage }: { onManage: () => void }) {
+  const { data, error } = useBlockedWords()
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="flex-1">
+          {data ? `${data.length} 条，` : ''}弹弹 API 输出弹幕时去掉正文命中的
+        </span>
+        <Button size="xs" variant="outline" onClick={onManage}>
+          管理
+        </Button>
+      </div>
+      {error && <ErrorNote>{error.message}</ErrorNote>}
+    </div>
   )
 }
 

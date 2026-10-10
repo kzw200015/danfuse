@@ -33,10 +33,13 @@ export function isApiStatus(e: unknown, status: number): e is ApiError {
 }
 
 /**
- * 后端当场请求平台的接口（创建绑定、重新拉取、预览和创建季绑定）最长约 25 秒（服务端的写超时是 30 秒）；
- * 默认的 15 秒请求超时不够，放宽到 35 秒，让服务端先给出结果。上传弹幕文件（默认最多 50 MB，后端配置 danmaku_file.max_upload_mb）也用它。
+ * 后端当场请求平台的接口（创建绑定、重新拉取、预览和创建季绑定）最长约 25 秒（服务端 source.FetchTimeout）；
+ * 默认的 15 秒请求超时不够，放宽到 35 秒，让服务端先给出结果。
  */
 export const slowRequestTimeout = 35_000
+
+/** 上传弹幕文件不设超时：要传多久取决于网速和文件大小（单集默认最多 50 MB、按季最多 200 MB），服务端默认也不限 */
+export const uploadRequestTimeout = 0
 
 export const http = axios.create({
   baseURL: '/api',

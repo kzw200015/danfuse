@@ -5,29 +5,27 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// Handler 季绑定的管理 API，路由注册在 server/router.go。
+// Handler 季绑定的管理 API（含按季上传，见 handler_season_upload.go），路由注册在 server/router.go。
 type Handler struct {
-	svc *Service
+	svc    *Service
+	upload config.DanmakuFile // 一次上传弹幕文件的上限，按季上传用其中按季的那组
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, upload config.DanmakuFile) *Handler {
+	return &Handler{svc: svc, upload: upload}
 }
 
 const invalidMapping = "集号对应必须是不小于 0 的整数"
 
-// parseRule 解析请求里的集号规则（每条前后的空白去掉），不合法时为 400，提示由 source.ParseEpisodeRule 给出。
+// parseRule 解析请求里的集号规则，不合法时为 400，提示由 source.ParseEpisodeRule 给出。
 func parseRule(patterns []string) (source.EpisodeRule, error) {
-	trimmed := make([]string, len(patterns))
-	for i, p := range patterns {
-		trimmed[i] = strings.TrimSpace(p)
-	}
-	rule, err := source.ParseEpisodeRule(trimmed)
+	rule, err := source.ParseEpisodeRule(patterns)
 	if err != nil {
 		return source.EpisodeRule{}, request.InvalidParam(err.Error())
 	}

@@ -29,9 +29,18 @@ var (
 	errBackfillRunning       = apierr.ErrConflict.WithMessage("正在补建")
 	errKindRequired          = apierr.ErrBadRequest.WithMessage("链接对应多个合集，请选择一个")
 	errKindNotFound          = apierr.ErrBadRequest.WithMessage("链接里没有这种合集，请重新预览")
+	errFolderDeleteOnly      = apierr.ErrBadRequest.WithMessage("文件夹的季绑定只能删除")
+)
+
+// 季绑定的种类（season_bindings.kind，见 docs/adr/0008）。
+const (
+	kindCollection = "collection" // 合集的季绑定：按集号对应补建出链接绑定，可以追更
+	kindFolder     = "folder"     // 文件夹的季绑定：按季上传留下，记着这次上传建出的文件绑定，只能删除
 )
 
 // Service 季绑定：在季上绑定一个合集，按集号对应为各集补建出普通的绑定；追更时定时补建。
+// 按季上传（season_upload.go）也归它：留下一个文件夹的季绑定，建出的文件绑定由 binding 在同一个事务里写入；
+// 文件夹的季绑定只能查看和删除，补建、追更、改集号对应和集号规则都只适用于合集的季绑定。
 // 建出的绑定之后的重新拉取与季绑定无关，见定时拉取（binding.ScheduledFetchService）。
 //
 // 生命周期同同步（catalog.SyncService）：App.Run 运行 Run(ctx)（循环是 background.Loop），补建都用 Run 的 ctx（应用级），不用 HTTP 请求的 ctx；
@@ -64,31 +73,37 @@ func NewService(pool *pgxpool.Pool, sources *source.Registry, bindings *binding.
 }
 
 // View 季绑定的 JSON。不对外暴露原始的合集 ref，sourceUrl / sourceLabel 由适配器的 DescribeCollection 生成。
+// 只属于合集的季绑定的字段（adapter 到 lastCheckedAt）对文件夹的季绑定为 null。
 type View struct {
-	ID          int64  `json:"id"`
-	SeasonID    int64  `json:"seasonId"`
-	Adapter     string `json:"adapter"`
-	SourceURL   string `json:"sourceUrl"`
-	SourceLabel string `json:"sourceLabel"` // 例如"B 站番剧 ss41410"，含合集的种类
-	Title       string `json:"title"`       // 合集标题，每次检查更新
-	Finished    bool   `json:"finished"`    // 平台上已完结
-	MappingFrom int32  `json:"mappingFrom"` // 集号对应：合集第 mappingFrom 集为本地第 mappingTo 集
-	MappingTo   int32  `json:"mappingTo"`
+	ID       int64  `json:"id"`
+	SeasonID int64  `json:"seasonId"`
+	Kind     string `json:"kind"`  // collection | folder
+	Title    string `json:"title"` // 合集的季绑定为合集标题，每次检查更新；文件夹的季绑定为所选的文件夹名
+
+	Adapter     *string `json:"adapter"`
+	SourceURL   *string `json:"sourceUrl"`
+	SourceLabel *string `json:"sourceLabel"` // 例如"B 站番剧 ss41410"，含合集的种类
+	Finished    *bool   `json:"finished"`    // 平台上已完结
+	MappingFrom *int32  `json:"mappingFrom"` // 集号对应：合集第 mappingFrom 集为本地第 mappingTo 集
+	MappingTo   *int32  `json:"mappingTo"`
 	// NumberedByRule 合集的序号由集号规则从条目的标签认出（投稿合集、多 P 投稿），上次列出时由适配器给出
-	NumberedByRule  bool       `json:"numberedByRule"`
+	NumberedByRule  *bool      `json:"numberedByRule"`
 	EpisodePatterns []string   `json:"episodePatterns"` // 集号规则：一组正则，取法见 source.EpisodeRule
-	Follow          bool       `json:"follow"`
-	Status          string     `json:"status"`        // active | dead
-	LastError       *string    `json:"lastError"`     // 上次检查结束时的错误
-	LastCheckedAt   *time.Time `json:"lastCheckedAt"` // 上次检查的开始时间
-	Running         bool       `json:"running"`       // 正在补建
-	BindingCount    int32      `json:"bindingCount"`  // 它建出的、现存的绑定数
+	LastError       *string    `json:"lastError"`       // 上次检查结束时的错误
+	LastCheckedAt   *time.Time `json:"lastCheckedAt"`   // 上次检查的开始时间
+
+	Follow       bool   `json:"follow"`       // 文件夹的季绑定恒为 false
+	Status       string `json:"status"`       // active | dead；文件夹的季绑定恒为 active
+	Running      bool   `json:"running"`      // 正在补建；文件夹的季绑定恒为 false
+	BindingCount int32  `json:"bindingCount"` // 它建出的、现存的绑定数
+	// CreatedAt 创建时间：合集的季绑定为创建的时间，文件夹的季绑定为上传的时间
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // Detail 季绑定的详情：另有条目表，显示的是上次检查时的合集内容，不实时请求平台。
 type Detail struct {
 	View
-	Items []ItemView `json:"items"` // 按在合集里的顺序
+	Items []ItemView `json:"items"` // 按在合集里的顺序；文件夹的季绑定为空数组
 }
 
 // 条目的状态，读取时算出，不存储。
@@ -160,26 +175,29 @@ func (s *Service) Preview(ctx context.Context, seasonID int64, link string, rule
 		if err != nil {
 			return CollectionPreview{}, fmt.Errorf("describe collection %s: %w", c.Ref, err)
 		}
-		items := source.NumberItems(col, rule)
-		pc := PreviewCandidate{
+		preview.Candidates = append(preview.Candidates, PreviewCandidate{
 			Kind:           c.Kind,
 			Title:          col.Title,
 			SourceURL:      d.URL,
 			SourceLabel:    d.Label,
 			Finished:       col.Finished,
 			NumberedByRule: col.NumberedByRule,
-			Items:          make([]PreviewItem, len(items)),
-		}
-		for i, it := range items {
-			pi := PreviewItem{Label: it.Label, Reason: nullIfEmpty(it.Unmatched)}
-			if it.Unmatched == "" {
-				pi.Number = new(it.Number)
-			}
-			pc.Items[i] = pi
-		}
-		preview.Candidates = append(preview.Candidates, pc)
+			Items:          previewItems(source.NumberItems(col, rule)),
+		})
 	}
 	return preview, nil
+}
+
+// previewItems 认出序号的条目转为预览的条目：认出的带上序号，对不上的带上原因。
+func previewItems(items []source.CollectionItem) []PreviewItem {
+	out := make([]PreviewItem, len(items))
+	for i, it := range items {
+		out[i] = PreviewItem{Label: it.Label, Reason: nullIfEmpty(it.Unmatched)}
+		if it.Unmatched == "" {
+			out[i].Number = new(it.Number)
+		}
+	}
+	return out
 }
 
 // checkSeason 确认这一季存在，请求平台之前就能返回 404。
@@ -319,7 +337,7 @@ func saveItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, items 
 	return nil
 }
 
-// Get 季绑定的详情，条目表各条目的状态由条目、处理过的记录、绑定和本季的集算出。不存在时返回 404。
+// Get 季绑定的详情，条目表各条目的状态由条目、处理过的记录、绑定和本季的集算出；文件夹的季绑定没有条目表。不存在时返回 404。
 func (s *Service) Get(ctx context.Context, id int64) (Detail, error) {
 	row, err := s.q.GetSeasonBindingSummary(ctx, seasonbindingdb.GetSeasonBindingSummaryParams{
 		ID: id, LeasePrefix: database.LeaseSeasonBackfillPrefix,
@@ -333,6 +351,9 @@ func (s *Service) Get(ctx context.Context, id int64) (Detail, error) {
 	view, err := s.view(row.SeasonBinding, row.BindingCount, row.Running)
 	if err != nil {
 		return Detail{}, err
+	}
+	if row.SeasonBinding.Kind == kindFolder {
+		return Detail{View: view, Items: []ItemView{}}, nil
 	}
 	items, err := s.q.ListSeasonBindingItemsWithHandled(ctx, id)
 	if err != nil {
@@ -349,7 +370,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Detail, error) {
 	return Detail{View: view, Items: itemViews(row.SeasonBinding, items, bound, numbers)}, nil
 }
 
-// ListBySeries 一部剧的全部季绑定（不含条目表），按季 ID 分组，组内按创建顺序。剧详情用。
+// ListBySeries 一部剧的全部季绑定（不含条目表，两种季绑定都在内），按季 ID 分组，组内按创建顺序。剧详情用。
 func (s *Service) ListBySeries(ctx context.Context, seriesID int64) (map[int64][]View, error) {
 	rows, err := s.q.ListSeasonBindingSummariesBySeries(ctx, seasonbindingdb.ListSeasonBindingSummariesBySeriesParams{
 		SeriesID: seriesID, LeasePrefix: database.LeaseSeasonBackfillPrefix,
@@ -430,19 +451,33 @@ func itemView(sb seasonbindingdb.SeasonBinding, it seasonbindingdb.SeasonBinding
 	return v
 }
 
-// mappedEpisode 按季绑定的集号对应，合集序号 number 对到的本地集号。在起点之前时 ok 为 false；
+// mappedEpisode 按合集的季绑定的集号对应，合集序号 number 对到的本地集号。在起点之前时 ok 为 false；
 // 对到的集号超出 int 的范围时目录里不可能有这一集，同样不参与。
 func mappedEpisode(sb seasonbindingdb.SeasonBinding, number int32) (episode int32, ok bool) {
-	n, ok := source.Mapping{From: int(sb.MappingFrom), To: int(sb.MappingTo)}.Episode(int(number))
+	n, ok := source.Mapping{From: int(*sb.MappingFrom), To: int(*sb.MappingTo)}.Episode(int(number))
 	if !ok || n > math.MaxInt32 {
 		return 0, false
 	}
 	return int32(n), true
 }
 
-// view 季绑定的 JSON，合集的链接和标签交给它的适配器生成。
+// view 季绑定的 JSON。合集的季绑定的链接和标签交给它的适配器生成；文件夹的季绑定没有合集，不经过适配器，合集专属的字段为 null。
 func (s *Service) view(sb seasonbindingdb.SeasonBinding, bindingCount int32, running bool) (View, error) {
-	adapter, err := s.sources.Get(sb.Adapter)
+	v := View{
+		ID:           sb.ID,
+		SeasonID:     sb.SeasonID,
+		Kind:         sb.Kind,
+		Title:        sb.Title,
+		Follow:       sb.Follow,
+		Status:       sb.Status,
+		Running:      running,
+		BindingCount: bindingCount,
+		CreatedAt:    sb.CreatedAt,
+	}
+	if sb.Kind == kindFolder {
+		return v, nil
+	}
+	adapter, err := s.sources.Get(*sb.Adapter)
 	if err != nil {
 		return View{}, fmt.Errorf("season binding %d: %w", sb.ID, err)
 	}
@@ -450,25 +485,14 @@ func (s *Service) view(sb seasonbindingdb.SeasonBinding, bindingCount int32, run
 	if err != nil {
 		return View{}, fmt.Errorf("describe season binding %d: %w", sb.ID, err)
 	}
-	return View{
-		ID:              sb.ID,
-		SeasonID:        sb.SeasonID,
-		Adapter:         sb.Adapter,
-		SourceURL:       d.URL,
-		SourceLabel:     d.Label,
-		Title:           sb.Title,
-		Finished:        sb.Finished,
-		MappingFrom:     sb.MappingFrom,
-		MappingTo:       sb.MappingTo,
-		NumberedByRule:  sb.NumberedByRule,
-		EpisodePatterns: sb.EpisodePatterns,
-		Follow:          sb.Follow,
-		Status:          sb.Status,
-		LastError:       sb.LastError,
-		LastCheckedAt:   sb.LastCheckedAt,
-		Running:         running,
-		BindingCount:    bindingCount,
-	}, nil
+	v.Adapter = sb.Adapter
+	v.SourceURL, v.SourceLabel = &d.URL, &d.Label
+	v.Finished = new(sb.Finished)
+	v.MappingFrom, v.MappingTo = sb.MappingFrom, sb.MappingTo
+	v.NumberedByRule = sb.NumberedByRule
+	v.EpisodePatterns = sb.EpisodePatterns
+	v.LastError, v.LastCheckedAt = sb.LastError, sb.LastCheckedAt
+	return v, nil
 }
 
 // UpdateParams 改季绑定的参数，为 nil 的字段不改。
@@ -482,8 +506,12 @@ type UpdateParams struct {
 // Update 改集号对应、集号规则，开关追更。改了集号规则时在同一个事务里按保存的标签重新认出条目的序号（不请求平台）：
 // UPDATE 锁住季绑定的行，与补建保存条目的事务前后排队，不会被旧规则认出的序号覆盖。
 // 打开追更、传了集号对应或集号规则时随即在后台补建一次，正在补建时不另起一轮
-// （进行中的那一轮处理每个条目之前都重新读季绑定和条目的序号，会用上新的对应和规则）。不存在时返回 404。
+// （进行中的那一轮处理每个条目之前都重新读季绑定和条目的序号，会用上新的对应和规则）。
+// 不存在时返回 404，文件夹的季绑定返回 400。
 func (s *Service) Update(ctx context.Context, id int64, p UpdateParams) (Detail, error) {
+	if err := s.checkCollection(ctx, id); err != nil {
+		return Detail{}, err
+	}
 	params := seasonbindingdb.UpdateSeasonBindingParams{ID: id, Follow: p.Follow, MappingFrom: p.MappingFrom, MappingTo: p.MappingTo}
 	if p.Rule != nil {
 		params.EpisodePatterns = p.Rule.Patterns()
@@ -491,7 +519,7 @@ func (s *Service) Update(ctx context.Context, id int64, p UpdateParams) (Detail,
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		byRule, err := q.UpdateSeasonBinding(ctx, params)
-		if err != nil || p.Rule == nil || !byRule {
+		if err != nil || p.Rule == nil || !*byRule {
 			return err
 		}
 		return renumberItems(ctx, q, id, *p.Rule)
@@ -521,16 +549,27 @@ func renumberItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, ru
 	return saveItems(ctx, q, id, source.NumberItems(col, rule))
 }
 
-// Backfill 立即在后台补建一次，追更关着时也能用。不存在时返回 404；这个季绑定正在补建时返回 409"正在补建"，不排第二次。
+// Backfill 立即在后台补建一次，追更关着时也能用。不存在时返回 404，文件夹的季绑定返回 400；
+// 这个季绑定正在补建时返回 409"正在补建"，不排第二次。
 func (s *Service) Backfill(ctx context.Context, id int64) error {
-	if _, err := s.getSeasonBinding(ctx, id, errSeasonBindingNotFound); err != nil {
+	if err := s.checkCollection(ctx, id); err != nil {
 		return err
 	}
 	return s.trigger(ctx, id)
 }
 
-// Delete 删除季绑定：一个事务里先锁住它（进行中的补建写入事务先提交，之后补建再也锁不到它，随即结束），
-// withBindings 时先删它建出的绑定（弹幕随之级联），再删季绑定；否则它建出的绑定变成普通绑定。不存在时返回 404。
+// checkCollection 确认是合集的季绑定：不存在时为 404，文件夹的季绑定为 400"文件夹的季绑定只能删除"。
+// 季绑定的种类不会改变，在事务之外判断即可。
+func (s *Service) checkCollection(ctx context.Context, id int64) error {
+	sb, err := s.getSeasonBinding(ctx, id, errSeasonBindingNotFound)
+	if err == nil && sb.Kind != kindCollection {
+		return errFolderDeleteOnly
+	}
+	return err
+}
+
+// Delete 删除季绑定，两种季绑定一样：一个事务里先锁住它（进行中的补建写入事务先提交，之后补建再也锁不到它，随即结束），
+// withBindings 时先删它建出的绑定（弹幕、弹幕文件随之级联），再删季绑定；否则它建出的绑定变成普通绑定。不存在时返回 404。
 func (s *Service) Delete(ctx context.Context, id int64, withBindings bool) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)

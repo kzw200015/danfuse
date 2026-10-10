@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -85,7 +86,7 @@ func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.P
 	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
 		Catalog:       catalog.NewHandler(env.Catalog),
 		Binding:       binding.NewHandler(env.Bindings, uploadLimits),
-		SeasonBinding: seasonbinding.NewHandler(env.SeasonBindings),
+		SeasonBinding: seasonbinding.NewHandler(env.SeasonBindings, uploadLimits),
 	}), pool
 }
 
@@ -130,7 +131,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings",
 			`{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": `+defaultPatterns+`}`, http.StatusCreated)
 		wantFields := []string{
-			"adapter", "bindingCount", "episodePatterns", "finished", "follow", "id", "items", "lastCheckedAt", "lastError",
+			"adapter", "bindingCount", "createdAt", "episodePatterns", "finished", "follow", "id", "items", "kind", "lastCheckedAt", "lastError",
 			"mappingFrom", "mappingTo", "numberedByRule", "running", "seasonId", "sourceLabel", "sourceUrl", "status", "title",
 		}
 		if got := slices.Sorted(maps.Keys(decodeObject(t, data))); !slices.Equal(got, wantFields) {
@@ -141,8 +142,9 @@ func TestSeasonBindingAPI(t *testing.T) {
 		_, _, data = call(t, srv, http.MethodGet, "/api/season-bindings/1", "", http.StatusOK)
 		detail := decodeObject(t, data)
 		popTime(t, detail, "lastCheckedAt") // 这一轮的开始时间
+		popTime(t, detail, "createdAt")
 		testenv.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
-			"id": 1, "seasonId": 1, "adapter": "fake", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
+			"id": 1, "seasonId": 1, "kind": "collection", "adapter": "fake", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"title": "合集 s", "finished": false, "mappingFrom": 1, "mappingTo": 1, "numberedByRule": false, "episodePatterns": `+defaultPatterns+`,
 			"follow": true, "status": "active", "lastError": null, "running": false, "bindingCount": 2,
 			"items": [
@@ -251,6 +253,37 @@ func TestSeasonBindingAPI(t *testing.T) {
 			t.Errorf("DELETE: code=%d data=%s, want 0 null", code, data)
 		}
 		call(t, srv, http.MethodGet, "/api/season-bindings/1", "", http.StatusNotFound)
+	})
+}
+
+// TestFolderSeasonBindingAPI 文件夹的季绑定的 JSON：带 kind，合集专属的字段为 null，条目表为空；只能删除。
+func TestFolderSeasonBindingAPI(t *testing.T) {
+	t.Parallel()
+	cfg := dbtest.Config(t)
+	synctest.Test(t, func(t *testing.T) {
+		srv, _ := seasonBindingServer(t, cfg)
+		seasonUpload(t, srv, "/api/seasons/1/file-bindings", []uploadFile{
+			danmakuXML("来自新世界/1.xml", "1"), danmakuXML("来自新世界/2.xml", "2"),
+		}, `[{"label": "来自新世界 / 1", "episodeId": 2}, {"label": "来自新世界 / 2", "episodeId": 1}]`, http.StatusCreated)
+		const id = 1 // 种子目录里没有季绑定，按季上传留下的是第一个
+		path := fmt.Sprintf("/api/season-bindings/%d", id)
+
+		_, _, data := call(t, srv, http.MethodGet, path, "", http.StatusOK)
+		detail := decodeObject(t, data)
+		popTime(t, detail, "createdAt") // 上传时间
+		testenv.AssertJSON(t, json.RawMessage(jsonString(detail)), fmt.Sprintf(`{
+			"id": %d, "seasonId": 1, "kind": "folder", "title": "来自新世界",
+			"adapter": null, "sourceUrl": null, "sourceLabel": null, "finished": null, "mappingFrom": null, "mappingTo": null,
+			"numberedByRule": null, "episodePatterns": null, "lastError": null, "lastCheckedAt": null,
+			"follow": false, "status": "active", "running": false, "bindingCount": 2,
+			"items": []
+		}`, id))
+
+		assertAPIErrors(t, srv, []apiError{
+			{http.MethodPatch, path, `{"follow": true}`, http.StatusBadRequest, "文件夹的季绑定只能删除"},
+			{http.MethodPost, path + "/backfill", "", http.StatusBadRequest, "文件夹的季绑定只能删除"},
+		})
+		call(t, srv, http.MethodDelete, path, "", http.StatusOK)
 	})
 }
 

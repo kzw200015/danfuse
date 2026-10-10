@@ -5,10 +5,13 @@ import {
   advance,
   binding,
   card,
+  defaultPatterns,
+  folderSeasonBinding,
   lighthouse,
   mockCatalog,
   mockRootLayout,
   renderRoutes,
+  seasonBinding,
 } from '@/__tests__/utils'
 import { ApiError } from '@/api/request'
 import {
@@ -20,7 +23,6 @@ import {
   previewSeasonBinding,
   updateSeasonBinding,
   type CollectionCandidate,
-  type SeasonBinding,
   type SeasonBindingItem,
 } from '@/api/season-bindings'
 import { getSeries, type SeriesDetail } from '@/api/series'
@@ -31,32 +33,6 @@ vi.mock('@/api/series')
 // 根布局会取最近一次同步和设置
 vi.mock('@/api/settings')
 vi.mock('@/api/sync')
-
-/** 默认的集号规则（假的，只要是两条） */
-const defaultPatterns = ['第(\\d+)集', 'EP(\\d+)']
-
-function seasonBinding(id: number, patch: Partial<SeasonBinding> = {}): SeasonBinding {
-  return {
-    id,
-    seasonId: 11,
-    adapter: 'bilibili',
-    sourceUrl: 'https://www.bilibili.com/bangumi/play/ss41410',
-    sourceLabel: 'B 站番剧 ss41410',
-    title: '星海旅人 第一季',
-    finished: false,
-    mappingFrom: 1,
-    mappingTo: 1,
-    numberedByRule: false,
-    episodePatterns: defaultPatterns,
-    follow: true,
-    status: 'active',
-    lastError: null,
-    lastCheckedAt: '2026-10-05T08:00:00Z',
-    running: false,
-    bindingCount: 1,
-    ...patch,
-  }
-}
 
 /** 星海旅人的第 1 季（季 11）：第 1 集（集 110）有一个季绑定 1 建出的绑定，第 2 集（集 111）没有绑定 */
 function starVoyager(): SeriesDetail {
@@ -93,12 +69,14 @@ function starVoyager(): SeriesDetail {
 let all: SeriesDetail[]
 let items: Record<number, SeasonBindingItem[]>
 
-/** 服务端的季绑定 */
+/** 服务端的合集的季绑定 */
 function serverBinding(id: number) {
-  return all
+  const sb = all
     .flatMap((s) => s.seasons)
     .flatMap((se) => se.seasonBindings)
-    .find((sb) => sb.id === id)!
+    .find((b) => b.id === id)!
+  if (sb.kind !== 'collection') throw new Error(`季绑定 ${id} 不是合集的季绑定`)
+  return sb
 }
 
 beforeEach(() => {
@@ -578,18 +556,40 @@ describe('季绑定卡片', () => {
     await waitFor(() => expect(deleteSeasonBinding).toHaveBeenCalledWith(1, true))
     expect(await screen.findByText('已删除季绑定')).toBeInTheDocument()
   })
-})
 
-it('集面板：季绑定建出的绑定带"季绑定"标签', async () => {
-  all[0]!.seasons[0]!.episodes[0]!.bindings.push(binding(2))
-  renderRoutes('/catalog/1/11/110')
+  it('文件夹的季绑定：标题为文件夹名，显示建出的绑定数和上传时间，只能删除；勾上后连同建出的绑定和弹幕文件一起删', async () => {
+    vi.mocked(deleteSeasonBinding).mockResolvedValue(null)
+    all[0]!.seasons[0]!.seasonBindings.push(folderSeasonBinding(2, { bindingCount: 2 }))
+    renderRoutes('/catalog/1/11')
 
-  expect(
-    await within(await screen.findByRole('article', { name: '弹幕源 1' })).findByText('季绑定'),
-  ).toBeInTheDocument()
-  expect(
-    within(screen.getByRole('article', { name: '弹幕源 2' })).queryByText('季绑定'),
-  ).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '季绑定（2）' })).toBeInTheDocument()
+    const sb = await card('来自新世界')
+    expect(sb.getByText('上传的弹幕文件夹')).toBeInTheDocument()
+    expect(sb.getByText('建出 2 个绑定')).toBeInTheDocument()
+    expect(sb.getByText(/^上传于 /)).toBeInTheDocument()
+    // 不补建、不追更、不会失效，没有条目表
+    expect(sb.queryByRole('link')).not.toBeInTheDocument()
+    expect(sb.queryByRole('switch', { name: '追更' })).not.toBeInTheDocument()
+    expect(sb.queryByRole('textbox', { name: '合集第几集' })).not.toBeInTheDocument()
+    expect(sb.queryByRole('button', { name: '立即补建' })).not.toBeInTheDocument()
+    expect(sb.queryByRole('button', { name: '条目表' })).not.toBeInTheDocument()
+    expect(sb.queryByText(/检查/)).not.toBeInTheDocument()
+
+    fireEvent.click(sb.getByRole('button', { name: '删除' }))
+    const dialog = within(await screen.findByRole('alertdialog'))
+    expect(dialog.queryByText(/条目表/)).not.toBeInTheDocument()
+    expect(dialog.getByText('它建出的 2 个绑定默认保留，变成普通的文件绑定。')).toBeInTheDocument()
+    fireEvent.click(dialog.getByRole('checkbox'))
+    expect(
+      dialog.getByText('它建出的 2 个绑定和上传的弹幕文件会一起删除，无法恢复。'),
+    ).toBeInTheDocument()
+    act(() => fireEvent.click(dialog.getByRole('button', { name: '删除' })))
+
+    await waitFor(() => expect(deleteSeasonBinding).toHaveBeenCalledWith(2, true))
+    expect(await screen.findByText('已删除季绑定')).toBeInTheDocument()
+    // 文件夹的季绑定没有条目表，也不轮询
+    expect(getSeasonBinding).not.toHaveBeenCalled()
+  })
 })
 
 it('剧列表：追更中的剧带标记，可以只看追更中', async () => {

@@ -73,7 +73,7 @@ func TestMarkDuplicateNumbers(t *testing.T) {
 	}
 }
 
-func TestNormalizeItems(t *testing.T) {
+func TestUniqueRefs(t *testing.T) {
 	tests := []struct {
 		name  string
 		items []CollectionItem
@@ -81,13 +81,8 @@ func TestNormalizeItems(t *testing.T) {
 	}{
 		{"没有重复", []CollectionItem{numbered("a", 1), numbered("b", 2)}, []CollectionItem{numbered("a", 1), numbered("b", 2)}},
 		{
-			"ref 重复：只保留第一个，后面的不算重复的序号",
+			"ref 重复：只保留第一个",
 			[]CollectionItem{numbered("a", 1), numbered("b", 2), {Ref: Ref(`"a"`), Number: 3, Label: "a 的另一处"}},
-			[]CollectionItem{numbered("a", 1), numbered("b", 2)},
-		},
-		{
-			"去掉重复的 ref 之后才判定序号",
-			[]CollectionItem{numbered("a", 1), numbered("a", 1), numbered("b", 2)},
 			[]CollectionItem{numbered("a", 1), numbered("b", 2)},
 		},
 		{"空列表", nil, []CollectionItem{}},
@@ -95,9 +90,9 @@ func TestNormalizeItems(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := append([]CollectionItem(nil), tt.items...)
-			got := normalizeItems(tt.items)
+			got := uniqueRefs(tt.items)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("normalizeItems() = %+v\nwant %+v", got, tt.want)
+				t.Errorf("uniqueRefs() = %+v\nwant %+v", got, tt.want)
 			}
 			if !reflect.DeepEqual(tt.items, in) {
 				t.Errorf("改动了传入的切片：%+v", tt.items)
