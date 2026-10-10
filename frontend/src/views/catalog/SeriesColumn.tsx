@@ -6,7 +6,14 @@ import { buttonVariants } from '@/components/ui/button'
 import { formatDuration } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
-import { seasonLabel, seasonName, seriesMeta, tmdbUrl, type Selection } from './catalog'
+import {
+  bilibiliSearchUrl,
+  seasonLabel,
+  seasonName,
+  seriesMeta,
+  tmdbUrl,
+  type Selection,
+} from './catalog'
 import DeleteButton from './DeleteButton'
 import { Hint, Poster, scrollIntoView, SourceLink, useCatalogPath } from './shared'
 
@@ -42,10 +49,11 @@ export default function SeriesColumn({
                 </SourceLink>
               </span>
             )}
+            {/* 找弹幕源：用标题在 B 站综合搜索 */}
             <span className="inline-flex shrink-0 items-center gap-1">
               <span>·</span>
               <SourceLink
-                href={`https://search.bilibili.com/all?keyword=${encodeURIComponent(series.title)}`}
+                href={bilibiliSearchUrl(series.title)}
                 title={bilibiliSearchLabel}
                 aria-label={bilibiliSearchLabel}
                 className="font-normal whitespace-nowrap"
