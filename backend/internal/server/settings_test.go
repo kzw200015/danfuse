@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
 )
 
 func TestSettings(t *testing.T) {
@@ -73,11 +72,11 @@ func TestSettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &handler.Handlers{
-				Settings: handler.NewSettingsHandler(&config.Config{
+			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{
+				Settings: NewSettingsHandler(&config.Config{
 					Dandanplay: tt.dandanplay, CatalogSource: tt.source, Sync: tt.sync, Follow: defaults.Follow, ScheduledFetch: defaults.ScheduledFetch, Bilibili: tt.bilibili,
 				}),
-			}, nil)
+			})
 
 			rec := serve(t, srv, http.MethodGet, "/api/settings", "")
 

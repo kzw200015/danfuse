@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	"github.com/kzw200015/danfuse/backend/internal/catalog/naming"
 )
 
 const (
@@ -37,9 +37,9 @@ type episodePattern struct {
 // lastLevelEpisode 标签结尾、紧跟 LabelSeparator 的数字：下级标题只写了集号（"某番 / 05"）。
 const lastLevelEpisode = `/ (?P<episode>\d{1,4})$`
 
-// defaultRule 默认规则：catalog.EpisodePatterns（与搜索、match 认集号的写法相同），再加上 lastLevelEpisode。
+// defaultRule 默认规则：naming.EpisodePatterns（与搜索、match 认集号的写法相同），再加上 lastLevelEpisode。
 var defaultRule = func() EpisodeRule {
-	r, err := ParseEpisodeRule(append(catalog.EpisodePatterns(), lastLevelEpisode))
+	r, err := ParseEpisodeRule(append(naming.EpisodePatterns(), lastLevelEpisode))
 	if err != nil {
 		panic(err)
 	}

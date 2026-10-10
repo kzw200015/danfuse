@@ -1,17 +1,31 @@
 package server
 
 import (
+	"crypto/subtle"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 
+	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 )
 
-func registerRoutes(e *echo.Echo, h *handler.Handlers) {
+// Handlers 汇总各领域的 handler，供路由注册使用。
+type Handlers struct {
+	Health        *HealthHandler
+	Settings      *SettingsHandler
+	Catalog       *catalog.Handler
+	Sync          *catalog.SyncHandler
+	Binding       *binding.Handler
+	SeasonBinding *seasonbinding.Handler
+	Dandan        *dandan.Handler
+}
+
+func registerRoutes(e *echo.Echo, h *Handlers) {
 	api := e.Group("/api")
 
 	api.GET("/health", h.Health.Check)
@@ -78,4 +92,17 @@ func registerDandanRoutes(e *echo.Echo, cfg config.Dandanplay, h *dandan.Handler
 	g.GET("/bangumi/:bangumiId", h.Bangumi)
 	g.GET("/comment/:episodeId", h.Comment)
 	g.GET("/related/:episodeId", h.Related)
+}
+
+// checkToken 弹弹 API 路径里的 token 不对时按路由不存在处理（404，交给全局 errorHandler）。
+// 常数时间比较，不从响应时间泄露 token。
+func checkToken(token string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if subtle.ConstantTimeCompare([]byte(c.Param("token")), []byte(token)) != 1 {
+				return echo.ErrNotFound
+			}
+			return next(c)
+		}
+	}
 }

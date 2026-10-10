@@ -24,10 +24,8 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
-	"github.com/kzw200015/danfuse/backend/internal/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
+	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 // 弹弹 API 的测试。插件契约测试按 jellyfin-danmaku 插件实际的调用方式原样重放请求，按插件的读法断言结果；
@@ -41,7 +39,7 @@ const jellyfinOrigin = "https://jellyfin.example.com"
 func syncCatalog(t *testing.T, cfg *pgxpool.Config, items ...catalog.Item) {
 	t.Helper()
 	synctest.Test(t, func(t *testing.T) {
-		svc, _ := startSync(t, cfg, &fakeCatalog{items: items})
+		svc, _ := startSync(t, cfg, &testenv.FakeCatalog{Items: items})
 		if _, err := svc.Trigger(t.Context()); err != nil {
 			t.Fatal(err)
 		}
@@ -94,18 +92,18 @@ func dandanServer(pool *pgxpool.Pool, token string, logs io.Writer) *Server {
 	if logs == nil {
 		logs = io.Discard
 	}
-	dh := dandan.NewHandler(service.NewDandanService(repository.NewStore(pool), source.NewRegistry(biliAdapter{}, fakeAdapter{})))
+	env := testenv.New(pool, slog.New(slog.DiscardHandler), biliAdapter{}, fakeAdapter{})
 	return New(config.Server{}, config.Dandanplay{Token: token}, slog.New(slog.NewJSONHandler(logs, nil)),
-		&handler.Handlers{Health: handler.NewHealthHandler(pool)}, dh)
+		&Handlers{Health: NewHealthHandler(pool), Dandan: dandan.NewHandler(env.Dandan)})
 }
 
 // newDandanServer 新建一个库，用同步写入 items，再起弹弹 API。要在同步之外补写数据（例如绑定和弹幕）时，
-// 照这里的写法组合 dbtest.Config、syncCatalog、newPool 和 dandanServer，自己留着连接池。
+// 照这里的写法组合 dbtest.Config、syncCatalog、dbtest.Open 和 dandanServer，自己留着连接池。
 func newDandanServer(t *testing.T, token string, items ...catalog.Item) *Server {
 	t.Helper()
 	cfg := dbtest.Config(t)
 	syncCatalog(t, cfg, items...)
-	return dandanServer(newPool(t, cfg), token, nil)
+	return dandanServer(dbtest.Open(t, cfg), token, nil)
 }
 
 // browserURL 插件直接把关键词拼进地址，不做 URL 编码（ede.js 的 getEpisodeInfo），由浏览器按 URL 标准处理：
@@ -330,14 +328,14 @@ func TestSearchEpisodesResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			assertJSON(t, body, tt.want)
+			testenv.AssertJSON(t, body, tt.want)
 		})
 	}
 
 	// 没有 anime 参数时 episode、tmdbId 不起作用
 	for _, target := range []string{"/dandanplay/api/v2/search/episodes", "/dandanplay/api/v2/search/episodes?tmdbId=1&episode=1"} {
 		_, body := pluginGet(t, srv, target, nil)
-		assertJSON(t, body, empty)
+		testenv.AssertJSON(t, body, empty)
 	}
 }
 
@@ -363,7 +361,7 @@ func TestSearchEpisodesEpisode(t *testing.T) {
 	} {
 		t.Run(tt.query, func(t *testing.T) {
 			_, body := pluginGet(t, srv, "/dandanplay/api/v2/search/episodes?"+tt.query, nil)
-			assertJSON(t, body, tt.want)
+			testenv.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -444,7 +442,7 @@ func TestSearchAnimeResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			assertJSON(t, body, tt.want)
+			testenv.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -484,7 +482,7 @@ func TestBangumiResponse(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("bangumi/%s: status = %d, want 200", tt.id, rec.Code)
 		}
-		assertJSON(t, body, tt.want)
+		testenv.AssertJSON(t, body, tt.want)
 	}
 
 	// 找不到作品：HTTP 200、success 为 false、bangumi 为 null。Echo 里路由末尾的参数匹配到路径末尾，
@@ -495,7 +493,7 @@ func TestBangumiResponse(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("bangumi/%s: status = %d, want 200", id, rec.Code)
 		}
-		assertJSON(t, body, notFound)
+		testenv.AssertJSON(t, body, notFound)
 	}
 }
 
@@ -505,7 +503,7 @@ func newCommentServer(t *testing.T) *Server {
 	t.Helper()
 	cfg := dbtest.Config(t)
 	syncCatalog(t, cfg, pluginCatalog()...)
-	pool := newPool(t, cfg)
+	pool := dbtest.Open(t, cfg)
 	_, err := pool.Exec(t.Context(), `
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration, "offset", status, danmaku_count) VALUES
 			(1, 'bilibili', '{"kind": "video", "aid": 1, "page": 1}', '星海旅人 / 第 1 话', 1420, 0, 'active', 4), -- 绑定 1
@@ -643,7 +641,7 @@ func TestCommentResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			assertJSON(t, body, tt.want)
+			testenv.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -755,7 +753,7 @@ func TestMatch(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			assertJSON(t, got, tt.want)
+			testenv.AssertJSON(t, got, tt.want)
 		})
 	}
 }
@@ -770,7 +768,7 @@ func TestRelated(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s: status = %d, want 200", target, rec.Code)
 		}
-		assertJSON(t, body, `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "relateds": []}`)
+		testenv.AssertJSON(t, body, `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "relateds": []}`)
 	}
 }
 
@@ -786,7 +784,7 @@ func TestDandanUnregisteredEndpoints(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s: status = %d, want 404", target, rec.Code)
 		}
-		assertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`) // 前缀下没命中的路由走全局处理
+		testenv.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`) // 前缀下没命中的路由走全局处理
 	}
 	if rec, body := dandanPost(t, srv, "/dandanplay/api/v2/match/batch", `{"requests": []}`); rec.Code != http.StatusNotFound {
 		t.Errorf("POST match/batch: status = %d, want 404, body %s", rec.Code, body)
@@ -902,7 +900,7 @@ func TestDandanToken(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s: status = %d, want 404", target, rec.Code)
 		}
-		assertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`)
+		testenv.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`)
 	}
 }
 
@@ -978,7 +976,7 @@ func TestDandanServerError(t *testing.T) {
 			if rec.Code != http.StatusInternalServerError {
 				t.Errorf("status = %d, want 500", rec.Code)
 			}
-			assertJSON(t, body, tt.wantBody)
+			testenv.AssertJSON(t, body, tt.wantBody)
 			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 				t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
 			}

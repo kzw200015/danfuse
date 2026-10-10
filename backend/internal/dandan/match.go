@@ -36,7 +36,7 @@ type matchResult struct {
 }
 
 // Match POST match
-// 只按文件名识别，交给 service.DandanService.Match：候选按可能性排序，确定时 isMatched 为 true，客户端直接采用；
+// 只按文件名识别，交给 Service.Match：候选按可能性排序，确定时 isMatched 为 true，客户端直接采用；
 // 否则由用户在候选里选。matchMode 为 hashOnly（目录里没有文件的 hash）、请求体不是 JSON 时没有匹配结果，
 // 客户端改让用户手动搜索。
 //
@@ -52,7 +52,7 @@ func (h *Handler) Match(c *echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	result, err := h.dandan.Match(c.Request().Context(), req.FileName, maxSeasons)
+	result, err := h.svc.Match(c.Request().Context(), req.FileName, maxSeasons)
 	if err != nil {
 		return serverError(c, err, matchResponse{responseBase: failed, Matches: []matchResult{}})
 	}

@@ -9,52 +9,56 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 	"github.com/kzw200015/danfuse/backend/internal/server"
-	"github.com/kzw200015/danfuse/backend/internal/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/source/bilibili"
 )
+
+// backgroundRunner 后台循环：实现 Run(ctx) 的 service，阻塞到 ctx 取消。
+type backgroundRunner interface {
+	Run(ctx context.Context)
+}
 
 type App struct {
 	server *server.Server
 	// background 与 HTTP 服务一起运行的后台循环：同步、季绑定的补建（追更的扫描）、定时拉取。
 	// Run 在 ctx 取消后收尾完才返回。
-	background []interface{ Run(ctx context.Context) }
+	background []backgroundRunner
 }
 
-// New 组装各层组件。pool 已连通、已迁移，由调用方在 Run 返回之后关闭。
+// New 组装各领域的 service 和 handler。pool 已连通、已迁移，由调用方在 Run 返回之后关闭。
+// 领域之间的依赖：catalog → seasonbinding → binding，dandan → binding；同步（catalog.SyncService）独立。
 func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
-	store := repository.NewStore(pool)
-
 	// 适配器子包只由 app 引用，业务代码只依赖领域包的接口。
 	// B 站适配器里有全局令牌桶，整个进程只构造这一个。
 	sources := source.NewRegistry(bilibili.New(cfg.Bilibili, logger))
 	catalogSource := newCatalogSource(cfg.CatalogSource)
 
-	catalogs := service.NewCatalogService(store, sources)
-	bindings := service.NewBindingService(store, sources, logger)
-	seasonBindings := service.NewSeasonBindingService(store, pool, sources, cfg.Follow, logger)
-	scheduledFetch := service.NewScheduledFetchService(store, pool, bindings, cfg.ScheduledFetch, logger)
-	syncs := service.NewSyncService(store, pool, catalogSource, cfg.Sync, logger)
-	dandanService := service.NewDandanService(store, sources)
+	bindings := binding.NewService(pool, sources, logger)
+	scheduledFetch := binding.NewScheduledFetchService(pool, bindings, cfg.ScheduledFetch, logger)
+	seasonBindings := seasonbinding.NewService(pool, sources, bindings, cfg.Follow, logger)
+	catalogs := catalog.NewService(pool, bindings, seasonBindings)
+	syncs := catalog.NewSyncService(pool, catalogSource, cfg.Sync, logger)
+	dandans := dandan.NewService(pool, bindings)
 
-	handlers := &handler.Handlers{
-		Health:        handler.NewHealthHandler(pool),
-		Catalog:       handler.NewCatalogHandler(catalogs),
-		Binding:       handler.NewBindingHandler(bindings, cfg.DanmakuFile),
-		SeasonBinding: handler.NewSeasonBindingHandler(seasonBindings),
-		Sync:          handler.NewSyncHandler(syncs),
-		Settings:      handler.NewSettingsHandler(cfg),
+	handlers := &server.Handlers{
+		Health:        server.NewHealthHandler(pool),
+		Settings:      server.NewSettingsHandler(cfg),
+		Catalog:       catalog.NewHandler(catalogs),
+		Sync:          catalog.NewSyncHandler(syncs),
+		Binding:       binding.NewHandler(bindings, cfg.DanmakuFile),
+		SeasonBinding: seasonbinding.NewHandler(seasonBindings),
+		Dandan:        dandan.NewHandler(dandans),
 	}
 	return &App{
-		server:     server.New(cfg.Server, cfg.Dandanplay, logger, handlers, dandan.NewHandler(dandanService)),
-		background: []interface{ Run(ctx context.Context) }{syncs, seasonBindings, scheduledFetch},
+		server:     server.New(cfg.Server, cfg.Dandanplay, logger, handlers),
+		background: []backgroundRunner{syncs, seasonBindings, scheduledFetch},
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/service"
 )
 
 // kinds 季的类别在协议里的 type（AnimeType 枚举）和 typeDescription 里的类型名。
@@ -17,7 +16,7 @@ var kinds = map[catalog.SeasonKind]struct{ animeType, name string }{
 }
 
 // typeOf 季在协议里的 type 和 typeDescription：typeDescription 是类型名，有年份时加上年份，如"剧集 · 2011"。
-func typeOf(s service.DandanSeason) (animeType, description string) {
+func typeOf(s Season) (animeType, description string) {
 	kind := kinds[s.Kind]
 	if s.Year == nil {
 		return kind.animeType, kind.name
@@ -27,7 +26,7 @@ func typeOf(s service.DandanSeason) (animeType, description string) {
 
 // toAnime 一季转成 search/episodes 里的作品。集按 service 给的顺序（集号升序）输出，不补占位：
 // 插件按"集号 − 首集标题里的 N"作为下标取集，目录中间缺集时会错位。
-func toAnime(s service.DandanSeason) anime {
+func toAnime(s Season) anime {
 	typ, description := typeOf(s)
 	a := anime{
 		AnimeID:         s.ID,
@@ -43,7 +42,7 @@ func toAnime(s service.DandanSeason) anime {
 }
 
 // toSearchAnime 一季转成 search/anime 里的作品：不带集，只给总集数。bangumiId 是同一个 ID 的字符串。
-func toSearchAnime(s service.DandanSeason) searchAnime {
+func toSearchAnime(s Season) searchAnime {
 	typ, description := typeOf(s)
 	return searchAnime{
 		AnimeID:         s.ID,
@@ -57,7 +56,7 @@ func toSearchAnime(s service.DandanSeason) searchAnime {
 
 // toBangumi 一季转成作品详情。集的顺序和标题与 search/episodes 相同，episodeNumber 是集号；
 // 目录里没有的信息输出零值（见 bangumiDetails）。
-func toBangumi(s service.DandanSeason) *bangumiDetails {
+func toBangumi(s Season) *bangumiDetails {
 	typ, description := typeOf(s)
 	b := &bangumiDetails{
 		AnimeID:         s.ID,
@@ -83,7 +82,7 @@ func toBangumi(s service.DandanSeason) *bangumiDetails {
 }
 
 // toMatchResult 一季里的一集转成 match 的候选：作品的名称、类型与搜索结果相同，集标题与 search/episodes 相同。
-func toMatchResult(s service.DandanSeason, e service.DandanEpisode) matchResult {
+func toMatchResult(s Season, e Episode) matchResult {
 	typ, description := typeOf(s)
 	return matchResult{
 		EpisodeID:       e.ID,
@@ -97,7 +96,7 @@ func toMatchResult(s service.DandanSeason, e service.DandanEpisode) matchResult 
 
 // episodeTitle "第N话 {集标题}"，没有集标题时只写"第N话"。search/episodes 没有集号字段，
 // 插件从首集标题的"第N话"解析起始集号；bangumi 也用同样的标题，两条路径列出的集一致。
-func episodeTitle(e service.DandanEpisode) string {
+func episodeTitle(e Episode) string {
 	if e.Title == "" {
 		return fmt.Sprintf("第%d话", e.Number)
 	}

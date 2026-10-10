@@ -11,7 +11,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/app"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/pkg/logger"
+	"github.com/kzw200015/danfuse/backend/internal/logger"
 )
 
 func main() {

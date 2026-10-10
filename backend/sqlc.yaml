@@ -1,31 +1,60 @@
 version: "2"
+# 每个领域一组：查询写在领域的 xxxdb 目录里，生成的代码也放在那里（包名与目录名相同）。
+# 各组都直接读取 goose 迁移文件作为 schema（sqlc 会忽略 -- +goose Down 部分），只生成本组查询用到的模型。
+# 新增领域时照样加一组。
+overrides:
+  go:
+    overrides:
+      - db_type: timestamptz
+        go_type: time.Time
+      - db_type: timestamptz
+        nullable: true
+        go_type:
+          type: time.Time
+          pointer: true
+      # 警告是字符串数组，pgx 按 JSON 编解码
+      - column: sync_runs.warnings
+        go_type:
+          type: string
+          slice: true
+      # 搜索列是 Go 生成的 tsvector 文本（catalog.SearchVector）
+      - column: seasons.search_vector
+        go_type: string
 sql:
   - engine: postgresql
-    # 直接读取 goose 迁移文件作为 schema，sqlc 会忽略 -- +goose Down 部分
     schema: db/migrations
-    queries: db/queries
+    queries: internal/catalog/catalogdb
     gen:
-      go:
-        package: sqlc
-        out: internal/repository/sqlc
+      go: &go
+        package: catalogdb
+        out: internal/catalog/catalogdb
         sql_package: pgx/v5
         emit_json_tags: true
         json_tags_case_style: camel
         emit_empty_slices: true
         emit_pointers_for_null_types: true
-        overrides:
-          - db_type: timestamptz
-            go_type: time.Time
-          - db_type: timestamptz
-            nullable: true
-            go_type:
-              type: time.Time
-              pointer: true
-          # 警告是字符串数组，pgx 按 JSON 编解码
-          - column: sync_runs.warnings
-            go_type:
-              type: string
-              slice: true
-          # 搜索列是 Go 生成的 tsvector 文本（catalog.SearchVector）
-          - column: seasons.search_vector
-            go_type: string
+        omit_unused_structs: true
+  - engine: postgresql
+    schema: db/migrations
+    queries: internal/binding/bindingdb
+    gen:
+      go:
+        <<: *go
+        package: bindingdb
+        out: internal/binding/bindingdb
+  - engine: postgresql
+    schema: db/migrations
+    queries: internal/seasonbinding/seasonbindingdb
+    gen:
+      go:
+        <<: *go
+        package: seasonbindingdb
+        out: internal/seasonbinding/seasonbindingdb
+  - engine: postgresql
+    schema: db/migrations
+    queries: internal/dandan/dandandb
+    gen:
+      go:
+        <<: *go
+        package: dandandb
+        out: internal/dandan/dandandb
