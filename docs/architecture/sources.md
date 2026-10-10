@@ -18,7 +18,7 @@
 
 ## 弹幕文件（ADR 0004）
 
-- 上传的 B 站 XML 弹幕文件建绑定，不实现 `source.Adapter`。`danmakufile` 领域包只做解析（XML 的解码与字段映射在 `danmaku/bilifmt`，B 站适配器共用）；业务在 `internal/binding/file.go`（创建、按季上传、追加文件、重新解析、文件列表）。
+- 上传的 B 站 XML 弹幕文件建绑定，不实现 `source.Adapter`。`danmakufile` 领域包只做解析（XML 的解码与字段映射在 `danmaku/bilifmt`，B 站适配器共用）；业务在 `internal/binding/file.go`（创建、按季上传的解析与写入、追加文件、重新解析、文件列表）。
 - 绑定的 `kind` 区分 `link` / `file`：文件绑定的 `adapter`、`ref`、`duration` 为空（CHECK 约束守住，唯一约束因此只作用于链接绑定）。
 - 原文件存 `binding_files`（按 sha256 在绑定内去重），份数 `file_count` 与 `danmaku_count` 一样在事务里维护；弹幕不属于任何平台，原始 ID 直接用 dmid。
 - `binding.Service` 的 `view`、`platform` 按 kind 分支，只对一种绑定有效的操作用在另一种上时返回 400。
@@ -26,19 +26,20 @@
 
 ### 按季上传
 
-- 归 `binding` 而不是 `seasonbinding`：建出的是普通的文件绑定，与单集上传共用文件类型 `UploadedFile`（按季上传时 `Name` 是相对路径）、解析（`parseFiles`）、存原文件与写弹幕（`addFiles`，文件名取 base name）。不改季绑定的任何表，也不留下"这批绑定来自同一次上传"的记录。
-- 预览 `POST /api/seasons/:id/file-bindings/preview`（JSON `{labels, episodePatterns}`，`PreviewSeasonUpload`）：把条目名称当作按规则编号的合集的标签交给 `source.NumberItems`（ref 取下标，只为让条目互不相同），与季绑定预览同一套匹配、NFKC 回退和"集号重复"的标注，规则的校验也一样（`source.ParseEpisodeRule`）。返回 `{items: [{label, number, reason}]}`，顺序与 `labels` 相同。只读；集号对应和对到哪一集由前端现算。
-- 创建 `POST /api/seasons/:id/file-bindings`（multipart，`CreateFromSeasonFiles`）：`files` 多份；`paths` 与 `targets` 各是一个 JSON 数组字段。`paths` 与 `files` 一一对应、顺序相同，是以所选文件夹名开头的相对路径：Go 的 multipart 会把上传文件名裁成 base name，所以另传；逐份一个字段时 500 份文件就超过 `multipart.ReadForm` 默认 1000 个 part 的上限，所以合成一个字段。`targets` 每个条目一项 `{label, episodeId}`，`episodeId` 取自预览。
-- 分组与校验在请求的 `Validate`（`groupSeasonPaths`）：只看请求本身就能判断，属于 handler；路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"，扩展名不分大小写，文件夹名都相同；子目录合成一个条目"文件夹名 / 子目录名"，顶层的文件各自一个条目"文件夹名 / 文件名去掉扩展名"，名称不能重复；条目与 `targets` 一一对应。有一项不满足就整次 400。前端的 `groupFolderFiles`（`season-upload.ts`）按同样的规则先分组，另外忽略不是 `.xml` 的文件。
-- service 先在事务外解析全部文件，有一份认不出就整次 422，提示用它的相对路径，存下的文件名取 base name；两个条目对到同一集时 400。再在一个事务里锁住季、逐个锁住目标集（`LockSeasonEpisode` 同时确认它属于这一季，否则整次 404、提示重新预览）、插入文件绑定（标题为条目名称）、`addFiles`。目标集上已有绑定（包括文件绑定）时照常再建一个。返回 201 `{bindings, added}`，记一条 info 日志。
+- 每次按季上传留下一个文件夹的季绑定（ADR 0008，见 [`season-binding.md`](season-binding.md#文件夹的季绑定)），建出的文件绑定带着它的 `season_binding_id`，所以归 `seasonbinding`（领域的依赖方向是 seasonbinding → binding）：两条接口的 handler（`seasonbinding/handler_season_upload.go`）和 service（`season_upload.go`）都在那里，做法照补建。弹幕文件的部分仍在 `binding`，与单集上传共用文件类型 `UploadedFile`（按季上传时 `Name` 是相对路径）、解析（`parseFiles`）、存原文件与写弹幕（`addFiles`，文件名取 base name），导出给 seasonbinding 的是 `ReadSeasonUpload`、`ParseSeasonFiles`、`Service.CreateSeasonFilesInTx`。
+- 预览 `POST /api/seasons/:id/file-bindings/preview`（JSON `{labels, episodePatterns}`，`seasonbinding.Service.PreviewSeasonUpload`）：把条目名称当作按规则编号的合集的标签交给 `source.NumberItems`（ref 取下标，只为让条目互不相同），与季绑定预览同一套匹配、NFKC 回退和"集号重复"的标注，规则的校验也一样（`source.ParseEpisodeRule`）。返回 `{items: [{label, number, reason}]}`，顺序与 `labels` 相同。只读；集号对应和对到哪一集由前端现算。
+- 创建 `POST /api/seasons/:id/file-bindings`（multipart，`seasonbinding.Service.CreateFromSeasonFiles`）：`files` 多份；`paths` 与 `targets` 各是一个 JSON 数组字段。`paths` 与 `files` 一一对应、顺序相同，是以所选文件夹名开头的相对路径：Go 的 multipart 会把上传文件名裁成 base name，所以另传；逐份一个字段时 500 份文件就超过 `multipart.ReadForm` 默认 1000 个 part 的上限，所以合成一个字段。`targets` 每个条目一项 `{label, episodeId}`，`episodeId` 取自预览。
+- multipart 的读取、上限、分组与校验由 `binding.ReadSeasonUpload` 做，seasonbinding 的 handler 直接调用它，得到季 ID、文件夹名（`SeasonUpload.Folder`，即文件夹的季绑定的名称）和各条目。分组与校验在请求的 `Validate`（`groupSeasonPaths`）：只看请求本身就能判断，属于 handler；路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"，扩展名不分大小写，文件夹名都相同；子目录合成一个条目"文件夹名 / 子目录名"，顶层的文件各自一个条目"文件夹名 / 文件名去掉扩展名"，名称不能重复；条目与 `targets` 一一对应。有一项不满足就整次 400。前端的 `groupFolderFiles`（`season-upload.ts`）按同样的规则先分组，另外忽略不是 `.xml` 的文件。
+- service 先在事务外由 `binding.ParseSeasonFiles` 解析全部文件，有一份认不出就整次 422，提示用它的相对路径，存下的文件名取 base name；两个条目对到同一集时 400。再在一个事务里锁住季、插入文件夹的季绑定（`InsertFolderSeasonBinding`），把 `pgx.Tx` 和季绑定 ID 交给 `binding.Service.CreateSeasonFilesInTx`，由它逐个锁住目标集（`LockSeasonEpisode` 同时确认它属于这一季，否则整次 404、提示重新预览）、插入带 `season_binding_id` 的文件绑定（标题为条目名称）、`addFiles`。加锁顺序与补建相同（先锁季）；失败时季绑定和绑定都不保存。目标集上已有绑定（包括文件绑定）时照常再建一个。返回 201 `{bindings, added}`，记一条带季绑定 ID 的 info 日志。
 - 份数与合计大小另有上限 `danmaku_file.season_max_files` / `season_max_upload_mb`，单份仍是 `max_file_mb`。加上 `paths`、`targets` 两个字段不能超过 1000 个 part（超过时只能报"请求参数错误"），所以启动时校验 `season_max_files` 不超过 998、`max_files` 不超过 1000。这个请求是同步的，前端不设超时（`uploadRequestTimeout`，单集上传、追加文件也是）；HTTP 服务也不限整个请求的读写时长，只限制读请求头和空闲连接（见 `server.go`）。
 
 ## 管理界面
 
 - 创建绑定、重新拉取由后端当场拉取（最长约 25 秒），`bindings.ts` 里用 `slowRequestTimeout` 放宽超时，界面上用 `useElapsed` 显示已用秒数。
 - 绑定卡片（`BindingCard`）按 `kind` 分出两组操作（`BindingSourceActions.tsx`：重新拉取 / 追加文件、重新解析），各自持有 mutation；一个绑定上改动弹幕的变更都带 `bindingKeys.write(id)` 前缀（`use-bindings.ts`），卡片用 `useIsMutating` 在任何一个进行中时禁用其他操作。
+- 季绑定建出的绑定（`seasonBindingId` 不为空）在卡片上带一个"季绑定 · 名称"的标签，只用来显示、不是链接：集面板把剧详情里这一季的 `seasonBindings` 交给 `BindingCard`，由 `seasonBindingTag`（`season-binding.ts`）按 ID 查出季绑定，名称取法与季绑定卡片一致（`seasonBindingName`：文件夹的季绑定为文件夹名，合集的季绑定为合集标题、为空时用合集的标签），过长时截断，悬停提示写全名和来源；查不到时只写"季绑定"。
 - 弹幕文件列表的键 `['binding-files', id]`，弹出层打开时才取。
-- 按季上传的对话框（`SeasonUploadButton`，入口在季面板"季绑定"一节的标题行）复用季绑定的 `EpisodeRuleRepreview`（集号规则与重新预览）、`MappingInputs`、`previewTarget` 的现算和 `CollectionItemsTable`（传 `selection` 加勾选列）；集号对应和季绑定一样预填 1 = 1。"已有文件绑定"看目标集的绑定里有没有 `kind` 为 `file` 的，有就默认不勾。上传显示 axios 的上传进度，传完显示"正在保存"；成功后让剧详情失效，失败时对话框保持原样。
+- 按季上传的对话框（`SeasonUploadButton`，入口在季面板"季绑定"一节的标题行）复用季绑定的 `EpisodeRuleRepreview`（集号规则与重新预览）、`MappingInputs`、`previewTarget` 的现算和 `CollectionItemsTable`（传 `selection` 加勾选列）；集号对应和季绑定一样预填 1 = 1。"已有文件绑定"看目标集的绑定里有没有 `kind` 为 `file` 的，有就默认不勾。上传显示 axios 的上传进度，传完显示"正在保存"；成功后让剧详情失效（新的文件夹的季绑定随之出现），失败时对话框保持原样。
 - 查看绑定的弹幕（`BindingDanmakuDialog`，点卡片上的弹幕条数打开）：`GET /api/bindings/:id/danmaku?fromMs=&after=` 按 `(time_ms, source_id)` 游标分页，每页 200 条，时间未校正，不输出原始 ID（可能超出 JS 的安全整数）；`fromMs` 用于跳转，翻页时照传。绑定 JSON 带着 `contentVersion`（插入了新弹幕或替换全部弹幕时加 1）和 `maxTimeMs`（最晚一条弹幕的时间，拖动条的长度），两者与 `danmaku_count` 一样在写入弹幕的事务里维护。前端的无限查询键是 `['binding-danmaku', id, contentVersion, fromMs]`：不论弹幕怎么变的，剧详情重新加载后版本一变就换一份数据，同一个键不会过时，不重新请求。
 
 ## B 站适配器的测试
