@@ -1,8 +1,6 @@
 package binding
 
 import (
-	"strings"
-
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
@@ -25,12 +23,7 @@ func (r *previewSeasonUploadRequest) Validate() error {
 	if len(r.Labels) == 0 {
 		return request.InvalidParam("请选择弹幕文件夹")
 	}
-	// 与季绑定一样：每条去掉前后的空白，不合法时的提示由 source.ParseEpisodeRule 给出
-	patterns := make([]string, len(r.EpisodePatterns))
-	for i, p := range r.EpisodePatterns {
-		patterns[i] = strings.TrimSpace(p)
-	}
-	rule, err := source.ParseEpisodeRule(patterns)
+	rule, err := source.ParseEpisodeRule(r.EpisodePatterns)
 	if err != nil {
 		return request.InvalidParam(err.Error())
 	}

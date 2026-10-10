@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"regexp/syntax"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
@@ -51,8 +52,8 @@ func DefaultEpisodeRule() EpisodeRule {
 	return defaultRule
 }
 
-// ParseEpisodeRule 解析一组正则（排在前面的优先）：至少 1 条、至多 10 条，每条是 RE2 正则，要有捕获组、不超过 200 个字符。
-// 错误的内容是给用户看的提示。
+// ParseEpisodeRule 解析一组正则（排在前面的优先）：每条先去掉前后的空白，至少 1 条、至多 10 条，每条是 RE2 正则，
+// 要有捕获组、不超过 200 个字符。错误的内容是给用户看的提示。
 func ParseEpisodeRule(patterns []string) (EpisodeRule, error) {
 	switch {
 	case len(patterns) == 0:
@@ -62,7 +63,7 @@ func ParseEpisodeRule(patterns []string) (EpisodeRule, error) {
 	}
 	r := EpisodeRule{patterns: make([]episodePattern, len(patterns))}
 	for i, pattern := range patterns {
-		p, err := parsePattern(pattern)
+		p, err := parsePattern(strings.TrimSpace(pattern))
 		if err != nil {
 			return EpisodeRule{}, fmt.Errorf("第 %d 条集号规则%w", i+1, err)
 		}

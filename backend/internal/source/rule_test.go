@@ -16,9 +16,12 @@ func TestParseEpisodeRule(t *testing.T) {
 	tests := []struct {
 		name     string
 		patterns []string
+		want     []string // 解析出的各条正则，nil 时与 patterns 相同
 		wantErr  string
 	}{
 		{name: "带捕获组的正则", patterns: []string{`第(\d+)集`, `EP(?P<episode>\d+)`}},
+		{name: "去掉前后的空白", patterns: []string{" 第(\\d+)集\t"}, want: []string{`第(\d+)集`}},
+		{name: "只有空白", patterns: []string{`(\d+)`, " "}, wantErr: "第 2 条集号规则是空的"},
 		{name: "空列表", patterns: []string{}, wantErr: "至少要有一条集号规则"},
 		{name: "太多", patterns: slices.Repeat([]string{`(\d+)`}, 11), wantErr: "集号规则最多 10 条"},
 		{name: "空的", patterns: []string{`(\d+)`, ""}, wantErr: "第 2 条集号规则是空的"},
@@ -35,8 +38,12 @@ func TestParseEpisodeRule(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || !slices.Equal(r.Patterns(), tt.patterns) {
-				t.Fatalf("ParseEpisodeRule(%q) = (%q, %v), want (%q, nil)", tt.patterns, r.Patterns(), err, tt.patterns)
+			want := tt.want
+			if want == nil {
+				want = tt.patterns
+			}
+			if err != nil || !slices.Equal(r.Patterns(), want) {
+				t.Fatalf("ParseEpisodeRule(%q) = (%q, %v), want (%q, nil)", tt.patterns, r.Patterns(), err, want)
 			}
 		})
 	}

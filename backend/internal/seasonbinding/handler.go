@@ -21,13 +21,9 @@ func NewHandler(svc *Service) *Handler {
 
 const invalidMapping = "集号对应必须是不小于 0 的整数"
 
-// parseRule 解析请求里的集号规则（每条前后的空白去掉），不合法时为 400，提示由 source.ParseEpisodeRule 给出。
+// parseRule 解析请求里的集号规则，不合法时为 400，提示由 source.ParseEpisodeRule 给出。
 func parseRule(patterns []string) (source.EpisodeRule, error) {
-	trimmed := make([]string, len(patterns))
-	for i, p := range patterns {
-		trimmed[i] = strings.TrimSpace(p)
-	}
-	rule, err := source.ParseEpisodeRule(trimmed)
+	rule, err := source.ParseEpisodeRule(patterns)
 	if err != nil {
 		return source.EpisodeRule{}, request.InvalidParam(err.Error())
 	}
