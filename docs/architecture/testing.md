@@ -39,7 +39,7 @@
 - 组件测试用 `vi.mock('@/api/<资源>')` 自动 mock 请求函数，并为每个用例新建 `QueryClient`（`src/__tests__/utils.tsx` 的 `newQueryClient()`）；`request` 的测试通过替换 `http.defaults.adapter` 模拟响应。
 - `vitest.setup.ts` 在每个用例结束后卸载组件、关掉还在显示的 toast、换回真实时间、`vi.resetAllMocks()`，测试文件不用再写这些 `afterEach`；mock 的返回值在 `beforeEach` 或用例里设置。
 - 涉及路由的测试用 `src/__tests__/utils.tsx` 的 `renderRoutes(path)`（`createMemoryRouter(routes)` 加新的 `QueryClient`）。根布局会取最近一次同步和设置，所以要 mock `@/api/sync`、`@/api/settings`，再调用同一文件的 `mockRootLayout()`。
-- 同一文件里还有共用的 fixture 与 mock（`settings`、`binding`、`lighthouse`、`mockCatalog`、`syncRun`、`mockSyncRuns`、`seedSeries`、`card`），新用例先找这里。
+- 同一文件里还有共用的 fixture 与 mock（`settings`、`binding`、`fileBinding`、`seasonBinding`、`folderSeasonBinding`、`defaultPatterns`、`lighthouse`、`mockCatalog`、`syncRun`、`mockSyncRuns`、`seedSeries`、`card`），新用例先找这里。
 - 涉及轮询的用例用 `vi.useFakeTimers({ shouldAdvanceTime: true })`，`vi.advanceTimersByTimeAsync` 推进轮询；点按钮前先等依赖的查询取到（按钮渲染出来时查询可能还没发出）。
 - jsdom 缺少的 `matchMedia`、`scrollIntoView` 在 `vitest.setup.ts` 里补上；那里还把 `findBy`/`waitFor` 的超时放宽到 3 秒（每个文件的第一个用例要现加载懒加载的页面）。
 - 纯函数（`lib/`、`views/catalog/catalog.ts` 等）的分支用表格用例在单元测试里覆盖，组件测试只验证用户能看到的流程，不再逐个分支重复。
