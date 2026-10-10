@@ -116,10 +116,13 @@ type Bilibili struct {
 }
 
 // DanmakuFile 上传弹幕文件的上限，按一次上传计；一个绑定累计追加的文件不设上限。
+// 按季上传另有份数与合计的上限，单份仍受 MaxFileMB 限制。
 type DanmakuFile struct {
-	MaxFiles    int   `mapstructure:"max_files"`     // 一次最多几份
-	MaxFileMB   int64 `mapstructure:"max_file_mb"`   // 单份的上限，单位 MB
-	MaxUploadMB int64 `mapstructure:"max_upload_mb"` // 一次合计的上限，单位 MB
+	MaxFiles          int   `mapstructure:"max_files"`            // 一次最多几份
+	MaxFileMB         int64 `mapstructure:"max_file_mb"`          // 单份的上限，单位 MB
+	MaxUploadMB       int64 `mapstructure:"max_upload_mb"`        // 一次合计的上限，单位 MB
+	SeasonMaxFiles    int   `mapstructure:"season_max_files"`     // 按季上传一次最多几份
+	SeasonMaxUploadMB int64 `mapstructure:"season_max_upload_mb"` // 按季上传一次合计的上限，单位 MB
 }
 
 // tokenPattern dandanplay.token 允许的字符：RFC 3986 的 unreserved，放在 URL 路径里不需要转义。
@@ -209,6 +212,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("danmaku_file.max_files", 50)
 	v.SetDefault("danmaku_file.max_file_mb", 10)
 	v.SetDefault("danmaku_file.max_upload_mb", 50)
+	v.SetDefault("danmaku_file.season_max_files", 500)
+	v.SetDefault("danmaku_file.season_max_upload_mb", 200)
 }
 
 // normalize 规整配置值：url 去掉末尾的 /；媒体库名去掉首尾空白，丢弃空项（例如环境变量末尾多了逗号）；SESSDATA 去掉首尾空白。
@@ -308,8 +313,8 @@ func (c *Config) validate() error {
 	if c.Bilibili.RequestTimeout <= 0 {
 		return errors.New("config: bilibili.request_timeout must be positive")
 	}
-	if df := c.DanmakuFile; df.MaxFiles < 1 || df.MaxFileMB < 1 || df.MaxUploadMB < 1 {
-		return errors.New("config: danmaku_file.max_files, max_file_mb and max_upload_mb must be at least 1")
+	if df := c.DanmakuFile; df.MaxFiles < 1 || df.MaxFileMB < 1 || df.MaxUploadMB < 1 || df.SeasonMaxFiles < 1 || df.SeasonMaxUploadMB < 1 {
+		return errors.New("config: danmaku_file.max_files, max_file_mb, max_upload_mb, season_max_files and season_max_upload_mb must be at least 1")
 	}
 	return nil
 }

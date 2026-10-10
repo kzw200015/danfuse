@@ -10,6 +10,25 @@ FROM episodes
 WHERE id = $1
 FOR KEY SHARE;
 
+-- name: SeasonExists :one
+-- 按季上传的预览、创建前确认这一季存在。
+SELECT EXISTS (SELECT 1 FROM seasons WHERE id = $1);
+
+-- name: LockSeason :one
+-- 按季上传的写入事务的第一句：锁住这一季到提交，期间删不掉它（随后再锁其中的集，与删季的级联同一个顺序）。
+-- 这一季已被删除时没有行。
+SELECT id
+FROM seasons
+WHERE id = $1
+FOR KEY SHARE;
+
+-- name: LockSeasonEpisode :one
+-- 按季上传在锁住季之后逐个锁住目标集到提交。这一集已被删除或不属于这一季时没有行。
+SELECT id
+FROM episodes
+WHERE id = @id AND season_id = @season_id
+FOR KEY SHARE;
+
 -- name: BindingExists :one
 -- 这一集是否已经绑定过这个弹幕源。只用于在拉取前省掉一次注定 409 的拉取，并发时以唯一约束为准。
 SELECT EXISTS (SELECT 1 FROM bindings WHERE episode_id = @episode_id AND adapter = @adapter::text AND ref = @ref::jsonb);

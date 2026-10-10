@@ -556,6 +556,42 @@ func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 	return id_2, err
 }
 
+const lockSeason = `-- name: LockSeason :one
+SELECT id
+FROM seasons
+WHERE id = $1
+FOR KEY SHARE
+`
+
+// 按季上传的写入事务的第一句：锁住这一季到提交，期间删不掉它（随后再锁其中的集，与删季的级联同一个顺序）。
+// 这一季已被删除时没有行。
+func (q *Queries) LockSeason(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, lockSeason, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
+const lockSeasonEpisode = `-- name: LockSeasonEpisode :one
+SELECT id
+FROM episodes
+WHERE id = $1 AND season_id = $2
+FOR KEY SHARE
+`
+
+type LockSeasonEpisodeParams struct {
+	ID       int64 `json:"id"`
+	SeasonID int64 `json:"seasonId"`
+}
+
+// 按季上传在锁住季之后逐个锁住目标集到提交。这一集已被删除或不属于这一季时没有行。
+func (q *Queries) LockSeasonEpisode(ctx context.Context, arg LockSeasonEpisodeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, lockSeasonEpisode, arg.ID, arg.SeasonID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const markBindingDead = `-- name: MarkBindingDead :exec
 UPDATE bindings
 SET status             = 'dead',
@@ -679,6 +715,18 @@ type RecordFetchAttemptParams struct {
 func (q *Queries) RecordFetchAttempt(ctx context.Context, arg RecordFetchAttemptParams) error {
 	_, err := q.db.Exec(ctx, recordFetchAttempt, arg.AttemptedAt, arg.ID)
 	return err
+}
+
+const seasonExists = `-- name: SeasonExists :one
+SELECT EXISTS (SELECT 1 FROM seasons WHERE id = $1)
+`
+
+// 按季上传的预览、创建前确认这一季存在。
+func (q *Queries) SeasonExists(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, seasonExists, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const updateBindingOffset = `-- name: UpdateBindingOffset :one

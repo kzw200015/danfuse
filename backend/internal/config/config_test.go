@@ -79,6 +79,8 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 		"DANMAKU_FILE_MAX_FILES":                 "200",
 		"DANMAKU_FILE_MAX_FILE_MB":               "64",
 		"DANMAKU_FILE_MAX_UPLOAD_MB":             "256",
+		"DANMAKU_FILE_SEASON_MAX_FILES":          "1000",
+		"DANMAKU_FILE_SEASON_MAX_UPLOAD_MB":      "512",
 	})
 
 	cfg, err := Load("")
@@ -109,7 +111,7 @@ func TestLoadTunablesFromEnv(t *testing.T) {
 	if want := (Bilibili{RequestsPerSecond: 0.5, Burst: 1, FetchConcurrency: 2, RequestTimeout: 20 * time.Second}); cfg.Bilibili != want {
 		t.Errorf("bilibili = %+v, want %+v", cfg.Bilibili, want)
 	}
-	if want := (DanmakuFile{MaxFiles: 200, MaxFileMB: 64, MaxUploadMB: 256}); cfg.DanmakuFile != want {
+	if want := (DanmakuFile{MaxFiles: 200, MaxFileMB: 64, MaxUploadMB: 256, SeasonMaxFiles: 1000, SeasonMaxUploadMB: 512}); cfg.DanmakuFile != want {
 		t.Errorf("danmaku_file = %+v, want %+v", cfg.DanmakuFile, want)
 	}
 }
@@ -199,6 +201,8 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"max_files 为 0", map[string]string{"DANMAKU_FILE_MAX_FILES": "0"}, "danmaku_file"},
 		{"max_file_mb 为 0", map[string]string{"DANMAKU_FILE_MAX_FILE_MB": "0"}, "danmaku_file"},
 		{"max_upload_mb 为 0", map[string]string{"DANMAKU_FILE_MAX_UPLOAD_MB": "0"}, "danmaku_file"},
+		{"season_max_files 为 0", map[string]string{"DANMAKU_FILE_SEASON_MAX_FILES": "0"}, "danmaku_file"},
+		{"season_max_upload_mb 为 0", map[string]string{"DANMAKU_FILE_SEASON_MAX_UPLOAD_MB": "0"}, "danmaku_file"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
