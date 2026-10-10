@@ -113,77 +113,67 @@ type SeasonEntry struct {
 	Files     []UploadedFile // 文件名是在所选文件夹里的相对路径
 }
 
-// SeasonFilesCreated 按季上传的结果。
-type SeasonFilesCreated struct {
-	Bindings int   `json:"bindings"` // 建出的绑定数
-	Added    int64 `json:"added"`    // 新增的弹幕总条数
+// SeasonFiles 按季上传解析好的条目，由 ParseSeasonFiles 在写入事务之前得到，交给 CreateSeasonFilesInTx 写入。
+type SeasonFiles struct {
+	entries []SeasonEntry
+	parsed  [][]parsedFile // 与 entries 一一对应
 }
 
-// CreateFromSeasonFiles 按季上传：每个条目在它的目标集上建一个用弹幕文件建的绑定，标题为条目名称。
-// 先解析全部文件（有一份认不出就整次 422，提示带着它的相对路径），再在一个事务里锁住季、逐个锁住目标集，
-// 建出绑定、存下原文件、写入弹幕；目标集已被删除或不属于这一季时整次 404、什么都不保存。
-// 目标集上已有绑定（包括用弹幕文件建的）时照常再建一个。条目的分组与结构校验由调用方做。
-func (s *Service) CreateFromSeasonFiles(ctx context.Context, seasonID int64, entries []SeasonEntry) (SeasonFilesCreated, error) {
+// SeasonFilesSaved CreateSeasonFilesInTx 写入的结果。
+type SeasonFilesSaved struct {
+	Bindings int   // 建出的绑定数
+	Files    int   // 存下的文件份数（同一个条目里内容相同的只存一份）
+	Added    int64 // 新增的弹幕总条数
+}
+
+// ParseSeasonFiles 按季上传在写入事务之前的准备：两个条目对到同一集时为 400；
+// 解析全部文件，有一份认不出就整次 422，提示带着它的相对路径。
+func ParseSeasonFiles(entries []SeasonEntry) (SeasonFiles, error) {
 	targets := make(map[int64]string, len(entries)) // 目标集 → 对到它的条目
 	for _, e := range entries {
 		if other, ok := targets[e.EpisodeID]; ok {
-			return SeasonFilesCreated{}, apierr.ErrBadRequest.WithMessage(fmt.Sprintf("「%s」和「%s」对到了同一集，请重新预览", other, e.Label))
+			return SeasonFiles{}, apierr.ErrBadRequest.WithMessage(fmt.Sprintf("「%s」和「%s」对到了同一集，请重新预览", other, e.Label))
 		}
 		targets[e.EpisodeID] = e.Label
 	}
-	exists, err := s.q.SeasonExists(ctx, seasonID)
-	if err != nil {
-		return SeasonFilesCreated{}, fmt.Errorf("check season %d: %w", seasonID, err)
-	}
-	if !exists {
-		return SeasonFilesCreated{}, errSeasonNotFound
-	}
-	parsed := make([][]parsedFile, len(entries))
+	files := SeasonFiles{entries: entries, parsed: make([][]parsedFile, len(entries))}
 	for i, e := range entries {
-		if parsed[i], err = parseFiles(e.Files); err != nil {
-			return SeasonFilesCreated{}, err
+		var err error
+		if files.parsed[i], err = parseFiles(e.Files); err != nil {
+			return SeasonFiles{}, err
 		}
 	}
-	var (
-		created SeasonFilesCreated
-		files   int
-	)
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		q := s.q.WithTx(tx)
-		if _, err := q.LockSeason(ctx, seasonID); err != nil {
+	return files, nil
+}
+
+// CreateSeasonFilesInTx 在按季上传的写入事务里，每个条目在它的目标集上建一个带来源季绑定的文件绑定，标题为条目名称：
+// 逐个锁住目标集（已被删除或不属于这一季时为 404，调用方回滚，什么都不保存），建出绑定、存下原文件、写入弹幕。
+// 目标集上已有绑定（包括用弹幕文件建的）时照常再建一个。调用方开事务，先锁住季、插入季绑定。
+func (s *Service) CreateSeasonFilesInTx(ctx context.Context, tx pgx.Tx, seasonID, seasonBindingID int64, files SeasonFiles) (SeasonFilesSaved, error) {
+	q := s.q.WithTx(tx)
+	var saved SeasonFilesSaved
+	for i, e := range files.entries {
+		if _, err := q.LockSeasonEpisode(ctx, bindingdb.LockSeasonEpisodeParams{ID: e.EpisodeID, SeasonID: seasonID}); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return errSeasonDeleted
+				return SeasonFilesSaved{}, apierr.ErrNotFound.WithMessage(fmt.Sprintf("「%s」的目标集已被删除或不属于这一季，请重新预览", e.Label))
 			}
-			return fmt.Errorf("lock season %d: %w", seasonID, err)
+			return SeasonFilesSaved{}, fmt.Errorf("lock episode %d of season %d: %w", e.EpisodeID, seasonID, err)
 		}
-		for i, e := range entries {
-			if _, err := q.LockSeasonEpisode(ctx, bindingdb.LockSeasonEpisodeParams{ID: e.EpisodeID, SeasonID: seasonID}); err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return apierr.ErrNotFound.WithMessage(fmt.Sprintf("「%s」的目标集已被删除或不属于这一季，请重新预览", e.Label))
-				}
-				return fmt.Errorf("lock episode %d of season %d: %w", e.EpisodeID, seasonID, err)
-			}
-			id, err := q.InsertFileBinding(ctx, bindingdb.InsertFileBindingParams{EpisodeID: e.EpisodeID, Title: e.Label})
-			if err != nil {
-				return fmt.Errorf("insert file binding of episode %d: %w", e.EpisodeID, err)
-			}
-			_, newFiles, added, err := addFiles(ctx, q, id, parsed[i])
-			if err != nil {
-				return err
-			}
-			created.Bindings++
-			created.Added += added
-			files += newFiles
+		id, err := q.InsertFileBinding(ctx, bindingdb.InsertFileBindingParams{
+			EpisodeID: e.EpisodeID, Title: e.Label, SeasonBindingID: &seasonBindingID,
+		})
+		if err != nil {
+			return SeasonFilesSaved{}, fmt.Errorf("insert file binding of episode %d: %w", e.EpisodeID, err)
 		}
-		return nil
-	})
-	if err != nil {
-		return SeasonFilesCreated{}, err
+		_, newFiles, added, err := addFiles(ctx, q, id, files.parsed[i])
+		if err != nil {
+			return SeasonFilesSaved{}, err
+		}
+		saved.Bindings++
+		saved.Files += newFiles
+		saved.Added += added
 	}
-	s.logger.LogAttrs(ctx, slog.LevelInfo, "season danmaku files added",
-		slog.Int64("season_id", seasonID), slog.Int("bindings", created.Bindings),
-		slog.Int("files", files), slog.Int64("added", created.Added))
-	return created, nil
+	return saved, nil
 }
 
 // AppendFiles 追加文件：往用弹幕文件建的绑定里再加入弹幕文件，只增不删。

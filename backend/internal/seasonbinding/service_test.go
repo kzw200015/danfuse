@@ -55,8 +55,10 @@ type seasonEnv struct {
 	pool *pgxpool.Pool
 	src  *testenv.FakeCollector
 	svc  *seasonbinding.Service
-	stop func()               // 取消 Run 并等它返回
-	logs testenv.LockedBuffer // 服务的日志，同时写进测试输出
+	// bindingSvc 与 svc 共用的 binding.Service，查看建出的绑定用
+	bindingSvc *binding.Service
+	stop       func()               // 取消 Run 并等它返回
+	logs       testenv.LockedBuffer // 服务的日志，同时写进测试输出
 }
 
 // testFollow 追更的时间规则，取配置项的默认值。
@@ -83,7 +85,8 @@ func newSeasonEnv(t *testing.T, pool *pgxpool.Pool, src *testenv.FakeCollector, 
 func (e *seasonEnv) start() {
 	sources := source.NewRegistry(e.src)
 	logger := testenv.SlogTo(io.MultiWriter(e.t.Output(), &e.logs))
-	e.svc = seasonbinding.NewService(e.pool, sources, binding.NewService(e.pool, sources, logger), testFollow, logger)
+	e.bindingSvc = binding.NewService(e.pool, sources, logger)
+	e.svc = seasonbinding.NewService(e.pool, sources, e.bindingSvc, testFollow, logger)
 	e.stop = testenv.RunInBackground(e.t, e.svc)
 }
 

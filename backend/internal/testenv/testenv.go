@@ -233,26 +233,6 @@ func SeedEpisodes(t testing.TB, pool *pgxpool.Pool) {
 	}
 }
 
-// InsertFolderSeasonBinding 直接写入季 seasonID 上名为 name 的文件夹的季绑定，在 episodeIDs 的每一集上各建出一个指向它的
-// 文件绑定（标题为 name，没有弹幕和弹幕文件），返回季绑定 ID。代替按季上传，用于只关心文件夹的季绑定本身的测试。
-func InsertFolderSeasonBinding(t testing.TB, pool *pgxpool.Pool, seasonID int64, name string, episodeIDs ...int64) int64 {
-	t.Helper()
-	var id int64
-	err := pool.QueryRow(t.Context(), `
-		INSERT INTO season_bindings (season_id, kind, title, follow) VALUES ($1, 'folder', $2, false) RETURNING id`,
-		seasonID, name).Scan(&id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = pool.Exec(t.Context(), `
-		INSERT INTO bindings (episode_id, kind, title, season_binding_id)
-		SELECT unnest($1::bigint[]), 'file', $2, $3`, episodeIDs, name, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return id
-}
-
 // QueryInt 执行只返回一个整数的查询。
 func QueryInt(t testing.TB, pool *pgxpool.Pool, sql string, args ...any) int64 {
 	t.Helper()

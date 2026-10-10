@@ -27,7 +27,7 @@ func seasonUpload(t *testing.T, srv *Server, target string, files []uploadFile, 
 }
 
 // TestSeasonUpload 按路径分成条目（子目录里的文件合成一个条目，顶层的文件各自一个条目，扩展名不分大小写），
-// 每个条目连同它的文件交给 targets 指定的集；标题、存下的文件名等由 binding 的测试覆盖。
+// 每个条目连同它的文件交给 targets 指定的集；标题、存下的文件名、留下的季绑定等由 seasonbinding 的测试覆盖。
 func TestSeasonUpload(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)

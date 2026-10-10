@@ -12,6 +12,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -19,13 +20,14 @@ import (
 // 按季上传的比默认值小（TestSeasonUploadErrors 断言），免得测试发出几百 MB 的请求，又与单集上传的不同，能看出用的是哪组。
 var uploadLimits = config.DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 50, SeasonMaxFiles: 60, SeasonMaxUploadMB: 60}
 
-// catalogServer 起完整的 Echo，目录与绑定接口连到 pool，源适配器只注册了 fakeAdapter。
+// catalogServer 起完整的 Echo，目录、绑定与季绑定接口连到 pool，源适配器只注册了 fakeAdapter；季绑定的后台循环不运行。
 func catalogServer(pool *pgxpool.Pool) *Server {
 	logger := slog.New(slog.DiscardHandler)
 	env := testenv.New(pool, logger, fakeAdapter{})
 	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
-		Catalog: catalog.NewHandler(env.Catalog),
-		Binding: binding.NewHandler(env.Bindings, uploadLimits),
+		Catalog:       catalog.NewHandler(env.Catalog),
+		Binding:       binding.NewHandler(env.Bindings, uploadLimits),
+		SeasonBinding: seasonbinding.NewHandler(env.SeasonBindings, uploadLimits),
 	})
 }
 

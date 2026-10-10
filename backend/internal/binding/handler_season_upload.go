@@ -8,9 +8,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -119,28 +119,35 @@ func groupSeasonPaths(paths []string) ([]seasonUploadEntry, error) {
 	return groups, nil
 }
 
-// CreateFromSeasonFiles POST /api/seasons/:id/file-bindings（multipart：files 可以有多份，paths 与 targets 是 JSON 数组）
-// 按季上传：按 paths 把文件分成条目，每个条目在 targets 指定的集上建一个用弹幕文件建的绑定，返回 201 和 {bindings, added}。
-// 上限、路径结构、条目与目标的对应有一项不满足就整次 400，什么都不保存。
-func (h *Handler) CreateFromSeasonFiles(c *echo.Context) error {
-	limits := uploadLimits{maxFiles: h.upload.SeasonMaxFiles, maxFileMB: h.upload.MaxFileMB, maxUploadMB: h.upload.SeasonMaxUploadMB}
+// SeasonUpload 按季上传的请求：从 multipart 读出全部文件，按路径分好条目、配上目标集。
+type SeasonUpload struct {
+	SeasonID int64
+	Folder   string // 所选的文件夹名，所有路径都以它开头
+	Entries  []SeasonEntry
+}
+
+// ReadSeasonUpload 读出按季上传的请求（multipart：files 可以有多份，paths 与 targets 是 JSON 数组），供季绑定的 handler 使用：
+// 按 paths 把文件分成条目，每个条目配上 targets 指定的集。上限（upload 里按季上传的那组）、路径结构、
+// 条目与目标的对应有一项不满足就返回 400。
+func ReadSeasonUpload(c *echo.Context, upload config.DanmakuFile) (SeasonUpload, error) {
+	limits := uploadLimits{maxFiles: upload.SeasonMaxFiles, maxFileMB: upload.MaxFileMB, maxUploadMB: upload.SeasonMaxUploadMB}
 	uploads, err := parseUpload(c, limits)
 	if err != nil {
-		return err
+		return SeasonUpload{}, err
 	}
 	req, err := request.Bind[createSeasonUploadRequest](c)
 	if err != nil {
-		return err
+		return SeasonUpload{}, err
 	}
 	if len(req.paths) != len(uploads) {
-		return request.InvalidParam("文件路径与文件的份数不一致")
+		return SeasonUpload{}, request.InvalidParam("文件路径与文件的份数不一致")
 	}
 	for i := range uploads {
 		uploads[i].name = req.paths[i]
 	}
 	files, err := readUploads(uploads, limits)
 	if err != nil {
-		return err
+		return SeasonUpload{}, err
 	}
 	entries := make([]SeasonEntry, len(req.entries))
 	for i, e := range req.entries {
@@ -149,9 +156,6 @@ func (h *Handler) CreateFromSeasonFiles(c *echo.Context) error {
 			entries[i].Files[j] = files[f]
 		}
 	}
-	created, err := h.svc.CreateFromSeasonFiles(c.Request().Context(), req.SeasonID, entries)
-	if err != nil {
-		return err
-	}
-	return response.Created(c, created)
+	folder, _, _ := strings.Cut(req.paths[0], "/") // 分组时已确认路径都以同一个文件夹名开头
+	return SeasonUpload{SeasonID: req.SeasonID, Folder: folder, Entries: entries}, nil
 }

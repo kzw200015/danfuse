@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -25,9 +26,9 @@ func TestFolderSeasonBindingView(t *testing.T) {
 			Videos:      testenv.FakeVideos("a"),
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2)
-		before := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 1, 2)
+		before := env.upload(1, 2)
 		env.create(1, 1)
-		after := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 2)
+		after := env.upload(2)
 
 		d := env.get(before)
 		if d.Kind != "folder" || d.Title != "来自新世界" || d.BindingCount != 2 || d.Items == nil || len(d.Items) != 0 {
@@ -55,7 +56,7 @@ func TestFolderSeasonBindingDeleteOnly(t *testing.T) {
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &testenv.FakeCollector{}
 		env := newSeasonEnv(t, pool, src, 1)
-		id := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 1)
+		id := env.upload(1)
 
 		rule := source.DefaultEpisodeRule()
 		for _, p := range []seasonbinding.UpdateParams{
@@ -80,7 +81,7 @@ func TestFolderSeasonBindingDeleteOnly(t *testing.T) {
 }
 
 // TestDeleteFolderSeasonBinding 删除文件夹的季绑定：withBindings 时只删掉它建出的绑定，同一集上手动上传的文件绑定、
-// 链接绑定、合集的季绑定建出的绑定都还在；不带时它建出的绑定留下，变成普通的文件绑定。
+// 链接绑定、合集的季绑定建出的绑定都还在，上传的弹幕文件随绑定删掉；不带时它建出的绑定留下，变成普通的文件绑定。
 func TestDeleteFolderSeasonBinding(t *testing.T) {
 	t.Parallel()
 	for _, withBindings := range []bool{false, true} {
@@ -93,19 +94,26 @@ func TestDeleteFolderSeasonBinding(t *testing.T) {
 				}
 				env := newSeasonEnv(t, pool, src, 1, 2)
 				env.bindManually(1, "m")
-				env.exec(`INSERT INTO bindings (episode_id, kind, title) VALUES (1, 'file', '手动上传')`)
+				if _, err := env.bindingSvc.CreateFromFiles(t.Context(), 1, []binding.UploadedFile{snapshot1("手动上传.xml")}); err != nil {
+					t.Fatal(err)
+				}
 				collection := env.create(1, 1).ID
-				folder := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 1, 2)
+				folder := env.upload(1, 2)
 
 				if err := env.svc.Delete(t.Context(), folder, withBindings); err != nil {
 					t.Fatalf("Delete: %v", err)
 				}
 
-				want := []string{"1 m -", "1 手动上传 -", "1 a 1", "1 来自新世界 -", "2 b 1", "2 来自新世界 -"}
+				want := []string{"1 m -", "1 手动上传 -", "1 a 1", "1 来自新世界 / 1 -", "2 b 1", "2 来自新世界 / 2 -"}
+				wantFiles := int64(3)
 				if withBindings {
 					want = []string{"1 m -", "1 手动上传 -", "1 a 1", "2 b 1"}
+					wantFiles = 1 // 只剩手动上传的
 				}
 				testenv.AssertStrings(t, "绑定", env.bindings(), want)
+				if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM binding_files`); n != wantFiles {
+					t.Errorf("弹幕文件 = %d 份, want %d", n, wantFiles)
+				}
 				if d := env.get(collection); d.BindingCount != 2 {
 					t.Errorf("合集的季绑定建出的绑定数 = %d, want 2", d.BindingCount)
 				}
@@ -122,7 +130,7 @@ func TestFollowSkipsFolderSeasonBinding(t *testing.T) {
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &testenv.FakeCollector{}
 		env := newSeasonEnv(t, pool, src, 1)
-		id := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 1)
+		id := env.upload(1)
 
 		time.Sleep(2 * testFollow.CheckInterval)
 		env.addEpisode(2)

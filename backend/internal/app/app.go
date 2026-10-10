@@ -55,7 +55,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Catalog:       catalog.NewHandler(catalogs),
 		Sync:          catalog.NewSyncHandler(syncs),
 		Binding:       binding.NewHandler(bindings, cfg.DanmakuFile),
-		SeasonBinding: seasonbinding.NewHandler(seasonBindings),
+		SeasonBinding: seasonbinding.NewHandler(seasonBindings, cfg.DanmakuFile),
 		BlockedWord:   blockword.NewHandler(blockedWords),
 		Dandan:        dandan.NewHandler(dandans),
 	}

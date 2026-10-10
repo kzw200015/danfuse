@@ -2,10 +2,6 @@
 -- 创建绑定前确认这一集存在，拉取之前就能返回 404。
 SELECT EXISTS (SELECT 1 FROM episodes WHERE id = $1);
 
--- name: SeasonExists :one
--- 按季上传的预览、创建前确认这一季存在。
-SELECT EXISTS (SELECT 1 FROM seasons WHERE id = $1);
-
 -- name: LockEpisode :one
 -- 锁住这一集到提交，期间删不掉它：创建绑定的写入事务的第一句；补建的写入事务在锁住季、季绑定之后也用它锁集。
 -- FOR KEY SHARE 与同步的 upsert 兼容。这一集已被删除时没有行。
@@ -14,16 +10,9 @@ FROM episodes
 WHERE id = $1
 FOR KEY SHARE;
 
--- name: LockSeason :one
--- 按季上传的写入事务的第一句：锁住这一季到提交，期间删不掉它（随后再锁其中的集，与删季的级联同一个顺序）。
--- 这一季已被删除时没有行。
-SELECT id
-FROM seasons
-WHERE id = $1
-FOR KEY SHARE;
-
 -- name: LockSeasonEpisode :one
--- 按季上传在锁住季之后逐个锁住目标集到提交。这一集已被删除或不属于这一季时没有行。
+-- 按季上传的写入事务在锁住季、插入季绑定之后逐个锁住目标集到提交（与删季的级联同一个顺序）。
+-- 这一集已被删除或不属于这一季时没有行。
 SELECT id
 FROM episodes
 WHERE id = @id AND season_id = @season_id
@@ -42,9 +31,9 @@ ON CONFLICT (episode_id, adapter, ref) DO NOTHING
 RETURNING id;
 
 -- name: InsertFileBinding :one
--- 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。
-INSERT INTO bindings (episode_id, kind, title)
-VALUES (@episode_id, 'file', @title)
+-- 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。按季上传建出的带上留下的文件夹的季绑定。
+INSERT INTO bindings (episode_id, kind, title, season_binding_id)
+VALUES (@episode_id, 'file', @title, sqlc.narg(season_binding_id)::bigint)
 RETURNING id;
 
 -- name: InsertBindingFile :execrows

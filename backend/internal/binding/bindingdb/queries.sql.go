@@ -198,19 +198,20 @@ func (q *Queries) InsertDanmaku(ctx context.Context, arg InsertDanmakuParams) (i
 }
 
 const insertFileBinding = `-- name: InsertFileBinding :one
-INSERT INTO bindings (episode_id, kind, title)
-VALUES ($1, 'file', $2)
+INSERT INTO bindings (episode_id, kind, title, season_binding_id)
+VALUES ($1, 'file', $2, $3::bigint)
 RETURNING id
 `
 
 type InsertFileBindingParams struct {
-	EpisodeID int64  `json:"episodeId"`
-	Title     string `json:"title"`
+	EpisodeID       int64  `json:"episodeId"`
+	Title           string `json:"title"`
+	SeasonBindingID *int64 `json:"seasonBindingId"`
 }
 
-// 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。
+// 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。按季上传建出的带上留下的文件夹的季绑定。
 func (q *Queries) InsertFileBinding(ctx context.Context, arg InsertFileBindingParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertFileBinding, arg.EpisodeID, arg.Title)
+	row := q.db.QueryRow(ctx, insertFileBinding, arg.EpisodeID, arg.Title, arg.SeasonBindingID)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -556,22 +557,6 @@ func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 	return id_2, err
 }
 
-const lockSeason = `-- name: LockSeason :one
-SELECT id
-FROM seasons
-WHERE id = $1
-FOR KEY SHARE
-`
-
-// 按季上传的写入事务的第一句：锁住这一季到提交，期间删不掉它（随后再锁其中的集，与删季的级联同一个顺序）。
-// 这一季已被删除时没有行。
-func (q *Queries) LockSeason(ctx context.Context, id int64) (int64, error) {
-	row := q.db.QueryRow(ctx, lockSeason, id)
-	var id_2 int64
-	err := row.Scan(&id_2)
-	return id_2, err
-}
-
 const lockSeasonEpisode = `-- name: LockSeasonEpisode :one
 SELECT id
 FROM episodes
@@ -584,7 +569,8 @@ type LockSeasonEpisodeParams struct {
 	SeasonID int64 `json:"seasonId"`
 }
 
-// 按季上传在锁住季之后逐个锁住目标集到提交。这一集已被删除或不属于这一季时没有行。
+// 按季上传的写入事务在锁住季、插入季绑定之后逐个锁住目标集到提交（与删季的级联同一个顺序）。
+// 这一集已被删除或不属于这一季时没有行。
 func (q *Queries) LockSeasonEpisode(ctx context.Context, arg LockSeasonEpisodeParams) (int64, error) {
 	row := q.db.QueryRow(ctx, lockSeasonEpisode, arg.ID, arg.SeasonID)
 	var id int64
@@ -715,18 +701,6 @@ type RecordFetchAttemptParams struct {
 func (q *Queries) RecordFetchAttempt(ctx context.Context, arg RecordFetchAttemptParams) error {
 	_, err := q.db.Exec(ctx, recordFetchAttempt, arg.AttemptedAt, arg.ID)
 	return err
-}
-
-const seasonExists = `-- name: SeasonExists :one
-SELECT EXISTS (SELECT 1 FROM seasons WHERE id = $1)
-`
-
-// 按季上传的预览、创建前确认这一季存在。
-func (q *Queries) SeasonExists(ctx context.Context, id int64) (bool, error) {
-	row := q.db.QueryRow(ctx, seasonExists, id)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
 }
 
 const updateBindingOffset = `-- name: UpdateBindingOffset :one

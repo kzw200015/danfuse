@@ -1,6 +1,6 @@
 // Package binding 绑定：一集与一个弹幕源的对应关系。贴链接创建（拉取弹幕源的全部弹幕落库）、重新拉取、改偏移与删除，
 // 用弹幕文件建的绑定（file.go），查看保存的弹幕和读取一集合并后的弹幕（danmaku.go），以及定时拉取（scheduled_fetch.go）。
-// 季绑定补建出的绑定也由这里写入（CreateBackfilledInTx）。
+// 季绑定补建出的绑定（CreateBackfilledInTx）、按季上传建出的绑定（CreateSeasonFilesInTx）也由这里写入，事务由 seasonbinding 开。
 package binding
 
 import (
@@ -21,9 +21,7 @@ import (
 
 var (
 	errEpisodeNotFound = apierr.ErrNotFound.WithMessage("集不存在")
-	errSeasonNotFound  = apierr.ErrNotFound.WithMessage("季不存在")
 	errEpisodeDeleted  = apierr.ErrNotFound.WithMessage("这一集已被删除")
-	errSeasonDeleted   = apierr.ErrNotFound.WithMessage("这一季已被删除")
 	errBindingExists   = apierr.ErrConflict.WithMessage("这一集已经绑定过这个弹幕源")
 	errBindingNotFound = apierr.ErrNotFound.WithMessage("绑定不存在")
 	errBindingDeleted  = apierr.ErrNotFound.WithMessage("绑定已被删除")
@@ -37,7 +35,7 @@ const (
 )
 
 // Service 绑定：贴链接创建，拉取弹幕源的全部弹幕落库；重新拉取、改偏移与删除。
-// 用弹幕文件建的绑定（创建、按季上传、追加文件、重新解析）见 file.go。
+// 用弹幕文件建的绑定（创建、按季上传的写入、追加文件、重新解析）见 file.go。
 // 拉取（网络请求）都在事务之外，拉完才开写入事务，写入事务的第一句锁住要写的行（创建时锁集，重新拉取时锁绑定）；
 // 不加应用层的锁，并发靠行锁、外键级联和唯一约束。
 type Service struct {

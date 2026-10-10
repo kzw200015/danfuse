@@ -27,6 +27,12 @@ VALUES (@season_id, 'collection', @adapter::text, @ref::jsonb, @title, @finished
         @episode_patterns::text[], @numbered_by_rule::boolean)
 RETURNING id;
 
+-- name: InsertFolderSeasonBinding :one
+-- 按季上传留下的文件夹的季绑定，名称为所选的文件夹名。追更的默认值是开着，这里要写明关着（CHECK 约束要求）。
+INSERT INTO season_bindings (season_id, kind, title, follow)
+VALUES (@season_id, 'folder', @title, false)
+RETURNING id;
+
 -- name: UpsertSeasonBindingItems :exec
 -- 写入一次检查列出的条目（或改集号规则之后重新认出的序号），各数组按下标一一对应，ref 是 JSON 文本。
 -- 序号为 -1、原因为空串时存为 null。按 (季绑定, 弹幕源) upsert：已有的条目更新位置、序号与标签，上次失败的原因保留。

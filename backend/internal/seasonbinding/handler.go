@@ -5,18 +5,20 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// Handler 季绑定的管理 API，路由注册在 server/router.go。
+// Handler 季绑定的管理 API（含按季上传，见 handler_season_upload.go），路由注册在 server/router.go。
 type Handler struct {
-	svc *Service
+	svc    *Service
+	upload config.DanmakuFile // 一次上传弹幕文件的上限，按季上传用其中按季的那组
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, upload config.DanmakuFile) *Handler {
+	return &Handler{svc: svc, upload: upload}
 }
 
 const invalidMapping = "集号对应必须是不小于 0 的整数"

@@ -200,6 +200,25 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 	return i, err
 }
 
+const insertFolderSeasonBinding = `-- name: InsertFolderSeasonBinding :one
+INSERT INTO season_bindings (season_id, kind, title, follow)
+VALUES ($1, 'folder', $2, false)
+RETURNING id
+`
+
+type InsertFolderSeasonBindingParams struct {
+	SeasonID int64  `json:"seasonId"`
+	Title    string `json:"title"`
+}
+
+// 按季上传留下的文件夹的季绑定，名称为所选的文件夹名。追更的默认值是开着，这里要写明关着（CHECK 约束要求）。
+func (q *Queries) InsertFolderSeasonBinding(ctx context.Context, arg InsertFolderSeasonBindingParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertFolderSeasonBinding, arg.SeasonID, arg.Title)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertSeasonBinding = `-- name: InsertSeasonBinding :one
 INSERT INTO season_bindings (season_id, kind, adapter, ref, title, finished, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
 VALUES ($1, 'collection', $2::text, $3::jsonb, $4, $5, $6::int, $7::int,

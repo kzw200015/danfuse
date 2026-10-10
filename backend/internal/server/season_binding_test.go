@@ -86,7 +86,7 @@ func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.P
 	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
 		Catalog:       catalog.NewHandler(env.Catalog),
 		Binding:       binding.NewHandler(env.Bindings, uploadLimits),
-		SeasonBinding: seasonbinding.NewHandler(env.SeasonBindings),
+		SeasonBinding: seasonbinding.NewHandler(env.SeasonBindings, uploadLimits),
 	}), pool
 }
 
@@ -261,8 +261,11 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		srv, pool := seasonBindingServer(t, cfg)
-		id := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 1, 2)
+		srv, _ := seasonBindingServer(t, cfg)
+		seasonUpload(t, srv, "/api/seasons/1/file-bindings", []uploadFile{
+			danmakuXML("来自新世界/1.xml", "1"), danmakuXML("来自新世界/2.xml", "2"),
+		}, `[{"label": "来自新世界 / 1", "episodeId": 2}, {"label": "来自新世界 / 2", "episodeId": 1}]`, http.StatusCreated)
+		const id = 1 // 种子目录里没有季绑定，按季上传留下的是第一个
 		path := fmt.Sprintf("/api/season-bindings/%d", id)
 
 		_, _, data := call(t, srv, http.MethodGet, path, "", http.StatusOK)
