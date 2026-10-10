@@ -1,3 +1,5 @@
+import { naturalOrder } from './catalog'
+
 /** 按季上传的一个条目：一个子目录，或顶层平铺的一份文件 */
 export interface UploadEntry {
   /** 条目名称："文件夹名 / 子目录名"或"文件夹名 / 文件名去掉扩展名" */
@@ -11,8 +13,6 @@ export interface UploadEntry {
 export type FolderGrouping =
   | { ok: true; entries: UploadEntry[]; ignored: number }
   | { ok: false; error: string }
-
-const naturalOrder = new Intl.Collator(undefined, { numeric: true })
 
 function stripExtension(name: string) {
   const dot = name.lastIndexOf('.')

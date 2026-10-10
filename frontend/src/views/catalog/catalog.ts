@@ -1,8 +1,11 @@
 import type { AppendFilesResult } from '@/api/bindings'
 import type { Episode, Season, SeriesDetail, SeriesSummary, SeriesType } from '@/api/series'
 
-// 标题里的数字按数值比较："第2部"排在"第10部"前面
-const collator = new Intl.Collator('zh', { numeric: true })
+/**
+ * 名称的自然顺序：数字按数值比较（"第2部"排在"第10部"前面），汉字按拼音。
+ * 固定用 zh，不随浏览器的语言变，目录和按季上传的排序都用它
+ */
+export const naturalOrder = new Intl.Collator('zh', { numeric: true })
 
 /** 剧列表的分类：全部，或只看一种类型。在地址栏的查询参数 ?type= 里，没有时为全部 */
 export type SeriesCategory = 'all' | SeriesType
@@ -57,7 +60,8 @@ export function filterSeries(
         (!k || s.title.toLowerCase().includes(k) || !!s.originalTitle?.toLowerCase().includes(k)),
     )
     .toSorted(
-      (a, b) => (b.year ?? -Infinity) - (a.year ?? -Infinity) || collator.compare(a.title, b.title),
+      (a, b) =>
+        (b.year ?? -Infinity) - (a.year ?? -Infinity) || naturalOrder.compare(a.title, b.title),
     )
 }
 
