@@ -12,7 +12,7 @@
 - 合集 ref（`source.CollectionRef`）与弹幕源 ref 是两种类型；合集条目的弹幕源 ref 与单集绑定同一套格式，所以手动绑过的同一个弹幕源能被认出来。
 - 集号对应（`source.Mapping`）、集号规则（`source.EpisodeRule`）、条目的整理（`source.NumberItems`）是 `source` 包里的纯计算，不在适配器里做：
   - 集号规则（ADR 0005）：投稿合集与多 P 投稿的适配器只给出展开到分 P 的条目和标签、标明 `Collection.NumberedByRule`，序号由季绑定上的规则从标签认出。规则是一组正则，取标签里结束得最靠后的集号、一样靠后时取排在前面的正则（`naming.Parse` 仍按表的优先级认，两者只共用正则），季绑定存它的副本；默认规则取自 `naming.EpisodePatterns`（`catalog/naming`），即 `naming.Parse` 那张表里带 `episode` 组的写法，再加上认结尾 `/ N` 的一条：标签有两级标题时用 `source.LabelSeparator`（` / `）拼成"上级 / 下级"，越靠后越具体（见 `CollectionItem.Label`），新的源适配器拼标签也要照这个约定。
-  - `NumberItems` 按规则认出序号，再交给 `normalizeItems` 按 ref 去重、标出重复序号。
+  - `NumberItems` 先按 ref 去重（`uniqueRefs`），按规则编号的合集再认出序号，最后标出重复序号（`markDuplicateNumbers`）；`NumberLabels` 只接收名称，认序号、标重复，不去重，结果与名称一一对应（按季上传的预览用它）。
 - B 站适配器的链接解析（`bilibili/link.go`）只做字符串分类（短链先跳转一次再分类），集面板与季面板各自决定接受哪些（集面板遇到合集的链接时提示到季面板）。
 - 源适配器返回 `*source.Error`（带 Kind）：补建、定时拉取、标为失效都按 Kind 分支；管理 API 由 `binding.SourceAPIError`（季绑定的预览、创建也用它）按 Kind 转成 400/422/502，只包装 Err，日志里提示不重复。
 
@@ -22,16 +22,16 @@
 - 绑定的 `kind` 区分 `link` / `file`：文件绑定的 `adapter`、`ref`、`duration` 为空（CHECK 约束守住，唯一约束因此只作用于链接绑定）。
 - 原文件存 `binding_files`（按 sha256 在绑定内去重），份数 `file_count` 与 `danmaku_count` 一样在事务里维护；弹幕不属于任何平台，原始 ID 直接用 dmid。
 - `binding.Service` 的 `view`、`platform` 按 kind 分支，只对一种绑定有效的操作用在另一种上时返回 400。
-- 上传的 handler 先给请求体套 `http.MaxBytesReader` 再解析 multipart，然后才 `request.Bind`：`parseUpload`（套上限、解析、查份数）与 `readUploads`（查单份与合计大小、读出内容）由单集上传和按季上传共用，上限经 `uploadLimits` 传入。
+- 上传的 handler 先调用 `request.ReadFiles`（`internal/httpx/request`，单集上传和按季上传共用，上限经 `request.FileLimits` 传入），然后才 `request.Bind`：它给请求体套上 `http.MaxBytesReader`，用 `MultipartReader` 逐个 part 流式读取，边读边查份数、单份和合计大小，不落临时文件，也没有 `ParseMultipartForm` 的 1000 个 part 上限；文件以外的字段（合计最多 1 MB）读完后放回 `Request.Form`，所以之后的 `Bind` 照常可用。文件名取请求里原样的 filename，不像 `Part.FileName` 那样去掉目录（按季上传用它传相对路径）；单集上传自己再取 base name。
 
 ### 按季上传
 
-- 每次按季上传留下一个文件夹的季绑定（ADR 0008，见 [`season-binding.md`](season-binding.md#文件夹的季绑定)），建出的文件绑定带着它的 `season_binding_id`，所以归 `seasonbinding`（领域的依赖方向是 seasonbinding → binding）：两条接口的 handler（`seasonbinding/handler_season_upload.go`）和 service（`season_upload.go`）都在那里，做法照补建。弹幕文件的部分仍在 `binding`，与单集上传共用文件类型 `UploadedFile`（按季上传时 `Name` 是相对路径）、解析（`parseFiles`）、存原文件与写弹幕（`addFiles`，文件名取 base name），导出给 seasonbinding 的是 `ReadSeasonUpload`、`Service.ParseSeasonFiles`、`Service.CreateSeasonFilesInTx`。
-- 预览 `POST /api/seasons/:id/file-bindings/preview`（JSON `{labels, episodePatterns}`，`seasonbinding.Service.PreviewSeasonUpload`）：把条目名称当作按规则编号的合集的标签交给 `source.NumberItems`（ref 取下标，只为让条目互不相同），与季绑定预览同一套匹配、NFKC 回退和"集号重复"的标注，规则的校验也一样（`source.ParseEpisodeRule`）。返回 `{items: [{label, number, reason}]}`，顺序与 `labels` 相同。只读；集号对应和对到哪一集由前端现算。
-- 创建 `POST /api/seasons/:id/file-bindings`（multipart，`seasonbinding.Service.CreateFromSeasonFiles`）：`files` 多份；`paths` 与 `targets` 各是一个 JSON 数组字段。`paths` 与 `files` 一一对应、顺序相同，是以所选文件夹名开头的相对路径：Go 的 multipart 会把上传文件名裁成 base name，所以另传；逐份一个字段时 500 份文件就超过 `multipart.ReadForm` 默认 1000 个 part 的上限，所以合成一个字段。`targets` 每个条目一项 `{label, episodeId}`，`episodeId` 取自预览。
-- multipart 的读取、上限、分组与校验由 `binding.ReadSeasonUpload` 做，seasonbinding 的 handler 直接调用它，得到季 ID、文件夹名（`SeasonUpload.Folder`，即文件夹的季绑定的名称）和各条目。分组与校验在请求的 `Validate`（`groupSeasonPaths`）：只看请求本身就能判断，属于 handler；路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"，扩展名不分大小写，文件夹名都相同；子目录合成一个条目"文件夹名 / 子目录名"，顶层的文件各自一个条目"文件夹名 / 文件名去掉扩展名"，名称不能重复；条目与 `targets` 一一对应。有一项不满足就整次 400。前端的 `groupFolderFiles`（`season-upload.ts`）按同样的规则先分组，另外忽略不是 `.xml` 的文件。
-- service 先在事务外由 `binding.Service.ParseSeasonFiles` 解析全部文件，有一份认不出就整次 422，提示用它的相对路径，存下的文件名取 base name；两个条目对到同一集时 400。再在一个事务里锁住季、插入文件夹的季绑定（`InsertFolderSeasonBinding`），把 `pgx.Tx` 和季绑定 ID 交给 `binding.Service.CreateSeasonFilesInTx`，由它逐个锁住目标集（`LockSeasonEpisode` 同时确认它属于这一季，否则整次 404、提示重新预览）、插入带 `season_binding_id` 的文件绑定（标题为条目名称）、`addFiles`。加锁顺序与补建相同（先锁季）；失败时季绑定和绑定都不保存。目标集上已有绑定（包括文件绑定）时照常再建一个。返回 201 `{bindings, added}`，记一条带季绑定 ID 的 info 日志。
-- 份数与合计大小另有上限 `danmaku_file.season_max_files` / `season_max_upload_mb`，单份仍是 `max_file_mb`。加上 `paths`、`targets` 两个字段不能超过 1000 个 part（超过时只能报"请求参数错误"），所以启动时校验 `season_max_files` 不超过 998、`max_files` 不超过 1000。这个请求是同步的，前端不设超时（`uploadRequestTimeout`，单集上传、追加文件也是）；HTTP 服务也不限整个请求的读写时长，只限制读请求头和空闲连接（见 `server.go`）。
+- 每次按季上传留下一个文件夹的季绑定（ADR 0008，见 [`season-binding.md`](season-binding.md#文件夹的季绑定)），建出的文件绑定带着它的 `season_binding_id`，所以归 `seasonbinding`（领域的依赖方向是 seasonbinding → binding）：两条接口的 handler（`seasonbinding/handler_season_upload.go`）和 service（`season_upload.go`）都在那里，做法照补建。弹幕文件的部分仍在 `binding`，与单集上传共用文件类型 `UploadedFile`（按季上传时 `Name` 是相对路径）、解析（`parseFiles`）、存原文件与写弹幕（`addFiles`，文件名取 base name），导出给 seasonbinding 的是 `UploadedFile`、`SeasonEntry`、`Service.ParseSeasonFiles`、`Service.CreateSeasonFilesInTx`。
+- 预览 `POST /api/seasons/:id/file-bindings/preview`（JSON `{labels, episodePatterns}`，`seasonbinding.Service.PreviewSeasonUpload`）：把条目名称交给 `source.NumberLabels`，与季绑定预览同一套匹配、NFKC 回退和"集号重复"的标注，规则的校验也一样（`source.ParseEpisodeRule`）。返回 `{items: [{label, number, reason}]}`，顺序与 `labels` 相同。只读；集号对应和对到哪一集由前端现算。
+- 创建 `POST /api/seasons/:id/file-bindings`（multipart，`seasonbinding.Service.CreateFromSeasonFiles`）：`files` 多份，每份的文件名是以所选文件夹名开头的相对路径（前端 `FormData.append` 时传入）；`targets` 是一个 JSON 数组字段，每个条目一项 `{label, episodeId}`，`episodeId` 取自预览。
+- seasonbinding 的 handler 用 `request.ReadFiles` 读出文件，按文件名分成条目、配上目标集（`seasonEntries`、`groupSeasonFiles`），文件夹名即文件夹的季绑定的名称。分组与校验只看请求本身就能判断，属于 handler（"两个条目对到同一集"在请求的 `Validate`，分组要等文件读出来，在 Bind 之后）；路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"，扩展名不分大小写，文件夹名都相同；子目录合成一个条目"文件夹名 / 子目录名"，顶层的文件各自一个条目"文件夹名 / 文件名去掉扩展名"，名称不能重复；条目与 `targets` 一一对应，两个条目不能对到同一集。有一项不满足就整次 400。前端的 `groupFolderFiles`（`season-upload.ts`）按同样的规则先分组，另外忽略不是 `.xml` 的文件。
+- service 先在事务外由 `binding.Service.ParseSeasonFiles` 解析全部文件，有一份认不出就整次 422，提示用它的相对路径，存下的文件名取 base name。再在一个事务里锁住季、插入文件夹的季绑定（`InsertFolderSeasonBinding`），把 `pgx.Tx` 和季绑定 ID 交给 `binding.Service.CreateSeasonFilesInTx`，由它先用一条查询锁住全部目标集（`LockSeasonEpisodes` 同时确认它们属于这一季，有一集不是就整次 404、提示重新预览，还没写入任何内容），再逐个插入带 `season_binding_id` 的文件绑定（标题为条目名称）、`addFiles`。加锁顺序与补建相同（先锁季）；失败时季绑定和绑定都不保存。目标集上已有绑定（包括文件绑定）时照常再建一个。返回 201 `{bindings, added}`，记一条带季绑定 ID 的 info 日志。
+- 份数与合计大小另有上限 `danmaku_file.season_max_files` / `season_max_upload_mb`，单份仍是 `max_file_mb`。这个请求是同步的，前端不设超时（`uploadRequestTimeout`，单集上传、追加文件也是）；HTTP 服务也不限整个请求的读写时长，只限制读请求头和空闲连接（见 `server.go`）。
 
 ## 管理界面
 

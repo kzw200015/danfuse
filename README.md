@@ -150,10 +150,10 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `bilibili.burst` | `DANFUSE_BILIBILI_BURST` | `10` | 空闲之后最多连发几个请求，不受 `requests_per_second` 限制，贴链接、重新拉取时开头的几个请求不排队。至少 `1` |
 | `bilibili.fetch_concurrency` | `DANFUSE_BILIBILI_FETCH_CONCURRENCY` | `10` | 拉取一个视频的弹幕时同时进行的请求数，至少 `1`。总速率仍受 `requests_per_second` 限制 |
 | `bilibili.request_timeout` | `DANFUSE_BILIBILI_REQUEST_TIMEOUT` | `10s` | 请求 B 站时单个请求的超时，超时后照常重试；整次拉取另有约 25 秒的总时限 |
-| `danmaku_file.max_files` | `DANFUSE_DANMAKU_FILE_MAX_FILES` | `50` | 上传弹幕文件时一次最多几份，不超过 1000：Go 解析一个上传请求最多 1000 个部分（每份文件一个） |
+| `danmaku_file.max_files` | `DANFUSE_DANMAKU_FILE_MAX_FILES` | `50` | 上传弹幕文件时一次最多几份 |
 | `danmaku_file.max_file_mb` | `DANFUSE_DANMAKU_FILE_MAX_FILE_MB` | `10` | 上传弹幕文件时单份的上限，单位 MB |
 | `danmaku_file.max_upload_mb` | `DANFUSE_DANMAKU_FILE_MAX_UPLOAD_MB` | `50` | 上传弹幕文件时一次合计的上限，单位 MB。调大时注意反向代理的请求体上限（例如 nginx 的 `client_max_body_size`） |
-| `danmaku_file.season_max_files` | `DANFUSE_DANMAKU_FILE_SEASON_MAX_FILES` | `500` | [按季上传](#按季上传)时一次最多几份，不超过 998：同样受 1000 个部分的限制，请求里除了文件还有两个字段 |
+| `danmaku_file.season_max_files` | `DANFUSE_DANMAKU_FILE_SEASON_MAX_FILES` | `500` | [按季上传](#按季上传)时一次最多几份 |
 | `danmaku_file.season_max_upload_mb` | `DANFUSE_DANMAKU_FILE_SEASON_MAX_UPLOAD_MB` | `200` | 按季上传时一次合计的上限，单位 MB；单份仍受 `max_file_mb` 限制。同样注意反向代理的请求体上限；管理界面不限这个请求的时长 |
 
 - `catalog_source.kind` 为 `jellyfin` 时，`url`、`api_key`、`libraries` 都必须填写；`sync.interval` 大于 0 时必须配置目录源。

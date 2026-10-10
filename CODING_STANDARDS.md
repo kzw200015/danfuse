@@ -7,7 +7,7 @@
 - 实现接口的类型（包括测试里的假实现）在类型定义旁边写编译期断言 `var _ catalog.Source = (*Source)(nil)`。只嵌入接口、不实现方法的假类型（如 `platformAdapter`）不写。
 - 业务代码只依赖领域包的接口，不对适配器做类型断言；绑定、合集的 ref 只交给适配器解析，原始 ref 不出现在 JSON 输出里。
 - 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`）：`handler*.go` 只绑定与校验参数、调用本领域的 `Service`、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `xxxdb`。
-- 领域之间只调用对方 `Service` 的方法（例外是 handler 可以复用对方导出的读请求的函数，如按季上传的 `binding.ReadSeasonUpload`），不引用对方的 `xxxdb`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateBackfilledInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
+- 领域之间只调用对方 `Service` 的方法，不引用对方的 `xxxdb`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateBackfilledInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
 - 适配器（领域的子包，如 `catalog/jellyfin`、`source/bilibili`）和纯计算包（`source`、`danmaku`、`danmakufile`、`fulltext`、`catalog/naming`）只放接口、类型、纯计算与外部适配，不访问数据库。
 - `app.New` 和各构造函数只构造对象，不做 IO、不连外部系统。新增 service 在 `app.New` 构造，handler 还要加进 `server.Handlers`。
 - `xxxdb/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.txt` 一起更新）。已推到 main 的迁移文件不再修改。
@@ -33,7 +33,7 @@
 
 ## handler 与配置
 
-- 请求结构体用 `param`/`query`/`json` tag，实现 `Validate() error`（可在其中 trim、填默认值，把参数解析、整理成 service 要的形状放进未导出字段，例如解析集号规则、把按季上传的路径分成条目；只看请求本身就能判断的格式校验都放这里，要查库或属于业务规则的放 service），通过 `request.Bind[xxxRequest](c)` 绑定加校验；校验失败用 `request.InvalidParam("提示语")`。路由在 `internal/server/router.go` 的 `/api` 分组下注册。
+- 请求结构体用 `param`/`query`/`json` tag，实现 `Validate() error`（可在其中 trim、填默认值，把参数解析、整理成 service 要的形状放进未导出字段，例如解析集号规则；只看请求本身就能判断的格式校验都放这里，要查库或属于业务规则的放 service），通过 `request.Bind[xxxRequest](c)` 绑定加校验；校验失败用 `request.InvalidParam("提示语")`。路由在 `internal/server/router.go` 的 `/api` 分组下注册。
 - 新增配置项在 `internal/config` 的 `setDefaults` 里登记默认值（否则环境变量覆盖不生效），同时更新 `config.example.yaml` 和 README 的配置项表，需要时还有 `compose.yaml`。
 
 ## 前端
