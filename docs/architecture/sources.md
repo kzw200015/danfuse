@@ -31,7 +31,7 @@
 - 创建 `POST /api/seasons/:id/file-bindings`（multipart，`CreateFromSeasonFiles`）：`files` 多份；`paths` 与 `targets` 各是一个 JSON 数组字段。`paths` 与 `files` 一一对应、顺序相同，是以所选文件夹名开头的相对路径：Go 的 multipart 会把上传文件名裁成 base name，所以另传；逐份一个字段时 500 份文件就超过 `multipart.ReadForm` 默认 1000 个 part 的上限，所以合成一个字段。`targets` 每个条目一项 `{label, episodeId}`，`episodeId` 取自预览。
 - 分组与校验在 handler（`groupSeasonPaths`）：路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"，扩展名不分大小写，文件夹名都相同；子目录合成一个条目"文件夹名 / 子目录名"，顶层的文件各自一个条目"文件夹名 / 文件名去掉扩展名"，名称不能重复；条目与 `targets` 一一对应。有一项不满足就整次 400。前端的 `groupFolderFiles`（`season-upload.ts`）按同样的规则先分组，另外忽略不是 `.xml` 的文件。
 - service 先在事务外解析全部文件，有一份认不出就整次 422，提示用它的相对路径，存下的文件名取 base name；两个条目对到同一集时 400。再在一个事务里锁住季、逐个锁住目标集（`LockSeasonEpisode` 同时确认它属于这一季，否则整次 404、提示重新预览）、插入文件绑定（标题为条目名称）、`addFiles`。目标集上已有绑定（包括文件绑定）时照常再建一个。返回 201 `{bindings, added}`，记一条 info 日志。
-- 份数与合计大小另有上限 `danmaku_file.season_max_files` / `season_max_upload_mb`，单份仍是 `max_file_mb`。这个请求是同步的，前端不设超时（`timeout: 0`），时长以服务端的 `server.read_timeout` / `write_timeout` 为准；Go 的 `WriteTimeout` 从读完请求头起算，包括接收请求体的时间，所以两个都要容得下整次上传。
+- 份数与合计大小另有上限 `danmaku_file.season_max_files` / `season_max_upload_mb`，单份仍是 `max_file_mb`。加上 `paths`、`targets` 两个字段不能超过 1000 个 part（超过时只能报"请求参数错误"），所以启动时校验 `season_max_files` 不超过 998、`max_files` 不超过 1000。这个请求是同步的，前端不设超时（`timeout: 0`），时长以服务端的 `server.read_timeout` / `write_timeout` 为准；Go 的 `WriteTimeout` 从读完请求头起算，包括接收请求体的时间，所以两个都要容得下整次上传。
 
 ## 管理界面
 
