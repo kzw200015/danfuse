@@ -8,12 +8,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
-	"github.com/kzw200015/danfuse/backend/internal/service"
-	"github.com/kzw200015/danfuse/backend/internal/source"
+	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 // uploadLimits 上传弹幕文件的上限，与默认值一致（TestFileBindingUploadErrors 断言这几个数）。
@@ -21,13 +20,12 @@ var uploadLimits = config.DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 
 
 // catalogServer 起完整的 Echo，目录与绑定接口连到 pool，源适配器只注册了 fakeAdapter。
 func catalogServer(pool *pgxpool.Pool) *Server {
-	store := repository.NewStore(pool)
-	sources := source.NewRegistry(fakeAdapter{})
 	logger := slog.New(slog.DiscardHandler)
-	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{
-		Catalog: handler.NewCatalogHandler(service.NewCatalogService(store, sources)),
-		Binding: handler.NewBindingHandler(service.NewBindingService(store, sources, logger), uploadLimits),
-	}, nil)
+	env := testenv.New(pool, logger, fakeAdapter{})
+	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
+		Catalog: catalog.NewHandler(env.Catalog),
+		Binding: binding.NewHandler(env.Bindings, uploadLimits),
+	})
 }
 
 // posterPNG 种子目录里星海旅人的海报（图片 1）。
@@ -82,7 +80,7 @@ func TestListSeries(t *testing.T) {
 
 	seedCatalog(t, pool)
 	_, _, data := call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK)
-	assertJSON(t, data, `[
+	testenv.AssertJSON(t, data, `[
 		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "tmdbId": 60735,
 		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3,
 		 "boundEpisodeCount": 2, "bindingCount": 3, "deadBindingCount": 2, "following": false},
@@ -146,7 +144,7 @@ func TestGetSeries(t *testing.T) {
 	}
 	for _, tt := range tests {
 		_, _, data := call(t, srv, http.MethodGet, tt.target, "", http.StatusOK)
-		assertJSON(t, data, tt.want)
+		testenv.AssertJSON(t, data, tt.want)
 	}
 
 	assertAPIErrors(t, srv, []apiError{

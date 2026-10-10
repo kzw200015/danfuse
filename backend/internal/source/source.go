@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 )
@@ -43,11 +44,16 @@ type Adapter interface {
 	// 是本平台的但不能作为合集绑定的，返回 Kind 为 InvalidLink 的 *Error，提示由适配器写。可能联网。
 	ParseCollectionLink(ctx context.Context, link string) ([]CollectionCandidate, error)
 	// ListCollection 按合集 ref 列出合集的标题、是否完结（取不到时为否）和全部条目，条目按合集里的顺序排列。
-	// 合集不存在时返回 Kind 为 NotFound 的 *Error。重复序号不在这里判定，见 NormalizeItems。
+	// 合集不存在时返回 Kind 为 NotFound 的 *Error。重复序号不在这里判定，见 normalizeItems。
 	ListCollection(ctx context.Context, ref CollectionRef) (Collection, error)
 	// DescribeCollection 由合集 ref 生成展示用的链接和标签，纯计算，不联网。
 	DescribeCollection(ref CollectionRef) (Display, error)
 }
+
+// FetchTimeout 调用方给一次拉取的总时限，创建绑定时也包括解析链接（跟随短链也要联网），季绑定的预览、创建与补建也用它限定
+// 识别链接、列出合集：server.write_timeout 不小于 config.MinWriteTimeout（30 秒），留出写库和响应的时间。改它时一起改那个下限。
+// 超时由适配器按 Upstream 返回。
+const FetchTimeout = 25 * time.Second
 
 // Display 弹幕源在管理界面上的展示：链接和标签。
 type Display struct {

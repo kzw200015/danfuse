@@ -1,6 +1,6 @@
-// Package catalog 目录的规则，以及目录源适配与同步核心之间的接口。
-// 只有类型和纯计算，不访问数据库：写库的同步核心在 service.SyncService，
-// 各目录源的适配在子包里（jellyfin），由 app 按配置的 kind 选择。
+// Package catalog 目录：剧/季/集的层级。这里有目录的规则（本文件），目录源适配与同步核心之间的接口（Source），
+// 管理界面浏览与删除目录、取海报（service.go），以及同步（sync.go，按剧写入目录的同步核心在 sync_core.go）。
+// 各目录源的适配在子包里（jellyfin），由 app 按配置的 kind 选择；名称里的季号、集号怎么认在子包 naming。
 //
 // 划分原则：目录本身的规则放在核心；取决于目录源怎么表示数据的，放在适配。
 package catalog
@@ -141,7 +141,7 @@ func (s Series) Validate() error {
 }
 
 // SeasonName 季对外的名称（弹弹play 的 animeTitle）：第 1 季和电影为"剧名"，第 N 季为"剧名 第N季"，
-// 第 0 季为"剧名 特别篇"，都不带年份。ParseName 认得"第N季""特别篇"这两种写法，能从它拆回剧名和季号，
+// 第 0 季为"剧名 特别篇"，都不带年份。naming.Parse 认得"第N季""特别篇"这两种写法，能从它拆回剧名和季号，
 // 拿它搜索能找回这一季。
 func SeasonName(t SeriesType, seriesTitle string, number int) string {
 	switch {
@@ -177,7 +177,7 @@ func KindOf(t SeriesType, number int) SeasonKind {
 
 // SearchVector 一季的搜索列（tsvector 文本）：A 档为剧名和季号，B 档为原名，C 档为目录源给的季标题。
 // 季号只以数字出现（剧集的第 1 季起，特别篇和电影没有），给"剧名2"这种没有标注的写法用：光看数字分不出是标题的一部分
-// 还是季号，交给全文搜索，数字在标题里、季号里都能命中。写明了的季号（"第2季"、"S02"、"特别篇"）由 ParseName 拆出，
+// 还是季号，交给全文搜索，数字在标题里、季号里都能命中。写明了的季号（"第2季"、"S02"、"特别篇"）由 naming.Parse 拆出，
 // 按季号精确过滤，不经过搜索列。季号放在最后，不挪动前面各词的位置：同一部剧的各季按剧名、原名搜索时得分相同，
 // 先后由季号决定（ts_rank 会看命中的词之间的距离）。
 // 同步写入季时用它计算；改动它的组成时，要新增一个 goose Go 迁移，重算所有季的搜索列。

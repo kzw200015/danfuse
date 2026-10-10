@@ -35,7 +35,7 @@ type Server struct {
 	WriteTimeout    time.Duration `mapstructure:"write_timeout"` // 0 表示不限；否则不能小于 MinWriteTimeout
 }
 
-// MinWriteTimeout server.write_timeout 的下限：创建绑定、重新拉取要当场拉取弹幕，最长 25 秒（service.fetchTimeout），
+// MinWriteTimeout server.write_timeout 的下限：创建绑定、重新拉取要当场拉取弹幕，最长 25 秒（source.FetchTimeout），
 // 再留出写库和响应的时间。
 const MinWriteTimeout = 30 * time.Second
 
@@ -111,7 +111,7 @@ type Bilibili struct {
 	Burst int `mapstructure:"burst"`
 	// FetchConcurrency 拉取一个弹幕源时同时进行的请求数（分段与 XML 一起算）
 	FetchConcurrency int `mapstructure:"fetch_concurrency"`
-	// RequestTimeout 单个请求的超时，超时后照常重试；整次拉取的总时限另见 service.fetchTimeout
+	// RequestTimeout 单个请求的超时，超时后照常重试；整次拉取的总时限另见 source.FetchTimeout
 	RequestTimeout time.Duration `mapstructure:"request_timeout"`
 }
 

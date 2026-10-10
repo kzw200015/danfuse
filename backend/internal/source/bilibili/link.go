@@ -202,11 +202,8 @@ func parseVideoID(id string) (int64, bool) {
 
 // positiveInt 解析只由数字组成的正整数，不接受正负号和空白。
 func positiveInt(s string) (int64, bool) {
-	if s == "" || strings.ContainsFunc(s, func(r rune) bool { return r < '0' || r > '9' }) {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	return n, err == nil && n > 0
+	n, err := strconv.ParseUint(s, 10, 63)
+	return int64(n), err == nil && n > 0
 }
 
 // isPositive s 是否是 positiveInt 认得的正整数，只看能否解析、不要值时用。

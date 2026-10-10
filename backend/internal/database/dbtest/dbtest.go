@@ -6,11 +6,11 @@
 //	func TestXxx(t *testing.T) {
 //		t.Parallel()
 //		pool := dbtest.Pool(t)
-//		store := repository.NewStore(pool)
+//		svc := binding.NewService(pool, sources, logger)
 //		...
 //	}
 //
-// 要自己创建连接池时（例如在 testing/synctest 的气泡里）用 dbtest.Config(t) 取得新库的连接配置。
+// 要在别处创建连接池时（例如在 testing/synctest 的气泡里），先在外面用 dbtest.Config(t) 复制出新库，再在气泡里 dbtest.Open(t, cfg)。
 //
 // 需要 Docker。go test -short 跳过数据库测试；不加 -short 而 Docker 不可用时直接失败。
 package dbtest
@@ -144,7 +144,12 @@ func Config(t testing.TB) *pgxpool.Config {
 // -short 时跳过当前测试。
 func Pool(t testing.TB) *pgxpool.Pool {
 	t.Helper()
-	cfg := Config(t)
+	return Open(t, Config(t))
+}
+
+// Open 按 cfg（来自 Config）新建连接池，当前测试结束时关闭。
+func Open(t testing.TB, cfg *pgxpool.Config) *pgxpool.Pool {
+	t.Helper()
 	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("dbtest: connect database %s: %v", cfg.ConnConfig.Database, err)

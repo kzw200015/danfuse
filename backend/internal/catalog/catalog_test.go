@@ -1,8 +1,11 @@
 package catalog
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/kzw200015/danfuse/backend/internal/catalog/naming"
 )
 
 func TestSeriesValidate(t *testing.T) {
@@ -60,7 +63,7 @@ func TestSeasonName(t *testing.T) {
 		typ        SeriesType
 		number     int
 		wantName   string
-		wantParsed string // ParseName 拆出的"标题 | 季号 | 集号"
+		wantParsed string // naming.Parse 拆出的"标题 | 季号 | 集号"
 	}{
 		{TypeTV, 1, "星海旅人", "星海旅人 | - | -"},
 		{TypeTV, 2, "星海旅人 第2季", "星海旅人 | 2 | -"},
@@ -73,10 +76,21 @@ func TestSeasonName(t *testing.T) {
 		if name != tt.wantName {
 			t.Errorf("SeasonName(%s, %d) = %q, want %q", tt.typ, tt.number, name, tt.wantName)
 		}
-		if got := describeName(ParseName(name)); got != tt.wantParsed {
-			t.Errorf("ParseName(%q) = %q, want %q", name, got, tt.wantParsed)
+		if got := describeParsed(naming.Parse(name)); got != tt.wantParsed {
+			t.Errorf("naming.Parse(%q) = %q, want %q", name, got, tt.wantParsed)
 		}
 	}
+}
+
+// describeParsed 把解析结果写成一行便于比较："标题 | 季号 | 集号"，没有的写 -。
+func describeParsed(p naming.Parsed) string {
+	number := func(n *int) string {
+		if n == nil {
+			return "-"
+		}
+		return fmt.Sprint(*n)
+	}
+	return fmt.Sprintf("%s | %s | %s", p.Title, number(p.Season), number(p.Episode))
 }
 
 func TestSearchVector(t *testing.T) {

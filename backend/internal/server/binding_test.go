@@ -11,6 +11,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/source"
+	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 // fakeAdapter 假的源适配器：链接 "fake/<名字>" 的 ref 为 {"name":"<名字>"}。合集的方法在 season_binding_test.go。
@@ -67,7 +68,7 @@ func TestCreateBinding(t *testing.T) {
 	_, _, data := call(t, srv, http.MethodPost, "/api/episodes/2/bindings", `{"url": " fake/x "}`, http.StatusCreated)
 	binding := decodeObject(t, data)
 	popTime(t, binding, "lastFetchedAt") // 这次拉取的时间
-	assertJSON(t, json.RawMessage(jsonString(binding)), `{
+	testenv.AssertJSON(t, json.RawMessage(jsonString(binding)), `{
 		"id": 5, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/x", "sourceLabel": "假弹幕源 x",
 		"title": "弹幕源 x", "duration": 1418, "offset": 0, "status": "active", "contentVersion": 1, "danmakuCount": 2, "maxTimeMs": 1500, "seasonBindingId": null
 	}`)
@@ -116,7 +117,7 @@ func TestRefetchBinding(t *testing.T) {
 		binding := decodeObject(t, result["binding"])
 		popTime(t, binding, "lastFetchedAt") // 这次拉取的时间
 		result["binding"] = json.RawMessage(jsonString(binding))
-		assertJSON(t, json.RawMessage(jsonString(result)), tt.want)
+		testenv.AssertJSON(t, json.RawMessage(jsonString(result)), tt.want)
 	}
 
 	// 弹幕源不存在时标为失效、接口异常时状态不变，见 service 的 TestRefetchDeadAndRecover
@@ -136,7 +137,7 @@ func TestUpdateBinding(t *testing.T) {
 	srv := catalogServer(pool)
 
 	_, _, data := call(t, srv, http.MethodPatch, "/api/bindings/1", `{"offset": -12.5}`, http.StatusOK)
-	assertJSON(t, data, `{
+	testenv.AssertJSON(t, data, `{
 		"id": 1, "kind": "link", "adapter": "fake", "sourceUrl": "https://fake.test/a", "sourceLabel": "假弹幕源 a",
 		"title": "弹幕源 a", "duration": 1440, "offset": -12.5, "status": "active", "contentVersion": 0, "danmakuCount": 2, "maxTimeMs": 1500, "seasonBindingId": null, "lastFetchedAt": null
 	}`)

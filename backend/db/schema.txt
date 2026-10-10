@@ -1,0 +1,249 @@
+由 make schema 根据 db/migrations 生成，不要手改。表结构以迁移为准，这里只用来查看。
+
+                                 Table "public.binding_files"
+   Column    |           Type           | Collation | Nullable |           Default
+-------------+--------------------------+-----------+----------+------------------------------
+ id          | bigint                   |           | not null | generated always as identity
+ binding_id  | bigint                   |           | not null |
+ name        | text                     |           | not null |
+ sha256      | bytea                    |           | not null |
+ size        | integer                  |           | not null |
+ content     | bytea                    |           | not null |
+ uploaded_at | timestamp with time zone |           | not null | now()
+Indexes:
+    "binding_files_pkey" PRIMARY KEY, btree (id)
+    "binding_files_binding_id_sha256_key" UNIQUE CONSTRAINT, btree (binding_id, sha256)
+Foreign-key constraints:
+    "binding_files_binding_id_fkey" FOREIGN KEY (binding_id) REFERENCES bindings(id) ON DELETE CASCADE
+
+                                       Table "public.bindings"
+       Column       |           Type           | Collation | Nullable |           Default
+--------------------+--------------------------+-----------+----------+------------------------------
+ id                 | bigint                   |           | not null | generated always as identity
+ episode_id         | bigint                   |           | not null |
+ adapter            | text                     |           |          |
+ ref                | jsonb                    |           |          |
+ offset             | double precision         |           | not null | 0
+ scale              | double precision         |           | not null | 1.0
+ status             | text                     |           | not null | 'active'::text
+ content_version    | integer                  |           | not null | 0
+ danmaku_count      | integer                  |           | not null | 0
+ title              | text                     |           | not null |
+ duration           | integer                  |           |          |
+ last_fetched_at    | timestamp with time zone |           |          |
+ created_at         | timestamp with time zone |           | not null | now()
+ updated_at         | timestamp with time zone |           | not null | now()
+ season_binding_id  | bigint                   |           |          |
+ kind               | text                     |           | not null | 'link'::text
+ file_count         | integer                  |           | not null | 0
+ fetch_attempted_at | timestamp with time zone |           |          |
+ max_time_ms        | integer                  |           | not null | 0
+Indexes:
+    "bindings_pkey" PRIMARY KEY, btree (id)
+    "bindings_episode_id_adapter_ref_key" UNIQUE CONSTRAINT, btree (episode_id, adapter, ref)
+    "bindings_link_created_at_idx" btree (created_at) WHERE kind = 'link'::text
+    "bindings_season_binding_id_idx" btree (season_binding_id)
+Check constraints:
+    "bindings_file_fetch_attempted_check" CHECK (kind = 'link'::text OR fetch_attempted_at IS NULL)
+    "bindings_kind_check" CHECK (kind = ANY (ARRAY['link'::text, 'file'::text]))
+    "bindings_kind_columns_check" CHECK (kind = 'link'::text AND adapter IS NOT NULL AND ref IS NOT NULL AND duration IS NOT NULL AND file_count = 0 OR kind = 'file'::text AND adapter IS NULL AND ref IS NULL AND duration IS NULL AND status = 'active'::text AND last_fetched_at IS NULL AND season_binding_id IS NULL)
+    "bindings_status_check" CHECK (status = ANY (ARRAY['active'::text, 'dead'::text]))
+Foreign-key constraints:
+    "bindings_episode_id_fkey" FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+    "bindings_season_binding_id_fkey" FOREIGN KEY (season_binding_id) REFERENCES season_bindings(id) ON DELETE SET NULL
+Referenced by:
+    TABLE "binding_files" CONSTRAINT "binding_files_binding_id_fkey" FOREIGN KEY (binding_id) REFERENCES bindings(id) ON DELETE CASCADE
+    TABLE "danmaku" CONSTRAINT "danmaku_binding_id_fkey" FOREIGN KEY (binding_id) REFERENCES bindings(id) ON DELETE CASCADE
+
+                 Table "public.danmaku"
+   Column   |   Type   | Collation | Nullable | Default
+------------+----------+-----------+----------+---------
+ binding_id | bigint   |           | not null |
+ source_id  | bigint   |           | not null |
+ time_ms    | integer  |           | not null |
+ mode       | smallint |           | not null |
+ color      | integer  |           | not null |
+ text       | text     |           | not null |
+Indexes:
+    "danmaku_pkey" PRIMARY KEY, btree (binding_id, source_id)
+Check constraints:
+    "danmaku_color_check" CHECK (color >= 0 AND color <= 16777215)
+Foreign-key constraints:
+    "danmaku_binding_id_fkey" FOREIGN KEY (binding_id) REFERENCES bindings(id) ON DELETE CASCADE
+
+                                   Table "public.episodes"
+   Column   |           Type           | Collation | Nullable |           Default
+------------+--------------------------+-----------+----------+------------------------------
+ id         | bigint                   |           | not null | generated always as identity
+ season_id  | bigint                   |           | not null |
+ number     | integer                  |           | not null |
+ title      | text                     |           |          |
+ duration   | integer                  |           |          |
+ created_at | timestamp with time zone |           | not null | now()
+ updated_at | timestamp with time zone |           | not null | now()
+Indexes:
+    "episodes_pkey" PRIMARY KEY, btree (id)
+    "episodes_season_id_number_key" UNIQUE CONSTRAINT, btree (season_id, number)
+Check constraints:
+    "episodes_number_check" CHECK (number >= 0)
+Foreign-key constraints:
+    "episodes_season_id_fkey" FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "bindings" CONSTRAINT "bindings_episode_id_fkey" FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+    TABLE "season_binding_handled" CONSTRAINT "season_binding_handled_episode_id_fkey" FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+
+                                     Table "public.images"
+    Column    |           Type           | Collation | Nullable |           Default
+--------------+--------------------------+-----------+----------+------------------------------
+ id           | bigint                   |           | not null | generated always as identity
+ content_type | text                     |           | not null |
+ data         | bytea                    |           | not null |
+ sha256       | bytea                    |           | not null |
+ created_at   | timestamp with time zone |           | not null | now()
+Indexes:
+    "images_pkey" PRIMARY KEY, btree (id)
+Referenced by:
+    TABLE "series" CONSTRAINT "series_poster_image_id_fkey" FOREIGN KEY (poster_image_id) REFERENCES images(id)
+
+                         Table "public.leases"
+   Column   |           Type           | Collation | Nullable | Default
+------------+--------------------------+-----------+----------+---------
+ key        | text                     |           | not null |
+ token      | bigint                   |           | not null |
+ expires_at | timestamp with time zone |           | not null |
+Indexes:
+    "leases_pkey" PRIMARY KEY, btree (key)
+
+                     Table "public.season_binding_handled"
+      Column       |           Type           | Collation | Nullable | Default
+-------------------+--------------------------+-----------+----------+---------
+ season_binding_id | bigint                   |           | not null |
+ ref               | jsonb                    |           | not null |
+ episode_id        | bigint                   |           | not null |
+ created_at        | timestamp with time zone |           | not null | now()
+Indexes:
+    "season_binding_handled_pkey" PRIMARY KEY, btree (season_binding_id, ref)
+    "season_binding_handled_episode_id_idx" btree (episode_id)
+Foreign-key constraints:
+    "season_binding_handled_episode_id_fkey" FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+    "season_binding_handled_season_binding_id_fkey" FOREIGN KEY (season_binding_id) REFERENCES season_bindings(id) ON DELETE CASCADE
+
+                      Table "public.season_binding_items"
+      Column       |           Type           | Collation | Nullable | Default
+-------------------+--------------------------+-----------+----------+---------
+ season_binding_id | bigint                   |           | not null |
+ ref               | jsonb                    |           | not null |
+ position          | integer                  |           | not null |
+ number            | integer                  |           |          |
+ unmatched_reason  | text                     |           |          |
+ label             | text                     |           | not null |
+ last_error        | text                     |           |          |
+ last_error_at     | timestamp with time zone |           |          |
+Indexes:
+    "season_binding_items_pkey" PRIMARY KEY, btree (season_binding_id, ref)
+Foreign-key constraints:
+    "season_binding_items_season_binding_id_fkey" FOREIGN KEY (season_binding_id) REFERENCES season_bindings(id) ON DELETE CASCADE
+
+                                  Table "public.season_bindings"
+      Column      |           Type           | Collation | Nullable |           Default
+------------------+--------------------------+-----------+----------+------------------------------
+ id               | bigint                   |           | not null | generated always as identity
+ season_id        | bigint                   |           | not null |
+ adapter          | text                     |           | not null |
+ ref              | jsonb                    |           | not null |
+ title            | text                     |           | not null |
+ finished         | boolean                  |           | not null | false
+ mapping_from     | integer                  |           | not null |
+ mapping_to       | integer                  |           | not null |
+ follow           | boolean                  |           | not null | true
+ status           | text                     |           | not null | 'active'::text
+ last_error       | text                     |           |          |
+ last_checked_at  | timestamp with time zone |           |          |
+ created_at       | timestamp with time zone |           | not null | now()
+ updated_at       | timestamp with time zone |           | not null | now()
+ episode_patterns | text[]                   |           | not null |
+ numbered_by_rule | boolean                  |           | not null |
+Indexes:
+    "season_bindings_pkey" PRIMARY KEY, btree (id)
+    "season_bindings_season_id_adapter_ref_key" UNIQUE CONSTRAINT, btree (season_id, adapter, ref)
+Check constraints:
+    "season_bindings_episode_patterns_check" CHECK (cardinality(episode_patterns) >= 1)
+    "season_bindings_mapping_from_check" CHECK (mapping_from >= 0)
+    "season_bindings_mapping_to_check" CHECK (mapping_to >= 0)
+    "season_bindings_status_check" CHECK (status = ANY (ARRAY['active'::text, 'dead'::text]))
+Foreign-key constraints:
+    "season_bindings_season_id_fkey" FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "bindings" CONSTRAINT "bindings_season_binding_id_fkey" FOREIGN KEY (season_binding_id) REFERENCES season_bindings(id) ON DELETE SET NULL
+    TABLE "season_binding_handled" CONSTRAINT "season_binding_handled_season_binding_id_fkey" FOREIGN KEY (season_binding_id) REFERENCES season_bindings(id) ON DELETE CASCADE
+    TABLE "season_binding_items" CONSTRAINT "season_binding_items_season_binding_id_fkey" FOREIGN KEY (season_binding_id) REFERENCES season_bindings(id) ON DELETE CASCADE
+
+                                     Table "public.seasons"
+    Column     |           Type           | Collation | Nullable |           Default
+---------------+--------------------------+-----------+----------+------------------------------
+ id            | bigint                   |           | not null | generated always as identity
+ series_id     | bigint                   |           | not null |
+ number        | integer                  |           | not null |
+ title         | text                     |           |          |
+ created_at    | timestamp with time zone |           | not null | now()
+ updated_at    | timestamp with time zone |           | not null | now()
+ search_vector | tsvector                 |           | not null | ''::tsvector
+Indexes:
+    "seasons_pkey" PRIMARY KEY, btree (id)
+    "seasons_search_vector_idx" gin (search_vector)
+    "seasons_series_id_number_key" UNIQUE CONSTRAINT, btree (series_id, number)
+Check constraints:
+    "seasons_number_check" CHECK (number >= 0)
+Foreign-key constraints:
+    "seasons_series_id_fkey" FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "episodes" CONSTRAINT "episodes_season_id_fkey" FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
+    TABLE "season_bindings" CONSTRAINT "season_bindings_season_id_fkey" FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
+
+                                      Table "public.series"
+     Column      |           Type           | Collation | Nullable |           Default
+-----------------+--------------------------+-----------+----------+------------------------------
+ id              | bigint                   |           | not null | generated always as identity
+ type            | text                     |           | not null |
+ title           | text                     |           | not null |
+ original_title  | text                     |           |          |
+ year            | integer                  |           |          |
+ created_at      | timestamp with time zone |           | not null | now()
+ updated_at      | timestamp with time zone |           | not null | now()
+ poster_image_id | bigint                   |           |          |
+ tmdb_id         | bigint                   |           |          |
+Indexes:
+    "series_pkey" PRIMARY KEY, btree (id)
+    "series_natural_key_idx" UNIQUE, btree (type, title, year) NULLS NOT DISTINCT WHERE tmdb_id IS NULL
+    "series_poster_image_id_key" UNIQUE CONSTRAINT, btree (poster_image_id)
+    "series_type_tmdb_id_key" UNIQUE CONSTRAINT, btree (type, tmdb_id)
+Check constraints:
+    "series_tmdb_id_check" CHECK (tmdb_id > 0)
+    "series_type_check" CHECK (type = ANY (ARRAY['tv'::text, 'movie'::text]))
+Foreign-key constraints:
+    "series_poster_image_id_fkey" FOREIGN KEY (poster_image_id) REFERENCES images(id)
+Referenced by:
+    TABLE "seasons" CONSTRAINT "seasons_series_id_fkey" FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+
+                                     Table "public.sync_runs"
+      Column      |           Type           | Collation | Nullable |           Default
+------------------+--------------------------+-----------+----------+------------------------------
+ id               | bigint                   |           | not null | generated always as identity
+ trigger          | text                     |           | not null |
+ status           | text                     |           | not null |
+ started_at       | timestamp with time zone |           | not null | now()
+ finished_at      | timestamp with time zone |           |          |
+ total            | integer                  |           |          |
+ done             | integer                  |           | not null | 0
+ created_series   | integer                  |           | not null | 0
+ created_seasons  | integer                  |           | not null | 0
+ created_episodes | integer                  |           | not null | 0
+ warnings         | jsonb                    |           | not null | '[]'::jsonb
+ warning_count    | integer                  |           | not null | 0
+ error            | text                     |           |          |
+Indexes:
+    "sync_runs_pkey" PRIMARY KEY, btree (id)
+Check constraints:
+    "sync_runs_status_check" CHECK (status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'interrupted'::text]))
+    "sync_runs_trigger_check" CHECK (trigger = ANY (ARRAY['manual'::text, 'schedule'::text]))
+

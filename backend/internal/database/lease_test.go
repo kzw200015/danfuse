@@ -36,12 +36,7 @@ func leaseTest(t *testing.T, f func(t *testing.T, pool *pgxpool.Pool)) {
 	t.Helper()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(pool.Close)
-		f(t, pool)
+		f(t, dbtest.Open(t, cfg))
 	})
 }
 

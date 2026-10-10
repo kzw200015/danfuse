@@ -17,9 +17,9 @@ func (m Mapping) Episode(n int) (episode int, ok bool) {
 	return n - m.From + m.To, true
 }
 
-// MarkDuplicateNumbers 返回标出重复序号之后的条目：同一个合集里两个以上的条目序号相同时，这些条目都对不上，
+// markDuplicateNumbers 返回标出重复序号之后的条目：同一个合集里两个以上的条目序号相同时，这些条目都对不上，
 // 原因为 duplicateNumber。已经对不上的条目不参与判定。与集号对应无关，不改动传入的切片。
-func MarkDuplicateNumbers(items []CollectionItem) []CollectionItem {
+func markDuplicateNumbers(items []CollectionItem) []CollectionItem {
 	count := make(map[int]int)
 	for _, it := range items {
 		if it.Unmatched == "" {
@@ -36,9 +36,9 @@ func MarkDuplicateNumbers(items []CollectionItem) []CollectionItem {
 	return marked
 }
 
-// NormalizeItems 整理条目（NumberItems 的最后一步）：ref 相同的条目只保留第一个
-// （季绑定的条目与处理过的记录都按弹幕源区分），再用 MarkDuplicateNumbers 标出重复的序号。不改动传入的切片。
-func NormalizeItems(items []CollectionItem) []CollectionItem {
+// normalizeItems 整理条目（NumberItems 的最后一步）：ref 相同的条目只保留第一个
+// （季绑定的条目与处理过的记录都按弹幕源区分），再用 markDuplicateNumbers 标出重复的序号。不改动传入的切片。
+func normalizeItems(items []CollectionItem) []CollectionItem {
 	seen := make(map[string]bool, len(items))
 	unique := make([]CollectionItem, 0, len(items))
 	for _, it := range items {
@@ -47,5 +47,5 @@ func NormalizeItems(items []CollectionItem) []CollectionItem {
 			unique = append(unique, it)
 		}
 	}
-	return MarkDuplicateNumbers(unique)
+	return markDuplicateNumbers(unique)
 }

@@ -32,6 +32,8 @@ jobs:
           working-directory: backend
       # 数据库测试由 testcontainers 起 postgres:18 容器，GitHub 的 Ubuntu runner 自带 Docker
       - run: go test ./...
+      # db/schema.txt 由迁移生成，改了迁移要一起提交
+      - run: make schema && git diff --exit-code db/schema.txt
 
   frontend:
     runs-on: ubuntu-latest

@@ -36,8 +36,12 @@ func Merge(tracks []Track) []Item {
 		platform Platform
 		sourceID int64
 	}
-	var entries []entry
-	owners := make(map[idKey]int64) // (平台, 原始 ID) → 先拿到它的绑定
+	total := 0
+	for _, tr := range tracks {
+		total += len(tr.Items)
+	}
+	entries := make([]entry, 0, total)
+	owners := make(map[idKey]int64, total) // (平台, 原始 ID) → 先拿到它的绑定
 	for _, tr := range slices.SortedFunc(slices.Values(tracks), func(a, b Track) int { return cmp.Compare(a.BindingID, b.BindingID) }) {
 		for _, d := range tr.Items {
 			t := math.Round(float64(d.TimeMs)*tr.Scale + tr.Offset*1000)

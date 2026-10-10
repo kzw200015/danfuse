@@ -11,8 +11,6 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/dandan"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
 	"github.com/kzw200015/danfuse/backend/web"
 )
 
@@ -22,13 +20,13 @@ type Server struct {
 	echo   *echo.Echo
 }
 
-// New 组装 Echo：管理 API 由 h 处理，弹弹 API 由 dh 处理。
-func New(cfg config.Server, dandanplay config.Dandanplay, logger *slog.Logger, h *handler.Handlers, dh *dandan.Handler) *Server {
-	return newServer(cfg, dandanplay, logger, h, dh, web.FS())
+// New 组装 Echo：管理 API（/api）和弹弹 API（/dandanplay，见 registerDandanRoutes）由 h 处理，其余路径托管前端。
+func New(cfg config.Server, dandanplay config.Dandanplay, logger *slog.Logger, h *Handlers) *Server {
+	return newServer(cfg, dandanplay, logger, h, web.FS())
 }
 
 // newServer 组装 Echo，ui 是要托管的前端文件，测试里换成假的文件系统。
-func newServer(cfg config.Server, dandanplay config.Dandanplay, logger *slog.Logger, h *handler.Handlers, dh *dandan.Handler, ui fs.FS) *Server {
+func newServer(cfg config.Server, dandanplay config.Dandanplay, logger *slog.Logger, h *Handlers, ui fs.FS) *Server {
 	e := echo.NewWithConfig(echo.Config{
 		Logger:           logger,
 		HTTPErrorHandler: errorHandler,
@@ -41,7 +39,7 @@ func newServer(cfg config.Server, dandanplay config.Dandanplay, logger *slog.Log
 	)
 
 	registerRoutes(e, h)
-	registerDandanRoutes(e, dandanplay, dh)
+	registerDandanRoutes(e, dandanplay, h.Dandan)
 
 	return &Server{cfg: cfg, logger: logger, echo: e}
 }

@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	"github.com/kzw200015/danfuse/backend/internal/catalog/naming"
 )
 
 const (
@@ -37,9 +37,9 @@ type episodePattern struct {
 // lastLevelEpisode 标签结尾、紧跟 LabelSeparator 的数字：下级标题只写了集号（"某番 / 05"）。
 const lastLevelEpisode = `/ (?P<episode>\d{1,4})$`
 
-// defaultRule 默认规则：catalog.EpisodePatterns（与搜索、match 认集号的写法相同），再加上 lastLevelEpisode。
+// defaultRule 默认规则：naming.EpisodePatterns（与搜索、match 认集号的写法相同），再加上 lastLevelEpisode。
 var defaultRule = func() EpisodeRule {
-	r, err := ParseEpisodeRule(append(catalog.EpisodePatterns(), lastLevelEpisode))
+	r, err := ParseEpisodeRule(append(naming.EpisodePatterns(), lastLevelEpisode))
 	if err != nil {
 		panic(err)
 	}
@@ -106,16 +106,16 @@ func (r EpisodeRule) Patterns() []string {
 }
 
 // NumberItems 预览、保存之前整理 ListCollection 列出的条目：按规则编号的合集先用集号规则从标签认出各条目的序号
-// （认不出的对不上），再交给 NormalizeItems 去掉重复的 ref、标出重复的序号。不改动传入的切片。
+// （认不出的对不上），再交给 normalizeItems 去掉重复的 ref、标出重复的序号。不改动传入的切片。
 func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
 	if !c.NumberedByRule {
-		return NormalizeItems(c.Items)
+		return normalizeItems(c.Items)
 	}
 	numbered := make([]CollectionItem, len(c.Items))
 	for i, it := range c.Items {
 		numbered[i] = r.match(it)
 	}
-	return NormalizeItems(numbered)
+	return normalizeItems(numbered)
 }
 
 // match 认一个条目的序号：每一条正则都在标签里找，取集号（捕获组）结束得最靠后的那一处，一样靠后时取排在前面的正则。
@@ -133,7 +133,7 @@ func (r EpisodeRule) match(it CollectionItem) CollectionItem {
 	}
 	n, err := strconv.ParseUint(norm.NFKC.String(captured), 10, 31)
 	if err != nil {
-		it.Number, it.Unmatched = 0, fmt.Sprintf("集号「%s」不是整数", captured)
+		it.Number, it.Unmatched = 0, NotInteger(captured)
 	} else {
 		it.Number, it.Unmatched = int(n), ""
 	}

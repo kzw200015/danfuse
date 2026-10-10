@@ -2,15 +2,12 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
-	"testing/synctest"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v5"
@@ -18,9 +15,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
-	"github.com/kzw200015/danfuse/backend/internal/service"
+	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -96,17 +91,6 @@ func decodeLogEntry(t *testing.T, logs *bytes.Buffer) logEntry {
 	return entry
 }
 
-// newPool 按 cfg 新建连接池，测试结束时关闭。在 synctest 气泡里用时，连接池在气泡里创建、在气泡里关闭。
-func newPool(t *testing.T, cfg *pgxpool.Config) *pgxpool.Pool {
-	t.Helper()
-	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
-
 // decodeObject 把 JSON 对象解成字段名到原始值的映射。
 func decodeObject(t *testing.T, data json.RawMessage) map[string]json.RawMessage {
 	t.Helper()
@@ -131,75 +115,12 @@ func jsonString(v any) string {
 	return string(b)
 }
 
-// assertJSON 按语义比较 JSON：字段名与值都要一致，不管字段顺序与空白。
-func assertJSON(t *testing.T, got json.RawMessage, want string) {
-	t.Helper()
-	var g, w any
-	if err := json.Unmarshal(got, &g); err != nil {
-		t.Fatalf("响应不是 JSON：%s", got)
-	}
-	if err := json.Unmarshal([]byte(want), &w); err != nil {
-		t.Fatalf("期望值不是 JSON：%v", err)
-	}
-	if !reflect.DeepEqual(g, w) {
-		// 两边都重新编码，字段按名称排序，方便对照
-		t.Errorf("got  %s\nwant %s", jsonString(g), jsonString(w))
-	}
-}
-
-// fakeCatalog 实现 catalog.Source 的假目录源：依次产出 items，清单带上 warnings；
-// gate 不为 nil 时，每产出一部剧之前等它放行一次。
-type fakeCatalog struct {
-	items    []catalog.Item
-	warnings []string
-	gate     chan struct{}
-}
-
-var _ catalog.Source = (*fakeCatalog)(nil)
-
-func (s *fakeCatalog) List(ctx context.Context) (catalog.Listing, error) {
-	return catalog.Listing{
-		Total:    len(s.items),
-		Warnings: s.warnings,
-		Items: func(yield func(catalog.Item, error) bool) {
-			for _, item := range s.items {
-				if s.gate != nil {
-					select {
-					case <-s.gate:
-					case <-ctx.Done():
-						yield(catalog.Item{}, ctx.Err())
-						return
-					}
-				}
-				if !yield(item, nil) {
-					return
-				}
-			}
-		},
-	}, nil
-}
-
 // startSync 在 synctest 气泡里新建连接池和不开定时同步的 SyncService，在后台运行 Run，等它停下来再返回。
 // src 为 nil 表示未配置目录源。连接池在气泡里创建、在气泡里关闭：测试结束时先取消 Run 并等它返回，再关闭连接池。
-func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*service.SyncService, *pgxpool.Pool) {
+func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*catalog.SyncService, *pgxpool.Pool) {
 	t.Helper()
-	pool := newPool(t, cfg)
-	svc := service.NewSyncService(repository.NewStore(pool), pool, src, config.Sync{KeepRuns: 20}, slog.New(slog.DiscardHandler))
-	runInBackground(t, svc)
-	return svc, pool
-}
-
-// runInBackground 在后台运行 svc.Run，等它做完启动时的清理再返回。测试结束时取消 Run 并等它返回。
-func runInBackground(t *testing.T, svc interface{ Run(context.Context) }) {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		svc.Run(ctx)
-	}()
-	t.Cleanup(func() { cancel(); <-done }) // 在关闭连接池之前
-	synctest.Wait()
+	pool := dbtest.Open(t, cfg)
+	return testenv.StartSync(t, pool, src), pool
 }
 
 func TestHealth(t *testing.T) {
@@ -219,7 +140,7 @@ func TestHealth(t *testing.T) {
 			if tt.dbDown {
 				pool.Close()
 			}
-			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &handler.Handlers{Health: handler.NewHealthHandler(pool)}, nil)
+			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{Health: NewHealthHandler(pool)})
 
 			rec := serve(t, srv, http.MethodGet, "/api/health", "")
 

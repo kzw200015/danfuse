@@ -9,7 +9,7 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `fronten
 - Go 1.27+
 - Node.js 22.18+ 或 24.12+，pnpm 12（版本由 `frontend/package.json` 的 `packageManager` 固定，`corepack enable` 后自动使用）
 - PostgreSQL 18，本地没有时用 Docker 起一个（见下文）
-- Docker：后端的数据库测试和端到端环境都要用
+- Docker：后端的数据库测试、`make schema` 和端到端环境都要用
 - 修改 SQL 查询需要 [sqlc](https://docs.sqlc.dev)，代码检查与格式化需要 [golangci-lint](https://golangci-lint.run) v2；goose 不用单独安装，通过 `go run` 调用
 
 ## 项目结构
@@ -19,8 +19,10 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `fronten
 ├── backend/
 │   ├── cmd/server/     # 程序入口
 │   ├── configs/        # 配置模板
-│   ├── db/             # 数据库迁移与 SQL 查询
-│   ├── internal/       # 应用代码：handler、service、repository、server，以及 catalog、source、danmaku 等领域包
+│   ├── db/             # 数据库迁移（也是 sqlc 的 schema），以及由迁移生成的全部表结构 schema.txt
+│   ├── scripts/        # make 调用的脚本
+│   ├── internal/       # 应用代码：按领域分包（catalog、binding、seasonbinding、dandan，各带 handler、service 和 xxxdb/ 查询），
+│   │                   #   source、danmaku 等纯计算包，以及 server、app、httpx、testenv 等公共部分
 │   └── web/            # 内嵌的前端构建产物与占位页
 ├── frontend/
 │   └── src/
@@ -77,7 +79,8 @@ pnpm dev
 | --- | --- |
 | `make run` | 启动服务 |
 | `make build` | 编译到 `bin/server` |
-| `make generate` | 重新生成 sqlc 代码（`make sqlc`） |
+| `make generate` | 改了迁移之后：重新生成 sqlc 代码和 `db/schema.txt`（`make sqlc` + `make schema`，后者需要 Docker） |
+| `make sqlc` | 只改了 `xxxdb/queries.sql` 时重新生成 sqlc 代码 |
 | `make migration name=<name>` | 新建数据库迁移文件 |
 | `make lint` / `make fmt` | 代码检查 / 格式化（gofumpt + goimports） |
 | `go test ./...` | 运行全部测试，数据库测试需要 Docker |
@@ -98,7 +101,7 @@ pnpm dev
 
 提交前请跑一遍：后端 `make lint` 和 `go test ./...`，前端 `pnpm lint`、`pnpm format:check`、`pnpm build` 和 `pnpm test:unit --run`。
 
-CI（`.github/workflows/ci.yml`）在 PR 和推送 main 时跑同样的检查（前端的类型检查用 `tsc -b`，不打包）；推送 main 时检查全部通过后，用同一份 Dockerfile 构建 linux/amd64、linux/arm64 镜像，推到 `ghcr.io/kzw200015/danfuse`，标签为 `latest` 和 `sha-<短哈希>`。
+CI（`.github/workflows/ci.yml`）在 PR 和推送 main 时跑同样的检查（前端的类型检查用 `tsc -b`，不打包），后端另外检查 `db/schema.txt` 与迁移同步；推送 main 时检查全部通过后，用同一份 Dockerfile 构建 linux/amd64、linux/arm64 镜像，推到 `ghcr.io/kzw200015/danfuse`，标签为 `latest` 和 `sha-<短哈希>`。
 
 ## 测试
 
@@ -148,11 +151,11 @@ docker compose up -d --build danfuse                     # 构建并启动 danfu
 ## 数据库迁移
 
 - 迁移文件在 `backend/db/migrations`，用 `make migration name=<name>` 新建，写好 `-- +goose Up` 与 `-- +goose Down`。迁移内嵌进二进制，服务启动时自动执行，升级只靠它。
-- sqlc 直接把迁移文件当作 schema 读取：改表结构就是新增一个迁移，再 `make sqlc`。
+- sqlc 直接把迁移文件当作 schema 读取：改表结构就是新增一个迁移，再 `make generate`。全部表的最终结构看 `backend/db/schema.txt`：由 `make schema` 把迁移执行到临时的 postgres 容器、用 psql 的 `\d` 导出，不手改，CI 检查它与迁移同步。
 - **迁移文件推到 main 之后就算已经发布，不再修改**（推送 main 会发布镜像，用户的数据库已经执行过它）。改表结构一律新增迁移。
 - 已有数据需要用 Go 重新计算时（例如分词规则改变后重算搜索列），在同一目录按序号新增 Go 迁移，写法见 [`docs/architecture/catalog.md`](docs/architecture/catalog.md) 的"搜索列"一节。
 
-`backend/internal/repository/sqlc/` 由 sqlc 生成，不要手改；改了查询之后执行 `make generate`。依赖在 `backend/internal/app/app.go` 的 `app.New` 里手写组装，新增或修改构造函数时直接改那里。
+查询写在各领域的 `xxxdb/queries.sql`（例如 `backend/internal/binding/bindingdb/queries.sql`），同目录下的 `.go` 由 sqlc 生成，不要手改；改了查询之后执行 `make sqlc`。`sqlc.yaml` 每个领域一组，新增领域时照样加一组。依赖在 `backend/internal/app/app.go` 的 `app.New` 里手写组装，新增或修改构造函数时直接改那里。
 
 ## 文档
 
@@ -164,7 +167,7 @@ docker compose up -d --build danfuse                     # 构建并启动 danfu
 使用 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)，描述用中文。scope 用 `backend` 或 `frontend`，同时改了两端或只改根目录的文件时省略 scope，例如：
 
 ```
-feat(backend): 新增 repository.Store，支持在 service 层开启事务
+feat(backend): 绑定支持上传弹幕文件
 fix(frontend): 偏移输入框失焦时校验
 feat: 贴链接支持番剧单集与短链
 docs: 补充反向代理的示例

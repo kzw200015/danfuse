@@ -62,9 +62,9 @@ func TestMarkDuplicateNumbers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := append([]CollectionItem(nil), tt.items...)
-			got := MarkDuplicateNumbers(tt.items)
+			got := markDuplicateNumbers(tt.items)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("MarkDuplicateNumbers() = %+v\nwant %+v", got, tt.want)
+				t.Errorf("markDuplicateNumbers() = %+v\nwant %+v", got, tt.want)
 			}
 			if !reflect.DeepEqual(tt.items, in) {
 				t.Errorf("改动了传入的切片：%+v", tt.items)
@@ -95,9 +95,9 @@ func TestNormalizeItems(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := append([]CollectionItem(nil), tt.items...)
-			got := NormalizeItems(tt.items)
+			got := normalizeItems(tt.items)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NormalizeItems() = %+v\nwant %+v", got, tt.want)
+				t.Errorf("normalizeItems() = %+v\nwant %+v", got, tt.want)
 			}
 			if !reflect.DeepEqual(tt.items, in) {
 				t.Errorf("改动了传入的切片：%+v", tt.items)

@@ -14,32 +14,32 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
+	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 // syncServer 在 synctest 气泡里起 SyncService（startSync）和完整的 Echo。src 为 nil 表示未配置目录源。
 func syncServer(t *testing.T, cfg *pgxpool.Config, src catalog.Source) *Server {
 	t.Helper()
 	svc, pool := startSync(t, cfg, src)
-	return New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &handler.Handlers{
-		Health: handler.NewHealthHandler(pool),
-		Sync:   handler.NewSyncHandler(svc),
-	}, nil)
+	return New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{
+		Health: NewHealthHandler(pool),
+		Sync:   catalog.NewSyncHandler(svc),
+	})
 }
 
 func TestSyncRunsAPI(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		src := &fakeCatalog{
-			items: []catalog.Item{
+		src := &testenv.FakeCatalog{
+			Items: []catalog.Item{
 				{Name: "甲", Series: &catalog.Series{Type: catalog.TypeTV, Title: "甲", Seasons: []catalog.Season{
 					{Number: 1, Episodes: []catalog.Episode{{Number: 1}, {Number: 2}}},
 				}}},
 				{Name: "乙", Warnings: []string{"没有有效的集，整部跳过"}},
 			},
-			warnings: []string{"找不到媒体库「动画」，已跳过"},
-			gate:     make(chan struct{}),
+			Warnings: []string{"找不到媒体库「动画」，已跳过"},
+			Gate:     make(chan struct{}),
 		}
 		srv := syncServer(t, cfg, src)
 
@@ -61,7 +61,7 @@ func TestSyncRunsAPI(t *testing.T) {
 
 		// 进度与警告怎样随同步写入见 service 的 TestSyncProgress；这里放行两部剧，让同步结束
 		for range 2 {
-			src.gate <- struct{}{}
+			src.Gate <- struct{}{}
 		}
 		synctest.Wait()
 

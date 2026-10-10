@@ -25,7 +25,8 @@ danfuse 是自托管的弹幕聚合服务：从目录源（目前只有 Jellyfin
 cp configs/config.example.yaml configs/config.yaml   # 首次使用；config.yaml 已被 git 忽略
 make run                         # 启动（-config configs/config.yaml），启动时自动执行未应用的迁移，默认 :8080
 make build                       # 编译到 bin/server
-make generate                    # = make sqlc
+make generate                    # 改了 db/migrations 之后：重新生成 sqlc 代码和 db/schema.txt（需要 Docker）
+make sqlc                        # 只改了 xxxdb/queries.sql 时重新生成
 make migration name=create_xxx   # 用与 go.mod 同版本的 goose CLI 新建 db/migrations 下的迁移
 make lint / make fmt             # golangci-lint v2 检查 / 格式化（gofumpt + goimports）
 go test ./...                    # Makefile 没有 test 目标；数据库测试需要 Docker，没有 Docker 时直接失败
@@ -58,23 +59,22 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 ## 后端架构
 
-- **分层**：`handler` → `service` → `repository.Store` → PostgreSQL，依赖方向由 depguard 守住（`backend/.golangci.yml`）。所有组件在 `internal/app/app.go` 的 `app.New` 里手写组装（不用 DI 框架）。
-- **领域包**（包名取自 `GLOSSARY.md`，如 `catalog`、`source`、`danmaku`）只放接口、类型、纯计算与外部适配；外部系统的适配器放在领域包的子包里（`catalog/jellyfin` 实现 `catalog.Source`，`source/bilibili` 实现 `source.Adapter`），由 `app` 装配（目录源按配置的 `kind` 选，未配置时为 nil；源适配器注册进 `source.Registry`）。
-- **弹弹 API** 的 handler 在 `dandan` 包，与 `handler` 平级。
-- **数据库访问**：service 依赖 `*repository.Store`（具体类型，内嵌 sqlc 生成的 `*sqlc.Queries`，另有 `ExecTx`；没有 `Querier` 接口）。单条查询直接调用、自动提交；多条语句需要原子性时用 `store.ExecTx(ctx, func(q *sqlc.Queries) error {...})`。列名 `offset` 是保留字，SQL 里要加引号。
-- **生成代码**：`internal/repository/sqlc/` 下均为 sqlc 生成（包名 `sqlc`：查询、模型与参数类型），`internal/repository` 只放手写的 `Store`。sqlc 直接把 `db/migrations`（goose 迁移文件）当作 schema 读取，改表结构 = 新增迁移，再 `make sqlc`。sqlc 配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`，个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型。
-- **错误出口**：`server/middleware.go` 的全局 `errorHandler` 统一转换：`*apierr.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。`code` 为 `0` 成功、`1`（`CodeFail`）通用失败，目前没有业务码。
-- **日志**：没有请求日志中间件，5xx 由 errorHandler 经 `logger.ServerError` 记录（`request_id`、方法、路由模式、完整的错误链）；请求的 ctx 已取消时改记 info 级别的 `request canceled`。
+- **按领域分包**：`internal/catalog`（浏览、删除、海报、同步）、`binding`（绑定、弹幕文件、查看弹幕、定时拉取）、`seasonbinding`（季绑定、补建）、`dandan`（弹弹 API），每个包里 `handler*.go` → `service` → `xxxdb/`（`queries.sql` 和 sqlc 生成的代码）→ PostgreSQL；handler 不碰数据库由 depguard 守住（`backend/.golangci.yml`）。领域之间只调用对方的 `Service`（依赖 catalog → seasonbinding → binding，dandan → binding），不引用对方的 `xxxdb`；要查别的领域的表时在自己的 `queries.sql` 里写查询。路由集中在 `server/router.go`（`server.Handlers` 汇总各领域的 handler），所有组件在 `internal/app/app.go` 的 `app.New` 里手写组装（不用 DI 框架）。
+- **适配器与纯计算包**：外部系统的接口和交换类型放在领域包，适配器放在它的子包里（`catalog/jellyfin` 实现 `catalog.Source`，`source/bilibili` 实现 `source.Adapter`），由 `app` 装配（目录源按配置的 `kind` 选，未配置时为 nil；源适配器注册进 `source.Registry`）。`source`、`danmaku`、`danmakufile`、`fulltext`、`catalog/naming`（名称里的季号、集号）只放接口、类型和纯计算，不访问数据库。
+- **数据库访问**：service 持有 `pool` 和本领域的 `q *xxxdb.Queries`（具体类型，没有 `Querier` 接口）。单条查询直接调用、自动提交；需要原子性时 `pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error { q := s.q.WithTx(tx); ... })`；跨领域的事务把 `tx` 传给对方的 `XxxInTx` 方法（如季绑定补建时的 `binding.Service.CreateBackfilledInTx`）。列名 `offset` 是保留字，SQL 里要加引号。
+- **生成代码**：`xxxdb/` 下的 `.go` 由 sqlc 生成，不手改。`sqlc.yaml` 每个领域一组，都直接读 `db/migrations`（goose 迁移文件）作为 schema，只生成本组用到的模型；改表结构 = 新增迁移，再 `make generate`。配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`，个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型。全部表的最终结构看 `db/schema.txt`（`make schema` 由迁移生成，psql `\d` 格式，不手改，CI 检查它与迁移同步）。
+- **公共部分**：`internal/httpx`（`apierr` API 错误、`response` 统一响应与 5xx 日志、`request` 绑定与校验），`background`（同步与补建共用的后台循环），`logger`，`database`（连接池、迁移、租约；`dbtest` 是测试基座），`testenv`（测试用：按 `app.New` 组装各领域的 service，共用的辅助函数和假适配器）。
+- **错误出口**：`server/errors.go` 的全局 `errorHandler` 统一转换：`*apierr.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。`code` 为 `0` 成功、`1`（`CodeFail`）通用失败，目前没有业务码。
+- **日志**：没有请求日志中间件，5xx 由 errorHandler 经 `response.LogServerError` 记录（`request_id`、方法、路由模式、完整的错误链）；请求的 ctx 已取消时改记 info 级别的 `request canceled`。
 - **API 版本**：Echo v5 的 handler 签名是 `func(c *echo.Context) error`（指针）；代码使用 Go 1.26+ 的 `errors.AsType`。goimports 本地前缀为 `github.com/kzw200015/danfuse`。
 
 ### 新增业务模块的步骤
 
 1. `make migration name=create_xxx`，编写建表 SQL（`-- +goose Up` / `-- +goose Down`）
-2. 在 `db/queries/xxx.sql` 写查询，`make sqlc`
-3. `internal/service` 写 service（依赖 `*repository.Store`，以及领域包的接口）；要对接外部系统时，接口与交换类型放在领域包，适配器放在它的子包
-4. `internal/handler` 写 handler，加入 `Handlers`
-5. `internal/server/router.go` 注册路由
-6. 在 `internal/app/app.go` 的 `app.New` 里构造 service、handler（适配器也在这里装配）
+2. 新建领域包 `internal/xxx`，在 `internal/xxx/xxxdb/queries.sql` 写查询；在 `sqlc.yaml` 里照样加一组，把 `xxxdb` 加进 `.golangci.yml` depguard 的 handler 规则，然后 `make generate`
+3. 写 `service.go`（`NewService(pool, ...)`，持有 `xxxdb.New(pool)`）和 `handler.go`，handler 加进 `server.Handlers`；要对接外部系统时，接口与交换类型放在领域包，适配器放在它的子包
+4. `internal/server/router.go` 注册路由
+5. 在 `internal/app/app.go` 的 `app.New` 里构造 service、handler（适配器也在这里装配）；有后台循环的 service 加进 `App.background`；别的领域的测试要用时也加进 `internal/testenv`
 
 ## 前端架构
 
@@ -89,7 +89,7 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 ## 提交约定
 
-Conventional Commits，scope 用 `backend` / `frontend`（同时改了两端或只改根目录的文件时省略 scope），描述用中文，例如 `feat(backend): 新增 repository.Store，支持在 service 层开启事务`。
+Conventional Commits，scope 用 `backend` / `frontend`（同时改了两端或只改根目录的文件时省略 scope），描述用中文，例如 `feat(backend): 绑定支持上传弹幕文件`。
 
 ## Agent skills
 

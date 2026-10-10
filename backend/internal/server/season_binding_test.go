@@ -13,13 +13,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/handler"
-	"github.com/kzw200015/danfuse/backend/internal/repository"
-	"github.com/kzw200015/danfuse/backend/internal/service"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 	"github.com/kzw200015/danfuse/backend/internal/source"
+	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 // 假适配器的合集能力：链接 "fakelist/<名字>" 识别为一个种类为 list 的候选 {"list":"<名字>"}。
@@ -74,21 +75,18 @@ func (fakeAdapter) DescribeCollection(ref source.CollectionRef) (source.Display,
 // 起完整的 Echo（目录、绑定、季绑定接口），源适配器只注册了 fakeAdapter。测试结束时先停下后台循环，再关闭连接池。
 func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.Pool) {
 	t.Helper()
-	pool := newPool(t, cfg)
+	pool := dbtest.Open(t, cfg)
 	seedCatalog(t, pool)
 
-	store := repository.NewStore(pool)
-	sources := source.NewRegistry(fakeAdapter{})
 	logger := slog.New(slog.DiscardHandler)
-	bindings := service.NewBindingService(store, sources, logger)
-	svc := service.NewSeasonBindingService(store, pool, sources, config.Defaults().Follow, logger)
-	runInBackground(t, svc)
+	env := testenv.New(pool, logger, fakeAdapter{})
+	testenv.RunInBackground(t, env.SeasonBindings)
 
-	return New(config.Server{}, config.Dandanplay{}, logger, &handler.Handlers{
-		Catalog:       handler.NewCatalogHandler(service.NewCatalogService(store, sources)),
-		Binding:       handler.NewBindingHandler(bindings, uploadLimits),
-		SeasonBinding: handler.NewSeasonBindingHandler(svc),
-	}, nil), pool
+	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
+		Catalog:       catalog.NewHandler(env.Catalog),
+		Binding:       binding.NewHandler(env.Bindings, uploadLimits),
+		SeasonBinding: seasonbinding.NewHandler(env.SeasonBindings),
+	}), pool
 }
 
 // TestSeasonBindingAPI 预览、创建、详情、开关追更、立即补建、删除，以及剧详情、剧列表里的季绑定。
@@ -102,11 +100,11 @@ func TestSeasonBindingAPI(t *testing.T) {
 
 		// 默认的集号规则
 		_, _, data := call(t, srv, http.MethodGet, "/api/episode-rules/default", "", http.StatusOK)
-		assertJSON(t, data, `{"episodePatterns": `+defaultPatterns+`}`)
+		testenv.AssertJSON(t, data, `{"episodePatterns": `+defaultPatterns+`}`)
 
 		// 预览：不保存，重复的序号已标出
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/preview", `{"link": " fakelist/s ", "episodePatterns": `+defaultPatterns+`}`, http.StatusOK)
-		assertJSON(t, data, `{"candidates": [{
+		testenv.AssertJSON(t, data, `{"candidates": [{
 			"kind": "list", "title": "合集 s", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"finished": false, "numberedByRule": false,
 			"items": [
@@ -119,7 +117,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 		// 按集号规则编号的合集：按请求里的规则认出序号（每条去掉前后的空白）
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/preview",
 			`{"link": "fakelist/ugc", "episodePatterns": [" \\[(\\d+)\\]$ "]}`, http.StatusOK)
-		assertJSON(t, data, `{"candidates": [{
+		testenv.AssertJSON(t, data, `{"candidates": [{
 			"kind": "list", "title": "投稿合集", "sourceUrl": "https://fake.test/list/ugc", "sourceLabel": "假合集 ugc",
 			"finished": false, "numberedByRule": true,
 			"items": [
@@ -143,7 +141,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 		_, _, data = call(t, srv, http.MethodGet, "/api/season-bindings/1", "", http.StatusOK)
 		detail := decodeObject(t, data)
 		popTime(t, detail, "lastCheckedAt") // 这一轮的开始时间
-		assertJSON(t, json.RawMessage(jsonString(detail)), `{
+		testenv.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
 			"id": 1, "seasonId": 1, "adapter": "fake", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"title": "合集 s", "finished": false, "mappingFrom": 1, "mappingTo": 1, "numberedByRule": false, "episodePatterns": `+defaultPatterns+`,
 			"follow": true, "status": "active", "lastError": null, "running": false, "bindingCount": 2,
