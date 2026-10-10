@@ -106,17 +106,26 @@ func (r EpisodeRule) Patterns() []string {
 	return patterns
 }
 
-// NumberItems 预览、保存之前整理 ListCollection 列出的条目：按规则编号的合集先用集号规则从标签认出各条目的序号
-// （认不出的对不上），再交给 normalizeItems 去掉重复的 ref、标出重复的序号。不改动传入的切片。
+// NumberItems 预览、保存之前整理 ListCollection 列出的条目：先用 uniqueRefs 去掉重复的 ref，
+// 按规则编号的合集再用集号规则从标签认出各条目的序号（认不出的对不上），最后标出重复的序号。不改动传入的切片。
 func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
-	if !c.NumberedByRule {
-		return normalizeItems(c.Items)
+	items := uniqueRefs(c.Items)
+	if c.NumberedByRule {
+		for i, it := range items {
+			items[i] = r.match(it)
+		}
 	}
-	numbered := make([]CollectionItem, len(c.Items))
-	for i, it := range c.Items {
-		numbered[i] = r.match(it)
+	return markDuplicateNumbers(items)
+}
+
+// NumberLabels 用集号规则从一组名称认出序号，与按规则编号的合集同一套匹配和"集号重复"的标注，但不按 ref 去重：
+// 结果与 labels 一一对应（名称相同的也各自保留），只填 Label、Number、Unmatched。给没有弹幕源的条目用（按季上传的预览）。
+func NumberLabels(labels []string, r EpisodeRule) []CollectionItem {
+	items := make([]CollectionItem, len(labels))
+	for i, label := range labels {
+		items[i] = r.match(CollectionItem{Label: label})
 	}
-	return normalizeItems(numbered)
+	return markDuplicateNumbers(items)
 }
 
 // match 认一个条目的序号：每一条正则都在标签里找，取集号（捕获组）结束得最靠后的那一处，一样靠后时取排在前面的正则。

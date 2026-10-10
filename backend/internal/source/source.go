@@ -44,7 +44,7 @@ type Adapter interface {
 	// 是本平台的但不能作为合集绑定的，返回 Kind 为 InvalidLink 的 *Error，提示由适配器写。可能联网。
 	ParseCollectionLink(ctx context.Context, link string) ([]CollectionCandidate, error)
 	// ListCollection 按合集 ref 列出合集的标题、是否完结（取不到时为否）和全部条目，条目按合集里的顺序排列。
-	// 合集不存在时返回 Kind 为 NotFound 的 *Error。重复序号不在这里判定，见 normalizeItems。
+	// 合集不存在时返回 Kind 为 NotFound 的 *Error。重复的 ref 和序号不在这里处理，见 NumberItems。
 	ListCollection(ctx context.Context, ref CollectionRef) (Collection, error)
 	// DescribeCollection 由合集 ref 生成展示用的链接和标签，纯计算，不联网。
 	DescribeCollection(ref CollectionRef) (Display, error)

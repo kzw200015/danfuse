@@ -66,6 +66,18 @@ func TestNumberItems(t *testing.T) {
 			},
 		},
 		{
+			name: "先去掉重复的 ref，再判定重复的序号",
+			col:  Collection{Items: []CollectionItem{numbered("a", 1), numbered("a", 1), numbered("b", 2)}},
+			want: []CollectionItem{numbered("a", 1), numbered("b", 2)},
+		},
+		{
+			name: "按规则编号：ref 重复的只认第一个",
+			col: Collection{NumberedByRule: true, Items: []CollectionItem{
+				named("第1集"), {Ref: Ref(`"第1集"`), Label: "第2集"},
+			}},
+			want: []CollectionItem{numbered("第1集", 1)},
+		},
+		{
 			name: "默认规则：认写明的集号，不认没有标注的数字",
 			col: Collection{NumberedByRule: true, Items: []CollectionItem{
 				named("正式版【某番】第1集 中文字幕 / 01"), named("某番 EP02"), named("某番 S01E03"), named("某番 ＥＰ０４"),
@@ -154,5 +166,20 @@ func TestNumberItems(t *testing.T) {
 				t.Errorf("改动了传入的切片：%+v", tt.col.Items)
 			}
 		})
+	}
+}
+
+// TestNumberLabels 与 NumberItems 同一套匹配（规则本身见 TestNumberItems），但不去重：结果与名称一一对应，名称相同的也各自保留。
+func TestNumberLabels(t *testing.T) {
+	labels := []string{"某番 / 01", "某番 / 02", "某番 / 02", "某番 / SP"}
+	got := NumberLabels(labels, DefaultEpisodeRule())
+	want := []CollectionItem{
+		{Label: "某番 / 01", Number: 1},
+		{Label: "某番 / 02", Unmatched: "集号重复"},
+		{Label: "某番 / 02", Unmatched: "集号重复"},
+		{Label: "某番 / SP", Unmatched: "不符合集号规则"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("NumberLabels() = %+v\nwant %+v", got, want)
 	}
 }

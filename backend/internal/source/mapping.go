@@ -36,9 +36,9 @@ func markDuplicateNumbers(items []CollectionItem) []CollectionItem {
 	return marked
 }
 
-// normalizeItems 整理条目（NumberItems 的最后一步）：ref 相同的条目只保留第一个
-// （季绑定的条目与处理过的记录都按弹幕源区分），再用 markDuplicateNumbers 标出重复的序号。不改动传入的切片。
-func normalizeItems(items []CollectionItem) []CollectionItem {
+// uniqueRefs 返回去掉重复 ref 的条目：ref 相同的只保留第一个（季绑定的条目与处理过的记录都按弹幕源区分）。
+// 返回新的切片，不改动传入的切片。
+func uniqueRefs(items []CollectionItem) []CollectionItem {
 	seen := make(map[string]bool, len(items))
 	unique := make([]CollectionItem, 0, len(items))
 	for _, it := range items {
@@ -47,5 +47,5 @@ func normalizeItems(items []CollectionItem) []CollectionItem {
 			unique = append(unique, it)
 		}
 	}
-	return markDuplicateNumbers(unique)
+	return unique
 }

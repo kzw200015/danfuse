@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 
 	"github.com/jackc/pgx/v5"
 
@@ -19,19 +18,14 @@ type SeasonUploadPreview struct {
 	Items []PreviewItem `json:"items"`
 }
 
-// PreviewSeasonUpload 按季上传的预览：把各个条目当作按规则编号的合集里的条目（名称就是标签），
-// 用集号规则认出序号，与季绑定预览同一套匹配、NFKC 回退和"集号重复"的标注。名称相同的条目各自保留。
+// PreviewSeasonUpload 按季上传的预览：用集号规则从条目名称认出序号（source.NumberLabels），
+// 与季绑定预览同一套匹配、NFKC 回退和"集号重复"的标注。名称相同的条目各自保留。
 // 集号对应、对到哪一集由调用方按序号现算。不写库；季不存在为 404。
 func (s *Service) PreviewSeasonUpload(ctx context.Context, seasonID int64, labels []string, rule source.EpisodeRule) (SeasonUploadPreview, error) {
 	if err := s.checkSeason(ctx, seasonID); err != nil {
 		return SeasonUploadPreview{}, err
 	}
-	col := source.Collection{NumberedByRule: true, Items: make([]source.CollectionItem, len(labels))}
-	for i, label := range labels {
-		// 条目没有弹幕源，ref 只用来让每个条目各不相同（NumberItems 会去掉 ref 重复的条目）
-		col.Items[i] = source.CollectionItem{Ref: source.Ref(strconv.Itoa(i)), Label: label}
-	}
-	return SeasonUploadPreview{Items: previewItems(source.NumberItems(col, rule))}, nil
+	return SeasonUploadPreview{Items: previewItems(source.NumberLabels(labels, rule))}, nil
 }
 
 // SeasonFilesCreated 按季上传的结果。
