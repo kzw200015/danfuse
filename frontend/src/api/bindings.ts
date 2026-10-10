@@ -1,4 +1,4 @@
-import { request, slowRequestTimeout } from './request'
+import { request, slowRequestTimeout, uploadRequestTimeout } from './request'
 import type { PreviewItem } from './season-bindings'
 
 export type BindingStatus = 'active' | 'dead'
@@ -93,14 +93,14 @@ function filesForm(files: File[]) {
 
 /**
  * 上传弹幕文件给一集创建绑定：一次上传的几份文件合起来是一个弹幕源，后端当场解析、保存。
- * 有一份认不出就不创建（422）。上传的文件可能有几十 MB，放宽超时。
+ * 有一份认不出就不创建（422）。上传的文件可能有几十 MB，不设超时。
  */
 export function createFileBinding(episodeId: number, files: File[]) {
   return request<Binding>({
     url: `/episodes/${episodeId}/file-bindings`,
     method: 'POST',
     data: filesForm(files),
-    timeout: slowRequestTimeout,
+    timeout: uploadRequestTimeout,
   })
 }
 
@@ -142,7 +142,7 @@ export interface SeasonUploadResult {
 /**
  * 按季上传：每个条目各建一个用弹幕文件建的绑定，在一个事务里，要么全部建出、要么一个都不建。
  * paths、targets 各是一个 JSON 字段（逐份一个字段会超出后端 multipart 的 part 数上限）。
- * 一季的文件可能有上百 MB，不设超时，以服务端的读写超时为准；onProgress 收到上传的进度（0～1）
+ * 一季的文件可能有上百 MB，不设超时；onProgress 收到上传的进度（0～1）
  */
 export function createSeasonFileBindings(
   seasonId: number,
@@ -156,7 +156,7 @@ export function createSeasonFileBindings(
     url: `/seasons/${seasonId}/file-bindings`,
     method: 'POST',
     data: form,
-    timeout: 0,
+    timeout: uploadRequestTimeout,
     onUploadProgress: (e) => onProgress?.(e.progress ?? (e.total ? e.loaded / e.total : 0)),
   })
 }
@@ -177,7 +177,7 @@ export function appendBindingFiles(id: number, files: File[]) {
     url: `/bindings/${id}/files`,
     method: 'POST',
     data: filesForm(files),
-    timeout: slowRequestTimeout,
+    timeout: uploadRequestTimeout,
   })
 }
 
