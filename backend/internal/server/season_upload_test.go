@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"path"
 	"slices"
@@ -25,7 +26,8 @@ func seasonUpload(t *testing.T, srv *Server, target string, files []uploadFile, 
 	return uploadForm(t, srv, target, parts, map[string]string{"paths": jsonString(paths), "targets": targets}, wantStatus)
 }
 
-// TestSeasonUpload 按路径分成条目：子目录里的文件合成一个条目，顶层的文件各自一个条目（扩展名不分大小写），每个条目在它的目标集上建一个绑定。
+// TestSeasonUpload 按路径分成条目（子目录里的文件合成一个条目，顶层的文件各自一个条目，扩展名不分大小写），
+// 每个条目连同它的文件交给 targets 指定的集；标题、存下的文件名等由 binding 的测试覆盖。
 func TestSeasonUpload(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
@@ -39,33 +41,9 @@ func TestSeasonUpload(t *testing.T) {
 	}, `[{"label": "星海旅人 / 1", "episodeId": 2}, {"label": "星海旅人 / 2", "episodeId": 1}]`, http.StatusCreated)
 	testenv.AssertJSON(t, data, `{"bindings": 2, "added": 4}`)
 
-	// 绑定按 targets 的顺序建出（5、6），标题是条目名称
-	for _, tt := range []struct {
-		episodeID int64
-		bindingID int64
-		title     string
-		files     []string
-	}{
-		{2, 5, "星海旅人 / 1", []string{"20130709.xml", "20130711.xml"}},
-		{1, 6, "星海旅人 / 2", []string{"2.XML"}},
-	} {
-		if got := bindingTitle(t, srv, 1, tt.episodeID, tt.bindingID); got != tt.title {
-			t.Errorf("绑定 %d 的标题 = %q, want %q", tt.bindingID, got, tt.title)
-		}
-		_, _, data := call(t, srv, http.MethodGet, "/api/bindings/"+jsonString(tt.bindingID)+"/files", "", http.StatusOK)
-		var files []struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal(data, &files); err != nil {
-			t.Fatal(err)
-		}
-		names := make([]string, len(files))
-		for i, f := range files {
-			names[i] = f.Name
-		}
-		if !slices.Equal(names, tt.files) {
-			t.Errorf("绑定 %d 的文件 = %v, want %v", tt.bindingID, names, tt.files)
-		}
+	// 子目录 1 的两份文件合成一个绑定、到了第 2 集（弹幕 1、2、3），顶层的 2.XML 到了第 1 集
+	if got, want := fileBindingCounts(t, srv, 1), map[int64][]int32{1: {1}, 2: {3}}; !maps.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("各集用弹幕文件建的绑定的弹幕条数 = %v, want %v", got, want)
 	}
 }
 
@@ -155,8 +133,8 @@ func TestSeasonUploadErrors(t *testing.T) {
 	}
 }
 
-// bindingTitle 从剧详情里找出集 episodeID 上的绑定 bindingID 的标题，找不到时为空。
-func bindingTitle(t *testing.T, srv *Server, seriesID, episodeID, bindingID int64) string {
+// fileBindingCounts 从剧详情里列出各集用弹幕文件建的绑定的弹幕条数，没有这种绑定的集不列出。
+func fileBindingCounts(t *testing.T, srv *Server, seriesID int64) map[int64][]int32 {
 	t.Helper()
 	_, _, data := call(t, srv, http.MethodGet, "/api/series/"+jsonString(seriesID), "", http.StatusOK)
 	var series struct {
@@ -164,8 +142,8 @@ func bindingTitle(t *testing.T, srv *Server, seriesID, episodeID, bindingID int6
 			Episodes []struct {
 				ID       int64 `json:"id"`
 				Bindings []struct {
-					ID    int64  `json:"id"`
-					Title string `json:"title"`
+					Kind         string `json:"kind"`
+					DanmakuCount int32  `json:"danmakuCount"`
 				} `json:"bindings"`
 			} `json:"episodes"`
 		} `json:"seasons"`
@@ -173,14 +151,15 @@ func bindingTitle(t *testing.T, srv *Server, seriesID, episodeID, bindingID int6
 	if err := json.Unmarshal(data, &series); err != nil {
 		t.Fatal(err)
 	}
+	counts := make(map[int64][]int32)
 	for _, season := range series.Seasons {
 		for _, ep := range season.Episodes {
 			for _, b := range ep.Bindings {
-				if ep.ID == episodeID && b.ID == bindingID {
-					return b.Title
+				if b.Kind == "file" {
+					counts[ep.ID] = append(counts[ep.ID], b.DanmakuCount)
 				}
 			}
 		}
 	}
-	return ""
+	return counts
 }
