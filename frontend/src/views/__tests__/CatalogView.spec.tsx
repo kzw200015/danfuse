@@ -103,7 +103,7 @@ describe('CatalogView', () => {
       'href',
       'https://www.themoviedb.org/tv/60735',
     )
-    expect(screen.getByRole('link', { name: '在 B 站搜索「星海旅人」' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'B 站' })).toHaveAttribute(
       'href',
       'https://search.bilibili.com/all?keyword=%E6%98%9F%E6%B5%B7%E6%97%85%E4%BA%BA',
     )
@@ -153,7 +153,7 @@ describe('CatalogView', () => {
     expect(screen.queryByRole('navigation', { name: '季' })).not.toBeInTheDocument()
     expect(screen.queryByTitle('查看整季')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'TMDB' })).not.toBeInTheDocument() // 没有 TMDB ID
-    expect(screen.getByRole('link', { name: '在 B 站搜索「长夜灯塔」' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'B 站' })).toHaveAttribute(
       'href',
       'https://search.bilibili.com/all?keyword=%E9%95%BF%E5%A4%9C%E7%81%AF%E5%A1%94',
     )
