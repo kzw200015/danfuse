@@ -133,7 +133,7 @@
   - 创建 `CreateFolder`；
   - 保存表单 `SaveFolder`，不带文件时只改集号规则、集号对应，带文件时换文件夹；
   - 立即补建 `backfillFolder`，由 `Service.Backfill` 按种类分派，返回 200 和详情。
-- 有上传的文件时，先在事务之外由 `readFolder` 分成条目（`groupFolder`）、逐份解析（`parseFile`）。结构不对为 400，有一份解析失败为 422（提示带着它的相对路径），什么都不保存。分组规则与前端的 `groupFolderFiles` 相同：
+- 有上传的文件时，先在事务之外由 `readFolder` 分成条目（`groupFolder`）、逐份解析（`binding.ParseFiles`，与在集上上传弹幕文件同一套）。结构不对为 400，有一份解析失败为 422（提示带着它的相对路径），什么都不保存。分组规则与前端的 `groupFolderFiles` 相同：
   - 路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"，最多两层，文件夹名都相同；
   - 只认 `.xml`，不分大小写；
   - 子目录合成一个条目，顶层的文件各自一个条目；
@@ -207,7 +207,7 @@ DELETE /api/season-bindings/:id
   - 删除的确认框写明建出的绑定会连同弹幕一起删除，文件夹另加"上传的文件也一起删除"。
   - `EntryTable` 用 `itemStatusText` 写出各条目的状态，上次失败的标红；表下用黄色提示列出 `emptySlots`。
 - 季绑定的详情（`useSeasonBinding`，键 `['season-bindings', id]`）只在展开条目表、或合集正在补建时取。正在补建时每秒轮询，结束后让剧详情失效；季绑定的列表在剧详情里。
-- 写入成功后用 `useWatchSeasonBinding` 把返回的详情放进缓存，合集的轮询随即开始；文件夹的写入当场完成，另外重新加载剧详情。
+- 写入成功后用 `useWatchSeasonBinding` 把返回的详情放进缓存，合集的轮询随即开始；两种季绑定都另外重新加载剧详情（文件夹的写入当场建出绑定，合集保存时当场删除没有条目的槽位）。
 
 ## 测试
 
