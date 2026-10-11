@@ -1,4 +1,5 @@
 import type { EntryHashes } from '@/api/season-bindings'
+import { sha256 as sha256Bytes } from '@/lib/sha256'
 
 import { naturalOrder } from './catalog'
 
@@ -78,14 +79,20 @@ export function groupFolderFiles(files: readonly File[]): FolderGrouping {
   }
 }
 
-/** 一份文件内容的 SHA-256，小写十六进制 */
+/**
+ * 一份文件内容的 SHA-256，小写十六进制。优先用 WebCrypto；它只在安全上下文（HTTPS、localhost）里有，
+ * 自托管用 http://局域网 IP 打开时没有，改用纯 JS 的实现
+ */
 async function sha256(file: File) {
-  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+  const content = await file.arrayBuffer()
+  const digest = globalThis.crypto?.subtle
+    ? new Uint8Array(await crypto.subtle.digest('SHA-256', content))
+    : sha256Bytes(new Uint8Array(content))
+  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 /**
- * 用 WebCrypto 算出各条目每份文件的 SHA-256（顺序与文件相同），预览时代替文件本身发给后端：
+ * 算出各条目每份文件的 SHA-256（顺序与文件相同），预览时代替文件本身发给后端：
  * 编辑时后端按"名称 + 文件哈希的集合"与保存的条目对上
  */
 export async function hashEntries(entries: readonly UploadEntry[]): Promise<EntryHashes[]> {

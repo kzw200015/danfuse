@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { picked } from '@/__tests__/utils'
 
@@ -94,23 +94,53 @@ describe('groupFolderFiles', () => {
 const file = (content: string, name: string) => new File([content], name)
 
 describe('hashEntries', () => {
+  const entries = [
+    { label: '1', files: [file('abc', 'a.xml'), file('', 'b.xml')], paths: [] },
+    { label: '2', files: [file('abc', 'c.xml')], paths: [] },
+  ]
+  const want = [
+    {
+      label: '1',
+      sha256s: [
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      ],
+    },
+    {
+      label: '2',
+      sha256s: ['ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'],
+    },
+  ]
+
   it('逐个条目算出各份文件内容的 SHA-256（小写十六进制），顺序与文件相同', async () => {
-    const entries = [
-      { label: '1', files: [file('abc', 'a.xml'), file('', 'b.xml')], paths: [] },
-      { label: '2', files: [file('abc', 'c.xml')], paths: [] },
-    ]
-    expect(await hashEntries(entries)).toEqual([
-      {
-        label: '1',
-        sha256s: [
-          'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
-          'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-        ],
-      },
-      {
-        label: '2',
-        sha256s: ['ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'],
-      },
-    ])
+    expect(await hashEntries(entries)).toEqual(want)
+  })
+
+  // 用 http://局域网 IP 打开时不是安全上下文，浏览器不提供 crypto.subtle
+  it('没有 crypto.subtle 时用纯 JS 算出同样的结果', async () => {
+    vi.stubGlobal('crypto', {})
+    try {
+      expect(await hashEntries(entries)).toEqual(want)
+      // 跨过填充边界（55、56、64 字节）与多字节字符的内容，对照 Python hashlib 的结果
+      const more = [
+        file('a'.repeat(55), '55.xml'),
+        file('a'.repeat(56), '56.xml'),
+        file('a'.repeat(64), '64.xml'),
+        file('弹幕'.repeat(100), 'utf8.xml'),
+      ]
+      expect(await hashEntries([{ label: '长', files: more, paths: [] }])).toEqual([
+        {
+          label: '长',
+          sha256s: [
+            '9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318',
+            'b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a',
+            'ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb',
+            'f7b18d93f89160383ce3317f4f1c2af0d930b9de0db05e98bc5316bbad5caa14',
+          ],
+        },
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

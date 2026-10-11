@@ -11,9 +11,6 @@ import {
 import {
   getDefaultEpisodePatterns,
   getSeasonBinding,
-  legacyGetSeasonBinding,
-  type CollectionSeasonBinding,
-  type LegacySeasonBindingDetail,
   type Preview,
   type SeasonBinding,
   type SeasonBindingDetail,
@@ -148,58 +145,4 @@ export function useSeasonBindingPreview<T>(
     fetching: query.isFetching,
     error: query.error,
   }
-}
-
-// ---- 旧 hooks：只供还没换掉的旧组件（SeasonBindingCard、SeasonBindingForm）用，工单 14 换掉组件时删除 ----
-
-function legacySeasonBindingOptions(id: number) {
-  return queryOptions({
-    queryKey: seasonBindingKeys.detail(id),
-    queryFn: () => legacyGetSeasonBinding(id),
-  })
-}
-
-/** 旧的 useSeasonBinding：只用于合集的季绑定，详情是旧的条目表 */
-export function useLegacySeasonBinding(
-  binding: CollectionSeasonBinding,
-  summaryUpdatedAt: number,
-  expanded: boolean,
-) {
-  const reloadSeries = useReloadSeries()
-  const query = useQuery({
-    ...legacySeasonBindingOptions(binding.id),
-    enabled: (q) => expanded || binding.running || isRunning(q.state.data),
-    refetchInterval: (q) => (isRunning(q.state.data) ? pollInterval : false),
-  })
-  const { refetch } = query
-  const latest = query.data && query.dataUpdatedAt >= summaryUpdatedAt ? query.data : null
-  const view = latest?.kind === 'collection' ? latest : binding
-  const { running } = view
-
-  useEffect(() => {
-    if (binding.running) void refetch()
-  }, [binding.running, refetch])
-
-  const wasRunning = useRef(running)
-  useEffect(() => {
-    if (wasRunning.current && !running) void reloadSeries()
-    wasRunning.current = running
-  }, [running, reloadSeries])
-
-  return { view, detail: query.data, error: query.error }
-}
-
-/** 旧的 useWatchSeasonBinding：放进旧的详情，没给时重新取一次 */
-export function useLegacyWatchSeasonBinding() {
-  const queryClient = useQueryClient()
-  return useCallback(
-    async (id: number, detail?: LegacySeasonBindingDetail) => {
-      if (detail) {
-        queryClient.setQueryData(seasonBindingKeys.detail(id), detail)
-      } else {
-        await queryClient.fetchQuery(legacySeasonBindingOptions(id))
-      }
-    },
-    [queryClient],
-  )
 }
