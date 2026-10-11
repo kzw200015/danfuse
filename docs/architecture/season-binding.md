@@ -8,17 +8,17 @@
 - 补建按弹幕源记住处理过的条目（`season_binding_handled`，只记它自己建出过绑定的，集删除时级联删除）；对应的集上已有同一个弹幕源的绑定（手动绑的、别的季绑定建的）时跳过，不拉取、不记处理过，条目表里是 `alreadyBound`。
 - 条目表（`season_binding_items`）是上次检查时的合集内容，条目的状态读取时现算，不存储。
 - 改集号规则时在同一个事务里按保存的标签重新认序号；补建拉取每个条目之前重新读它的序号（正在拉取的那个照旧按拉取前的序号写入）。
-- `link` 是创建或换合集时贴的链接（原样保存，只用来在编辑时预填）；合集以 ref 为准，所以链接不进 ref（ADR 0009）。这一列之前建的季绑定为 NULL，前端用 `sourceUrl` 代替（`editLink`）。
+- `link` 是创建或换合集时贴的链接（原样保存，只用来在编辑时预填）；合集以 ref 为准，所以链接不进 ref（ADR 0009）。这一列之前建的季绑定为 NULL，`view` 输出时用合集的链接（同 `sourceUrl`）代替。
 
 ## 换合集
 
 - PATCH 传了 `link`（可带 `kind`）就换合集（ADR 0009），与改追更、集号对应、集号规则走同一个 `Update`。流程如下：
   1. 在事务之外由 `resolve` 重新识别链接、选候选、查重（不算自己；与创建共用），再列出合集。
   2. 拿这个季绑定的补建租约，拿不到就返回 409"正在补建，补建结束后再换合集"。拿到后一直持有到写完，释放之后才触发补建。
-  3. 写入事务先锁季，再用 `LockSeasonBindingCollection`（`FOR UPDATE`）锁住季绑定，同时判断选出的是不是现在的合集。
-  4. 换成另一个合集时，先删掉它建出的、弹幕源不在新合集里的绑定（`DeleteBindingsOutsideCollection`），再删掉对应的处理过的记录（`DeleteHandledOutsideCollection`，按季绑定原来的适配器比较，所以要在改适配器之前执行）。
-  5. `SetSeasonBindingCollection` 写入新的合集和链接，恢复为正常；换成了另一个合集时清掉上次检查时间。同一季已有这个合集时撞上唯一约束，返回 409。
-  6. 最后与改集号对应、集号规则一样执行 `UpdateSeasonBinding`，再按改过之后的规则保存新合集的条目。
+  3. 写入事务先锁季，再用 `LockSeasonBindingCollection`（`FOR UPDATE`）锁住季绑定，同时读出它现在的适配器、判断选出的是不是现在的合集。
+  4. 换成另一个合集时，先删掉它建出的、弹幕源不在新合集里的绑定（`DeleteBindingsOutsideCollection`），再删掉对应的处理过的记录（`DeleteHandledOutsideCollection`，处理过的记录只记着 ref，按上一步读出的原来的适配器比较）。
+  5. `SetSeasonBindingCollection` 写入新的合集和链接；换成了另一个合集时清掉上次检查时间。同一季已有这个合集时撞上唯一约束，返回 409。
+  6. 再与改集号对应、集号规则一样执行 `UpdateSeasonBinding`，最后由 `saveListed`（与补建写入一次列出的结果共用：`RecordSeasonBindingListed` 恢复为正常、更新标题等，读出改过之后的规则）保存新合集的条目。
 - 选出的就是现在的合集时只改链接，不删任何东西，上次检查时间保留。
 - 换合集之后记一条 info 日志 `season binding collection changed`，带上删掉的绑定数。
 - 编辑时的预览 `POST /api/season-bindings/:id/preview`（`PreviewChange`）与季上的预览共用 `listCandidates`，另外按候选查出两项：
@@ -30,7 +30,7 @@
 
 - 只属于合集的季绑定的列（适配器、合集 ref、链接、集号对应的两列、集号规则、按规则编号）对文件夹的季绑定为空，追更为关、未完结、状态为正常、没有上次检查和上次错误，由 CHECK 约束按 kind 守住；`title` 是所选的文件夹名。唯一约束 `(season_id, adapter, ref)` 在 NULL 上不生效，同一个文件夹可以传多次，每次各留下一个。
 - 链接绑定只指向合集的季绑定、文件绑定只指向文件夹的季绑定，文件夹的季绑定没有条目表和处理过的记录：这些跨表的规则约束表达不了，由代码保证，`testenv.AssertInvariants` 检查。
-- 只能查看和删除：`checkCollection`（`getCollection`）让改追更、改集号对应或集号规则、换合集（PATCH）、编辑时的预览、立即补建对它返回 400"文件夹的季绑定只能删除"；追更恒为关，追更的扫描不会碰到它。`View` 的 `kind` 为 `folder`，合集专属的字段为 null，不经过源适配器；`running` 恒为 false，`createdAt` 即上传的时间；详情（`Get`）的条目表为空数组。
+- 只能查看和删除：`getCollection` 让改追更、改集号对应或集号规则、换合集（PATCH）、编辑时的预览、立即补建对它返回 400"文件夹的季绑定只能删除"；追更恒为关，追更的扫描不会碰到它。`View` 的 `kind` 为 `folder`，合集专属的字段为 null，不经过源适配器；`running` 恒为 false，`createdAt` 即上传的时间；详情（`Get`）的条目表为空数组。
 - 删除与合集的季绑定是同一条路径（`Delete`）：`withBindings` 时它建出的文件绑定连同原文件、弹幕级联删除，否则变回普通的文件绑定。建出的绑定被逐个删光时它照样保留，`bindingCount` 为 0。
 - 由按季上传在写入事务里插入（`InsertFolderSeasonBinding`，要写明追更关着：列的默认值是开着），流程见 [`sources.md`](sources.md#按季上传)。
 
@@ -48,8 +48,8 @@
 ## 管理界面
 
 - 季绑定卡片（`SeasonBindingCard`）按 `kind` 分支，文件夹的季绑定的卡片只有文件夹名、建出的绑定数、上传时间和删除，不取详情也不轮询；前端的类型 `SeasonBinding` 是 `CollectionSeasonBinding | FolderSeasonBinding`。
-- 添加与编辑共用 `SeasonBindingForm.tsx`：`AddSeasonBindingForm` 在季面板上，`EditSeasonBindingForm` 点卡片上的"编辑"后在卡片里展开。编辑时的处理如下：
-  - 预填 `editLink`、集号对应和集号规则，打开就预览一次，默认选中 `current` 的候选；
+- 添加与编辑共用 `SeasonBindingForm.tsx`：`AddSeasonBindingForm` 在季面板上，`EditSeasonBindingForm` 点卡片上的"编辑"后在卡片里展开。两者的不同之处（初始值、预览与保存调哪个接口、文案、完结提示、保存后收起还是清空）各自写成一个 `FormMode`，表单的各层只经由它区分两种模式。编辑时的处理如下：
+  - 预填记下的链接（`link`）、集号对应和集号规则，打开就预览一次，默认选中 `current` 的候选；
   - 创建时的预览由 `asChangeCandidate` 补成同一个形状；
   - 对应表里 `handledEpisode` 不为空的条目写"已处理，不再变动"；
   - 只发出改了的字段（`seasonBindingPatch`），没有改动时不能保存；
