@@ -679,7 +679,7 @@ WHERE id = $1
 FOR UPDATE
 `
 
-// 保存表单、删除季绑定的事务里锁住季绑定（FOR UPDATE）：与进行中的补建写入、另一次保存排队。季绑定已被删除时没有行。
+// 保存表单、删除季绑定、文件夹的写入事务里锁季之后锁住季绑定（FOR UPDATE）：与进行中的补建写入、另一次写入排队。季绑定已被删除时没有行。
 func (q *Queries) LockSeasonBindingForUpdate(ctx context.Context, id int64) (SeasonBinding, error) {
 	row := q.db.QueryRow(ctx, lockSeasonBindingForUpdate, id)
 	var i SeasonBinding

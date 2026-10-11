@@ -89,7 +89,7 @@ func (s *Service) CreateFolder(ctx context.Context, seasonID int64, files []bind
 // SaveFolder 保存文件夹的季绑定的表单，当场完成，返回详情：files 为空时不换文件夹，只改集号规则、集号对应；
 // 不为空时换文件夹，标题改为新的文件夹名，名称和文件哈希都没变的条目沿用（建出的绑定和偏移不动），其余的删掉重建。
 // 派生之后删掉没有条目的槽位，替换、新建槽位。每次保存都走这一套，不比较表单改没改。
-// 不存在时 404，合集的季绑定 400；其余错误同 CreateFolder。
+// 不存在时 404（保存前季或季绑定被删除也是），合集的季绑定 400；文件夹的结构不对为 400，有一份文件解析失败为 422。
 func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.UploadedFile, f FolderForm) (Detail, error) {
 	sb, err := s.getFolder(ctx, id)
 	if err != nil {
@@ -106,7 +106,7 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.Uplo
 	var res folderResult
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		locked, err := lockFolder(ctx, q, sb)
+		locked, err := lockSeasonBinding(ctx, q, sb.SeasonID, id)
 		if err != nil {
 			return err
 		}
@@ -138,7 +138,7 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.Uplo
 func (s *Service) backfillFolder(ctx context.Context, sb seasonbindingdb.SeasonBinding) error {
 	var res folderResult
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		locked, err := lockFolder(ctx, s.q.WithTx(tx), sb)
+		locked, err := lockSeasonBinding(ctx, s.q.WithTx(tx), sb.SeasonID, sb.ID)
 		if err != nil {
 			return err
 		}
@@ -203,21 +203,6 @@ func folderPreview(title string, r Result, current bool) Preview {
 // getFolder 读文件夹的季绑定：不存在时 404，合集的季绑定 400（种类不符）。
 func (s *Service) getFolder(ctx context.Context, id int64) (seasonbindingdb.SeasonBinding, error) {
 	return s.getKind(ctx, id, kindFolder, errNotFolder)
-}
-
-// lockFolder 文件夹的写入事务的前两句：锁季，再 FOR UPDATE 锁季绑定（与另一次写入排队），返回锁住时的季绑定。
-func lockFolder(ctx context.Context, q *seasonbindingdb.Queries, sb seasonbindingdb.SeasonBinding) (seasonbindingdb.SeasonBinding, error) {
-	if err := lockSeason(ctx, q, sb.SeasonID, errSeasonDeleted); err != nil {
-		return seasonbindingdb.SeasonBinding{}, err
-	}
-	locked, err := q.LockSeasonBindingForUpdate(ctx, sb.ID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return seasonbindingdb.SeasonBinding{}, errSeasonBindingNotFound
-	}
-	if err != nil {
-		return seasonbindingdb.SeasonBinding{}, fmt.Errorf("lock season binding %d: %w", sb.ID, err)
-	}
-	return locked, nil
 }
 
 // folderResult 一次写入建出、替换、删除的槽位数，记进日志。

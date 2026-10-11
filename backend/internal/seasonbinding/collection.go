@@ -122,15 +122,8 @@ func (s *Service) SaveCollection(ctx context.Context, id int64, f CollectionForm
 // saveCollectionTx SaveCollection 的写入事务，返回删掉的槽位数。
 func (s *Service) saveCollectionTx(ctx context.Context, tx pgx.Tx, seasonID, id int64, f CollectionForm, r resolved) (int, error) {
 	q := s.q.WithTx(tx)
-	// 加锁顺序同补建：季 → 季绑定 → 集 → 绑定。季删除时季绑定随之删除
-	if err := lockSeason(ctx, q, seasonID, errSeasonBindingNotFound); err != nil {
+	if _, err := lockSeasonBinding(ctx, q, seasonID, id); err != nil {
 		return 0, err
-	}
-	if _, err := q.LockSeasonBindingForUpdate(ctx, id); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, errSeasonBindingNotFound
-		}
-		return 0, fmt.Errorf("lock season binding %d: %w", id, err)
 	}
 	err := q.SaveCollectionForm(ctx, seasonbindingdb.SaveCollectionFormParams{
 		ID:              id,

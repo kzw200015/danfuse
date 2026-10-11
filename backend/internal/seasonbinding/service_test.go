@@ -264,8 +264,33 @@ func TestDeleteSeasonBindingDuringBackfill(t *testing.T) {
 	})
 }
 
-// TestDeleteSeasonBindingDuringDeleteSeason 删季停在第 2 集上手动建的绑定上时，删除季绑定：删季的级联在删绑定之前
-// 已经锁住了季绑定，删除季绑定在第一句就排队，与删季加锁的顺序相同，不死锁；删季做完后季绑定已不存在。
+// TestDeleteSeasonBindingQueuesBehindDeleteSeason 删季锁住了季和第 1 集、还没删到季绑定时删除季绑定：
+// 删除季绑定的第一句先锁季，排在删季之后，删季做完后季绑定已不存在。
+func TestDeleteSeasonBindingQueuesBehindDeleteSeason(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &testenv.FakeCollector{Collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}}, Videos: testenv.FakeVideos("a")}
+		env := newSeasonEnv(t, pool, src, 1, 2)
+		id := env.create().ID
+
+		// 第 2 集被另一个事务锁住，删季锁住季和第 1 集之后停在第 2 集上
+		release := env.holdRowLock(`SELECT id FROM episodes WHERE number = 2 FOR UPDATE`)
+		deletedSeason := goDo(func() error { _, err := pool.Exec(t.Context(), `DELETE FROM seasons WHERE id = 1`); return err })
+		env.waitLockWaiters(1)
+		deletedBinding := goDo(func() error { return env.svc.Delete(t.Context(), id) })
+		env.waitLockWaiters(2)
+		release()
+
+		if err := <-deletedSeason; err != nil {
+			t.Fatalf("删季: %v", err)
+		}
+		testenv.AssertAppError(t, <-deletedBinding, http.StatusNotFound, "季绑定不存在")
+		testenv.AssertStrings(t, "绑定", env.bindings(), nil)
+	})
+}
+
+// TestDeleteSeasonBindingDuringDeleteSeason 删季停在第 2 集上手动建的绑定上时（季、集、季绑定都已锁住），删除季绑定：
+// 删除季绑定在锁季那一句就排队，不死锁；删季做完后季绑定已不存在。
 func TestDeleteSeasonBindingDuringDeleteSeason(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {

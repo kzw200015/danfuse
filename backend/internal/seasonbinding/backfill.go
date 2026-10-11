@@ -345,7 +345,7 @@ func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb seasonbindi
 	var saved binding.Saved
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		// 先锁季：删季的级联先锁集、后锁季绑定，补建若先锁季绑定、后锁集就会与它死锁；先锁住季，删季在第一步就排队
+		// 先锁季：删季的级联先锁集、后锁季绑定，与这里相反；两边都先锁季，在第一步就排队，不会死锁
 		if err := lockSeason(ctx, q, sb.SeasonID, errSeasonBindingGone); err != nil { // 季删除时季绑定随之删除
 			return err
 		}

@@ -42,7 +42,8 @@ const (
 // 后台补建的生命周期同同步（catalog.SyncService）：App.Run 运行 Run(ctx)（循环是 background.Loop），补建都用 Run 的 ctx，
 // 不用 HTTP 请求的 ctx；ctx 取消时进行中的扫描和补建停下，Run 等它们返回，之后 main 才关闭连接池。
 // "补建中"以按季绑定的租约（database.LeaseSeasonBackfill）为准，多实例同样成立，季绑定上不存运行状态。
-// 网络请求都在事务之外；写入事务的加锁顺序是季 → 季绑定 → 集 → 绑定，与删季的级联一致。
+// 网络请求都在事务之外；写入事务的第一句锁季，再锁季绑定，写一集的绑定之前先锁那一集。不死锁靠先锁季：
+// 删季的第一步也是锁季，两边在这里排队，之后的顺序不必与删季的级联（季 → 集 → 季绑定 → 绑定）一致。
 type Service struct {
 	pool     *pgxpool.Pool // 开事务，拿按季绑定的租约
 	q        *seasonbindingdb.Queries
@@ -152,16 +153,18 @@ func (s *Service) Backfill(ctx context.Context, id int64) (Detail, error) {
 	return s.Get(ctx, id)
 }
 
-// Delete 删除季绑定，两种一样，不拿租约：一个事务里先锁住它（进行中的补建写入事务先提交，之后补建再也锁不到它，随即结束），
-// 再删掉它；建出的绑定（连同弹幕）、条目表、条目和条目的文件随外键级联删除。不存在时返回 404。
+// Delete 删除季绑定，两种一样，不拿租约：一个事务里先锁住季和它（lockSeasonBinding；进行中的补建写入事务先提交，
+// 之后补建再也锁不到它，随即结束），再删掉它；建出的绑定（连同弹幕）、条目表、条目和条目的文件随外键级联删除。
+// 不存在时返回 404（删除前季被删除也是）。
 func (s *Service) Delete(ctx context.Context, id int64) error {
+	sb, err := s.getSeasonBinding(ctx, id, errSeasonBindingNotFound)
+	if err != nil {
+		return err
+	}
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		if _, err := q.LockSeasonBindingForUpdate(ctx, id); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return errSeasonBindingNotFound
-			}
-			return fmt.Errorf("lock season binding %d: %w", id, err)
+		if _, err := lockSeasonBinding(ctx, q, sb.SeasonID, id); err != nil {
+			return err
 		}
 		if err := q.DeleteSeasonBinding(ctx, id); err != nil {
 			return fmt.Errorf("delete season binding %d: %w", id, err)
@@ -216,6 +219,22 @@ func lockSeason(ctx context.Context, q *seasonbindingdb.Queries, id int64, gone 
 		return fmt.Errorf("lock season %d: %w", id, err)
 	}
 	return nil
+}
+
+// lockSeasonBinding 保存表单、删除和文件夹的写入事务的前两句：锁季（lockSeason），再 FOR UPDATE 锁季绑定，
+// 与进行中的补建写入、另一次写入排队；返回锁住时的季绑定。季或季绑定已被删除时 404"季绑定不存在"（季删除时季绑定随之删除）。
+func lockSeasonBinding(ctx context.Context, q *seasonbindingdb.Queries, seasonID, id int64) (seasonbindingdb.SeasonBinding, error) {
+	if err := lockSeason(ctx, q, seasonID, errSeasonBindingNotFound); err != nil {
+		return seasonbindingdb.SeasonBinding{}, err
+	}
+	sb, err := q.LockSeasonBindingForUpdate(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return seasonbindingdb.SeasonBinding{}, errSeasonBindingNotFound
+	}
+	if err != nil {
+		return seasonbindingdb.SeasonBinding{}, fmt.Errorf("lock season binding %d: %w", id, err)
+	}
+	return sb, nil
 }
 
 // emptyIfNull null 读作空串。
