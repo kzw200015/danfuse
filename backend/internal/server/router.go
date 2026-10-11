@@ -54,6 +54,10 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	api.PATCH("/season-bindings/:id", h.SeasonBinding.Update)
 	api.POST("/season-bindings/:id/backfill", h.SeasonBinding.Backfill)
 	api.DELETE("/season-bindings/:id", h.SeasonBinding.Delete)
+	api.POST("/seasons/:id/season-bindings/folder/preview", h.SeasonBinding.PreviewNewFolder)
+	api.POST("/seasons/:id/season-bindings/folder", h.SeasonBinding.CreateFolder)
+	api.POST("/season-bindings/:id/folder/preview", h.SeasonBinding.PreviewFolderEdit)
+	api.PUT("/season-bindings/:id/folder", h.SeasonBinding.SaveFolder)
 	api.GET("/episode-rules/default", h.SeasonBinding.DefaultEpisodeRule)
 
 	api.POST("/sync-runs", h.Sync.Trigger)

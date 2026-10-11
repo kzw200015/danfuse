@@ -39,6 +39,15 @@ type File struct {
 // 没有文件或超出上限时返回 400，提示里的文件名取请求里原样的文件名。不经过临时文件，也没有 part 数的上限。
 // 其他字段放回 Request.Form，随后照常 Bind；所以在 Bind 之前调用。
 func ReadFiles(c *echo.Context, limits FileLimits) ([]File, error) {
+	files, err := ReadOptionalFiles(c, limits)
+	if err == nil && len(files) == 0 {
+		return nil, InvalidParam("请选择要上传的文件")
+	}
+	return files, err
+}
+
+// ReadOptionalFiles 同 ReadFiles，但文件可以省略：没有文件时返回空。
+func ReadOptionalFiles(c *echo.Context, limits FileLimits) ([]File, error) {
 	r := c.Request()
 	r.Body = http.MaxBytesReader(c.Response(), r.Body, limits.MaxUploadMB<<20+maxFieldBytes)
 	mr, err := r.MultipartReader()
@@ -89,9 +98,6 @@ func ReadFiles(c *echo.Context, limits FileLimits) ([]File, error) {
 			}
 			files = append(files, File{Name: name, Data: data})
 		}
-	}
-	if len(files) == 0 {
-		return nil, InvalidParam("请选择要上传的文件")
 	}
 	// 与 ParseMultipartForm 的结果一样：Form 含查询参数和表单字段，之后的 ParseMultipartForm 直接返回
 	r.MultipartForm = &multipart.Form{Value: fields}

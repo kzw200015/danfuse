@@ -41,6 +41,12 @@ func upload(t *testing.T, srv *Server, target string, files []uploadFile, wantSt
 // uploadForm 以 multipart 发出普通字段 fields 和文件（字段 files），检查状态码，返回解出的统一响应。
 func uploadForm(t *testing.T, srv *Server, target string, files []uploadFile, fields map[string]string, wantStatus int) (message string, data json.RawMessage) {
 	t.Helper()
+	return sendMultipart(t, srv, http.MethodPost, target, files, fields, wantStatus)
+}
+
+// sendMultipart 以 method 发出 multipart 请求：普通字段 fields 和文件（字段 files，可以没有），检查状态码，返回解出的统一响应。
+func sendMultipart(t *testing.T, srv *Server, method, target string, files []uploadFile, fields map[string]string, wantStatus int) (message string, data json.RawMessage) {
+	t.Helper()
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	for name, value := range fields {
@@ -60,11 +66,11 @@ func uploadForm(t *testing.T, srv *Server, target string, files []uploadFile, fi
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, &body)
+	req := httptest.NewRequestWithContext(t.Context(), method, target, &body)
 	req.Header.Set(echo.HeaderContentType, w.FormDataContentType())
 	rec := httptest.NewRecorder()
 	srv.echo.ServeHTTP(rec, req)
-	_, message, data = decodeResponse(t, "POST "+target, rec, wantStatus)
+	_, message, data = decodeResponse(t, method+" "+target, rec, wantStatus)
 	return message, data
 }
 
