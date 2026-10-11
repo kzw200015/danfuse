@@ -44,15 +44,11 @@ func storedInput(ctx context.Context, q *seasonbindingdb.Queries, sb seasonbindi
 			in.errors[source.CanonicalRef(r.Ref)] = ItemError{LastError: r.LastError, LastErrorAt: r.LastErrorAt}
 		}
 	case kindFolder:
-		rows, err := q.ListSeasonBindingEntries(ctx, sb.ID)
+		saved, err := savedEntries(ctx, q, sb.ID)
 		if err != nil {
-			return derivedInput{}, fmt.Errorf("list entries of season binding %d: %w", sb.ID, err)
+			return derivedInput{}, err
 		}
-		saved := make([]folderEntry, len(rows))
-		for i, r := range rows {
-			saved[i] = folderEntry{Source: entrySource(r.ID), Label: r.Label}
-		}
-		in.entries = folderEntries(sb.Title, saved, rule)
+		in.entries = folderEntries(sb.Title, asFolderEntries(saved), rule)
 	}
 	in.episodes, err = episodeSlots(ctx, q, sb.SeasonID, &sb.ID, adapter)
 	return in, err
