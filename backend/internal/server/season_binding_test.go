@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"maps"
@@ -203,6 +206,52 @@ func TestSeasonBindingAPI(t *testing.T) {
 	})
 }
 
+// sha256s 文件内容的 SHA-256（十六进制）的 JSON 数组，文件夹的预览里代替文件本身。
+func sha256s(files ...uploadFile) string {
+	sums := make([]string, len(files))
+	for i, f := range files {
+		sum := sha256.Sum256(f.data)
+		sums[i] = hex.EncodeToString(sum[:])
+	}
+	return jsonString(sums)
+}
+
+// fileBindingCounts 从剧详情里列出各集用弹幕文件建的绑定的弹幕条数（键为集 ID），没有这种绑定的集不列出。
+func fileBindingCounts(t *testing.T, srv *Server, seriesID int64) map[int64][]int32 {
+	t.Helper()
+	_, _, data := call(t, srv, http.MethodGet, "/api/series/"+jsonString(seriesID), "", http.StatusOK)
+	var series struct {
+		Seasons []struct {
+			Episodes []struct {
+				ID       int64 `json:"id"`
+				Bindings []struct {
+					Kind         string `json:"kind"`
+					DanmakuCount int32  `json:"danmakuCount"`
+				} `json:"bindings"`
+			} `json:"episodes"`
+		} `json:"seasons"`
+	}
+	if err := json.Unmarshal(data, &series); err != nil {
+		t.Fatal(err)
+	}
+	counts := make(map[int64][]int32)
+	for _, season := range series.Seasons {
+		for _, ep := range season.Episodes {
+			for _, b := range ep.Bindings {
+				if b.Kind == "file" {
+					counts[ep.ID] = append(counts[ep.ID], b.DanmakuCount)
+				}
+			}
+		}
+	}
+	return counts
+}
+
+// folderRules 文件夹的表单里的集号规则（默认规则）与集号对应（第 1 集为本地第 to 集），不带花括号。
+func folderRules(to int) string {
+	return `"episodePatterns": ` + jsonString(source.DefaultEpisodeRule().Patterns()) + `, "mappingFrom": 1, "mappingTo": ` + jsonString(to)
+}
+
 // TestCollectionPreviewAndSaveAPI 合集的新建预览、编辑预览和保存表单。种子目录同 TestSeasonBindingAPI，
 // 创建后合集的 s1、s2 分别建在第 1 集（绑定 5）、第 2 集（绑定 6）。
 func TestCollectionPreviewAndSaveAPI(t *testing.T) {
@@ -290,34 +339,226 @@ func TestCollectionPreviewAndSaveAPI(t *testing.T) {
 	})
 }
 
-// TestFolderSeasonBindingAPI 文件夹的季绑定的详情：只有文件夹的字段，条目名称是"季绑定标题 / 条目名称"；没有追更。
+// TestFolderSeasonBindingAPI 文件夹的季绑定：预览新建、创建（multipart）、详情、预览编辑（换或不换文件夹）、保存（带或不带文件）、
+// 立即补建（200）、删除。只有文件夹的字段，条目名称是"季绑定标题 / 条目名称"；没有追更。各种写入的语义见 seasonbinding 的 folder_test。
+// 种子目录的第 1 季（季 1）有第 1 集（集 2）和第 2 集（集 1，已有两个手动的绑定）。
 func TestFolderSeasonBindingAPI(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		srv, pool := seasonBindingServer(t, cfg)
-		id, _ := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 1, 1,
-			testenv.FolderEntry{Label: "1", Files: []binding.UploadedFile{testenv.Snapshot1("1.xml")}})
-		path := "/api/season-bindings/" + jsonString(id)
+		srv, _ := seasonBindingServer(t, cfg)
+		files := []uploadFile{
+			danmakuXML("来自新世界/01.xml", "1", "2"),
+			danmakuXML("来自新世界/02/a.xml", "3"),
+			danmakuXML("来自新世界/02/b.XML", "3", "4"),
+			danmakuXML("来自新世界/花絮.xml", "5"),
+		}
+		entries := `[{"label": "01", "sha256s": ` + sha256s(files[0]) + `}, {"label": "02", "sha256s": ` + sha256s(files[1], files[2]) + `},
+			{"label": "花絮", "sha256s": ` + sha256s(files[3]) + `}]`
 
-		_, _, data := call(t, srv, http.MethodGet, path, "", http.StatusOK)
+		// 预览新建：只传文件夹名、条目名称和文件哈希
+		_, _, data := call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/folder/preview",
+			`{"folder": "来自新世界", "entries": `+entries+`, `+folderRules(1)+`}`, http.StatusOK)
+		testenv.AssertJSON(t, data, `{"candidates": [{
+			"collectionKind": null, "title": "来自新世界", "sourceUrl": null, "sourceLabel": null, "finished": false,
+			"numberedByRule": true, "current": false,
+			"items": [
+				{"label": "来自新世界 / 01", "number": 1, "episodeNumber": 1, "status": "create", "reason": null, "replaces": null},
+				{"label": "来自新世界 / 02", "number": 2, "episodeNumber": 2, "status": "create", "reason": null, "replaces": null},
+				{"label": "来自新世界 / 花絮", "number": null, "episodeNumber": null, "status": "unmatched", "reason": "不符合集号规则", "replaces": null}
+			],
+			"removed": [], "summary": {"create": 2, "replace": 0, "remove": 0, "keep": 0}
+		}]}`)
+
+		// 创建：201 和详情，只有文件夹的字段；当场建出了绑定
+		_, data = sendMultipart(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/folder", files,
+			map[string]string{"form": `{` + folderRules(1) + `}`}, http.StatusCreated)
 		detail := decodeObject(t, data)
+		wantFields := []string{
+			"bindingCount", "createdAt", "emptySlots", "entryCount", "episodePatterns", "id", "items", "kind",
+			"mappingFrom", "mappingTo", "seasonId", "title",
+		}
+		if got := slices.Sorted(maps.Keys(detail)); !slices.Equal(got, wantFields) {
+			t.Errorf("季绑定的字段 = %q\nwant %q", got, wantFields)
+		}
 		popTime(t, detail, "createdAt")
 		testenv.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
-			"id": `+jsonString(id)+`, "seasonId": 1, "kind": "folder", "title": "来自新世界",
+			"id": 1, "seasonId": 1, "kind": "folder", "title": "来自新世界",
 			"episodePatterns": `+jsonString(source.DefaultEpisodeRule().Patterns())+`, "mappingFrom": 1, "mappingTo": 1,
-			"bindingCount": 0, "entryCount": 1,
+			"bindingCount": 2, "entryCount": 3,
 			"items": [
-				{"label": "来自新世界 / 1", "number": 1, "episodeNumber": 1, "status": "create", "reason": null, "replaces": null,
-				 "lastError": null, "lastErrorAt": null}
+				{"label": "来自新世界 / 01", "number": 1, "episodeNumber": 1, "status": "keep", "reason": null, "replaces": null,
+				 "lastError": null, "lastErrorAt": null},
+				{"label": "来自新世界 / 02", "number": 2, "episodeNumber": 2, "status": "keep", "reason": null, "replaces": null,
+				 "lastError": null, "lastErrorAt": null},
+				{"label": "来自新世界 / 花絮", "number": null, "episodeNumber": null, "status": "unmatched", "reason": "不符合集号规则",
+				 "replaces": null, "lastError": null, "lastErrorAt": null}
 			],
 			"emptySlots": []
 		}`)
+		// 条目 02 的两份文件合成一个绑定（弹幕 3、4），到了第 2 集（集 1）；01 到了第 1 集（集 2）
+		if got, want := fileBindingCounts(t, srv, 1), map[int64][]int32{1: {2}, 2: {2}}; !maps.EqualFunc(got, want, slices.Equal) {
+			t.Errorf("各集用弹幕文件建的绑定的弹幕条数 = %v, want %v", got, want)
+		}
+
+		// 预览编辑，不换文件夹：按保存的条目算，current 为 true，removed 是保存后删除的槽位
+		_, _, data = call(t, srv, http.MethodPost, "/api/season-bindings/1/folder/preview", `{`+folderRules(2)+`}`, http.StatusOK)
+		var preview struct {
+			Candidates []struct {
+				Title   string          `json:"title"`
+				Current bool            `json:"current"`
+				Removed json.RawMessage `json:"removed"`
+				Summary json.RawMessage `json:"summary"`
+			} `json:"candidates"`
+		}
+		if err := json.Unmarshal(data, &preview); err != nil {
+			t.Fatal(err)
+		}
+		if c := preview.Candidates[0]; c.Title != "来自新世界" || !c.Current {
+			t.Errorf("预览编辑 = %+v", c)
+		}
+		testenv.AssertJSON(t, preview.Candidates[0].Summary, `{"create": 0, "replace": 1, "remove": 1, "keep": 0}`)
+
+		// 预览编辑，换文件夹：条目按名称和文件哈希对上
+		_, _, data = call(t, srv, http.MethodPost, "/api/season-bindings/1/folder/preview",
+			`{"folder": "来自新世界 BD", "entries": `+entries+`, `+folderRules(1)+`}`, http.StatusOK)
+		if err := json.Unmarshal(data, &preview); err != nil {
+			t.Fatal(err)
+		}
+		testenv.AssertJSON(t, preview.Candidates[0].Summary, `{"create": 0, "replace": 0, "remove": 0, "keep": 2}`)
+
+		// 保存，不带文件：只改集号对应，返回 200 和详情
+		_, data = sendMultipart(t, srv, http.MethodPut, "/api/season-bindings/1/folder", nil,
+			map[string]string{"form": `{` + folderRules(2) + `}`}, http.StatusOK)
+		if got := decodeObject(t, data); string(got["mappingTo"]) != "2" || string(got["bindingCount"]) != "1" {
+			t.Errorf("保存后 mappingTo = %s、bindingCount = %s", got["mappingTo"], got["bindingCount"])
+		}
+
+		// 保存，带文件：换文件夹，标题改为新的文件夹名
+		bd := []uploadFile{danmakuXML("来自新世界 BD/01.xml", "1", "2"), danmakuXML("来自新世界 BD/02.xml", "6")}
+		_, data = sendMultipart(t, srv, http.MethodPut, "/api/season-bindings/1/folder", bd,
+			map[string]string{"form": `{` + folderRules(1) + `}`}, http.StatusOK)
+		if got := decodeObject(t, data); string(got["title"]) != `"来自新世界 BD"` || string(got["entryCount"]) != "2" ||
+			string(got["bindingCount"]) != "2" {
+			t.Errorf("换文件夹后 title = %s、entryCount = %s、bindingCount = %s", got["title"], got["entryCount"], got["bindingCount"])
+		}
+
+		// 立即补建：当场完成，200 和详情
+		_, _, data = call(t, srv, http.MethodPost, "/api/season-bindings/1/backfill", "", http.StatusOK)
+		if got := decodeObject(t, data); string(got["kind"]) != `"folder"` || string(got["bindingCount"]) != "2" {
+			t.Errorf("立即补建返回 kind = %s、bindingCount = %s", got["kind"], got["bindingCount"])
+		}
 
 		assertAPIErrors(t, srv, []apiError{
-			{http.MethodPatch, path, `{"follow": true}`, http.StatusBadRequest, "这不是合集的季绑定"},
+			{http.MethodPatch, "/api/season-bindings/1", `{"follow": true}`, http.StatusBadRequest, "这不是合集的季绑定"},
 		})
-		call(t, srv, http.MethodDelete, path, "", http.StatusOK)
+		call(t, srv, http.MethodDelete, "/api/season-bindings/1", "", http.StatusOK)
+		if got := fileBindingCounts(t, srv, 1); len(got) != 0 {
+			t.Errorf("删除季绑定后还有用弹幕文件建的绑定：%v", got)
+		}
+	})
+}
+
+// TestFolderSeasonBindingAPIErrors 文件夹的季绑定的接口：上限、文件夹的结构、表单不对时 400，文件解析失败时 422，
+// 什么都不保存；对合集的季绑定调用 /folder 为 400。
+func TestFolderSeasonBindingAPIErrors(t *testing.T) {
+	t.Parallel()
+	cfg := dbtest.Config(t)
+	synctest.Test(t, func(t *testing.T) {
+		srv, pool := seasonBindingServer(t, cfg)
+		const create = "/api/seasons/1/season-bindings/folder"
+		form := map[string]string{"form": `{` + folderRules(1) + `}`}
+		one := []uploadFile{danmakuXML("星海旅人/1.xml", "1")}
+
+		many := make([]uploadFile, 61)
+		for i := range many {
+			many[i] = danmakuXML("星海旅人/1/"+jsonString(i)+".xml", "1")
+		}
+		big := uploadFile{name: "星海旅人/1/大.xml", data: bytes.Repeat([]byte("a"), 10<<20+1)}
+		nineMB := make([]uploadFile, 7)
+		for i := range nineMB {
+			nineMB[i] = uploadFile{name: "星海旅人/1/" + jsonString(i) + ".xml", data: bytes.Repeat([]byte("a"), 9<<20)}
+		}
+		for _, tt := range []struct {
+			name        string
+			target      string
+			files       []uploadFile
+			fields      map[string]string
+			wantStatus  int
+			wantMessage string
+		}{
+			{"没有文件", create, nil, form, http.StatusBadRequest, "请选择要上传的文件"},
+			{"超过 60 份", create, many, form, http.StatusBadRequest, "一次最多上传 60 份文件"},
+			{"单份超过 10 MB", create, []uploadFile{big}, form, http.StatusBadRequest, "「星海旅人/1/大.xml」超过 10 MB"},
+			{"合计超过 60 MB", create, nineMB, form, http.StatusBadRequest, "一次上传的文件合计不能超过 60 MB"},
+			{
+				"超过两层", create,
+				[]uploadFile{danmakuXML("星海旅人/1/a/1.xml", "1")},
+				form,
+				http.StatusBadRequest, "目录最多两层（文件夹 / 子目录 / 文件），这份文件超出了：星海旅人/1/a/1.xml",
+			},
+			{"没有文件夹", create, []uploadFile{danmakuXML("1.xml", "1")}, form, http.StatusBadRequest, "文件路径不合法：1.xml"},
+			{"不是 .xml", create, []uploadFile{danmakuXML("星海旅人/1/1.ass", "1")}, form, http.StatusBadRequest, "只能上传 XML 弹幕文件：星海旅人/1/1.ass"},
+			{
+				"文件夹名不一致", create,
+				[]uploadFile{danmakuXML("星海旅人/1/1.xml", "1"), danmakuXML("别的/2.xml", "1")},
+				form,
+				http.StatusBadRequest, "文件要在同一个文件夹里：别的/2.xml",
+			},
+			{
+				"条目名称重复", create,
+				[]uploadFile{danmakuXML("星海旅人/1/a.xml", "1"), danmakuXML("星海旅人/1.xml", "1")},
+				form,
+				http.StatusBadRequest, "条目名称重复：1",
+			},
+			{"没有表单", create, one, nil, http.StatusBadRequest, "请求参数错误"},
+			{"集号对应不对", create, one, map[string]string{"form": `{"mappingFrom": 1}`}, http.StatusBadRequest, "集号对应必须是不小于 0 的整数"},
+			{"季 ID 不合法", "/api/seasons/0/season-bindings/folder", one, form, http.StatusBadRequest, "季 ID 不合法"},
+			{"季不存在", "/api/seasons/99/season-bindings/folder", one, form, http.StatusNotFound, "季不存在"},
+			{
+				"解析失败", create,
+				[]uploadFile{danmakuXML("星海旅人/1.xml", "1"), {name: "星海旅人/2/坏.xml", data: []byte("<i><d")}},
+				form,
+				http.StatusUnprocessableEntity, "无法识别「星海旅人/2/坏.xml」：目前只支持 B 站的 XML 弹幕文件，且文件要完整",
+			},
+		} {
+			if message, _ := sendMultipart(t, srv, http.MethodPost, tt.target, tt.files, tt.fields, tt.wantStatus); message != tt.wantMessage {
+				t.Errorf("%s：message = %q, want %q", tt.name, message, tt.wantMessage)
+			}
+		}
+		if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM season_bindings`); n != 0 {
+			t.Errorf("保存了 %d 个季绑定", n)
+		}
+
+		collection := testenv.InsertCollectionSeasonBinding(t, pool, 1, "s", 1, 1)
+		if message, _ := sendMultipart(t, srv, http.MethodPut, "/api/season-bindings/"+jsonString(collection)+"/folder", nil, form,
+			http.StatusBadRequest); message != "这不是文件夹的季绑定" {
+			t.Errorf("保存合集的季绑定的文件夹表单：message = %q", message)
+		}
+		if message, _ := sendMultipart(t, srv, http.MethodPut, "/api/season-bindings/99/folder", nil, form, http.StatusNotFound); message != "季绑定不存在" {
+			t.Errorf("保存不存在的季绑定：message = %q", message)
+		}
+
+		const preview = "/api/seasons/1/season-bindings/folder/preview"
+		hash := sha256s(one[0])
+		assertAPIErrors(t, srv, []apiError{
+			{http.MethodPost, preview, `{` + folderRules(1) + `}`, http.StatusBadRequest, "请选择弹幕文件夹"},
+			{http.MethodPost, preview, `{"folder": "星海旅人", "entries": [], ` + folderRules(1) + `}`, http.StatusBadRequest, "请选择弹幕文件夹"},
+			{http.MethodPost, preview, `{"folder": " ", "entries": [{"label": "1", "sha256s": ` + hash + `}], ` + folderRules(1) + `}`, http.StatusBadRequest, "请选择弹幕文件夹"},
+			{
+				http.MethodPost, preview, `{"folder": "星海旅人", "entries": [{"label": "1", "sha256s": ` + hash + `}, {"label": "1", "sha256s": ` + hash + `}], ` + folderRules(1) + `}`,
+				http.StatusBadRequest, "条目名称重复：1",
+			},
+			{http.MethodPost, preview, `{"folder": "星海旅人", "entries": [{"label": "", "sha256s": ` + hash + `}], ` + folderRules(1) + `}`, http.StatusBadRequest, "条目名称不能为空"},
+			{http.MethodPost, preview, `{"folder": "星海旅人", "entries": [{"label": "1", "sha256s": []}], ` + folderRules(1) + `}`, http.StatusBadRequest, "条目「1」没有文件"},
+			{http.MethodPost, preview, `{"folder": "星海旅人", "entries": [{"label": "1", "sha256s": ["xyz"]}], ` + folderRules(1) + `}`, http.StatusBadRequest, "文件哈希不合法：xyz"},
+			{http.MethodPost, preview, `{"folder": "星海旅人", "entries": [{"label": "1", "sha256s": ` + hash + `}]}`, http.StatusBadRequest, "集号对应必须是不小于 0 的整数"},
+			{http.MethodPost, "/api/seasons/99/season-bindings/folder/preview", `{"folder": "星海旅人", "entries": [{"label": "1", "sha256s": ` + hash + `}], ` + folderRules(1) + `}`, http.StatusNotFound, "季不存在"},
+
+			{http.MethodPost, "/api/season-bindings/99/folder/preview", `{` + folderRules(1) + `}`, http.StatusNotFound, "季绑定不存在"},
+			{http.MethodPost, "/api/season-bindings/" + jsonString(collection) + "/folder/preview", `{` + folderRules(1) + `}`, http.StatusBadRequest, "这不是文件夹的季绑定"},
+			{http.MethodPost, "/api/season-bindings/" + jsonString(collection) + "/folder/preview", `{"folder": "星海旅人", ` + folderRules(1) + `}`, http.StatusBadRequest, "文件夹名和条目要同时给出"},
+		})
 	})
 }
 

@@ -21,6 +21,17 @@ func (q *Queries) DeleteSeasonBinding(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteSeasonBindingEntries = `-- name: DeleteSeasonBindingEntries :exec
+DELETE FROM season_binding_entries
+WHERE id = ANY ($1::bigint[])
+`
+
+// 换文件夹时删掉没对上的条目，条目的文件随外键级联删除；它们建出的绑定由调用方事先删掉（DeleteSlotsInTx）。
+func (q *Queries) DeleteSeasonBindingEntries(ctx context.Context, ids []int64) error {
+	_, err := q.db.Exec(ctx, deleteSeasonBindingEntries, ids)
+	return err
+}
+
 const deleteStaleSeasonBindingItems = `-- name: DeleteStaleSeasonBindingItems :exec
 DELETE FROM season_binding_items i
 WHERE i.season_binding_id = $1
@@ -149,6 +160,51 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 	return i, err
 }
 
+const insertFolderSeasonBinding = `-- name: InsertFolderSeasonBinding :one
+INSERT INTO season_bindings (season_id, kind, title, follow, mapping_from, mapping_to, episode_patterns)
+VALUES ($1, 'folder', $2, false, $3::int, $4::int, $5::text[])
+RETURNING id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, episode_patterns, numbered_by_rule, kind, link
+`
+
+type InsertFolderSeasonBindingParams struct {
+	SeasonID        int64    `json:"seasonId"`
+	Title           string   `json:"title"`
+	MappingFrom     int32    `json:"mappingFrom"`
+	MappingTo       int32    `json:"mappingTo"`
+	EpisodePatterns []string `json:"episodePatterns"`
+}
+
+// 文件夹的季绑定，标题为文件夹名。只属于合集的列为空，追更恒为关。
+func (q *Queries) InsertFolderSeasonBinding(ctx context.Context, arg InsertFolderSeasonBindingParams) (SeasonBinding, error) {
+	row := q.db.QueryRow(ctx, insertFolderSeasonBinding,
+		arg.SeasonID,
+		arg.Title,
+		arg.MappingFrom,
+		arg.MappingTo,
+		arg.EpisodePatterns,
+	)
+	var i SeasonBinding
+	err := row.Scan(
+		&i.ID,
+		&i.SeasonID,
+		&i.Adapter,
+		&i.Ref,
+		&i.Title,
+		&i.MappingFrom,
+		&i.MappingTo,
+		&i.Follow,
+		&i.Status,
+		&i.LastError,
+		&i.LastCheckedAt,
+		&i.CreatedAt,
+		&i.EpisodePatterns,
+		&i.NumberedByRule,
+		&i.Kind,
+		&i.Link,
+	)
+	return i, err
+}
+
 const insertSeasonBinding = `-- name: InsertSeasonBinding :one
 INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, mapping_from, mapping_to, episode_patterns,
                              numbered_by_rule)
@@ -185,6 +241,57 @@ func (q *Queries) InsertSeasonBinding(ctx context.Context, arg InsertSeasonBindi
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertSeasonBindingEntry = `-- name: InsertSeasonBindingEntry :one
+INSERT INTO season_binding_entries (season_binding_id, label, position)
+VALUES ($1, $2, $3)
+RETURNING id
+`
+
+type InsertSeasonBindingEntryParams struct {
+	SeasonBindingID int64  `json:"seasonBindingId"`
+	Label           string `json:"label"`
+	Position        int32  `json:"position"`
+}
+
+// 文件夹的一个条目，名称不带文件夹名。
+func (q *Queries) InsertSeasonBindingEntry(ctx context.Context, arg InsertSeasonBindingEntryParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertSeasonBindingEntry, arg.SeasonBindingID, arg.Label, arg.Position)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertSeasonBindingEntryFiles = `-- name: InsertSeasonBindingEntryFiles :exec
+INSERT INTO season_binding_entry_files (entry_id, name, sha256, size, content)
+SELECT $1::bigint,
+       unnest($2::text[]),
+       unnest($3::bytea[]),
+       unnest($4::int[]),
+       unnest($5::bytea[])
+ON CONFLICT (entry_id, sha256) DO NOTHING
+`
+
+type InsertSeasonBindingEntryFilesParams struct {
+	EntryID  int64    `json:"entryId"`
+	Names    []string `json:"names"`
+	Sha256s  [][]byte `json:"sha256s"`
+	Sizes    []int32  `json:"sizes"`
+	Contents [][]byte `json:"contents"`
+}
+
+// 条目的弹幕文件，各数组按下标一一对应，按加入的顺序。条目里内容相同的文件只存一份。
+// 同 InsertDanmaku，SELECT 列表里的多个 unnest 同步展开。
+func (q *Queries) InsertSeasonBindingEntryFiles(ctx context.Context, arg InsertSeasonBindingEntryFilesParams) error {
+	_, err := q.db.Exec(ctx, insertSeasonBindingEntryFiles,
+		arg.EntryID,
+		arg.Names,
+		arg.Sha256s,
+		arg.Sizes,
+		arg.Contents,
+	)
+	return err
 }
 
 const listDueSeasonBindings = `-- name: ListDueSeasonBindings :many
@@ -269,6 +376,72 @@ func (q *Queries) ListSeasonBindingEntries(ctx context.Context, seasonBindingID 
 	for rows.Next() {
 		var i ListSeasonBindingEntriesRow
 		if err := rows.Scan(&i.ID, &i.Label, &i.Position); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSeasonBindingEntryFiles = `-- name: ListSeasonBindingEntryFiles :many
+SELECT name, content
+FROM season_binding_entry_files
+WHERE entry_id = $1
+ORDER BY id
+`
+
+type ListSeasonBindingEntryFilesRow struct {
+	Name    string `json:"name"`
+	Content []byte `json:"content"`
+}
+
+// 条目的弹幕文件连同内容，按加入的顺序，建出文件绑定时解析。
+func (q *Queries) ListSeasonBindingEntryFiles(ctx context.Context, entryID int64) ([]ListSeasonBindingEntryFilesRow, error) {
+	rows, err := q.db.Query(ctx, listSeasonBindingEntryFiles, entryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSeasonBindingEntryFilesRow{}
+	for rows.Next() {
+		var i ListSeasonBindingEntryFilesRow
+		if err := rows.Scan(&i.Name, &i.Content); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSeasonBindingEntryHashes = `-- name: ListSeasonBindingEntryHashes :many
+SELECT f.entry_id, f.sha256
+FROM season_binding_entry_files f
+JOIN season_binding_entries en ON en.id = f.entry_id
+WHERE en.season_binding_id = $1
+`
+
+type ListSeasonBindingEntryHashesRow struct {
+	EntryID int64  `json:"entryId"`
+	Sha256  []byte `json:"sha256"`
+}
+
+// 文件夹的季绑定的各条目的文件哈希，换文件夹时按"名称 + 文件哈希的集合"对上保存的条目。
+func (q *Queries) ListSeasonBindingEntryHashes(ctx context.Context, seasonBindingID int64) ([]ListSeasonBindingEntryHashesRow, error) {
+	rows, err := q.db.Query(ctx, listSeasonBindingEntryHashes, seasonBindingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSeasonBindingEntryHashesRow{}
+	for rows.Next() {
+		var i ListSeasonBindingEntryHashesRow
+		if err := rows.Scan(&i.EntryID, &i.Sha256); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -669,6 +842,23 @@ func (q *Queries) SeasonExists(ctx context.Context, id int64) (bool, error) {
 	return exists, err
 }
 
+const setSeasonBindingEntryPosition = `-- name: SetSeasonBindingEntryPosition :exec
+UPDATE season_binding_entries
+SET position = $1
+WHERE id = $2
+`
+
+type SetSeasonBindingEntryPositionParams struct {
+	Position int32 `json:"position"`
+	ID       int64 `json:"id"`
+}
+
+// 换文件夹时沿用的条目，位置改为在新文件夹里的。
+func (q *Queries) SetSeasonBindingEntryPosition(ctx context.Context, arg SetSeasonBindingEntryPositionParams) error {
+	_, err := q.db.Exec(ctx, setSeasonBindingEntryPosition, arg.Position, arg.ID)
+	return err
+}
+
 const setSeasonBindingFollow = `-- name: SetSeasonBindingFollow :execrows
 UPDATE season_bindings
 SET follow = $1
@@ -714,6 +904,55 @@ func (q *Queries) SetSeasonBindingItemError(ctx context.Context, arg SetSeasonBi
 		arg.Ref,
 	)
 	return err
+}
+
+const updateFolderSeasonBinding = `-- name: UpdateFolderSeasonBinding :one
+UPDATE season_bindings
+SET title            = $1,
+    mapping_from     = $2::int,
+    mapping_to       = $3::int,
+    episode_patterns = $4::text[]
+WHERE id = $5
+RETURNING id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, episode_patterns, numbered_by_rule, kind, link
+`
+
+type UpdateFolderSeasonBindingParams struct {
+	Title           string   `json:"title"`
+	MappingFrom     int32    `json:"mappingFrom"`
+	MappingTo       int32    `json:"mappingTo"`
+	EpisodePatterns []string `json:"episodePatterns"`
+	ID              int64    `json:"id"`
+}
+
+// 保存文件夹的季绑定的表单：标题（换文件夹时为新的文件夹名）、集号规则、集号对应。返回更新后的季绑定。
+func (q *Queries) UpdateFolderSeasonBinding(ctx context.Context, arg UpdateFolderSeasonBindingParams) (SeasonBinding, error) {
+	row := q.db.QueryRow(ctx, updateFolderSeasonBinding,
+		arg.Title,
+		arg.MappingFrom,
+		arg.MappingTo,
+		arg.EpisodePatterns,
+		arg.ID,
+	)
+	var i SeasonBinding
+	err := row.Scan(
+		&i.ID,
+		&i.SeasonID,
+		&i.Adapter,
+		&i.Ref,
+		&i.Title,
+		&i.MappingFrom,
+		&i.MappingTo,
+		&i.Follow,
+		&i.Status,
+		&i.LastError,
+		&i.LastCheckedAt,
+		&i.CreatedAt,
+		&i.EpisodePatterns,
+		&i.NumberedByRule,
+		&i.Kind,
+		&i.Link,
+	)
+	return i, err
 }
 
 const upsertSeasonBindingItems = `-- name: UpsertSeasonBindingItems :exec
