@@ -20,7 +20,11 @@ import type { Season } from '@/api/series'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Progress } from '@/components/ui/progress'
 import { useElapsed } from '@/hooks/use-elapsed'
-import { useSeasonBindingPreview, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
+import {
+  seasonBindingKeys,
+  useSeasonBindingPreview,
+  useWatchSeasonBinding,
+} from '@/hooks/use-season-bindings'
 import { cn } from '@/lib/utils'
 
 import { groupFolderFiles, hashEntries, type UploadEntry } from './season-upload'
@@ -73,7 +77,7 @@ export function AddFolderForm({ season, onClose }: { season: Season; onClose: ()
     pickLabel: '选择文件夹',
     requireFolder: true,
     initialRules: { episodePatterns: patterns, mappingFrom: 1, mappingTo: 1 },
-    previewKey: ['season-binding-preview', 'new-folder', season.id],
+    previewKey: seasonBindingKeys.preview('new-folder', season.id),
     preview: (form) => {
       if (form.folder === undefined) throw new Error('还没有选文件夹')
       return previewNewFolder(season.id, form)
@@ -113,7 +117,7 @@ export function EditFolderForm({
       mappingFrom: binding.mappingFrom,
       mappingTo: binding.mappingTo,
     },
-    previewKey: ['season-binding-preview', 'folder', binding.id],
+    previewKey: seasonBindingKeys.preview('folder', binding.id),
     preview: (form) => previewFolderEdit(binding.id, form),
     save: (folder, rules, onProgress) => saveFolder(binding.id, folder, rules, onProgress),
     onClose,
@@ -137,15 +141,8 @@ interface Picked {
 function FolderFormBody({ mode }: { mode: FolderFormMode }) {
   const [picked, setPicked] = useState<Picked | null>(null)
   const [pickError, setPickError] = useState<string | null>(null)
-  const hash = useMutation({
-    mutationFn: async ({ folder, entries, ignored }: Omit<Picked, 'hashes'>) => ({
-      folder,
-      entries,
-      ignored,
-      hashes: await hashEntries(entries),
-    }),
-    onSuccess: setPicked,
-  })
+  // 正在计算选好的文件的哈希（本地计算，不是请求）；计算期间不能再选
+  const [hashing, setHashing] = useState(false)
   const rules = useRuleDraft(mode.initialRules)
   let input: FolderPreviewForm | null = null
   if (rules.form && picked) {
@@ -179,20 +176,27 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
   })
   const uploading = save.isPending && picked !== null
 
-  function pick(files: File[]) {
+  async function pick(files: File[]) {
     if (files.length === 0) return
     const grouped = groupFolderFiles(files)
     setPicked(null)
-    hash.reset()
     if (!grouped.ok) {
       setPickError(grouped.error)
       return
     }
     setPickError(null)
-    hash.mutate(grouped)
+    setHashing(true)
+    try {
+      const { folder, entries, ignored } = grouped
+      setPicked({ folder, entries, ignored, hashes: await hashEntries(entries) })
+    } catch (e) {
+      setPickError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setHashing(false)
+    }
   }
 
-  const busy = hash.isPending || save.isPending
+  const busy = hashing || save.isPending
   return (
     <>
       <div className="grid gap-1">
@@ -203,7 +207,7 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
               busy && 'cursor-default opacity-50',
             )}
           >
-            {hash.isPending ? (
+            {hashing ? (
               <Loader2Icon className="size-4 animate-spin" />
             ) : (
               <FolderOpenIcon className="size-4" />
@@ -217,12 +221,10 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
               // React 的类型里没有 webkitdirectory：选文件夹，文件带着相对路径（webkitRelativePath）
               {...{ webkitdirectory: '' }}
               disabled={busy}
-              onChange={(e) => pick(takeFiles(e.target))}
+              onChange={(e) => void pick(takeFiles(e.target))}
             />
           </label>
-          {hash.isPending && (
-            <span className="text-xs text-muted-foreground">正在计算文件哈希…</span>
-          )}
+          {hashing && <span className="text-xs text-muted-foreground">正在计算文件哈希…</span>}
           {picked && (
             <span className="text-xs">
               已选：{picked.folder}（{picked.entries.length} 个条目
@@ -231,7 +233,6 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
           )}
         </div>
         {pickError && <ErrorNote>{pickError}</ErrorNote>}
-        {hash.error && <ErrorNote>{hash.error.message}</ErrorNote>}
       </div>
 
       {(picked || !mode.requireFolder) && (

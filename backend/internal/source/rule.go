@@ -119,7 +119,7 @@ func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
 }
 
 // NumberLabels 用集号规则从一组名称认出序号，与按规则编号的合集同一套匹配和"集号重复"的标注，但不按 ref 去重：
-// 结果与 labels 一一对应（名称相同的也各自保留），只填 Label、Number、Unmatched。给没有弹幕源的条目用（按季上传的预览）。
+// 结果与 labels 一一对应（名称相同的也各自保留），只填 Label、Number、Unmatched。给没有弹幕源的条目用（文件夹的季绑定的条目）。
 func NumberLabels(labels []string, r EpisodeRule) []CollectionItem {
 	items := make([]CollectionItem, len(labels))
 	for i, label := range labels {

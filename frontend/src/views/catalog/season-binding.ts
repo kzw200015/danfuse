@@ -94,7 +94,7 @@ export function seasonBindingName(sb: SeasonBinding) {
 }
 
 /**
- * 绑定卡片上季绑定的标签：文字写季绑定的名称，悬停提示写全名和来源，to 是季面板的路径（建出的绑定要到那里改）。
+ * 绑定卡片上季绑定的锁形标签：文字只写季绑定的名称，悬停提示写全名和来源，to 是季面板的路径（建出的绑定要到那里改）。
  * season 是绑定所在的季（剧 seriesId 的，带着剧详情里的季绑定），季绑定与它建出的绑定总在同一季；
  * path 拼出目录页的地址，默认不带查询参数，组件里传 useCatalogPath() 的结果以保留地址栏的分类。
  * 不是季绑定建出的绑定为 null，找不到对应的季绑定时（理论上不会发生）只写"季绑定"
@@ -111,7 +111,7 @@ export function seasonBindingTag(
   if (!sb) return { text: '季绑定', title: '由季绑定建出', to }
   const name = seasonBindingName(sb)
   return {
-    text: `季绑定 · ${name}`,
+    text: name,
     title:
       sb.kind === 'folder'
         ? `由文件夹的季绑定「${name}」建出`

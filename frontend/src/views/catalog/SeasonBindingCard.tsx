@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -13,7 +13,6 @@ import { isApiStatus } from '@/api/request'
 import {
   backfillSeasonBinding,
   deleteSeasonBinding,
-  getSeasonBinding,
   setFollow,
   type SeasonBinding,
   type SeasonBindingDetail,
@@ -31,11 +30,7 @@ import {
 } from '@/components/ui/table'
 import { Switch } from '@/components/ui/switch'
 import { useElapsed } from '@/hooks/use-elapsed'
-import {
-  seasonBindingKeys,
-  useSeasonBinding,
-  useWatchSeasonBinding,
-} from '@/hooks/use-season-bindings'
+import { isRunning, useSeasonBinding, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { useSettings } from '@/hooks/use-settings'
 import { followRuleText } from '@/lib/follow'
@@ -68,12 +63,16 @@ export default function SeasonBindingCard({
   const clearError = () => setError(null)
   const showError = (e: Error) => setError(e.message)
   // 显示剧详情与轮询到的详情里较新的那一份：补建进行中建出的绑定数等逐条更新
-  const { view, detail, error: detailError } = useSeasonBinding(binding, summaryUpdatedAt, expanded)
-  const running = view.kind === 'collection' && view.running
+  const {
+    view,
+    detail,
+    error: detailError,
+    refetch,
+  } = useSeasonBinding(binding, summaryUpdatedAt, expanded)
+  const running = isRunning(view)
   const elapsed = useElapsed(running)
   const watch = useWatchSeasonBinding()
   const reload = useReloadSeries()
-  const queryClient = useQueryClient()
 
   const follow = useMutation({
     mutationFn: (on: boolean) => setFollow(binding.id, on),
@@ -97,10 +96,7 @@ export default function SeasonBindingCard({
       if (isApiStatus(e, 409)) {
         toast.error(e.message)
         // 正在补建：取一次详情，显示它的进度
-        await queryClient.fetchQuery({
-          queryKey: seasonBindingKeys.detail(binding.id),
-          queryFn: () => getSeasonBinding(binding.id),
-        })
+        await refetch()
         return
       }
       showError(e)

@@ -19,7 +19,11 @@ import {
 import type { Season } from '@/api/series'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useSeasonBindingPreview, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
+import {
+  seasonBindingKeys,
+  useSeasonBindingPreview,
+  useWatchSeasonBinding,
+} from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { useSettings } from '@/hooks/use-settings'
 import { followCostText } from '@/lib/follow'
@@ -73,7 +77,7 @@ export function AddCollectionForm({ season, onClose }: { season: Season; onClose
     savedText: '已创建季绑定，正在后台补建',
     initialLink: '',
     initialRules: { episodePatterns: patterns, mappingFrom: 1, mappingTo: 1 },
-    previewKey: ['season-binding-preview', 'new-collection', season.id],
+    previewKey: seasonBindingKeys.preview('new-collection', season.id),
     preview: (form) => previewNewCollection(season.id, form),
     save: (form) => createCollection(season.id, form),
     finishedNote: `已完结，可以关掉追更${settings ? `：新建的季绑定开着追更，${followCostText(settings.follow)}` : ''}。`,
@@ -107,7 +111,7 @@ export function EditCollectionForm({
       mappingFrom: binding.mappingFrom,
       mappingTo: binding.mappingTo,
     },
-    previewKey: ['season-binding-preview', 'collection', binding.id],
+    previewKey: seasonBindingKeys.preview('collection', binding.id),
     preview: (form) => previewCollectionEdit(binding.id, form),
     save: (form) => saveCollection(binding.id, form),
     finishedNote: binding.follow ? '已完结，可以关掉追更。' : undefined,

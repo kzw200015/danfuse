@@ -17,9 +17,16 @@ import {
 } from '@/api/season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 
-/** 查询键：季绑定详情 ['season-bindings', id]。季绑定的列表在剧详情里，没有单独的查询 */
+/** 季绑定表单的预览：新建的按季 ID，编辑的按季绑定 ID */
+export type PreviewKind = 'new-collection' | 'collection' | 'new-folder' | 'folder'
+
+/**
+ * 查询键：季绑定详情 ['season-bindings', id]；表单的预览 ['season-binding-preview', kind, id]（不缓存，见 useSeasonBindingPreview）。
+ * 季绑定的列表在剧详情里，没有单独的查询
+ */
 export const seasonBindingKeys = {
   detail: (id: number) => ['season-bindings', id] as const,
+  preview: (kind: PreviewKind, id: number) => ['season-binding-preview', kind, id] as const,
 }
 
 /** 默认的集号规则，写死在后端，取一次就不再刷新；查询键 ['episode-rules', 'default'] */
@@ -37,7 +44,7 @@ export function useDefaultEpisodePatterns() {
 const pollInterval = 1000
 
 /** 合集正在补建（文件夹的写入当场完成，没有补建中） */
-function isRunning(sb: SeasonBinding | undefined) {
+export function isRunning(sb: SeasonBinding | undefined) {
   return sb?.kind === 'collection' && sb.running
 }
 
@@ -46,6 +53,7 @@ function isRunning(sb: SeasonBinding | undefined) {
  * 详情在展开条目表时才取；合集正在补建时也取，并每秒轮询。返回的 view 是剧详情与详情里较新的那一份：
  * 补建进行中建出的绑定数等随轮询逐条更新；剧详情重新加载后显示正在补建（例如追更的定时检查开始了）时，重新取一次详情。
  * 补建结束（running 由 true 变为 false）后让剧详情失效，各集的绑定数随之更新。
+ * refetch 立即取一次详情（没展开、没在补建时也取），显示正在补建时随即开始轮询。
  */
 export function useSeasonBinding(
   binding: SeasonBinding,
@@ -75,7 +83,7 @@ export function useSeasonBinding(
     wasRunning.current = running
   }, [running, reloadSeries])
 
-  return { view, detail: query.data, error: query.error }
+  return { view, detail: query.data, error: query.error, refetch }
 }
 
 /**

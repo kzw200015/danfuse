@@ -243,29 +243,50 @@ func (q *Queries) InsertSeasonBinding(ctx context.Context, arg InsertSeasonBindi
 	return id, err
 }
 
-const insertSeasonBindingEntry = `-- name: InsertSeasonBindingEntry :one
+const insertSeasonBindingEntries = `-- name: InsertSeasonBindingEntries :many
 INSERT INTO season_binding_entries (season_binding_id, label, position)
-VALUES ($1, $2, $3)
-RETURNING id
+SELECT $1::bigint,
+       unnest($2::text[]),
+       unnest($3::int[])
+RETURNING id, label
 `
 
-type InsertSeasonBindingEntryParams struct {
-	SeasonBindingID int64  `json:"seasonBindingId"`
-	Label           string `json:"label"`
-	Position        int32  `json:"position"`
+type InsertSeasonBindingEntriesParams struct {
+	SeasonBindingID int64    `json:"seasonBindingId"`
+	Labels          []string `json:"labels"`
+	Positions       []int32  `json:"positions"`
 }
 
-// 文件夹的一个条目，名称不带文件夹名。
-func (q *Queries) InsertSeasonBindingEntry(ctx context.Context, arg InsertSeasonBindingEntryParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertSeasonBindingEntry, arg.SeasonBindingID, arg.Label, arg.Position)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+type InsertSeasonBindingEntriesRow struct {
+	ID    int64  `json:"id"`
+	Label string `json:"label"`
+}
+
+// 文件夹的条目，名称不带文件夹名，各数组按下标一一对应。带回 ID 与名称（一个季绑定里名称不重复），由调用方按名称对回。
+// 同 InsertDanmaku，SELECT 列表里的多个 unnest 同步展开。
+func (q *Queries) InsertSeasonBindingEntries(ctx context.Context, arg InsertSeasonBindingEntriesParams) ([]InsertSeasonBindingEntriesRow, error) {
+	rows, err := q.db.Query(ctx, insertSeasonBindingEntries, arg.SeasonBindingID, arg.Labels, arg.Positions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InsertSeasonBindingEntriesRow{}
+	for rows.Next() {
+		var i InsertSeasonBindingEntriesRow
+		if err := rows.Scan(&i.ID, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const insertSeasonBindingEntryFiles = `-- name: InsertSeasonBindingEntryFiles :exec
 INSERT INTO season_binding_entry_files (entry_id, name, sha256, size, content)
-SELECT $1::bigint,
+SELECT unnest($1::bigint[]),
        unnest($2::text[]),
        unnest($3::bytea[]),
        unnest($4::int[]),
@@ -274,7 +295,7 @@ ON CONFLICT (entry_id, sha256) DO NOTHING
 `
 
 type InsertSeasonBindingEntryFilesParams struct {
-	EntryID  int64    `json:"entryId"`
+	EntryIds []int64  `json:"entryIds"`
 	Names    []string `json:"names"`
 	Sha256s  [][]byte `json:"sha256s"`
 	Sizes    []int32  `json:"sizes"`
@@ -285,7 +306,7 @@ type InsertSeasonBindingEntryFilesParams struct {
 // 同 InsertDanmaku，SELECT 列表里的多个 unnest 同步展开。
 func (q *Queries) InsertSeasonBindingEntryFiles(ctx context.Context, arg InsertSeasonBindingEntryFilesParams) error {
 	_, err := q.db.Exec(ctx, insertSeasonBindingEntryFiles,
-		arg.EntryID,
+		arg.EntryIds,
 		arg.Names,
 		arg.Sha256s,
 		arg.Sizes,
@@ -679,7 +700,7 @@ WHERE id = $1
 FOR UPDATE
 `
 
-// 保存表单、删除季绑定的事务里锁住季绑定（FOR UPDATE）：与进行中的补建写入、另一次保存排队。季绑定已被删除时没有行。
+// 保存表单、删除季绑定、文件夹的写入事务里锁季之后锁住季绑定（FOR UPDATE）：与进行中的补建写入、另一次写入排队。季绑定已被删除时没有行。
 func (q *Queries) LockSeasonBindingForUpdate(ctx context.Context, id int64) (SeasonBinding, error) {
 	row := q.db.QueryRow(ctx, lockSeasonBindingForUpdate, id)
 	var i SeasonBinding
@@ -842,20 +863,21 @@ func (q *Queries) SeasonExists(ctx context.Context, id int64) (bool, error) {
 	return exists, err
 }
 
-const setSeasonBindingEntryPosition = `-- name: SetSeasonBindingEntryPosition :exec
-UPDATE season_binding_entries
-SET position = $1
-WHERE id = $2
+const setSeasonBindingEntryPositions = `-- name: SetSeasonBindingEntryPositions :exec
+UPDATE season_binding_entries e
+SET position = p.position
+FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::int[]) AS position) AS p
+WHERE e.id = p.id
 `
 
-type SetSeasonBindingEntryPositionParams struct {
-	Position int32 `json:"position"`
-	ID       int64 `json:"id"`
+type SetSeasonBindingEntryPositionsParams struct {
+	Ids       []int64 `json:"ids"`
+	Positions []int32 `json:"positions"`
 }
 
-// 换文件夹时沿用的条目，位置改为在新文件夹里的。
-func (q *Queries) SetSeasonBindingEntryPosition(ctx context.Context, arg SetSeasonBindingEntryPositionParams) error {
-	_, err := q.db.Exec(ctx, setSeasonBindingEntryPosition, arg.Position, arg.ID)
+// 换文件夹时沿用的条目，位置改为在新文件夹里的，两个数组按下标一一对应（同 InsertDanmaku，两个 unnest 同步展开）。
+func (q *Queries) SetSeasonBindingEntryPositions(ctx context.Context, arg SetSeasonBindingEntryPositionsParams) error {
+	_, err := q.db.Exec(ctx, setSeasonBindingEntryPositions, arg.Ids, arg.Positions)
 	return err
 }
 
@@ -895,7 +917,7 @@ type SetSeasonBindingItemErrorParams struct {
 	Ref             []byte     `json:"ref"`
 }
 
-// 条目补建失败：记下原因和时间，下次补建再试。error 为 null 时清掉（补建成功）。
+// 条目补建失败：记下原因和时间，下次补建再试。error 为 null 时清掉（补建成功、按已有同源绑定跳过）。
 func (q *Queries) SetSeasonBindingItemError(ctx context.Context, arg SetSeasonBindingItemErrorParams) error {
 	_, err := q.db.Exec(ctx, setSeasonBindingItemError,
 		arg.Error,

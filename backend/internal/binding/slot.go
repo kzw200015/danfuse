@@ -15,6 +15,8 @@ import (
 
 // 季绑定的槽位：一个季绑定在一集上至多建出一个绑定（唯一约束 (season_binding_id, episode_id)）。
 // 下面的方法都由 seasonbinding 在自己的写入事务里调用：调用方开事务，先锁住季、再锁住季绑定；这里先锁集，再写绑定。
+// 锁多集时不必按固定顺序：同时会锁同一季多集的只有删季，它被调用方先锁的季挡在外面；只删一集时也是先锁集、再删它的绑定；
+// 别的写入事务对集只加 FOR KEY SHARE，互不阻塞。
 
 var (
 	// ErrEpisodeGone CreateLinkSlotInTx、CreateFileSlotInTx：要写入的集已被删除（例如拉取期间）。
@@ -77,7 +79,7 @@ func (s *Service) CreateFileSlotInTx(ctx context.Context, tx pgx.Tx, b FileSlot)
 }
 
 // DeleteSlotsInTx 在季绑定的写入事务里删掉它在这些集上的槽位（建出的绑定，弹幕随之级联删除）：
-// 先按 ID 顺序锁住这些集（随后可能在同一集上建出新的绑定，与删集的级联保持同一个加锁顺序），再删绑定。
+// 先锁住这些集（随后可能在同一集上建出新的绑定，期间删不掉这一集），再删绑定。
 // 已被删除的集、没有槽位的集跳过。
 func (s *Service) DeleteSlotsInTx(ctx context.Context, tx pgx.Tx, seasonBindingID int64, episodeIDs []int64) error {
 	q := s.q.WithTx(tx)

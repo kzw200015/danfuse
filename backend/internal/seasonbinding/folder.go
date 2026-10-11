@@ -89,7 +89,7 @@ func (s *Service) CreateFolder(ctx context.Context, seasonID int64, files []bind
 // SaveFolder 保存文件夹的季绑定的表单，当场完成，返回详情：files 为空时不换文件夹，只改集号规则、集号对应；
 // 不为空时换文件夹，标题改为新的文件夹名，名称和文件哈希都没变的条目沿用（建出的绑定和偏移不动），其余的删掉重建。
 // 派生之后删掉没有条目的槽位，替换、新建槽位。每次保存都走这一套，不比较表单改没改。
-// 不存在时 404，合集的季绑定 400；其余错误同 CreateFolder。
+// 不存在时 404（保存前季或季绑定被删除也是），合集的季绑定 400；文件夹的结构不对为 400，有一份文件解析失败为 422。
 func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.UploadedFile, f FolderForm) (Detail, error) {
 	sb, err := s.getFolder(ctx, id)
 	if err != nil {
@@ -106,7 +106,7 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.Uplo
 	var res folderResult
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		locked, err := lockFolder(ctx, q, sb)
+		locked, err := lockSeasonBinding(ctx, q, sb.SeasonID, id)
 		if err != nil {
 			return err
 		}
@@ -134,11 +134,11 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.Uplo
 	return s.Get(ctx, id)
 }
 
-// backfillFolder 文件夹的立即补建：在一个事务里按保存的表单派生，替换、新建槽位，不删除没有条目的槽位（规格第 4 节"文件夹"）。
+// backfillFolder 文件夹的立即补建：在一个事务里按保存的表单派生，替换、新建槽位，不删除没有条目的槽位（补建从不删除，见 docs/architecture/season-binding.md 的"写入"）。
 func (s *Service) backfillFolder(ctx context.Context, sb seasonbindingdb.SeasonBinding) error {
 	var res folderResult
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		locked, err := lockFolder(ctx, s.q.WithTx(tx), sb)
+		locked, err := lockSeasonBinding(ctx, s.q.WithTx(tx), sb.SeasonID, sb.ID)
 		if err != nil {
 			return err
 		}
@@ -165,7 +165,7 @@ func (s *Service) PreviewNewFolder(ctx context.Context, seasonID int64, p Picked
 	if err != nil {
 		return Preview{}, err
 	}
-	return folderPreview(p.Folder, Derive(folderEntries(p.Folder, sources(entries), f.Rule), f.Mapping, episodes), false), nil
+	return folderPreview(p.Folder, Derive(folderEntries(p.Folder, asFolderEntries(entries), f.Rule), f.Mapping, episodes), false), nil
 }
 
 // PreviewFolderEdit 预览保存文件夹的季绑定：p 为 nil 时不换文件夹，按保存的条目和标题算；否则按新的文件夹名，
@@ -190,7 +190,7 @@ func (s *Service) PreviewFolderEdit(ctx context.Context, id int64, p *PickedFold
 	if err != nil {
 		return Preview{}, err
 	}
-	return folderPreview(title, Derive(folderEntries(title, sources(entries), f.Rule), f.Mapping, episodes), true), nil
+	return folderPreview(title, Derive(folderEntries(title, asFolderEntries(entries), f.Rule), f.Mapping, episodes), true), nil
 }
 
 // folderPreview 文件夹的预览只有一组，没有合集的字段；文件夹的条目都按集号规则编号。current 为编辑时，标出这一组是保存的。
@@ -203,21 +203,6 @@ func folderPreview(title string, r Result, current bool) Preview {
 // getFolder 读文件夹的季绑定：不存在时 404，合集的季绑定 400（种类不符）。
 func (s *Service) getFolder(ctx context.Context, id int64) (seasonbindingdb.SeasonBinding, error) {
 	return s.getKind(ctx, id, kindFolder, errNotFolder)
-}
-
-// lockFolder 文件夹的写入事务的前两句：锁季，再 FOR UPDATE 锁季绑定（与另一次写入排队），返回锁住时的季绑定。
-func lockFolder(ctx context.Context, q *seasonbindingdb.Queries, sb seasonbindingdb.SeasonBinding) (seasonbindingdb.SeasonBinding, error) {
-	if err := lockSeason(ctx, q, sb.SeasonID, errSeasonDeleted); err != nil {
-		return seasonbindingdb.SeasonBinding{}, err
-	}
-	locked, err := q.LockSeasonBindingForUpdate(ctx, sb.ID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return seasonbindingdb.SeasonBinding{}, errSeasonBindingNotFound
-	}
-	if err != nil {
-		return seasonbindingdb.SeasonBinding{}, fmt.Errorf("lock season binding %d: %w", sb.ID, err)
-	}
-	return locked, nil
 }
 
 // folderResult 一次写入建出、替换、删除的槽位数，记进日志。
@@ -258,7 +243,7 @@ func (s *Service) applyFolder(ctx context.Context, tx pgx.Tx, sb seasonbindingdb
 	if err != nil {
 		return folderResult{}, err
 	}
-	r := Derive(folderEntries(sb.Title, sources(entries), rule), formMapping(sb), episodes)
+	r := Derive(folderEntries(sb.Title, asFolderEntries(entries), rule), formMapping(sb), episodes)
 
 	var (
 		res   folderResult
@@ -318,8 +303,8 @@ type formEntry struct {
 	upload *uploadedEntry // 这次上传的条目；不换文件夹时为 nil
 }
 
-// sources 条目转为 folderEntries 的输入：保存的条目以 ID 为身份，新的用临时身份 "new:<名称>"，不会与任何槽位相同。
-func sources(entries []formEntry) []folderEntry {
+// asFolderEntries 条目转为 folderEntries 的输入：保存的条目以 ID 为身份，新的用临时身份 "new:<名称>"，不会与任何槽位相同。
+func asFolderEntries(entries []formEntry) []folderEntry {
 	out := make([]folderEntry, len(entries))
 	for i, e := range entries {
 		src := "new:" + e.label
@@ -405,7 +390,7 @@ func entryKey(label string, hashes []string) string {
 }
 
 // writeEntries 换文件夹（创建）时写条目：删掉没对上的保存的条目（它们建出的绑定已经删掉），沿用的改为新的位置，
-// 新的连同文件插入，ID 填回 entries。位置从 1 开始，按这次上传的顺序。
+// 新的连同文件插入，ID 填回 entries；每一步一条语句写完。位置从 1 开始，按这次上传的顺序。
 func writeEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, entries []formEntry) error {
 	saved, err := q.ListSeasonBindingEntries(ctx, id)
 	if err != nil {
@@ -424,31 +409,46 @@ func writeEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, ent
 	if err := q.DeleteSeasonBindingEntries(ctx, stale); err != nil {
 		return fmt.Errorf("delete entries of season binding %d: %w", id, err)
 	}
-	for i := range entries {
-		e := &entries[i]
+	moved := seasonbindingdb.SetSeasonBindingEntryPositionsParams{Ids: []int64{}, Positions: []int32{}}
+	added := seasonbindingdb.InsertSeasonBindingEntriesParams{SeasonBindingID: id, Labels: []string{}, Positions: []int32{}}
+	for i, e := range entries {
 		position := int32(i + 1)
 		if e.id != 0 {
-			if err := q.SetSeasonBindingEntryPosition(ctx, seasonbindingdb.SetSeasonBindingEntryPositionParams{ID: e.id, Position: position}); err != nil {
-				return fmt.Errorf("set position of entry %d: %w", e.id, err)
-			}
+			moved.Ids = append(moved.Ids, e.id)
+			moved.Positions = append(moved.Positions, position)
+		} else {
+			added.Labels = append(added.Labels, e.label)
+			added.Positions = append(added.Positions, position)
+		}
+	}
+	if err := q.SetSeasonBindingEntryPositions(ctx, moved); err != nil {
+		return fmt.Errorf("set positions of entries of season binding %d: %w", id, err)
+	}
+	rows, err := q.InsertSeasonBindingEntries(ctx, added)
+	if err != nil {
+		return fmt.Errorf("insert entries of season binding %d: %w", id, err)
+	}
+	inserted := make(map[string]int64, len(rows)) // 条目名称 → ID
+	for _, r := range rows {
+		inserted[r.Label] = r.ID
+	}
+	files := seasonbindingdb.InsertSeasonBindingEntryFilesParams{}
+	for i := range entries {
+		e := &entries[i]
+		if e.id != 0 {
 			continue
 		}
-		e.id, err = q.InsertSeasonBindingEntry(ctx, seasonbindingdb.InsertSeasonBindingEntryParams{
-			SeasonBindingID: id, Label: e.label, Position: position,
-		})
-		if err != nil {
-			return fmt.Errorf("insert entry %q of season binding %d: %w", e.label, id, err)
-		}
-		p := seasonbindingdb.InsertSeasonBindingEntryFilesParams{EntryID: e.id}
+		e.id = inserted[e.label]
 		for _, f := range e.upload.files {
-			p.Names = append(p.Names, path.Base(f.Name))
-			p.Sha256s = append(p.Sha256s, f.sum[:])
-			p.Sizes = append(p.Sizes, int32(len(f.Data)))
-			p.Contents = append(p.Contents, f.Data)
+			files.EntryIds = append(files.EntryIds, e.id)
+			files.Names = append(files.Names, path.Base(f.Name))
+			files.Sha256s = append(files.Sha256s, f.sum[:])
+			files.Sizes = append(files.Sizes, int32(len(f.Data)))
+			files.Contents = append(files.Contents, f.Data)
 		}
-		if err := q.InsertSeasonBindingEntryFiles(ctx, p); err != nil {
-			return fmt.Errorf("insert files of entry %d: %w", e.id, err)
-		}
+	}
+	if err := q.InsertSeasonBindingEntryFiles(ctx, files); err != nil {
+		return fmt.Errorf("insert entry files of season binding %d: %w", id, err)
 	}
 	return nil
 }

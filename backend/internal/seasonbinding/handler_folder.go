@@ -10,7 +10,6 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
 )
@@ -134,7 +133,7 @@ func (h *Handler) PreviewFolderEdit(c *echo.Context) error {
 func parseFolderForm(form string) (FolderForm, error) {
 	var rules ruleForm
 	if err := json.Unmarshal([]byte(form), &rules); err != nil {
-		return FolderForm{}, apierr.ErrBadRequest.Wrap(fmt.Errorf("decode form: %w", err))
+		return FolderForm{}, request.InvalidParam("表单格式不对，请刷新页面后重试")
 	}
 	if err := rules.parse(); err != nil {
 		return FolderForm{}, err
@@ -159,7 +158,7 @@ func (r *createFolderRequest) Validate() error {
 	return err
 }
 
-// CreateFolder POST /api/seasons/:id/season-bindings/folder（multipart：files 的文件名是以文件夹名开头的相对路径，form 见 folderUpload）
+// CreateFolder POST /api/seasons/:id/season-bindings/folder（multipart：files 的文件名是以文件夹名开头的相对路径，form 见 parseFolderForm）
 // 创建文件夹的季绑定，当场建出各集的绑定，返回 201 和详情。上限（config.DanmakuFile 里按季的那组）、文件夹的结构、
 // 表单有一项不对就 400，有一份文件解析失败就 422，什么都不保存。
 func (h *Handler) CreateFolder(c *echo.Context) error {
@@ -195,7 +194,7 @@ func (r *saveFolderRequest) Validate() error {
 	return err
 }
 
-// SaveFolder PUT /api/season-bindings/:id/folder（multipart：files 可以省略，form 见 folderUpload）
+// SaveFolder PUT /api/season-bindings/:id/folder（multipart：files 可以省略，form 见 parseFolderForm）
 // 保存文件夹的季绑定的表单，当场完成，返回 200 和详情：不带文件时只改集号规则、集号对应，带文件时换文件夹。错误同 CreateFolder。
 func (h *Handler) SaveFolder(c *echo.Context) error {
 	files, err := request.ReadOptionalFiles(c, h.folderLimits())

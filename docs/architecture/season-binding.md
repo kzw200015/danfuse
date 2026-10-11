@@ -22,7 +22,7 @@
   - 只属于合集：`adapter`、`ref`、`link`、`follow`、`numbered_by_rule`、`status`、`last_error`、`last_checked_at`。由 CHECK `season_bindings_kind_columns_check` 按 kind 守住：文件夹的这些列为空、追更关着、状态为正常。`follow` 列的默认值是开着，插入文件夹的季绑定要写明 `follow = false`（`InsertFolderSeasonBinding`）。
   - 唯一约束 `(season_id, adapter, ref)` 在 NULL 上不生效，同一个文件夹可以在一季上传多次。
   - `link` 是创建或保存时贴的链接，原样保存，只用来在编辑时预填；合集以 ref 为准，链接不进 ref（理由同 ADR 0009 第 1 条）。
-- `season_binding_items` 是合集上次列出的结果，不是表单。主键 `(season_binding_id, ref)`。`saveItems` 每次列出成功后按规范化的 ref 去重、增改，删掉不在了的。`number` 只存平台给的集号，按规则编号的合集为空，读取时再按季绑定现在的集号规则编号。`last_error`、`last_error_at` 是条目上次补建失败的原因，补建成功后清掉。条目的状态读取时现算，不存储。
+- `season_binding_items` 是合集上次列出的结果，不是表单。主键 `(season_binding_id, ref)`。`saveItems` 每次列出成功后按规范化的 ref 去重、增改，删掉不在了的。`number` 只存平台给的集号，按规则编号的合集为空，读取时再按季绑定现在的集号规则编号。`last_error`、`last_error_at` 是条目上次补建失败的原因，补建成功、或撞上同源约束跳过后清掉。条目的状态读取时现算，不存储。
 - 文件夹的表单是条目 `season_binding_entries` 与条目的文件 `season_binding_entry_files`：
   - 条目名称 `label` 不带文件夹名（子目录名，或去掉扩展名的文件名），唯一约束 `(season_binding_id, label)`。
   - 文件按 `(entry_id, sha256)` 去重，没有加入时间。
@@ -67,7 +67,10 @@
 
 - 合集保存时，事务里只做删除，新建和替换交给紧接着的后台补建。
 - 替换是删掉旧的绑定、新建一个，同一个事务里先 `DeleteSlotsInTx` 再 `CreateLinkSlotInTx` / `CreateFileSlotInTx`，不挪动原来的绑定，新绑定的偏移归零。
-- 加锁顺序是季 → 季绑定 → 集 → 绑定，与删季的级联一致。
+- 加锁：写入事务的第一句锁季（`FOR KEY SHARE`），再锁季绑定，写一集的绑定之前先锁那一集（`FOR KEY SHARE`），即季 → 季绑定 → 集 → 绑定。不死锁靠先锁季：
+  - 删季（删剧）的第一步是锁住季那一行，与 `FOR KEY SHARE` 冲突，两边在季上排队，所以之后的顺序不必与删季的级联（季 → 集 → 季绑定 → 绑定）一致；
+  - 只删一集时只锁这一集和它的绑定，写入同样先锁集、再写这一集的绑定；
+  - 同一个季绑定的写入由 `FOR UPDATE` 锁季绑定（保存表单、删除、文件夹的写入，`lockSeasonBinding`）或补建租约（合集的补建）串行；不同季绑定的写入对集只加 `FOR KEY SHARE`，互不阻塞。所以锁多集时不必按固定顺序（文件夹建出槽位时逐集锁）。
 - `binding.Service` 给季绑定的方法在 `binding/slot.go`。调用方开事务，先锁好季和季绑定；这些方法先锁集，再写绑定：
   - `CreateLinkSlotInTx(ctx, tx, LinkSlot)`：集已被删除时返回 `ErrEpisodeGone`，集上已有同一个弹幕源时返回 `ErrSourceBound`、什么都不写。提交之后调用方调用 `LogFetched`。
   - `CreateFileSlotInTx(ctx, tx, FileSlot)`：弹幕是条目的各份文件经 `danmakufile.Parse` 解析、合并后的，按原始 ID 去重。集上已有别的绑定时照常建（文件没有"同源"）。
@@ -83,7 +86,7 @@
   1. 拿这个季绑定的补建租约（`tryBackfillLease`），拿不到返回 409"正在补建或保存，稍后再试"。持有到写入提交，期间用租约的 ctx。
   2. 由 `resolve` 重新识别链接、选候选、查重（不算自己）、列出合集。删除以这次列出的结果为准，不和预览核对。
   3. 事务（`saveCollectionTx`）：
-     - 锁季，`LockSeasonBindingForUpdate` 锁季绑定；
+     - 锁季，`FOR UPDATE` 锁季绑定（`lockSeasonBinding`）；
      - `SaveCollectionForm` 写表单，换成另一个合集（适配器或 ref 变了）时清掉上次检查时间；同一季已有这个合集时撞上唯一约束，返回 409；
      - `saveListed` 保存这次列出的结果（季绑定恢复为正常、更新标题与是否按规则编号、写条目表）；
      - 派生，用 `DeleteSlotsInTx` 删掉 `Empty`。
@@ -113,7 +116,7 @@
 
      失败的处理：
      - 集被删了（`ErrEpisodeGone`）：跳过这个条目；
-     - 撞上同源约束（`ErrSourceBound`）：事务回滚，旧的绑定保留，计入已有同源绑定；
+     - 撞上同源约束（`ErrSourceBound`）：事务回滚，旧的绑定保留，计入已有同源绑定，另外清掉条目上次失败的原因；
      - 限流：记下原因，结束这一轮；
      - 其他拉取失败：原因记在条目的 `last_error`、`last_error_at` 上（`setItemError`），继续下一个。
   4. 正常结束或因错误、限流结束时，`FinishSeasonBindingCheck` 把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算上次检查之后才有的。被关闭服务或丢失租约打断时不写，下一次扫描接着做。结束时记一条 `backfill finished`，记下了错误时为 warn 级别。
@@ -126,7 +129,7 @@
 
 ### 文件夹
 
-- 四种写入当场完成，不拿租约，靠 `FOR UPDATE` 锁季绑定（`lockFolder`）与另一次写入排队：
+- 四种写入当场完成，不拿租约，靠 `FOR UPDATE` 锁季绑定（`lockSeasonBinding`）与另一次写入排队：
   - 创建 `CreateFolder`；
   - 保存表单 `SaveFolder`，不带文件时只改集号规则、集号对应，带文件时换文件夹；
   - 立即补建 `backfillFolder`，由 `Service.Backfill` 按种类分派，返回 200 和详情。
@@ -153,7 +156,7 @@
 
 ### 删除
 
-`Delete` 两种一样，不拿租约：一个事务里先 `FOR UPDATE` 锁住季绑定，再删掉它；建出的绑定（连同弹幕）、条目表、条目和条目的文件随外键级联删除。进行中的补建等这个事务提交后再也锁不到季绑定，随即结束这一轮。
+`Delete` 两种一样，不拿租约：一个事务里先锁季、再 `FOR UPDATE` 锁住季绑定（`lockSeasonBinding`），再删掉它；建出的绑定（连同弹幕）、条目表、条目和条目的文件随外键级联删除。进行中的补建等这个事务提交后再也锁不到季绑定，随即结束这一轮。
 
 ## 管理 API
 

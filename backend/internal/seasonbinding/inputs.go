@@ -9,7 +9,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// 派生（Derive）的输入从哪里来（规格第 3 节"各处的输入"）：
+// 派生（Derive）的输入从哪里来：
 //   - 条目：合集为 source.NumberItems 的输出（collectionEntries），预览、保存、补建用这次列出的合集，
 //     详情用上次列出的结果（storedCollection）；文件夹为 folderEntries。
 //   - 集与槽位：episodeSlots。预览和详情在读取时查（q 为池上的），保存和补建在写入事务里查（q 为事务里的）。
@@ -44,15 +44,11 @@ func storedInput(ctx context.Context, q *seasonbindingdb.Queries, sb seasonbindi
 			in.errors[source.CanonicalRef(r.Ref)] = ItemError{LastError: r.LastError, LastErrorAt: r.LastErrorAt}
 		}
 	case kindFolder:
-		rows, err := q.ListSeasonBindingEntries(ctx, sb.ID)
+		saved, err := savedEntries(ctx, q, sb.ID)
 		if err != nil {
-			return derivedInput{}, fmt.Errorf("list entries of season binding %d: %w", sb.ID, err)
+			return derivedInput{}, err
 		}
-		saved := make([]folderEntry, len(rows))
-		for i, r := range rows {
-			saved[i] = folderEntry{Source: entrySource(r.ID), Label: r.Label}
-		}
-		in.entries = folderEntries(sb.Title, saved, rule)
+		in.entries = folderEntries(sb.Title, asFolderEntries(saved), rule)
 	}
 	in.episodes, err = episodeSlots(ctx, q, sb.SeasonID, &sb.ID, adapter)
 	return in, err
