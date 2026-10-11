@@ -844,11 +844,12 @@ describe('删除剧、季、集', () => {
       await waitFor(() => expect(remove).toHaveBeenCalledWith(id))
       expect(await screen.findByText(done)).toBeInTheDocument()
       await waitFor(() => expect(router.state.location.pathname).toBe(backTo))
-      // 剧列表和剧详情重新加载，删掉的部分不见了
-      await waitFor(() =>
-        expect(screen.queryByRole('link', { name: gone })).not.toBeInTheDocument(),
-      )
-      expect(screen.queryByText(/找不到/)).not.toBeInTheDocument()
+      // 剧列表和剧详情重新加载，删掉的部分不见了。路由的更新在 transition 里提交，可能晚于重新加载的结果：
+      // router.state 已经退回上一级时，画面上可能还是原地址的"找不到"，所以等到最终的画面
+      await waitFor(() => {
+        expect(screen.queryByRole('link', { name: gone })).not.toBeInTheDocument()
+        expect(screen.queryByText(/找不到/)).not.toBeInTheDocument()
+      })
     },
   )
 
