@@ -137,7 +137,8 @@ export interface BindingFile {
   name: string
   /** 字节 */
   size: number
-  uploadedAt: string
+  /** 加入绑定的时间；季绑定建出的文件绑定的文件在条目上，没有加入时间，为 null */
+  uploadedAt: string | null
 }
 
 /** 用弹幕文件建的绑定里的文件，按加入的顺序 */

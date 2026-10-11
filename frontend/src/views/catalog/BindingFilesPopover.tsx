@@ -14,7 +14,9 @@ import { formatDateTime } from '@/lib/time'
 
 import { formatFileSize } from './catalog'
 
-/** 用弹幕文件建的绑定的标签（"弹幕文件 · 5 份"），点开是文件列表：文件名、大小、加入时间。打开时才取 */
+/**
+ * 用弹幕文件建的绑定的标签（"弹幕文件 · 5 份"），点开是文件列表：文件名、大小、加入时间（季绑定建出的没有）。打开时才取
+ */
 export default function BindingFilesPopover({ binding }: { binding: Binding }) {
   const [open, setOpen] = useState(false)
   return (
@@ -44,7 +46,8 @@ function FileList({ id, enabled }: { id: number; enabled: boolean }) {
         <li key={i} className="grid gap-0.5">
           <span className="break-all">{f.name}</span>
           <span className="text-muted-foreground tabular-nums">
-            {formatFileSize(f.size)} · 加入于 {formatDateTime(f.uploadedAt)}
+            {formatFileSize(f.size)}
+            {f.uploadedAt && ` · 加入于 ${formatDateTime(f.uploadedAt)}`}
           </span>
         </li>
       ))}

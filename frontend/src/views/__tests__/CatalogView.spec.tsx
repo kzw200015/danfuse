@@ -380,6 +380,20 @@ describe('绑定', () => {
       await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11'))
       expect(screen.getByText(/季 ID 11/)).toBeInTheDocument()
     })
+
+    it('建出的文件绑定的文件在条目上，文件列表不显示加入时间', async () => {
+      vi.mocked(listBindingFiles).mockResolvedValue([
+        { name: '20130709.xml', size: 12_600, uploadedAt: null },
+      ])
+      renderRoutes('/catalog/1/11/110')
+      const file = await card('20130709')
+
+      fireEvent.click(file.getByRole('button', { name: '弹幕文件 · 2 份' }))
+
+      const list = within(await screen.findByRole('list', { name: '弹幕文件' }))
+      expect(list.getByText('12.3 KB')).toBeInTheDocument()
+      expect(list.queryByText(/加入于/)).not.toBeInTheDocument()
+    })
   })
 
   it('贴链接：进行中显示已用秒数，成功后用 toast 提示并显示新的绑定', async () => {
