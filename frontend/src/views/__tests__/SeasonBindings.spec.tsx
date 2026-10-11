@@ -15,11 +15,11 @@ import {
 } from '@/__tests__/utils'
 import { ApiError } from '@/api/request'
 import {
-  backfillSeasonBinding,
+  legacyBackfillSeasonBinding as backfillSeasonBinding,
   createSeasonBinding,
-  deleteSeasonBinding,
+  legacyDeleteSeasonBinding as deleteSeasonBinding,
   getDefaultEpisodePatterns,
-  getSeasonBinding,
+  legacyGetSeasonBinding as getSeasonBinding,
   previewSeasonBinding,
   previewSeasonBindingChange,
   updateSeasonBinding,
@@ -137,7 +137,6 @@ describe('添加季绑定', () => {
         title: continued.title,
         sourceLabel: continued.sourceLabel,
         sourceUrl: continued.sourceUrl,
-        finished: true,
         mappingFrom: 13,
         running: true,
         bindingCount: 0,
@@ -374,7 +373,6 @@ describe('季绑定卡片', () => {
     Object.assign(all[0]!.seasons[0]!.seasonBindings[0]!, {
       status: 'dead',
       lastError: '番剧不存在、已下架或不可见',
-      finished: true,
     })
     renderRoutes('/catalog/1/11')
 
@@ -385,7 +383,7 @@ describe('季绑定卡片', () => {
       'href',
       'https://www.bilibili.com/bangumi/play/ss41410',
     )
-    expect(sb.getByText('B 站番剧 ss41410 · 已完结')).toBeInTheDocument()
+    expect(sb.getByText('B 站番剧 ss41410')).toBeInTheDocument()
     expect(sb.getByText('建出 1 个绑定')).toBeInTheDocument()
     expect(sb.getByText(/^上次检查 /)).toBeInTheDocument()
     expect(sb.getByText('上次检查：番剧不存在、已下架或不可见')).toBeInTheDocument()

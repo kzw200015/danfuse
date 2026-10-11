@@ -11,13 +11,13 @@ import { toast } from 'sonner'
 
 import { isApiStatus } from '@/api/request'
 import {
-  backfillSeasonBinding,
-  deleteSeasonBinding,
+  legacyBackfillSeasonBinding,
+  legacyDeleteSeasonBinding,
   updateSeasonBinding,
   type CollectionSeasonBinding,
   type FolderSeasonBinding,
   type SeasonBinding,
-  type SeasonBindingDetail,
+  type LegacySeasonBindingDetail,
   type SeasonBindingItemState,
 } from '@/api/season-bindings'
 import type { Season } from '@/api/series'
@@ -27,7 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
 import { useElapsed } from '@/hooks/use-elapsed'
-import { useSeasonBinding, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
+import { useLegacySeasonBinding, useLegacyWatchSeasonBinding } from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { useSettings } from '@/hooks/use-settings'
 import { followRuleText } from '@/lib/follow'
@@ -83,9 +83,13 @@ function CollectionSeasonBindingCard({
   const clearError = () => setError(null)
   const showError = (e: Error) => setError(e.message)
   const reload = useReloadSeries()
-  const watch = useWatchSeasonBinding()
+  const watch = useLegacyWatchSeasonBinding()
   // 显示剧详情与轮询到的详情里较新的那一份：补建进行中建出的绑定数等逐条更新
-  const { view, detail, error: detailError } = useSeasonBinding(binding, summaryUpdatedAt, expanded)
+  const {
+    view,
+    detail,
+    error: detailError,
+  } = useLegacySeasonBinding(binding, summaryUpdatedAt, expanded)
   const { running } = view
   const elapsed = useElapsed(running)
 
@@ -100,7 +104,7 @@ function CollectionSeasonBindingCard({
     onError: showError,
   })
   const backfill = useMutation({
-    mutationFn: () => backfillSeasonBinding(binding.id),
+    mutationFn: () => legacyBackfillSeasonBinding(binding.id),
     onMutate: clearError,
     onSuccess: () => {
       toast.success('已开始补建')
@@ -132,10 +136,7 @@ function CollectionSeasonBindingCard({
         />
         <div className="min-w-0 flex-1">
           <SourceLink href={view.sourceUrl}>{name}</SourceLink>
-          <div className="text-xs text-muted-foreground">
-            {view.sourceLabel}
-            {view.finished && ' · 已完结'}
-          </div>
+          <div className="text-xs text-muted-foreground">{view.sourceLabel}</div>
         </div>
         <label
           className="flex shrink-0 items-center gap-1.5 text-xs"
@@ -288,7 +289,7 @@ function FolderSeasonBindingCard({ binding }: { binding: FolderSeasonBinding }) 
 function useDeleteSeasonBinding(id: number, onMutate: () => void, onError: (e: Error) => void) {
   const reload = useReloadSeries()
   return useMutation({
-    mutationFn: (withBindings: boolean) => deleteSeasonBinding(id, withBindings),
+    mutationFn: (withBindings: boolean) => legacyDeleteSeasonBinding(id, withBindings),
     onMutate,
     onSuccess: () => {
       toast.success('已删除季绑定')
@@ -353,7 +354,7 @@ const stateClass: Partial<Record<SeasonBindingItemState, string>> = {
 }
 
 /** 条目表：上次检查时合集里的条目，按在合集里的顺序，逐条显示状态 */
-function ItemTable({ detail, error }: { detail?: SeasonBindingDetail; error: Error | null }) {
+function ItemTable({ detail, error }: { detail?: LegacySeasonBindingDetail; error: Error | null }) {
   if (!detail) {
     return error ? (
       <ErrorNote>{error.message}</ErrorNote>

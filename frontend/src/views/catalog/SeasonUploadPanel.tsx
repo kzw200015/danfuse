@@ -103,7 +103,14 @@ function SeasonUpload({
 
   function pick(files: File[]) {
     if (files.length === 0) return
-    const result = groupFolderFiles(files)
+    const grouped = groupFolderFiles(files)
+    // 旧的按季上传接口按"文件夹名 / 条目名称"认条目
+    const result = grouped.ok
+      ? {
+          ...grouped,
+          entries: grouped.entries.map((e) => ({ ...e, label: `${grouped.folder} / ${e.label}` })),
+        }
+      : grouped
     setGrouping(result)
     setShown(undefined)
     preview.reset()

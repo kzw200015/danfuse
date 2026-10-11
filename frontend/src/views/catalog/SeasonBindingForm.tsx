@@ -11,7 +11,7 @@ import {
   type ChangeCandidate,
   type CollectionCandidate,
   type CollectionSeasonBinding,
-  type CollectionSeasonBindingDetail,
+  type LegacyCollectionSeasonBindingDetail,
   type Mapping,
 } from '@/api/season-bindings'
 import type { Season } from '@/api/series'
@@ -20,7 +20,10 @@ import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useElapsed } from '@/hooks/use-elapsed'
-import { defaultEpisodePatternsOptions, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
+import {
+  defaultEpisodePatternsOptions,
+  useLegacyWatchSeasonBinding,
+} from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { useSettings } from '@/hooks/use-settings'
 import { followCostText } from '@/lib/follow'
@@ -61,7 +64,7 @@ interface FormMode {
   fetchCandidates: (link: string, patterns: string[]) => Promise<ChangeCandidate[]>
   /** 没有改动，不能保存 */
   unchanged: (edit: SeasonBindingEdit) => boolean
-  save: (edit: SeasonBindingEdit) => Promise<CollectionSeasonBindingDetail>
+  save: (edit: SeasonBindingEdit) => Promise<LegacyCollectionSeasonBindingDetail>
   /** 选中的合集已完结时的提示；不提示时没有 */
   finishedNote?: string
   /** 保存或取消后收起表单；没有时清空表单、留在原处 */
@@ -354,7 +357,7 @@ function CandidatePreview({
   onCancel: () => void
 }) {
   const reload = useReloadSeries()
-  const watch = useWatchSeasonBinding()
+  const watch = useLegacyWatchSeasonBinding()
   const { from, to, setFrom, setTo, mapping } = useMappingDraft(mode.initialMapping)
   const [rule, setRule] = useState(patterns)
   const ruleChanged = candidate.numberedByRule && !samePatterns(cleanPatterns(rule), patterns)

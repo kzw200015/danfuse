@@ -4,7 +4,7 @@ import { Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteBinding, updateBindingOffset, type Binding } from '@/api/bindings'
-import type { SeasonBinding } from '@/api/season-bindings'
+import type { Season } from '@/api/series'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Badge } from '@/components/ui/badge'
@@ -20,7 +20,7 @@ import BindingFilesPopover from './BindingFilesPopover'
 import { FileBindingActions, LinkBindingActions } from './BindingSourceActions'
 import { durationMismatch, MAX_OFFSET, parseOffset } from './catalog'
 import { seasonBindingTag } from './season-binding'
-import { SourceLink, StatusBadge } from './shared'
+import { SourceLink, StatusBadge, useCatalogPath } from './shared'
 
 const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间的秒数，小数最多三位`
 
@@ -34,19 +34,22 @@ const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间�
 export default function BindingCard({
   binding,
   episodeDuration,
-  seasonBindings,
+  season,
+  seriesId,
 }: {
   binding: Binding
   /** 本集的时长，秒 */
   episodeDuration: number | null
-  /** 这一季的季绑定，按 binding.seasonBindingId 查出季绑定的名称 */
-  seasonBindings: SeasonBinding[]
+  /** 本集所在的季，按 binding.seasonBindingId 查出季绑定的名称 */
+  season: Season
+  seriesId: number
 }) {
   const [error, setError] = useState<string | null>(null)
   const clearError = () => setError(null)
   const showError = (e: Error) => setError(e.message)
   // 卡片显示最新的绑定
   const reload = useReloadSeries()
+  const path = useCatalogPath()
 
   const saveOffset = useMutation({
     mutationFn: (offset: number) => updateBindingOffset(binding.id, offset),
@@ -81,7 +84,7 @@ export default function BindingCard({
 
   const actions = { binding, busy, onStart: clearError, onError: showError }
   const dead = binding.status === 'dead'
-  const tag = seasonBindingTag(binding.seasonBindingId, seasonBindings)
+  const tag = seasonBindingTag(binding.seasonBindingId, season, seriesId, path)
   return (
     <article
       aria-label={binding.title}
