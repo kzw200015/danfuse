@@ -21,7 +21,20 @@
 - service 的测试写在领域包里，是外部测试包（`package binding_test`），只经导出的 API 测试；少数要碰内部的（扫描间隔、定时同步的入口）由同一个包里的 `export_test.go` 导出。
 - 只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`、`source.Adapter`），不替换数据库访问。
 - 并发用例让假适配器停在 channel 上（例如 `binding/service_test.go` 的 `fakeAdapter` 在 `started` 上报到、等 `release` 放行），期间直接执行 SQL（删除集等），再放行。
-- `testenv.AssertInvariants` 检查不变量：每个绑定的 `danmaku_count` 等于它实际的弹幕条数、`file_count` 等于它的弹幕文件份数，images 表里没有孤儿图片，处理过的记录都指向存在的集，带 `season_binding_id` 的绑定所在的集属于那个季绑定的季，链接绑定只指向合集的季绑定、文件绑定只指向文件夹的季绑定，文件夹的季绑定没有条目和处理过的记录。绑定测试由 `newBindingService` 在每个用例结束时检查，气泡里的测试由 `testenv.SyncTest` 检查。
+- `testenv.AssertInvariants` 检查约束表达不了的不变量，约束能守住的不在这里重复：
+  - 每个绑定的 `danmaku_count` 等于它实际的弹幕条数，`max_time_ms` 等于它最晚一条弹幕的时间，`file_count` 等于它的 `binding_files` 份数；
+  - images 表里没有孤儿图片；
+  - 带 `season_binding_id` 的绑定所在的集属于那个季绑定的季；链接绑定只由合集的季绑定、文件绑定只由文件夹的季绑定建出；
+  - 季绑定建出的文件绑定没有 `binding_files` 行；
+  - 合集的季绑定没有条目，文件夹的季绑定没有条目表；
+  - 每个文件夹的季绑定至少有一个条目，每个条目至少有一份文件。
+
+  绑定测试由 `newBindingService` 在每个用例结束时检查，气泡里的测试由 `testenv.SyncTest` 检查。
+
+### 迁移
+
+- 迁移的测试（如 `database/migration_00008_test.go`）用 `dbtest.NewMigrator(t)` 建一个空库（不从模板复制，测试结束时删掉，`-short` 时跳过），由测试自己按版本迁移：`m.UpTo(t, 7)` 迁到旧版本、用 `m.Pool` 造出老数据，`m.UpTo(t, 8)` 执行要测的迁移、核对数据，`m.DownTo(t, 7)` 回退、再核对。底下是 goose provider 的 `UpTo`/`DownTo`。
+- 核对时把查询结果 `json_agg` 成数组、按语义比较 JSON（`migration_00008_test.go` 的 `assertRows`）。
 
 ### 后台 goroutine 与定时器（synctest）
 

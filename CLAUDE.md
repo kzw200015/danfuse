@@ -9,8 +9,8 @@ danfuse 是自托管的弹幕聚合服务：从目录源（目前只有 Jellyfin
 - 术语与业务语义：`GLOSSARY.md`；架构决策：`docs/adr/`。
 - 写代码、审查 diff 时对照的规则：`CODING_STANDARDS.md`（事务与加锁、错误与日志、前端反馈等）。
 - 改动某个模块前读它的架构文档 `docs/architecture/`：
-  - `sources.md`：源适配器、合集与集号规则、弹幕文件与按季上传、绑定卡片、B 站适配器的测试
-  - `season-binding.md`：两种季绑定、补建、追更
+  - `sources.md`：源适配器、合集与集号规则、弹幕文件（含文件夹的季绑定的文件）、绑定卡片（含建出的绑定）、B 站适配器的测试
+  - `season-binding.md`：表单、派生与槽位，两种季绑定的保存与补建，追更，季面板
   - `scheduled-fetch.md`：定时拉取（绑定建出后的自动重新拉取）
   - `dandan-api.md`：弹弹 API 的接口、响应格式、路由与测试
   - `catalog.md`：目录同步、海报与图片接口、同步状态的轮询、搜索列与 Go 迁移、名称里的季号集号、Jellyfin 样本
@@ -59,9 +59,9 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 ## 后端架构
 
-- **按领域分包**：`internal/catalog`（浏览、删除、海报、同步）、`binding`（绑定、弹幕文件、查看弹幕、定时拉取）、`seasonbinding`（合集与文件夹的季绑定、补建、按季上传）、`dandan`（弹弹 API）、`blockword`（屏蔽词），每个包里 `handler*.go` → `service` → `xxxdb/`（`queries.sql` 和 sqlc 生成的代码）→ PostgreSQL；handler 不碰数据库由 depguard 守住（`backend/.golangci.yml`）。领域之间只调用对方的 `Service`（依赖 catalog → seasonbinding → binding，dandan → binding、blockword），不引用对方的 `xxxdb`；要查别的领域的表时在自己的 `queries.sql` 里写查询。路由集中在 `server/router.go`（`server.Handlers` 汇总各领域的 handler），所有组件在 `internal/app/app.go` 的 `app.New` 里手写组装（不用 DI 框架）。
+- **按领域分包**：`internal/catalog`（浏览、删除、海报、同步）、`binding`（绑定、弹幕文件、查看弹幕、定时拉取）、`seasonbinding`（合集与文件夹的季绑定、补建、追更）、`dandan`（弹弹 API）、`blockword`（屏蔽词），每个包里 `handler*.go` → `service` → `xxxdb/`（`queries.sql` 和 sqlc 生成的代码）→ PostgreSQL；handler 不碰数据库由 depguard 守住（`backend/.golangci.yml`）。领域之间只调用对方的 `Service`（依赖 catalog → seasonbinding → binding，dandan → binding、blockword），不引用对方的 `xxxdb`；要查别的领域的表时在自己的 `queries.sql` 里写查询。路由集中在 `server/router.go`（`server.Handlers` 汇总各领域的 handler），所有组件在 `internal/app/app.go` 的 `app.New` 里手写组装（不用 DI 框架）。
 - **适配器与纯计算包**：外部系统的接口和交换类型放在领域包，适配器放在它的子包里（`catalog/jellyfin` 实现 `catalog.Source`，`source/bilibili` 实现 `source.Adapter`），由 `app` 装配（目录源按配置的 `kind` 选，未配置时为 nil；源适配器注册进 `source.Registry`）。`source`、`danmaku`、`danmakufile`、`fulltext`、`catalog/naming`（名称里的季号、集号）只放接口、类型和纯计算，不访问数据库。
-- **数据库访问**：service 持有 `pool` 和本领域的 `q *xxxdb.Queries`（具体类型，没有 `Querier` 接口）。单条查询直接调用、自动提交；需要原子性时 `pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error { q := s.q.WithTx(tx); ... })`；跨领域的事务把 `tx` 传给对方的 `XxxInTx` 方法（如季绑定补建时的 `binding.Service.CreateBackfilledInTx`）。列名 `offset` 是保留字，SQL 里要加引号。
+- **数据库访问**：service 持有 `pool` 和本领域的 `q *xxxdb.Queries`（具体类型，没有 `Querier` 接口）。单条查询直接调用、自动提交；需要原子性时 `pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error { q := s.q.WithTx(tx); ... })`；跨领域的事务把 `tx` 传给对方的 `XxxInTx` 方法（如季绑定补建时的 `binding.Service.CreateLinkSlotInTx`）。列名 `offset` 是保留字，SQL 里要加引号。
 - **生成代码**：`xxxdb/` 下的 `.go` 由 sqlc 生成，不手改。`sqlc.yaml` 每个领域一组，都直接读 `db/migrations`（goose 迁移文件）作为 schema，只生成本组用到的模型；改表结构 = 新增迁移，再 `make generate`。配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`，个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型。全部表的最终结构看 `db/schema.txt`（`make schema` 由迁移生成，psql `\d` 格式，不手改，CI 检查它与迁移同步）。
 - **公共部分**：`internal/httpx`（`apierr` API 错误、`response` 统一响应与 5xx 日志、`request` 绑定与校验），`background`（同步与补建共用的后台循环），`logger`，`database`（连接池、迁移、租约；`dbtest` 是测试基座），`testenv`（测试用：按 `app.New` 组装各领域的 service，共用的辅助函数和假适配器）。
 - **错误出口**：`server/errors.go` 的全局 `errorHandler` 统一转换：`*apierr.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。`code` 为 `0` 成功、`1`（`CodeFail`）通用失败，目前没有业务码。
