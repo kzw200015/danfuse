@@ -1,31 +1,26 @@
-import type { ReactNode } from 'react'
-import { ArrowDownIcon, ArrowUpIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, XIcon } from 'lucide-react'
 
-import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useElapsed } from '@/hooks/use-elapsed'
 import { useDefaultEpisodePatterns } from '@/hooks/use-season-bindings'
 
-import { cleanPatterns, samePatterns } from './season-binding'
+import { samePatterns } from './season-binding'
 
 /** 集号规则最多的条数，与后端相同 */
 const maxPatterns = 10
 
 /**
  * 集号规则的编辑：一组正则（排在前面的优先），每条一行，可以上移、下移、删除，也可以新增、恢复默认。
- * 是否合法由后端判定。children 放在"新增""恢复默认"的同一行（例如"保存"）
+ * 是否合法由后端判定，改了之后预览自动刷新
  */
 export default function EpisodeRuleInput({
   value,
   onChange,
   disabled = false,
-  children,
 }: {
   value: string[]
   onChange: (patterns: string[]) => void
   disabled?: boolean
-  children?: ReactNode
 }) {
   const defaults = useDefaultEpisodePatterns()
   const move = (i: number, to: number) => {
@@ -102,58 +97,7 @@ export default function EpisodeRuleInput({
         >
           恢复默认
         </Button>
-        {children}
       </div>
-    </div>
-  )
-}
-
-/** 按新的集号规则重新预览的请求（useMutation 的结果） */
-interface Repreview {
-  isPending: boolean
-  error: Error | null
-  mutate: (patterns: string[]) => void
-  reset: () => void
-}
-
-/**
- * 预览里集号规则的编辑：changed（与这次预览用的规则不同）时显示"重新预览"，提交清理过的规则；
- * 重新预览失败时在下面显示提示。季绑定的预览和按季上传的预览共用
- */
-export function EpisodeRuleRepreview({
-  value,
-  onChange,
-  changed,
-  disabled,
-  repreview,
-}: {
-  value: string[]
-  onChange: (patterns: string[]) => void
-  changed: boolean
-  disabled: boolean
-  repreview: Repreview
-}) {
-  const elapsed = useElapsed(repreview.isPending)
-  return (
-    <div className="grid gap-1.5">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          repreview.mutate(cleanPatterns(value))
-        }}
-      >
-        <EpisodeRuleInput value={value} onChange={onChange} disabled={disabled}>
-          {changed && (
-            <Button type="submit" size="xs" variant="outline" disabled={disabled}>
-              {repreview.isPending && <Loader2Icon className="animate-spin" />}
-              {repreview.isPending ? `重新预览中 ${elapsed}s` : '重新预览'}
-            </Button>
-          )}
-        </EpisodeRuleInput>
-      </form>
-      {repreview.error && (
-        <ErrorNote onClose={repreview.reset}>{repreview.error.message}</ErrorNote>
-      )}
     </div>
   )
 }

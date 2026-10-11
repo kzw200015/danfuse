@@ -16,7 +16,7 @@ export function useMappingDraft(initial: Mapping) {
 }
 
 /**
- * 集号对应的两个输入框："合集第 X 集 = 本地第 Y 集"（prefix 换掉"合集"，按季上传时为空："第 X 集 = 本地第 Y 集"）。
+ * 集号对应的两个输入框："合集第 X 集 = 本地第 Y 集"（prefix 换掉"合集"，文件夹的季绑定为空："第 X 集 = 本地第 Y 集"）。
  * 不合法时标红，由调用方决定能不能提交
  */
 export default function MappingInputs({

@@ -85,7 +85,7 @@ export function LinkBindingActions({ binding, busy, onStart, onError }: ActionsP
 
 /**
  * 用弹幕文件建的绑定：追加文件（选好文件就上传）、重新解析。都在本地解析，很快，不显示已用秒数。
- * 成功后连同弹出层里的文件列表一起刷新。
+ * 成功后连同弹出层里的文件列表一起刷新。季绑定建出的绑定的文件是条目的文件，不能追加，只能重新解析。
  */
 export function FileBindingActions({ binding, busy, onStart, onError }: ActionsProps) {
   const reload = useReloadSeries()
@@ -121,30 +121,35 @@ export function FileBindingActions({ binding, busy, onStart, onError }: ActionsP
     onError,
   })
 
+  const derived = binding.seasonBindingId !== null
   return (
     <>
-      <input
-        ref={input}
-        type="file"
-        multiple
-        accept={DANMAKU_FILE_ACCEPT}
-        className="hidden"
-        aria-label="追加文件"
-        onChange={(e) => {
-          const files = takeFiles(e.target)
-          if (files.length > 0) append.mutate(files)
-        }}
-      />
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={busy}
-        title="加入更多弹幕文件；绑定里已有的文件跳过"
-        onClick={() => input.current?.click()}
-      >
-        {append.isPending ? <Loader2Icon className="animate-spin" /> : <FilePlusIcon />}
-        追加文件
-      </Button>
+      {!derived && (
+        <>
+          <input
+            ref={input}
+            type="file"
+            multiple
+            accept={DANMAKU_FILE_ACCEPT}
+            className="hidden"
+            aria-label="追加文件"
+            onChange={(e) => {
+              const files = takeFiles(e.target)
+              if (files.length > 0) append.mutate(files)
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            title="加入更多弹幕文件；绑定里已有的文件跳过"
+            onClick={() => input.current?.click()}
+          >
+            {append.isPending ? <Loader2Icon className="animate-spin" /> : <FilePlusIcon />}
+            追加文件
+          </Button>
+        </>
+      )}
       <Button
         variant="ghost"
         size="sm"

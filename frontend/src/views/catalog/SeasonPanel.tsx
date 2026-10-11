@@ -1,26 +1,31 @@
 import { useState } from 'react'
-import { FolderUpIcon } from 'lucide-react'
+import { FolderUpIcon, PlusIcon } from 'lucide-react'
 
+import type { SeasonBindingKind } from '@/api/season-bindings'
 import { deleteSeason, type Season, type SeriesDetail } from '@/api/series'
 import { Button } from '@/components/ui/button'
 import { useSeries } from '@/hooks/use-series'
 
 import { bindingStats, seasonName } from './catalog'
+import { AddCollectionForm } from './CollectionForm'
 import DeleteButton from './DeleteButton'
+import { AddFolderForm } from './FolderForm'
 import SeasonBindingCard from './SeasonBindingCard'
-import { AddSeasonBindingForm } from './SeasonBindingForm'
-import SeasonUploadPanel from './SeasonUploadPanel'
 import { useCatalogPath } from './shared'
 
-/** 右栏：选中整季、没选集时的季面板：这一季的信息、季绑定，以及"删除这一季" */
+/**
+ * 右栏：选中整季、没选集时的季面板：这一季的信息、季绑定，以及"删除这一季"。
+ * 右上角"绑定合集""上传弹幕文件夹"在卡片列表上方展开添加的表单，同一时间只展开一个
+ */
 export default function SeasonPanel({ series, season }: { series: SeriesDetail; season: Season }) {
   const path = useCatalogPath()
   const stats = bindingStats(season.episodes)
   // 与剧详情同一份缓存，不另外请求；季绑定卡片用它判断剧详情和轮询到的详情哪个新
   const { dataUpdatedAt } = useSeries(series.id)
-  // 展开了按季上传的季：换到别的季时自然收起
-  const [uploadingTo, setUploadingTo] = useState<number | null>(null)
-  const uploadOpen = uploadingTo === season.id
+  // 展开的添加表单，记着是哪一季的：换到别的季时自然收起
+  const [adding, setAdding] = useState<{ seasonId: number; kind: SeasonBindingKind } | null>(null)
+  const open = adding?.seasonId === season.id ? adding.kind : null
+  const close = () => setAdding(null)
   return (
     <div className="mx-auto grid max-w-3xl gap-4 p-5">
       <div>
@@ -39,31 +44,36 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
       <section aria-label="季绑定" className="grid gap-3 border-t pt-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-medium">季绑定（{season.seasonBindings.length}）</h3>
-          {/* 手上有整季的弹幕存档时从这里上传 */}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={uploadOpen}
-            onClick={() => setUploadingTo(season.id)}
-          >
-            <FolderUpIcon />
-            上传弹幕文件夹
-          </Button>
+          <div className="flex gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={open !== null}
+              onClick={() => setAdding({ seasonId: season.id, kind: 'collection' })}
+            >
+              <PlusIcon />
+              绑定合集
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={open !== null}
+              onClick={() => setAdding({ seasonId: season.id, kind: 'folder' })}
+            >
+              <FolderUpIcon />
+              上传弹幕文件夹
+            </Button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">
           把 B 站番剧的一季、投稿合集或多 P
-          投稿绑到这一季上，按集号对应在后台为各集建出绑定；开着追更时自动补建新出的集。上传整季的弹幕文件夹也会在这里留下一个季绑定，删除时可以连同建出的绑定一起删。
+          投稿绑到这一季上，按集号对应在后台为各集建出绑定，开着追更时自动补建新出的集；手上有整季的弹幕存档时上传弹幕文件夹。
+          季绑定建出的绑定只能在这里改。
         </p>
-        {uploadOpen && <SeasonUploadPanel season={season} onClose={() => setUploadingTo(null)} />}
-        {/* 换一季时重新挂载，上一季的输入和预览不带过来；key 加前缀，不与下面按季绑定 ID 的 key 相撞 */}
-        <AddSeasonBindingForm key={`add-${season.id}`} season={season} />
+        {open === 'collection' && <AddCollectionForm season={season} onClose={close} />}
+        {open === 'folder' && <AddFolderForm season={season} onClose={close} />}
         {season.seasonBindings.map((sb) => (
-          <SeasonBindingCard
-            key={sb.id}
-            season={season}
-            binding={sb}
-            summaryUpdatedAt={dataUpdatedAt}
-          />
+          <SeasonBindingCard key={sb.id} binding={sb} summaryUpdatedAt={dataUpdatedAt} />
         ))}
       </section>
 
