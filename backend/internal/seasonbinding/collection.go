@@ -147,13 +147,9 @@ func (s *Service) saveCollectionTx(ctx context.Context, tx pgx.Tx, seasonID, id 
 	if err != nil {
 		return 0, err
 	}
-	plan := Derive(collectionEntries(source.NumberItems(r.col, f.Rule)), f.Mapping, episodes)
-	if len(plan.Empty) == 0 {
+	episodeIDs := Derive(collectionEntries(source.NumberItems(r.col, f.Rule)), f.Mapping, episodes).emptyEpisodeIDs()
+	if len(episodeIDs) == 0 {
 		return 0, nil
-	}
-	episodeIDs := make([]int64, len(plan.Empty))
-	for i, e := range plan.Empty {
-		episodeIDs[i] = e.EpisodeID
 	}
 	return len(episodeIDs), s.bindings.DeleteSlotsInTx(ctx, tx, id, episodeIDs)
 }
@@ -295,25 +291,19 @@ func chooseCandidate(candidates []source.CollectionCandidate, kind string) (sour
 	return candidates[i], nil
 }
 
-// saveItems 在写入事务里保存一次列出的结果（season_binding_items）：按规范化的 ref 去重（保留第一个），
+// saveItems 在写入事务里保存一次列出的结果（season_binding_items）：按规范化的 ref 去重（source.UniqueRefs），
 // 按弹幕源 upsert（位置从 1 开始），删掉合集里已经没有的。number 只存平台给的集号：按规则编号的合集、
 // 对不上的条目存为 null，读取时再按季绑定的集号规则编号（见 storedCollection）。
 func saveItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, col source.Collection) error {
 	p := seasonbindingdb.UpsertSeasonBindingItemsParams{
 		SeasonBindingID: id, Refs: []string{}, Positions: []int32{}, Numbers: []int32{}, Labels: []string{},
 	}
-	seen := make(map[string]bool, len(col.Items))
-	for _, it := range col.Items {
-		ref := source.CanonicalRef(it.Ref)
-		if seen[ref] {
-			continue
-		}
-		seen[ref] = true
+	for _, it := range source.UniqueRefs(col.Items) {
 		number := int32(-1) // 存为 null
 		if !col.NumberedByRule && it.Unmatched == "" {
 			number = int32(it.Number)
 		}
-		p.Refs = append(p.Refs, ref)
+		p.Refs = append(p.Refs, source.CanonicalRef(it.Ref))
 		p.Positions = append(p.Positions, int32(len(p.Refs)))
 		p.Numbers = append(p.Numbers, number)
 		p.Labels = append(p.Labels, it.Label)

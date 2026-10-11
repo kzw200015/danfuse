@@ -48,7 +48,7 @@ func storedInput(ctx context.Context, q *seasonbindingdb.Queries, sb seasonbindi
 		if err != nil {
 			return derivedInput{}, err
 		}
-		in.entries = folderEntries(sb.Title, asFolderEntries(saved), rule)
+		in.entries = folderEntries(sb.Title, saved, rule)
 	}
 	in.episodes, err = episodeSlots(ctx, q, sb.SeasonID, &sb.ID, adapter)
 	return in, err
@@ -99,24 +99,18 @@ func storedCollection(sb seasonbindingdb.SeasonBinding, rows []seasonbindingdb.S
 	return col
 }
 
-// folderEntry 文件夹的一个条目，交给 folderEntries：Source 是它的身份（保存的条目为 entrySource(条目 ID)；
-// 换文件夹时没对上保存的条目的，为临时身份 "new:<名称>"，不会与任何槽位相同），Label 是条目名称（不带文件夹名）。
-type folderEntry struct {
-	Source string
-	Label  string
-}
-
 // folderEntries 文件夹的条目转为派生的输入：按"季绑定标题 / 条目名称"（source.LabelSeparator，和多 P 投稿的"稿件标题 / 分 P 标题"一致）
-// 用集号规则认集号（source.NumberLabels），派生的条目名称也是拼好的。title 为季绑定的标题：新建、换文件夹时为这次的文件夹名。
-func folderEntries(title string, entries []folderEntry, rule source.EpisodeRule) []Entry {
+// 用集号规则认集号（source.NumberLabels），派生的条目名称也是拼好的；弹幕源的身份见 formEntry.source。
+// title 为季绑定的标题：新建、换文件夹时为这次的文件夹名。
+func folderEntries(title string, entries []formEntry, rule source.EpisodeRule) []Entry {
 	labels := make([]string, len(entries))
 	for i, e := range entries {
-		labels[i] = title + source.LabelSeparator + e.Label
+		labels[i] = title + source.LabelSeparator + e.label
 	}
 	numbered := source.NumberLabels(labels, rule)
 	out := make([]Entry, len(entries))
 	for i, it := range numbered {
-		out[i] = Entry{Source: entries[i].Source, Label: it.Label, Number: it.Number, Unmatched: it.Unmatched}
+		out[i] = Entry{Source: entries[i].source(), Label: it.Label, Number: it.Number, Unmatched: it.Unmatched}
 	}
 	return out
 }

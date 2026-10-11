@@ -114,14 +114,11 @@ func (s *Service) scan(ctx context.Context) {
 
 // scanOne 拿到季绑定的租约、确认仍然到期后补建一轮，补建完随即释放；正在补建时跳过。补建了返回 true。
 func (s *Service) scanOne(ctx context.Context, id int64) bool {
-	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSeasonBackfill(id))
+	lease, err := s.tryBackfillLease(ctx, id)
 	if err != nil {
-		if ctx.Err() == nil {
+		if !errors.Is(err, errBackfillRunning) && ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "acquire backfill lease failed", "season_binding_id", id, "error", err)
 		}
-		return false
-	}
-	if !ok {
 		return false
 	}
 	defer lease.Release()

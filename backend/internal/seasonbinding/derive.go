@@ -67,6 +67,15 @@ type Result struct {
 	Empty []EmptySlot // 现有的槽位里没有条目对到的，按集号排列；保存时删除，补建时留着。没有时为 nil
 }
 
+// emptyEpisodeIDs 没有条目对到的槽位所在的集，保存时交给 DeleteSlotsInTx 删除。
+func (r Result) emptyEpisodeIDs() []int64 {
+	ids := make([]int64, len(r.Empty))
+	for i, e := range r.Empty {
+		ids[i] = e.EpisodeID
+	}
+	return ids
+}
+
 // Derive 按集号对应把条目对到本季的各集，与这个季绑定的槽位比较，算出每个条目的状态和没有条目对到的槽位。
 // 纯函数，只管集号对应和槽位：编号、认不出集号、集号重复、去掉重复的弹幕源都由 source 事先做好，
 // 所以对到同一集的条目至多一个。episodes 的键为集号。

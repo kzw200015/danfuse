@@ -3,7 +3,6 @@ package seasonbinding
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -165,7 +163,7 @@ func (s *Service) PreviewNewFolder(ctx context.Context, seasonID int64, p Picked
 	if err != nil {
 		return Preview{}, err
 	}
-	return folderPreview(p.Folder, Derive(folderEntries(p.Folder, asFolderEntries(entries), f.Rule), f.Mapping, episodes), false), nil
+	return folderPreview(p.Folder, Derive(folderEntries(p.Folder, entries, f.Rule), f.Mapping, episodes), false), nil
 }
 
 // PreviewFolderEdit 预览保存文件夹的季绑定：p 为 nil 时不换文件夹，按保存的条目和标题算；否则按新的文件夹名，
@@ -176,21 +174,21 @@ func (s *Service) PreviewFolderEdit(ctx context.Context, id int64, p *PickedFold
 		return Preview{}, err
 	}
 	title := sb.Title
-	var entries []formEntry
-	if p != nil {
-		title = p.Folder
-		entries, err = matchEntries(ctx, s.q, id, p.Entries)
-	} else {
-		entries, err = savedEntries(ctx, s.q, id)
-	}
+	entries, err := savedEntries(ctx, s.q, id)
 	if err != nil {
 		return Preview{}, err
+	}
+	if p != nil {
+		title = p.Folder
+		if entries, err = matchEntries(ctx, s.q, id, entries, p.Entries); err != nil {
+			return Preview{}, err
+		}
 	}
 	episodes, err := episodeSlots(ctx, s.q, sb.SeasonID, &id, "")
 	if err != nil {
 		return Preview{}, err
 	}
-	return folderPreview(title, Derive(folderEntries(title, asFolderEntries(entries), f.Rule), f.Mapping, episodes), true), nil
+	return folderPreview(title, Derive(folderEntries(title, entries, f.Rule), f.Mapping, episodes), true), nil
 }
 
 // folderPreview 文件夹的预览只有一组，没有合集的字段；文件夹的条目都按集号规则编号。current 为编辑时，标出这一组是保存的。
@@ -228,22 +226,24 @@ func (s *Service) applyFolder(ctx context.Context, tx pgx.Tx, sb seasonbindingdb
 	if err != nil {
 		return folderResult{}, err
 	}
-	var entries []formEntry
+	saved, err := savedEntries(ctx, q, sb.ID)
+	if err != nil {
+		return folderResult{}, err
+	}
+	entries := saved
 	if upload != nil {
-		if entries, err = matchEntries(ctx, q, sb.ID, upload.hashes()); err != nil {
+		if entries, err = matchEntries(ctx, q, sb.ID, saved, upload.hashes()); err != nil {
 			return folderResult{}, err
 		}
 		for i := range entries {
 			entries[i].upload = &upload.entries[i]
 		}
-	} else if entries, err = savedEntries(ctx, q, sb.ID); err != nil {
-		return folderResult{}, err
 	}
 	episodes, err := episodeSlots(ctx, q, sb.SeasonID, &sb.ID, "")
 	if err != nil {
 		return folderResult{}, err
 	}
-	r := Derive(folderEntries(sb.Title, asFolderEntries(entries), rule), formMapping(sb), episodes)
+	r := Derive(folderEntries(sb.Title, entries, rule), formMapping(sb), episodes)
 
 	var (
 		res   folderResult
@@ -255,9 +255,7 @@ func (s *Service) applyFolder(ctx context.Context, tx pgx.Tx, sb seasonbindingdb
 		}
 	}
 	if deleteEmpty {
-		for _, e := range r.Empty {
-			slots = append(slots, e.EpisodeID)
-		}
+		slots = append(slots, r.emptyEpisodeIDs()...)
 		res.removed = len(r.Empty)
 	}
 	if len(slots) > 0 {
@@ -266,16 +264,20 @@ func (s *Service) applyFolder(ctx context.Context, tx pgx.Tx, sb seasonbindingdb
 		}
 	}
 	if upload != nil {
-		if err := writeEntries(ctx, q, sb.ID, entries); err != nil {
+		if err := writeEntries(ctx, q, sb.ID, saved, entries); err != nil {
 			return folderResult{}, err
 		}
 	}
 
+	stored, err := storedEntryFiles(ctx, q, entries, r)
+	if err != nil {
+		return folderResult{}, err
+	}
 	for i, it := range r.Items {
 		if it.Status != StatusCreate && it.Status != StatusReplace {
 			continue
 		}
-		items, err := entries[i].danmaku(ctx, q)
+		items, err := entries[i].danmaku(stored[entries[i].id])
 		if err != nil {
 			return folderResult{}, err
 		}
@@ -303,41 +305,55 @@ type formEntry struct {
 	upload *uploadedEntry // 这次上传的条目；不换文件夹时为 nil
 }
 
-// asFolderEntries 条目转为 folderEntries 的输入：保存的条目以 ID 为身份，新的用临时身份 "new:<名称>"，不会与任何槽位相同。
-func asFolderEntries(entries []formEntry) []folderEntry {
-	out := make([]folderEntry, len(entries))
-	for i, e := range entries {
-		src := "new:" + e.label
-		if e.id != 0 {
-			src = entrySource(e.id)
-		}
-		out[i] = folderEntry{Source: src, Label: e.label}
+// source 条目作为弹幕源的身份（Entry.Source）：保存的条目为 entrySource(条目 ID)；换文件夹时没对上保存的条目的，
+// 为临时身份 "new:<名称>"，不会与任何槽位相同。
+func (e formEntry) source() string {
+	if e.id == 0 {
+		return "new:" + e.label
 	}
-	return out
+	return entrySource(e.id)
 }
 
-// danmaku 条目的弹幕：各份文件经 danmakufile.Parse 解析、合起来（重复的由写入时按原始 ID 去重）。
-// 这次上传的已经解析过；保存的从库里逐份读出解析，解析不了时 422。
-func (e formEntry) danmaku(ctx context.Context, q *seasonbindingdb.Queries) ([]danmaku.Danmaku, error) {
+// danmaku 条目的弹幕：各份文件经 binding.ParseFile 解析、合起来（重复的由写入时按原始 ID 去重）。
+// 这次上传的已经解析过；保存的解析 stored（storedEntryFiles 读出的这个条目的文件），解析不了时 422。
+func (e formEntry) danmaku(stored []seasonbindingdb.ListSeasonBindingEntryFilesRow) ([]danmaku.Danmaku, error) {
 	var items []danmaku.Danmaku
 	if e.upload != nil {
 		for _, f := range e.upload.files {
-			items = append(items, f.danmaku...)
+			items = append(items, f.Danmaku...)
 		}
 		return items, nil
 	}
-	files, err := q.ListSeasonBindingEntryFiles(ctx, e.id)
-	if err != nil {
-		return nil, fmt.Errorf("list files of entry %d: %w", e.id, err)
-	}
-	for _, f := range files {
-		parsed, err := parseFile(f.Name, f.Content)
+	for _, f := range stored {
+		parsed, err := binding.ParseFile(f.Name, f.Content)
 		if err != nil {
 			return nil, err
 		}
 		items = append(items, parsed...)
 	}
 	return items, nil
+}
+
+// storedEntryFiles 要新建、替换的槽位里，条目不是这次上传的（保存的条目），一条查询读出它们的文件，按条目 ID 分组、按加入的顺序。
+func storedEntryFiles(ctx context.Context, q *seasonbindingdb.Queries, entries []formEntry, r Result) (map[int64][]seasonbindingdb.ListSeasonBindingEntryFilesRow, error) {
+	var ids []int64
+	for i, it := range r.Items {
+		if (it.Status == StatusCreate || it.Status == StatusReplace) && entries[i].upload == nil {
+			ids = append(ids, entries[i].id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := q.ListSeasonBindingEntryFiles(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list files of entries %v: %w", ids, err)
+	}
+	files := make(map[int64][]seasonbindingdb.ListSeasonBindingEntryFilesRow, len(ids))
+	for _, f := range rows {
+		files[f.EntryID] = append(files[f.EntryID], f)
+	}
+	return files, nil
 }
 
 // savedEntries 季绑定保存的条目，按位置排列。
@@ -353,57 +369,53 @@ func savedEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64) ([]
 	return entries, nil
 }
 
-// matchEntries 换文件夹时新的条目按"名称 + 文件哈希的集合"对上季绑定 id 保存的条目：对上的沿用条目 ID，没对上的 ID 为 0。
-// 文件夹名不参与，文件夹改名后照样对得上。
-func matchEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, picked []EntryHashes) ([]formEntry, error) {
-	saved, err := savedEntries(ctx, q, id)
-	if err != nil {
-		return nil, err
-	}
+// matchEntries 换文件夹时新的条目按"名称 + 文件哈希的集合"对上季绑定 id 保存的条目 saved（savedEntries 读出的）：
+// 对上的沿用条目 ID，没对上的 ID 为 0。文件夹名不参与，文件夹改名后照样对得上。
+func matchEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, saved []formEntry, picked []EntryHashes) ([]formEntry, error) {
 	rows, err := q.ListSeasonBindingEntryHashes(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("list file hashes of season binding %d: %w", id, err)
 	}
 	hashes := make(map[int64][]string, len(saved)) // 条目 ID → 文件哈希
 	for _, r := range rows {
-		hashes[r.EntryID] = append(hashes[r.EntryID], hex.EncodeToString(r.Sha256))
+		hashes[r.EntryID] = append(hashes[r.EntryID], string(r.Sha256))
 	}
-	byKey := make(map[string]int64, len(saved))
+	byKey := make(map[entryKey]int64, len(saved))
 	for _, e := range saved {
-		byKey[entryKey(e.label, hashes[e.id])] = e.id
+		byKey[newEntryKey(e.label, hashes[e.id])] = e.id
 	}
 	entries := make([]formEntry, len(picked))
 	for i, p := range picked {
 		sums := make([]string, len(p.SHA256s))
 		for j, sum := range p.SHA256s {
-			sums[j] = hex.EncodeToString(sum[:])
+			sums[j] = string(sum[:])
 		}
-		entries[i] = formEntry{id: byKey[entryKey(p.Label, sums)], label: p.Label}
+		entries[i] = formEntry{id: byKey[newEntryKey(p.Label, sums)], label: p.Label}
 	}
 	return entries, nil
 }
 
-// entryKey 条目的"名称 + 文件哈希的集合"：哈希排序、去重，与文件的顺序和重复无关。
-func entryKey(label string, hashes []string) string {
-	hashes = slices.Compact(slices.Sorted(slices.Values(hashes)))
-	return label + "\x00" + strings.Join(hashes, ",")
+// entryKey 条目的"名称 + 文件哈希的集合"。
+type entryKey struct {
+	label  string
+	hashes string // 排序、去重后的文件哈希（原始字节，各 32 字节）首尾相接，与文件的顺序和重复无关
 }
 
-// writeEntries 换文件夹（创建）时写条目：删掉没对上的保存的条目（它们建出的绑定已经删掉），沿用的改为新的位置，
+func newEntryKey(label string, hashes []string) entryKey {
+	return entryKey{label: label, hashes: strings.Join(slices.Compact(slices.Sorted(slices.Values(hashes))), "")}
+}
+
+// writeEntries 换文件夹（创建）时写条目：删掉 saved 里没对上的（它们建出的绑定已经删掉），沿用的改为新的位置，
 // 新的连同文件插入，ID 填回 entries；每一步一条语句写完。位置从 1 开始，按这次上传的顺序。
-func writeEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, entries []formEntry) error {
-	saved, err := q.ListSeasonBindingEntries(ctx, id)
-	if err != nil {
-		return fmt.Errorf("list entries of season binding %d: %w", id, err)
-	}
+func writeEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, saved, entries []formEntry) error {
 	kept := make(map[int64]bool, len(entries))
 	for _, e := range entries {
 		kept[e.id] = true
 	}
 	stale := []int64{}
 	for _, e := range saved {
-		if !kept[e.ID] {
-			stale = append(stale, e.ID)
+		if !kept[e.id] {
+			stale = append(stale, e.id)
 		}
 	}
 	if err := q.DeleteSeasonBindingEntries(ctx, stale); err != nil {
@@ -442,7 +454,7 @@ func writeEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, ent
 		for _, f := range e.upload.files {
 			files.EntryIds = append(files.EntryIds, e.id)
 			files.Names = append(files.Names, path.Base(f.Name))
-			files.Sha256s = append(files.Sha256s, f.sum[:])
+			files.Sha256s = append(files.Sha256s, f.Sum[:])
 			files.Sizes = append(files.Sizes, int32(len(f.Data)))
 			files.Contents = append(files.Contents, f.Data)
 		}
@@ -459,18 +471,10 @@ type uploadedFolder struct {
 	entries []uploadedEntry
 }
 
-// uploadedEntry 上传的文件夹里的一个条目：一个子目录，或顶层的一份文件。
+// uploadedEntry 上传的文件夹里的一个条目，文件都已解析。
 type uploadedEntry struct {
-	label string // 子目录名，或去掉扩展名的文件名
-	dir   bool   // 子目录合成的条目
-	files []uploadedFile
-}
-
-// uploadedFile 条目里的一份文件，连同内容的哈希和解析出的弹幕。
-type uploadedFile struct {
-	binding.UploadedFile
-	sum     [sha256.Size]byte
-	danmaku []danmaku.Danmaku
+	label string
+	files []binding.ParsedFile
 }
 
 // hashes 各条目的名称和文件哈希，按名称和哈希对上保存的条目用。
@@ -479,7 +483,7 @@ func (u uploadedFolder) hashes() []EntryHashes {
 	for i, e := range u.entries {
 		out[i] = EntryHashes{Label: e.label, SHA256s: make([][sha256.Size]byte, len(e.files))}
 		for j, f := range e.files {
-			out[i].SHA256s[j] = f.sum
+			out[i].SHA256s[j] = f.Sum
 		}
 	}
 	return out
@@ -487,45 +491,54 @@ func (u uploadedFolder) hashes() []EntryHashes {
 
 // readFolder 把上传的文件按路径分成条目（结构不对时 400），再逐份解析（有一份失败就 422，提示带着它的相对路径）。
 func readFolder(files []binding.UploadedFile) (uploadedFolder, error) {
-	u, err := groupFolder(files)
+	name, groups, err := groupFolder(files)
 	if err != nil {
 		return uploadedFolder{}, err
 	}
-	for i := range u.entries {
-		for j := range u.entries[i].files {
-			f := &u.entries[i].files[j]
-			if f.danmaku, err = parseFile(f.Name, f.Data); err != nil {
-				return uploadedFolder{}, err
-			}
-			f.sum = sha256.Sum256(f.Data)
+	u := uploadedFolder{name: name, entries: make([]uploadedEntry, len(groups))}
+	for i, g := range groups {
+		parsed, err := binding.ParseFiles(g.files)
+		if err != nil {
+			return uploadedFolder{}, err
 		}
+		u.entries[i] = uploadedEntry{label: g.label, files: parsed}
 	}
 	return u, nil
 }
 
+// folderGroup groupFolder 分出的一个条目：一个子目录，或顶层的一份文件。
+type folderGroup struct {
+	label string // 子目录名，或去掉扩展名的文件名
+	dir   bool   // 子目录合成的条目
+	files []binding.UploadedFile
+}
+
 // groupFolder 按文件名（相对路径）把文件分成条目，前后端用同一套规则：每个路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"
 // （最多两层），只认 .xml（不分大小写），文件夹名都相同；子目录里的文件合成一个条目，名称为子目录名，
-// 顶层的文件各自一个条目，名称为去掉扩展名的文件名；条目名称不能重复。不满足时 400。
-func groupFolder(files []binding.UploadedFile) (uploadedFolder, error) {
-	var u uploadedFolder
+// 顶层的文件各自一个条目，名称为去掉扩展名的文件名；条目名称不能重复。不满足时 400。返回文件夹名和按第一次出现的顺序分好的条目。
+func groupFolder(files []binding.UploadedFile) (string, []folderGroup, error) {
+	var (
+		name   string
+		groups []folderGroup
+	)
 	index := make(map[string]int) // 条目名称 → 下标
 	for i, f := range files {
 		p := f.Name
 		parts := strings.Split(p, "/")
 		if len(parts) > 3 {
-			return uploadedFolder{}, apierr.ErrBadRequest.WithMessage("目录最多两层（文件夹 / 子目录 / 文件），这份文件超出了：" + p)
+			return "", nil, apierr.ErrBadRequest.WithMessage("目录最多两层（文件夹 / 子目录 / 文件），这份文件超出了：" + p)
 		}
 		if len(parts) < 2 || slices.Contains(parts, "") {
-			return uploadedFolder{}, apierr.ErrBadRequest.WithMessage("文件路径不合法：" + p)
+			return "", nil, apierr.ErrBadRequest.WithMessage("文件路径不合法：" + p)
 		}
 		if !strings.HasSuffix(strings.ToLower(p), ".xml") {
-			return uploadedFolder{}, apierr.ErrBadRequest.WithMessage("只能上传 XML 弹幕文件：" + p)
+			return "", nil, apierr.ErrBadRequest.WithMessage("只能上传 XML 弹幕文件：" + p)
 		}
 		if i == 0 {
-			u.name = parts[0]
+			name = parts[0]
 		}
-		if parts[0] != u.name {
-			return uploadedFolder{}, apierr.ErrBadRequest.WithMessage("文件要在同一个文件夹里：" + p)
+		if parts[0] != name {
+			return "", nil, apierr.ErrBadRequest.WithMessage("文件要在同一个文件夹里：" + p)
 		}
 		dir := len(parts) == 3
 		label := parts[1]
@@ -538,25 +551,16 @@ func groupFolder(files []binding.UploadedFile) (uploadedFolder, error) {
 		g, ok := index[label]
 		switch {
 		case !ok:
-			g = len(u.entries)
+			g = len(groups)
 			index[label] = g
-			u.entries = append(u.entries, uploadedEntry{label: label, dir: dir})
-		case !dir || !u.entries[g].dir:
-			return uploadedFolder{}, apierr.ErrBadRequest.WithMessage("条目名称重复：" + label)
+			groups = append(groups, folderGroup{label: label, dir: dir})
+		case !dir || !groups[g].dir:
+			return "", nil, apierr.ErrBadRequest.WithMessage("条目名称重复：" + label)
 		}
-		u.entries[g].files = append(u.entries[g].files, uploadedFile{UploadedFile: f})
+		groups[g].files = append(groups[g].files, f)
 	}
-	if len(u.entries) == 0 {
-		return uploadedFolder{}, apierr.ErrBadRequest.WithMessage("请选择要上传的文件")
+	if len(groups) == 0 {
+		return "", nil, apierr.ErrBadRequest.WithMessage("请选择要上传的文件")
 	}
-	return u, nil
-}
-
-// parseFile 解析一份弹幕文件，认不出时 422，提示用 danmakufile 给的（带着 name），底层原因只进日志。
-func parseFile(name string, data []byte) ([]danmaku.Danmaku, error) {
-	items, err := danmakufile.Parse(name, data)
-	if fileErr, ok := errors.AsType[*danmakufile.Error](err); ok {
-		return nil, apierr.ErrUnprocessable.WithMessage(fileErr.Message).Wrap(fileErr.Err)
-	}
-	return items, err
+	return name, groups, nil
 }

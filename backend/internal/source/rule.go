@@ -106,10 +106,10 @@ func (r EpisodeRule) Patterns() []string {
 	return patterns
 }
 
-// NumberItems 预览、保存之前整理 ListCollection 列出的条目：先用 uniqueRefs 去掉重复的 ref，
+// NumberItems 预览、保存之前整理 ListCollection 列出的条目：先用 UniqueRefs 去掉重复的 ref，
 // 按规则编号的合集再用集号规则从标签认出各条目的序号（认不出的对不上），最后标出重复的序号。不改动传入的切片。
 func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
-	items := uniqueRefs(c.Items)
+	items := UniqueRefs(c.Items)
 	if c.NumberedByRule {
 		for i, it := range items {
 			items[i] = r.match(it)

@@ -408,20 +408,21 @@ func (q *Queries) ListSeasonBindingEntries(ctx context.Context, seasonBindingID 
 }
 
 const listSeasonBindingEntryFiles = `-- name: ListSeasonBindingEntryFiles :many
-SELECT name, content
+SELECT entry_id, name, content
 FROM season_binding_entry_files
-WHERE entry_id = $1
-ORDER BY id
+WHERE entry_id = ANY ($1::bigint[])
+ORDER BY entry_id, id
 `
 
 type ListSeasonBindingEntryFilesRow struct {
+	EntryID int64  `json:"entryId"`
 	Name    string `json:"name"`
 	Content []byte `json:"content"`
 }
 
-// 条目的弹幕文件连同内容，按加入的顺序，建出文件绑定时解析。
-func (q *Queries) ListSeasonBindingEntryFiles(ctx context.Context, entryID int64) ([]ListSeasonBindingEntryFilesRow, error) {
-	rows, err := q.db.Query(ctx, listSeasonBindingEntryFiles, entryID)
+// 一组条目的弹幕文件连同内容，按条目、加入的顺序，建出文件绑定时解析。
+func (q *Queries) ListSeasonBindingEntryFiles(ctx context.Context, entryIds []int64) ([]ListSeasonBindingEntryFilesRow, error) {
+	rows, err := q.db.Query(ctx, listSeasonBindingEntryFiles, entryIds)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +430,7 @@ func (q *Queries) ListSeasonBindingEntryFiles(ctx context.Context, entryID int64
 	items := []ListSeasonBindingEntryFilesRow{}
 	for rows.Next() {
 		var i ListSeasonBindingEntryFilesRow
-		if err := rows.Scan(&i.Name, &i.Content); err != nil {
+		if err := rows.Scan(&i.EntryID, &i.Name, &i.Content); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

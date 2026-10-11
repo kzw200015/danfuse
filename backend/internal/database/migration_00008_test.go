@@ -1,13 +1,12 @@
 package database_test
 
 import (
-	"encoding/json"
-	"reflect"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 // 迁移 00008（重写季绑定，见 docs/adr/0010）：在 00007 上造出老数据，执行 00008 核对 Up 的每一步，再 Down 回 00007。
@@ -171,14 +170,5 @@ func assertRows(t *testing.T, pool *pgxpool.Pool, query, want string) {
 	if err := pool.QueryRow(t.Context(), `SELECT coalesce(json_agg(r), '[]') FROM (`+query+`) r`).Scan(&got); err != nil {
 		t.Fatalf("query %s: %v", query, err)
 	}
-	var g, w any
-	if err := json.Unmarshal(got, &g); err != nil {
-		t.Fatalf("decode result: %v", err)
-	}
-	if err := json.Unmarshal([]byte(want), &w); err != nil {
-		t.Fatalf("decode want: %v", err)
-	}
-	if !reflect.DeepEqual(g, w) {
-		t.Errorf("query %s\ngot  %s\nwant %s", query, got, want)
-	}
+	testenv.AssertJSON(t, got, want)
 }

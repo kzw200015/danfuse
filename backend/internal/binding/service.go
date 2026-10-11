@@ -113,9 +113,9 @@ func (s *Service) Create(ctx context.Context, episodeID int64, link string) (Vie
 		return View{}, errEpisodeNotFound
 	}
 	// 只是省掉一次注定 409 的拉取；并发时以写入事务里的唯一约束为准
-	switch bound, err := s.Exists(ctx, episodeID, adapter.ID(), ref); {
+	switch bound, err := s.q.BindingExists(ctx, bindingdb.BindingExistsParams{EpisodeID: episodeID, Adapter: adapter.ID(), Ref: ref}); {
 	case err != nil:
-		return View{}, err
+		return View{}, fmt.Errorf("check binding of episode %d: %w", episodeID, err)
 	case bound:
 		return View{}, errBindingExists
 	}
@@ -150,15 +150,6 @@ func (s *Service) Create(ctx context.Context, episodeID int64, link string) (Vie
 	}
 	s.logFetched(ctx, binding, fetched, added)
 	return s.view(ctx, binding)
-}
-
-// Exists 这一集上是否已有这个弹幕源的绑定。只用来省掉一次注定撞上唯一约束的拉取，并发时以唯一约束为准。
-func (s *Service) Exists(ctx context.Context, episodeID int64, adapter string, ref []byte) (bool, error) {
-	bound, err := s.q.BindingExists(ctx, bindingdb.BindingExistsParams{EpisodeID: episodeID, Adapter: adapter, Ref: ref})
-	if err != nil {
-		return false, fmt.Errorf("check binding of episode %d: %w", episodeID, err)
-	}
-	return bound, nil
 }
 
 // ListBySeries 一部剧的全部绑定，按集 ID 分组，组内按创建顺序。剧详情用。

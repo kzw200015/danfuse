@@ -264,8 +264,8 @@ DELETE FROM season_binding_entries
 WHERE id = ANY (@ids::bigint[]);
 
 -- name: ListSeasonBindingEntryFiles :many
--- 条目的弹幕文件连同内容，按加入的顺序，建出文件绑定时解析。
-SELECT name, content
+-- 一组条目的弹幕文件连同内容，按条目、加入的顺序，建出文件绑定时解析。
+SELECT entry_id, name, content
 FROM season_binding_entry_files
-WHERE entry_id = $1
-ORDER BY id;
+WHERE entry_id = ANY (@entry_ids::bigint[])
+ORDER BY entry_id, id;

@@ -9,19 +9,36 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
 )
 
-type previewNewCollectionRequest struct {
-	SeasonID int64  `param:"id"`
-	Link     string `json:"link"`
+// collectionForm 合集的表单（和预览）：贴的链接、选的候选，加上集号规则与集号对应。嵌进各自的请求结构体，在 Validate 里调用 parse。
+type collectionForm struct {
+	Link           string `json:"link"`
+	CollectionKind string `json:"collectionKind"` // 链接只有一个候选时可以不传；预览不看它
 	ruleForm
+}
+
+// parse 校验并整理表单：链接为空时 400，集号规则与集号对应见 ruleForm.parse。
+func (f *collectionForm) parse() error {
+	var err error
+	if f.Link, err = parseLink(f.Link); err != nil {
+		return err
+	}
+	f.CollectionKind = strings.TrimSpace(f.CollectionKind)
+	return f.ruleForm.parse()
+}
+
+// form 交给 service 的表单，parse 之后调用。
+func (f *collectionForm) form() CollectionForm {
+	return CollectionForm{Link: f.Link, CollectionKind: f.CollectionKind, Mapping: f.mapping, Rule: f.rule}
+}
+
+type previewNewCollectionRequest struct {
+	SeasonID int64 `param:"id"`
+	collectionForm
 }
 
 func (r *previewNewCollectionRequest) Validate() error {
 	if r.SeasonID < 1 {
 		return request.InvalidParam("季 ID 不合法")
-	}
-	var err error
-	if r.Link, err = parseLink(r.Link); err != nil {
-		return err
 	}
 	return r.parse()
 }
@@ -33,9 +50,7 @@ func (h *Handler) PreviewNewCollection(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	preview, err := h.svc.PreviewNewCollection(c.Request().Context(), req.SeasonID, CollectionForm{
-		Link: req.Link, Mapping: req.mapping, Rule: req.rule,
-	})
+	preview, err := h.svc.PreviewNewCollection(c.Request().Context(), req.SeasonID, req.form())
 	if err != nil {
 		return err
 	}
@@ -43,18 +58,13 @@ func (h *Handler) PreviewNewCollection(c *echo.Context) error {
 }
 
 type previewCollectionEditRequest struct {
-	ID   int64  `param:"id"`
-	Link string `json:"link"`
-	ruleForm
+	ID int64 `param:"id"`
+	collectionForm
 }
 
 func (r *previewCollectionEditRequest) Validate() error {
 	if r.ID < 1 {
 		return request.InvalidParam("季绑定 ID 不合法")
-	}
-	var err error
-	if r.Link, err = parseLink(r.Link); err != nil {
-		return err
 	}
 	return r.parse()
 }
@@ -66,9 +76,7 @@ func (h *Handler) PreviewCollectionEdit(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	preview, err := h.svc.PreviewCollectionEdit(c.Request().Context(), req.ID, CollectionForm{
-		Link: req.Link, Mapping: req.mapping, Rule: req.rule,
-	})
+	preview, err := h.svc.PreviewCollectionEdit(c.Request().Context(), req.ID, req.form())
 	if err != nil {
 		return err
 	}
@@ -76,21 +84,14 @@ func (h *Handler) PreviewCollectionEdit(c *echo.Context) error {
 }
 
 type saveCollectionRequest struct {
-	ID             int64  `param:"id"`
-	Link           string `json:"link"`
-	CollectionKind string `json:"collectionKind"` // 链接只有一个候选时可以不传
-	ruleForm
+	ID int64 `param:"id"`
+	collectionForm
 }
 
 func (r *saveCollectionRequest) Validate() error {
 	if r.ID < 1 {
 		return request.InvalidParam("季绑定 ID 不合法")
 	}
-	var err error
-	if r.Link, err = parseLink(r.Link); err != nil {
-		return err
-	}
-	r.CollectionKind = strings.TrimSpace(r.CollectionKind)
 	return r.parse()
 }
 
@@ -102,9 +103,7 @@ func (h *Handler) SaveCollection(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	detail, err := h.svc.SaveCollection(c.Request().Context(), req.ID, CollectionForm{
-		Link: req.Link, CollectionKind: req.CollectionKind, Mapping: req.mapping, Rule: req.rule,
-	})
+	detail, err := h.svc.SaveCollection(c.Request().Context(), req.ID, req.form())
 	if err != nil {
 		return err
 	}
@@ -112,21 +111,14 @@ func (h *Handler) SaveCollection(c *echo.Context) error {
 }
 
 type createCollectionRequest struct {
-	SeasonID       int64  `param:"id"`
-	Link           string `json:"link"`
-	CollectionKind string `json:"collectionKind"` // 链接只有一个候选时可以不传
-	ruleForm
+	SeasonID int64 `param:"id"`
+	collectionForm
 }
 
 func (r *createCollectionRequest) Validate() error {
 	if r.SeasonID < 1 {
 		return request.InvalidParam("季 ID 不合法")
 	}
-	var err error
-	if r.Link, err = parseLink(r.Link); err != nil {
-		return err
-	}
-	r.CollectionKind = strings.TrimSpace(r.CollectionKind)
 	return r.parse()
 }
 
@@ -137,9 +129,7 @@ func (h *Handler) CreateCollection(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	detail, err := h.svc.CreateCollection(c.Request().Context(), req.SeasonID, CollectionForm{
-		Link: req.Link, CollectionKind: req.CollectionKind, Mapping: req.mapping, Rule: req.rule,
-	})
+	detail, err := h.svc.CreateCollection(c.Request().Context(), req.SeasonID, req.form())
 	if err != nil {
 		return err
 	}

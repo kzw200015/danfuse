@@ -43,40 +43,41 @@ type FileView struct {
 	UploadedAt *time.Time `json:"uploadedAt"`
 }
 
-// parsedFile 解析好的一份弹幕文件。
-type parsedFile struct {
+// ParsedFile 解析好的一份弹幕文件，连同内容的哈希。
+type ParsedFile struct {
 	UploadedFile
-	sum     [sha256.Size]byte
-	danmaku []danmaku.Danmaku
+	Sum     [sha256.Size]byte
+	Danmaku []danmaku.Danmaku
 }
 
-// parseFiles 解析上传的全部弹幕文件、算出内容的哈希，在写入事务之前做完。
+// ParseFiles 解析上传的全部弹幕文件、算出内容的哈希，在写入事务之前做完。
 // 有一份认不出就整次返回 422，提示里用文件的 Name 写明是哪一份。
-func parseFiles(files []UploadedFile) ([]parsedFile, error) {
-	parsed := make([]parsedFile, len(files))
+func ParseFiles(files []UploadedFile) ([]ParsedFile, error) {
+	parsed := make([]ParsedFile, len(files))
 	for i, f := range files {
-		items, err := danmakufile.Parse(f.Name, f.Data)
+		items, err := ParseFile(f.Name, f.Data)
 		if err != nil {
-			return nil, fileAPIError(err)
+			return nil, err
 		}
-		parsed[i] = parsedFile{UploadedFile: f, sum: sha256.Sum256(f.Data), danmaku: items}
+		parsed[i] = ParsedFile{UploadedFile: f, Sum: sha256.Sum256(f.Data), Danmaku: items}
 	}
 	return parsed, nil
 }
 
-// fileAPIError 把 *danmakufile.Error 转成 422，提示用它的 Message，底层原因只进日志；其他错误原样返回。
-func fileAPIError(err error) error {
+// ParseFile 解析一份弹幕文件：认不出时 422，提示用 *danmakufile.Error 的 Message（带着 name），底层原因只进日志。
+func ParseFile(name string, data []byte) ([]danmaku.Danmaku, error) {
+	items, err := danmakufile.Parse(name, data)
 	if fileErr, ok := errors.AsType[*danmakufile.Error](err); ok {
-		return apierr.ErrUnprocessable.WithMessage(fileErr.Message).Wrap(fileErr.Err)
+		return nil, apierr.ErrUnprocessable.WithMessage(fileErr.Message).Wrap(fileErr.Err)
 	}
-	return err
+	return items, err
 }
 
 // CreateFromFiles 用一组弹幕文件给一集创建绑定：一次上传的几份文件合起来是一个弹幕源。
 // 先解析（有一份认不出就不创建），再在一个事务里锁住这一集、建出绑定、存下原文件、写入弹幕。
 // 标题取第一份文件的文件名（去掉扩展名）。同一集可以有多个用弹幕文件建的绑定，不查重。
 func (s *Service) CreateFromFiles(ctx context.Context, episodeID int64, files []UploadedFile) (View, error) {
-	parsed, err := parseFiles(files)
+	parsed, err := ParseFiles(files)
 	if err != nil {
 		return View{}, err
 	}
@@ -118,7 +119,7 @@ func (s *Service) AppendFiles(ctx context.Context, id int64, files []UploadedFil
 	if err := s.checkNotBuilt(ctx, b); err != nil {
 		return FilesAdded{}, err
 	}
-	parsed, err := parseFiles(files)
+	parsed, err := ParseFiles(files)
 	if err != nil {
 		return FilesAdded{}, err
 	}
@@ -148,7 +149,7 @@ func (s *Service) AppendFiles(ctx context.Context, id int64, files []UploadedFil
 
 // addFiles 在写入事务里把解析好的文件加入绑定：存下原文件，文件名取 base name（绑定里已有内容相同的跳过），
 // 写入新加入的文件的弹幕，再更新绑定的文件份数与弹幕计数。调用方已在同一个事务里锁住或刚插入这个绑定。
-func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files []parsedFile) (bindingdb.Binding, int, int64, error) {
+func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files []ParsedFile) (bindingdb.Binding, int, int64, error) {
 	var (
 		items    []danmaku.Danmaku
 		newFiles int
@@ -157,7 +158,7 @@ func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files 
 		n, err := q.InsertBindingFile(ctx, bindingdb.InsertBindingFileParams{
 			BindingID: bindingID,
 			Name:      path.Base(f.Name),
-			Sha256:    f.sum[:],
+			Sha256:    f.Sum[:],
 			Size:      int32(len(f.Data)),
 			Content:   f.Data,
 		})
@@ -166,7 +167,7 @@ func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files 
 		}
 		if n > 0 {
 			newFiles++
-			items = append(items, f.danmaku...)
+			items = append(items, f.Danmaku...)
 		}
 	}
 	if err := q.AddBindingFileCount(ctx, bindingdb.AddBindingFileCountParams{ID: bindingID, Files: int32(newFiles)}); err != nil {
@@ -206,9 +207,9 @@ func (s *Service) Reparse(ctx context.Context, id int64) (View, error) {
 			if err != nil {
 				return fmt.Errorf("get file %d of binding %d: %w", f.id, id, err)
 			}
-			items, err := danmakufile.Parse(f.Name, content)
+			items, err := ParseFile(f.Name, content)
 			if err != nil {
-				return fileAPIError(err)
+				return err
 			}
 			n, err := insertDanmaku(ctx, q, id, items)
 			if err != nil {

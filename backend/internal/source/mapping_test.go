@@ -85,14 +85,19 @@ func TestUniqueRefs(t *testing.T) {
 			[]CollectionItem{numbered("a", 1), numbered("b", 2), {Ref: Ref(`"a"`), Number: 3, Label: "a 的另一处"}},
 			[]CollectionItem{numbered("a", 1), numbered("b", 2)},
 		},
+		{
+			"写法不同、规范化之后相同的 ref 也算重复",
+			[]CollectionItem{{Ref: Ref(`{"id":1,"kind":"x"}`), Label: "a"}, {Ref: Ref(`{"kind": "x", "id": 1}`), Label: "b"}},
+			[]CollectionItem{{Ref: Ref(`{"id":1,"kind":"x"}`), Label: "a"}},
+		},
 		{"空列表", nil, []CollectionItem{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := append([]CollectionItem(nil), tt.items...)
-			got := uniqueRefs(tt.items)
+			got := UniqueRefs(tt.items)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("uniqueRefs() = %+v\nwant %+v", got, tt.want)
+				t.Errorf("UniqueRefs() = %+v\nwant %+v", got, tt.want)
 			}
 			if !reflect.DeepEqual(tt.items, in) {
 				t.Errorf("改动了传入的切片：%+v", tt.items)
