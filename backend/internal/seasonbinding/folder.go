@@ -134,7 +134,7 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.Uplo
 	return s.Get(ctx, id)
 }
 
-// backfillFolder 文件夹的立即补建：在一个事务里按保存的表单派生，替换、新建槽位，不删除没有条目的槽位（规格第 4 节"文件夹"）。
+// backfillFolder 文件夹的立即补建：在一个事务里按保存的表单派生，替换、新建槽位，不删除没有条目的槽位（补建从不删除，见 docs/architecture/season-binding.md 的"写入"）。
 func (s *Service) backfillFolder(ctx context.Context, sb seasonbindingdb.SeasonBinding) error {
 	var res folderResult
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {

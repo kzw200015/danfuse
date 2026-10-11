@@ -76,7 +76,7 @@ func (s *Service) CreateCollection(ctx context.Context, seasonID int64, f Collec
 	return s.Get(ctx, id)
 }
 
-// SaveCollection 保存合集的季绑定的表单，每次都走一遍，不比较表单改没改（规格第 4 节"保存表单"）：
+// SaveCollection 保存合集的季绑定的表单，每次都走一遍，不比较表单改没改（没改也能保存，用来清掉补建留下的空槽位）：
 //  1. 拿这个季绑定的补建租约，拿不到（正在补建或保存）为 409，持有到写入提交；
 //  2. 重新识别链接、按 collectionKind 选候选、查重、列出合集（见 resolve）。删除以这次列出的结果为准，不和预览核对；
 //  3. 一个事务里锁季、FOR UPDATE 锁季绑定，写表单（换成另一个合集时清掉上次检查时间），保存这次列出的结果，

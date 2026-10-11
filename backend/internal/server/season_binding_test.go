@@ -511,8 +511,9 @@ func TestFolderSeasonBindingAPIErrors(t *testing.T) {
 				form,
 				http.StatusBadRequest, "条目名称重复：1",
 			},
-			{"没有表单", create, one, nil, http.StatusBadRequest, "请求参数错误"},
+			{"没有表单", create, one, nil, http.StatusBadRequest, "表单格式不对，请刷新页面后重试"},
 			{"集号对应不对", create, one, map[string]string{"form": `{"mappingFrom": 1}`}, http.StatusBadRequest, "集号对应必须是不小于 0 的整数"},
+			{"form 不是 JSON", create, one, map[string]string{"form": `{`}, http.StatusBadRequest, "表单格式不对，请刷新页面后重试"},
 			{"季 ID 不合法", "/api/seasons/0/season-bindings/folder", one, form, http.StatusBadRequest, "季 ID 不合法"},
 			{"季不存在", "/api/seasons/99/season-bindings/folder", one, form, http.StatusNotFound, "季不存在"},
 			{

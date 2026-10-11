@@ -9,7 +9,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// 派生（Derive）的输入从哪里来（规格第 3 节"各处的输入"）：
+// 派生（Derive）的输入从哪里来：
 //   - 条目：合集为 source.NumberItems 的输出（collectionEntries），预览、保存、补建用这次列出的合集，
 //     详情用上次列出的结果（storedCollection）；文件夹为 folderEntries。
 //   - 集与槽位：episodeSlots。预览和详情在读取时查（q 为池上的），保存和补建在写入事务里查（q 为事务里的）。
