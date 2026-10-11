@@ -108,8 +108,6 @@ type Summary struct {
 }
 
 // newCandidate 按派生的结果填好预览的一组里的条目、要删的槽位和汇总，其余字段由调用方填。
-//
-//nolint:unused // 合集、文件夹的预览（工单 11、12）用
 func newCandidate(r Result) Candidate {
 	c := Candidate{Items: itemViews(r.Items), Removed: slotViews(r.Empty)}
 	for _, it := range r.Items {

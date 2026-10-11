@@ -203,6 +203,93 @@ func TestSeasonBindingAPI(t *testing.T) {
 	})
 }
 
+// TestCollectionPreviewAndSaveAPI 合集的新建预览、编辑预览和保存表单。种子目录同 TestSeasonBindingAPI，
+// 创建后合集的 s1、s2 分别建在第 1 集（绑定 5）、第 2 集（绑定 6）。
+func TestCollectionPreviewAndSaveAPI(t *testing.T) {
+	t.Parallel()
+	cfg := dbtest.Config(t)
+	synctest.Test(t, func(t *testing.T) {
+		srv, pool := seasonBindingServer(t, cfg)
+		patterns := jsonString(source.DefaultEpisodeRule().Patterns())
+
+		// 新建的预览：每个候选一组，条目里没有失败原因的字段
+		_, _, data := call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/collection/preview",
+			`{"link": " fakelist/s ", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": `+patterns+`}`, http.StatusOK)
+		testenv.AssertJSON(t, data, `{"candidates": [{
+			"collectionKind": "list", "title": "合集 s", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
+			"finished": false, "numberedByRule": false, "current": false,
+			"items": [
+				{"label": "s1", "number": 1, "episodeNumber": 1, "status": "create", "reason": null, "replaces": null},
+				{"label": "s2", "number": 2, "episodeNumber": 2, "status": "create", "reason": null, "replaces": null},
+				{"label": "ssp", "number": null, "episodeNumber": null, "status": "unmatched", "reason": "集号「SP」不是整数", "replaces": null}
+			],
+			"removed": [],
+			"summary": {"create": 2, "replace": 0, "remove": 0, "keep": 0}
+		}]}`)
+
+		call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/collection",
+			`{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": `+patterns+`}`, http.StatusCreated)
+		synctest.Wait()
+
+		// 编辑的预览：改集号对应，第 2 集的条目改对到第 1 集，替换那里的绑定；第 2 集的槽位保存后删除
+		shifted := `{"link": "fakelist/s", "mappingFrom": 2, "mappingTo": 1, "episodePatterns": ` + patterns + `}`
+		_, _, data = call(t, srv, http.MethodPost, "/api/season-bindings/1/collection/preview", shifted, http.StatusOK)
+		testenv.AssertJSON(t, data, `{"candidates": [{
+			"collectionKind": "list", "title": "合集 s", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
+			"finished": false, "numberedByRule": false, "current": true,
+			"items": [
+				{"label": "s1", "number": 1, "episodeNumber": null, "status": "beforeStart", "reason": null, "replaces": null},
+				{"label": "s2", "number": 2, "episodeNumber": 1, "status": "replace", "reason": null,
+				 "replaces": {"episodeNumber": 1, "bindingId": 5, "title": "弹幕源 s1", "dead": false}},
+				{"label": "ssp", "number": null, "episodeNumber": null, "status": "unmatched", "reason": "集号「SP」不是整数", "replaces": null}
+			],
+			"removed": [{"episodeNumber": 2, "bindingId": 6, "title": "弹幕源 s2", "dead": false}],
+			"summary": {"create": 0, "replace": 1, "remove": 1, "keep": 0}
+		}]}`)
+
+		// 保存：返回详情；删掉第 2 集的槽位，替换交给随后的补建
+		_, _, data = call(t, srv, http.MethodPut, "/api/season-bindings/1/collection", shifted, http.StatusOK)
+		if got := decodeObject(t, data); string(got["mappingFrom"]) != "2" || string(got["emptySlots"]) != "[]" {
+			t.Errorf("保存返回 mappingFrom = %s、emptySlots = %s", got["mappingFrom"], got["emptySlots"])
+		}
+		synctest.Wait()
+		bound := testenv.QueryInt(t, pool, `SELECT count(*) FROM bindings WHERE season_binding_id = 1 AND episode_id = 2 AND ref->>'name' = 's2'`)
+		if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM bindings WHERE season_binding_id = 1`); n != 1 || bound != 1 {
+			t.Errorf("补建之后季绑定有 %d 个绑定、第 1 集上 s2 的 %d 个，want 1、1", n, bound)
+		}
+
+		// 保存时正在补建：409
+		lease, ok, err := database.TryLease(t.Context(), pool, slog.New(slog.DiscardHandler), database.LeaseSeasonBackfill(1))
+		if err != nil || !ok {
+			t.Fatalf("TryLease = %v, %v", ok, err)
+		}
+		assertAPIErrors(t, srv, []apiError{{http.MethodPut, "/api/season-bindings/1/collection", shifted, http.StatusConflict, "正在补建或保存，稍后再试"}})
+		lease.Release()
+
+		folder, _ := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 1, 1,
+			testenv.FolderEntry{Label: "1", Files: []binding.UploadedFile{testenv.Snapshot1("1.xml")}})
+		folderPath := "/api/season-bindings/" + jsonString(folder)
+		assertAPIErrors(t, srv, []apiError{
+			{http.MethodPost, "/api/seasons/0/season-bindings/collection/preview", shifted, http.StatusBadRequest, "季 ID 不合法"},
+			{http.MethodPost, "/api/seasons/1/season-bindings/collection/preview", `{"link": " "}`, http.StatusBadRequest, "请粘贴合集的链接"},
+			{http.MethodPost, "/api/seasons/1/season-bindings/collection/preview", `{"link": "fakelist/s", "mappingFrom": 1}`, http.StatusBadRequest, "集号对应必须是不小于 0 的整数"},
+			{http.MethodPost, "/api/seasons/99/season-bindings/collection/preview", shifted, http.StatusNotFound, "季不存在"},
+			{http.MethodPost, "/api/seasons/1/season-bindings/collection/preview", `{"link": "fakelist/gone", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusUnprocessableEntity, "合集不存在或已删除"},
+
+			{http.MethodPost, "/api/season-bindings/0/collection/preview", shifted, http.StatusBadRequest, "季绑定 ID 不合法"},
+			{http.MethodPost, "/api/season-bindings/1/collection/preview", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1}`, http.StatusBadRequest, "至少要有一条集号规则"},
+			{http.MethodPost, "/api/season-bindings/99/collection/preview", shifted, http.StatusNotFound, "季绑定不存在"},
+			{http.MethodPost, folderPath + "/collection/preview", shifted, http.StatusBadRequest, "这不是合集的季绑定"},
+
+			{http.MethodPut, "/api/season-bindings/0/collection", shifted, http.StatusBadRequest, "季绑定 ID 不合法"},
+			{http.MethodPut, "/api/season-bindings/1/collection", `{"link": ""}`, http.StatusBadRequest, "请粘贴合集的链接"},
+			{http.MethodPut, "/api/season-bindings/1/collection", `{"link": "fakelist/s", "collectionKind": "pages", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusBadRequest, "链接里没有这种合集，请重新预览"},
+			{http.MethodPut, "/api/season-bindings/99/collection", shifted, http.StatusNotFound, "季绑定不存在"},
+			{http.MethodPut, folderPath + "/collection", shifted, http.StatusBadRequest, "这不是合集的季绑定"},
+		})
+	})
+}
+
 // TestFolderSeasonBindingAPI 文件夹的季绑定的详情：只有文件夹的字段，条目名称是"季绑定标题 / 条目名称"；没有追更。
 func TestFolderSeasonBindingAPI(t *testing.T) {
 	t.Parallel()
