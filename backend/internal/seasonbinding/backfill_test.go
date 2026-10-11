@@ -56,6 +56,40 @@ func TestBackfillSourceBoundDuringFetch(t *testing.T) {
 	})
 }
 
+// TestBackfillSourceBoundClearsItemError 上次拉取失败的条目，这一轮拉取期间有人手动绑定了同一个弹幕源：
+// 跳过它，条目上次失败的原因随之清掉。
+func TestBackfillSourceBoundClearsItemError(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &testenv.FakeCollector{
+			Collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}},
+			Videos:      testenv.FakeVideos("a"),
+			FetchErrs:   map[string]error{"a": &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: errors.New("HTTP 503")}},
+		}
+		env := newSeasonEnv(t, pool, src, 1)
+		id := env.create().ID
+		if got := env.get(id).Items[0].LastError; emptyIfNull(got) != "B 站接口异常" {
+			t.Fatalf("lastError = %v, want B 站接口异常", got)
+		}
+
+		delete(src.FetchErrs, "a")
+		src.Gate()
+		if _, err := env.svc.Backfill(t.Context(), id); err != nil {
+			t.Fatalf("Backfill: %v", err)
+		}
+		<-src.Started
+		env.bindManually(1, "a")
+		src.Release <- struct{}{}
+		synctest.Wait()
+
+		d := env.get(id)
+		testenv.AssertStrings(t, "条目", states(d), []string{"a alreadyBound 1"})
+		if it := d.Items[0]; it.LastError != nil || it.LastErrorAt != nil {
+			t.Errorf("lastError = %v、lastErrorAt = %v, want 都清掉", it.LastError, it.LastErrorAt)
+		}
+	})
+}
+
 // TestBackfillSharedSource 两个季绑定对到同一集的同一个弹幕源：先建出的占着，后来的跳过；
 // 先建出的那个季绑定被删除（连同它建出的绑定）之后，由后来的补上。
 func TestBackfillSharedSource(t *testing.T) {

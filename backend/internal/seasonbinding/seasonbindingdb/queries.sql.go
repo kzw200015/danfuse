@@ -895,7 +895,7 @@ type SetSeasonBindingItemErrorParams struct {
 	Ref             []byte     `json:"ref"`
 }
 
-// 条目补建失败：记下原因和时间，下次补建再试。error 为 null 时清掉（补建成功）。
+// 条目补建失败：记下原因和时间，下次补建再试。error 为 null 时清掉（补建成功、按已有同源绑定跳过）。
 func (q *Queries) SetSeasonBindingItemError(ctx context.Context, arg SetSeasonBindingItemErrorParams) error {
 	_, err := q.db.Exec(ctx, setSeasonBindingItemError,
 		arg.Error,

@@ -339,7 +339,7 @@ func (s *Service) backfillItem(ctx context.Context, r *backfillRound, sb seasonb
 // saveSlot 补建一个槽位的写入事务：锁住季、季绑定（没有了就结束这一轮，返回 errSeasonBindingGone），
 // 替换时先删掉槽位里原来的绑定，再由 binding.Service.CreateLinkSlotInTx 锁住集、建出绑定、写入弹幕，最后清掉条目的失败原因。
 // 拉取期间集被删除（ErrEpisodeGone）时跳过这个条目；有人在那一集绑定了同一个弹幕源（ErrSourceBound）时整个事务回滚，
-// 原来的绑定保留，计入 alreadyBound。
+// 原来的绑定保留，计入 alreadyBound，再另外清掉条目的失败原因。
 func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb seasonbindingdb.SeasonBinding, it Item, ref source.Ref, fetched source.Fetched) error {
 	now := time.Now()
 	var saved binding.Saved
@@ -374,7 +374,7 @@ func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb seasonbindi
 		return nil
 	case errors.Is(err, binding.ErrSourceBound):
 		r.alreadyBound++
-		return nil
+		return s.setItemError(ctx, r.id, ref, nil) // 跳过不算失败，清掉上次失败的原因
 	case err != nil:
 		return err
 	}
@@ -388,11 +388,13 @@ func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb seasonbindi
 	return nil
 }
 
-// setItemError 记下条目补建失败的原因和时间，下次补建再试。
+// setItemError 记下条目补建失败的原因和时间，下次补建再试；message 为 nil 时清掉两者。
 func (s *Service) setItemError(ctx context.Context, id int64, ref []byte, message *string) error {
-	err := s.q.SetSeasonBindingItemError(ctx, seasonbindingdb.SetSeasonBindingItemErrorParams{
-		SeasonBindingID: id, Ref: ref, Error: message, ErrorAt: new(time.Now()),
-	})
+	p := seasonbindingdb.SetSeasonBindingItemErrorParams{SeasonBindingID: id, Ref: ref, Error: message}
+	if message != nil {
+		p.ErrorAt = new(time.Now())
+	}
+	err := s.q.SetSeasonBindingItemError(ctx, p)
 	if err != nil {
 		return fmt.Errorf("set item error of season binding %d: %w", id, err)
 	}

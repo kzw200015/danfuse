@@ -153,7 +153,7 @@ WHERE id = @id
 RETURNING *;
 
 -- name: SetSeasonBindingItemError :exec
--- 条目补建失败：记下原因和时间，下次补建再试。error 为 null 时清掉（补建成功）。
+-- 条目补建失败：记下原因和时间，下次补建再试。error 为 null 时清掉（补建成功、按已有同源绑定跳过）。
 UPDATE season_binding_items
 SET last_error    = sqlc.narg(error),
     last_error_at = sqlc.narg(error_at)
