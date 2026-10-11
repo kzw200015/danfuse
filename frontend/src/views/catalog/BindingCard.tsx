@@ -119,7 +119,7 @@ export default function BindingCard({
             title={tag.title}
             render={<Link to={tag.to} />}
           >
-            <LockIcon />
+            <LockIcon className="shrink-0" />
             <span className="truncate">{tag.text}</span>
           </Badge>
         )}
