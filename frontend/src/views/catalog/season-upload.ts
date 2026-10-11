@@ -1,5 +1,5 @@
 import type { EntryHashes } from '@/api/season-bindings'
-import { sha256 as sha256Bytes } from '@/lib/sha256'
+import { sha256 as sha256Bytes } from '@noble/hashes/sha2.js'
 
 import { naturalOrder } from './catalog'
 
