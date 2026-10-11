@@ -1,7 +1,6 @@
 import { useState } from 'react'
 
-import type { Mapping, CollectionSeasonBinding } from '@/api/season-bindings'
-import { Button } from '@/components/ui/button'
+import type { Mapping } from '@/api/season-bindings'
 import { Input } from '@/components/ui/input'
 
 import { parseMappingNumber } from './season-binding'
@@ -64,50 +63,5 @@ export default function MappingInputs({
       />
       集
     </span>
-  )
-}
-
-/** 季绑定卡片上集号对应的输入框，改动之后才显示"保存"；不合法时不能保存 */
-export function MappingEditor({
-  binding,
-  disabled,
-  onSave,
-}: {
-  binding: CollectionSeasonBinding
-  disabled: boolean
-  onSave: (mapping: Mapping) => void
-}) {
-  const { from, to, setFrom, setTo, mapping } = useMappingDraft({
-    from: binding.mappingFrom,
-    to: binding.mappingTo,
-  })
-  const changed =
-    mapping === null || mapping.from !== binding.mappingFrom || mapping.to !== binding.mappingTo
-  return (
-    <form
-      className="flex items-center gap-2"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (mapping) onSave(mapping)
-      }}
-    >
-      <MappingInputs
-        from={from}
-        to={to}
-        onFromChange={setFrom}
-        onToChange={setTo}
-        disabled={disabled}
-      />
-      {changed && (
-        <Button
-          type="submit"
-          size="xs"
-          disabled={disabled || mapping === null}
-          title="只影响还没处理过的条目，已经建出的绑定不动"
-        >
-          保存
-        </Button>
-      )}
-    </form>
   )
 }

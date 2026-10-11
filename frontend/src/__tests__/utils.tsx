@@ -153,6 +153,7 @@ export function seasonBinding(
     kind: 'collection',
     seasonId: 11,
     adapter: 'bilibili',
+    link: 'https://b23.tv/ss41410',
     sourceUrl: 'https://www.bilibili.com/bangumi/play/ss41410',
     sourceLabel: 'B 站番剧 ss41410',
     title: '星海旅人 第一季',

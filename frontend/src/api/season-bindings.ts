@@ -12,6 +12,8 @@ export type SeasonBinding = CollectionSeasonBinding | FolderSeasonBinding
 export interface CollectionSeasonBinding extends SeasonBindingBase {
   kind: 'collection'
   adapter: string
+  /** 创建或换合集时贴的链接，编辑时预填；记下链接之前建的季绑定为 null */
+  link: string | null
   /** 合集在平台上的地址 */
   sourceUrl: string
   /** 例如"B 站番剧 ss41410"，含合集的种类 */
@@ -98,7 +100,7 @@ export interface PreviewItem {
 
 /** 链接识别出的一个候选合集 */
 export interface CollectionCandidate {
-  /** 创建时传回，用来选候选 */
+  /** 创建、换合集时传回，用来选候选 */
   kind: string
   title: string
   sourceUrl: string
@@ -111,6 +113,21 @@ export interface CollectionCandidate {
 
 export interface CollectionPreview {
   candidates: CollectionCandidate[]
+}
+
+/** 编辑合集的季绑定时预览的条目 */
+export interface ChangeItem extends PreviewItem {
+  /** 季绑定处理过这个条目时为绑定建在的那一集：改集号对应、集号规则、换合集都不动它；其余为 null */
+  handledEpisode: number | null
+}
+
+/** 编辑合集的季绑定时，链接识别出的一个候选合集 */
+export interface ChangeCandidate extends Omit<CollectionCandidate, 'items'> {
+  /** 季绑定现在就绑着这个合集 */
+  current: boolean
+  /** 换成这个合集时会删掉的绑定数：季绑定建出的、弹幕源不在这个合集里的；就是现在的合集时为 0 */
+  removedBindings: number
+  items: ChangeItem[]
 }
 
 /** 预览一季要绑定的合集，按集号规则认出序号，不保存任何东西 */
@@ -148,23 +165,39 @@ export function getSeasonBinding(id: number) {
   return request<SeasonBindingDetail>({ url: `/season-bindings/${id}` })
 }
 
+/** 编辑合集的季绑定时的预览：另外标出现在的合集、换过去会删掉的绑定数和处理过的条目，不保存任何东西 */
+export function previewSeasonBindingChange(id: number, link: string, episodePatterns: string[]) {
+  return request<{ candidates: ChangeCandidate[] }>({
+    url: `/season-bindings/${id}/preview`,
+    method: 'POST',
+    data: { link, episodePatterns },
+    timeout: slowRequestTimeout,
+  })
+}
+
 /** 改季绑定：只改传了的字段 */
 export interface SeasonBindingPatch {
   follow?: boolean
   mappingFrom?: number
   mappingTo?: number
   episodePatterns?: string[]
+  /** 换合集：贴的链接，同创建 */
+  link?: string
+  /** 换合集时选的候选；链接只有一个候选时可以不传 */
+  kind?: string
 }
 
 /**
- * 开关追更、改集号对应和集号规则，只改传了的字段，只适用于合集的季绑定（文件夹的季绑定返回 400）。
- * 改了规则时返回的条目已按新规则认出序号；打开追更或改了对应、规则时后端随即在后台补建
+ * 开关追更、改集号对应和集号规则、换合集，只改传了的字段，只适用于合集的季绑定（文件夹的季绑定返回 400）。
+ * 改了规则、换了合集时返回的条目已按新规则认出；打开追更或改了对应、规则、换了合集时后端随即在后台补建。
+ * 传了 link 时后端要重新列出合集，正在补建时返回 409；换成另一个合集时，它建出的、弹幕源不在新合集里的绑定连同弹幕删除
  */
 export function updateSeasonBinding(id: number, patch: SeasonBindingPatch) {
   return request<CollectionSeasonBindingDetail>({
     url: `/season-bindings/${id}`,
     method: 'PATCH',
     data: patch,
+    timeout: slowRequestTimeout,
   })
 }
 

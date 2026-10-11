@@ -83,18 +83,18 @@ const archive = [
 
 const labels = ['星海旅人 / 1', '星海旅人 / 2', '星海旅人 / 3', '星海旅人 / 4', '星海旅人 / SP']
 
-/** 打开季面板上的对话框，选中文件夹 */
+/** 在季面板上展开按季上传，选中文件夹 */
 async function pickFolder(files: File[]) {
   renderRoutes('/catalog/1/11')
   fireEvent.click(await screen.findByRole('button', { name: '上传弹幕文件夹' }))
-  const dialog = within(await screen.findByRole('dialog', { name: '上传弹幕文件夹' }))
-  fireEvent.change(dialog.getByLabelText('选择弹幕文件夹'), { target: { files } })
-  return dialog
+  const panel = within(await screen.findByRole('region', { name: '上传弹幕文件夹' }))
+  fireEvent.change(panel.getByLabelText('选择弹幕文件夹'), { target: { files } })
+  return panel
 }
 
 /** 预览表格各行：条目、勾选状态（disabled 表示不能勾）、对到本地 */
-function rows(dialog: ReturnType<typeof within>) {
-  return within(dialog.getByRole('table', { name: '上传预览' }))
+function rows(panel: ReturnType<typeof within>) {
+  return within(panel.getByRole('table', { name: '上传预览' }))
     .getAllByRole('row')
     .slice(1)
     .map((row) => {
@@ -126,16 +126,16 @@ describe('按季上传', () => {
       return done.promise
     })
 
-    const dialog = await pickFolder(archive)
+    const panel = await pickFolder(archive)
 
     await waitFor(() =>
       expect(previewSeasonFileBindings).toHaveBeenCalledWith(11, labels, defaultPatterns),
     )
-    expect(await dialog.findByText('5 个条目，忽略了 1 份不是 XML 的文件')).toBeInTheDocument()
+    expect(await panel.findByText('5 个条目，忽略了 1 份不是 XML 的文件')).toBeInTheDocument()
     // 集号对应预填 1 = 1，同季绑定
-    expect(dialog.getByRole('textbox', { name: '第几集' })).toHaveValue('1')
-    expect(dialog.getByRole('textbox', { name: '本地第几集' })).toHaveValue('1')
-    expect(rows(dialog)).toEqual([
+    expect(panel.getByRole('textbox', { name: '第几集' })).toHaveValue('1')
+    expect(panel.getByRole('textbox', { name: '本地第几集' })).toHaveValue('1')
+    expect(rows(panel)).toEqual([
       ['星海旅人 / 1', true, '第 1 集'],
       ['星海旅人 / 2', false, '第 2 集（已有 1 个绑定） · 已有文件绑定'],
       ['星海旅人 / 3', true, '第 3 集（已有 1 个绑定）'],
@@ -144,9 +144,9 @@ describe('按季上传', () => {
     ])
 
     // 真想再传一份时手动勾上，不想要的去掉
-    fireEvent.click(dialog.getByRole('checkbox', { name: '上传 星海旅人 / 2' }))
-    fireEvent.click(dialog.getByRole('checkbox', { name: '上传 星海旅人 / 3' }))
-    fireEvent.click(dialog.getByRole('button', { name: '上传 2 个条目' }))
+    fireEvent.click(panel.getByRole('checkbox', { name: '上传 星海旅人 / 2' }))
+    fireEvent.click(panel.getByRole('checkbox', { name: '上传 星海旅人 / 3' }))
+    fireEvent.click(panel.getByRole('button', { name: '上传 2 个条目' }))
 
     await waitFor(() => expect(createSeasonFileBindings).toHaveBeenCalledOnce())
     const [seasonId, upload] = vi.mocked(createSeasonFileBindings).mock.calls[0]!
@@ -160,42 +160,44 @@ describe('按季上传', () => {
       { label: '星海旅人 / 2', episodeId: 111 },
     ])
     progress!(0.5)
-    expect(await dialog.findByText('上传中 50%')).toBeInTheDocument()
-    expect(dialog.getByRole('progressbar', { name: '上传进度' })).toBeInTheDocument()
+    expect(await panel.findByText('上传中 50%')).toBeInTheDocument()
+    expect(panel.getByRole('progressbar', { name: '上传进度' })).toBeInTheDocument()
+    // 上传进行中不能收起
+    expect(panel.getByRole('button', { name: '收起' })).toBeDisabled()
     progress!(1)
-    expect(await dialog.findByText(/^正在保存/)).toBeInTheDocument()
+    expect(await panel.findByText(/^正在保存/)).toBeInTheDocument()
 
     const reloads = vi.mocked(getSeries).mock.calls.length
     done.resolve({ bindings: 2, added: 1234 })
 
     expect(await screen.findByText('已建出 2 个绑定，共 1,234 条弹幕')).toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: '上传弹幕文件夹' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('region', { name: '上传弹幕文件夹' })).not.toBeInTheDocument(),
     )
     await waitFor(() => expect(vi.mocked(getSeries).mock.calls.length).toBeGreaterThan(reloads))
   })
 
-  it('上传失败：提示留在对话框里，预览和勾选保持原样，可以直接再点一次', async () => {
+  it('上传失败：提示留在上传的一节里，预览和勾选保持原样，可以直接再点一次', async () => {
     vi.mocked(createSeasonFileBindings).mockRejectedValue(
       new ApiError('认不出弹幕文件：星海旅人/1/560685.xml', 1, 422),
     )
-    const dialog = await pickFolder(archive)
-    await dialog.findByRole('table', { name: '上传预览' })
-    const before = rows(dialog)
+    const panel = await pickFolder(archive)
+    await panel.findByRole('table', { name: '上传预览' })
+    const before = rows(panel)
 
-    fireEvent.click(dialog.getByRole('button', { name: '上传 2 个条目' }))
+    fireEvent.click(panel.getByRole('button', { name: '上传 2 个条目' }))
 
-    expect(await dialog.findByText('认不出弹幕文件：星海旅人/1/560685.xml')).toBeInTheDocument()
-    expect(rows(dialog)).toEqual(before)
-    fireEvent.click(dialog.getByRole('button', { name: '上传 2 个条目' }))
+    expect(await panel.findByText('认不出弹幕文件：星海旅人/1/560685.xml')).toBeInTheDocument()
+    expect(rows(panel)).toEqual(before)
+    fireEvent.click(panel.getByRole('button', { name: '上传 2 个条目' }))
     await waitFor(() => expect(createSeasonFileBindings).toHaveBeenCalledTimes(2))
   })
 
   it('文件夹的结构不对时直接提示，不预览', async () => {
-    const dialog = await pickFolder([picked('10月/星海旅人/1/20120930.xml')])
+    const panel = await pickFolder([picked('10月/星海旅人/1/20120930.xml')])
 
     expect(
-      await dialog.findByText(
+      await panel.findByText(
         '目录最多两层（文件夹 / 子目录 / 文件），这份文件超出了：10月/星海旅人/1/20120930.xml',
       ),
     ).toBeInTheDocument()
@@ -203,24 +205,24 @@ describe('按季上传', () => {
   })
 
   it('改了集号规则要重新预览才能上传，表格按新的预览刷新', async () => {
-    const dialog = await pickFolder(archive)
-    await dialog.findByRole('table', { name: '上传预览' })
+    const panel = await pickFolder(archive)
+    await panel.findByRole('table', { name: '上传预览' })
 
-    fireEvent.change(dialog.getByRole('textbox', { name: '集号规则第 2 条' }), {
+    fireEvent.change(panel.getByRole('textbox', { name: '集号规则第 2 条' }), {
       target: { value: '' },
     })
-    expect(dialog.getByRole('button', { name: '上传 2 个条目' })).toBeDisabled()
+    expect(panel.getByRole('button', { name: '上传 2 个条目' })).toBeDisabled()
     vi.mocked(previewSeasonFileBindings).mockResolvedValueOnce({
       items: labels.map((label) => ({ label, number: null, reason: '认不出集号' })),
     })
-    fireEvent.click(dialog.getByRole('button', { name: '重新预览' }))
+    fireEvent.click(panel.getByRole('button', { name: '重新预览' }))
 
     await waitFor(() =>
       expect(previewSeasonFileBindings).toHaveBeenLastCalledWith(11, labels, [defaultPatterns[0]]),
     )
     await waitFor(() =>
-      expect(rows(dialog).map((r) => r[2])).toEqual(labels.map(() => '对不上：认不出集号')),
+      expect(rows(panel).map((r) => r[2])).toEqual(labels.map(() => '对不上：认不出集号')),
     )
-    expect(dialog.getByRole('button', { name: '上传 0 个条目' })).toBeDisabled()
+    expect(panel.getByRole('button', { name: '上传 0 个条目' })).toBeDisabled()
   })
 })

@@ -1,9 +1,12 @@
 import type {
+  ChangeCandidate,
   CollectionCandidate,
+  CollectionSeasonBinding,
   Mapping,
   PreviewItem,
   SeasonBinding,
   SeasonBindingItem,
+  SeasonBindingPatch,
 } from '@/api/season-bindings'
 import type { Episode } from '@/api/series'
 
@@ -28,6 +31,16 @@ export function seasonBindingTag(seasonBindingId: number | null, seasonBindings:
         ? `由文件夹的季绑定「${name}」建出`
         : `由合集的季绑定「${name}」按集号对应建出`,
   }
+}
+
+/** 集号规则：去掉每条前后的空白、丢掉空的，提交和比较都用它 */
+export function cleanPatterns(patterns: string[]) {
+  return patterns.map((p) => p.trim()).filter(Boolean)
+}
+
+/** 两组集号规则逐条相同（顺序不同也算不同） */
+export function samePatterns(a: string[], b: string[]) {
+  return a.length === b.length && a.every((p, i) => p === b[i])
 }
 
 /** 集号对应的上限：与后端的 int 一致，九位数以内 */
@@ -121,7 +134,7 @@ export function itemStateText(item: SeasonBindingItem) {
  * 链接对应多个合集时，候选的说明。B 站的稿件既有多个分 P、又属于合集时，两个候选分别是"这个稿件的 N 个分 P"
  * 和"它所在的合集"（种类标识 multiPage、ugcSeason 由 B 站适配器给出）；其他种类写出合集的标签、标题和条数。
  */
-export function candidateText(c: CollectionCandidate) {
+export function candidateText(c: CollectionCandidate | ChangeCandidate) {
   const n = c.items.length
   switch (c.kind) {
     case 'multiPage':
@@ -131,4 +144,35 @@ export function candidateText(c: CollectionCandidate) {
     default:
       return `${c.sourceLabel}《${c.title}》共 ${n} 条`
   }
+}
+
+/** 编辑时链接输入框的初始值：记下的链接；记下链接之前建的季绑定用合集的链接代替 */
+export function editLink(sb: CollectionSeasonBinding) {
+  return sb.link ?? sb.sourceUrl
+}
+
+/** 编辑表单里要保存的内容：预览用的链接、选中的候选、集号对应和预览用的集号规则 */
+export interface SeasonBindingEdit {
+  link: string
+  candidate: Pick<ChangeCandidate, 'kind' | 'current'>
+  mapping: Mapping
+  patterns: string[]
+}
+
+/**
+ * 编辑季绑定要发出的改动，只带改了的字段，没有改动时为空对象。换了链接或选了别的候选时带上 link 和 kind
+ * （同一个合集换了一种链接时后端只改记下的链接）；集号规则逐条比较，调整顺序也算改动
+ */
+export function seasonBindingPatch(sb: CollectionSeasonBinding, edit: SeasonBindingEdit) {
+  const patch: SeasonBindingPatch = {}
+  if (edit.link !== editLink(sb) || !edit.candidate.current) {
+    patch.link = edit.link
+    patch.kind = edit.candidate.kind
+  }
+  if (edit.mapping.from !== sb.mappingFrom || edit.mapping.to !== sb.mappingTo) {
+    patch.mappingFrom = edit.mapping.from
+    patch.mappingTo = edit.mapping.to
+  }
+  if (!samePatterns(edit.patterns, sb.episodePatterns)) patch.episodePatterns = edit.patterns
+  return patch
 }

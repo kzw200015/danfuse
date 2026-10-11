@@ -21,7 +21,9 @@ import {
   getDefaultEpisodePatterns,
   getSeasonBinding,
   previewSeasonBinding,
+  previewSeasonBindingChange,
   updateSeasonBinding,
+  type ChangeCandidate,
   type CollectionCandidate,
   type SeasonBindingItem,
 } from '@/api/season-bindings'
@@ -388,8 +390,9 @@ describe('季绑定卡片', () => {
     expect(sb.getByText(/^上次检查 /)).toBeInTheDocument()
     expect(sb.getByText('上次检查：番剧不存在、已下架或不可见')).toBeInTheDocument()
     expect(sb.getByRole('switch', { name: '追更' })).toBeChecked()
-    expect(sb.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')
-    expect(sb.queryByRole('group', { name: '集号规则' })).not.toBeInTheDocument()
+    expect(sb.getByText('合集第 1 集 = 本地第 1 集')).toBeInTheDocument()
+    // 集号对应、集号规则在编辑里改，卡片上不放输入框
+    expect(sb.queryByRole('textbox')).not.toBeInTheDocument()
     // 打开季面板不请求详情
     expect(getSeasonBinding).not.toHaveBeenCalled()
   })
@@ -451,72 +454,148 @@ describe('季绑定卡片', () => {
     await waitFor(() => expect(sb.queryByText(/^补建中/)).not.toBeInTheDocument())
   })
 
-  it('改集号对应：改动后才能保存，保存后开始显示补建进度', async () => {
+  it('编辑：打开就按记下的链接预览、选中现在的合集，处理过的条目不再变动；只发出改了的字段，保存后收起并显示补建进度', async () => {
+    const current: ChangeCandidate = {
+      ...continued,
+      kind: 'bangumi',
+      finished: false,
+      current: true,
+      removedBindings: 0,
+      items: [
+        { label: '第13话 回顾', number: 13, reason: null, handledEpisode: 1 },
+        { label: '第14话 再出发', number: 14, reason: null, handledEpisode: null },
+        { label: '第15话 归途', number: 15, reason: null, handledEpisode: null },
+      ],
+    }
+    vi.mocked(previewSeasonBindingChange).mockResolvedValue({ candidates: [current] })
     vi.mocked(updateSeasonBinding).mockImplementation(async (id, patch) => {
       Object.assign(serverBinding(id), patch, { running: true })
       return { ...structuredClone(serverBinding(id)), items: [] }
     })
     renderRoutes('/catalog/1/11')
     const sb = await card('星海旅人 第一季')
-    expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
 
-    fireEvent.change(sb.getByRole('textbox', { name: '合集第几集' }), { target: { value: '1.5' } })
-    expect(sb.getByRole('button', { name: '保存' })).toBeDisabled()
-    fireEvent.change(sb.getByRole('textbox', { name: '合集第几集' }), { target: { value: '14' } })
-    fireEvent.click(sb.getByRole('button', { name: '保存' }))
+    fireEvent.click(sb.getByRole('button', { name: '编辑' }))
+
+    expect(sb.getByRole('textbox', { name: '合集的链接' })).toHaveValue('https://b23.tv/ss41410')
+    await waitFor(() =>
+      expect(previewSeasonBindingChange).toHaveBeenCalledWith(
+        1,
+        'https://b23.tv/ss41410',
+        defaultPatterns,
+      ),
+    )
+    const preview = within(await sb.findByRole('region', { name: '预览' }))
+    // 预填现在的集号对应；没有改动时不能保存
+    expect(preview.getByRole('textbox', { name: '合集第几集' })).toHaveValue('1')
+    expect(preview.getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(preview.getByText('没有改动')).toBeInTheDocument()
+
+    fireEvent.change(preview.getByRole('textbox', { name: '合集第几集' }), {
+      target: { value: '14' },
+    })
+    expect(
+      within(preview.getByRole('table', { name: '对应表' }))
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[2]!.textContent),
+    ).toEqual(['已处理：第 1 集，不再变动', '第 1 集（已有 1 个绑定）', '第 2 集'])
+    fireEvent.click(preview.getByRole('button', { name: '保存' }))
 
     await waitFor(() =>
       expect(updateSeasonBinding).toHaveBeenCalledWith(1, { mappingFrom: 14, mappingTo: 1 }),
     )
-    expect(await screen.findByText('集号对应已保存，正在后台补建')).toBeInTheDocument()
+    expect(await screen.findByText('已保存，正在后台补建')).toBeInTheDocument()
+    await waitFor(() => expect(sb.queryByRole('region', { name: '预览' })).not.toBeInTheDocument())
     expect(await sb.findByText(/^补建中/)).toBeInTheDocument()
-    await waitFor(() => expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument())
+    expect(sb.getByText('合集第 14 集 = 本地第 1 集')).toBeInTheDocument()
   })
 
-  it('改集号规则：只有按规则编号的合集显示；可以调整顺序、新增、恢复默认，改动后才能保存', async () => {
+  it('编辑：换成别的合集要删掉绑定时先确认；改了集号规则要重新预览；正在补建时提示留在预览里', async () => {
     Object.assign(serverBinding(1), { numberedByRule: true })
-    vi.mocked(updateSeasonBinding).mockImplementation(async (id, patch) => {
-      Object.assign(serverBinding(id), patch, { running: true })
-      return { ...structuredClone(serverBinding(id)), items: [] }
-    })
+    const pages: ChangeCandidate = {
+      kind: 'multiPage',
+      title: '星海旅人 全集',
+      sourceUrl: 'https://www.bilibili.com/video/BV17x411w7KC',
+      sourceLabel: 'B 站多 P 投稿 BV17x411w7KC',
+      finished: false,
+      numberedByRule: true,
+      current: false,
+      removedBindings: 1,
+      items: [{ label: '星海旅人 全集 / 01', number: 1, reason: null, handledEpisode: null }],
+    }
+    const collection: ChangeCandidate = {
+      ...pages,
+      kind: 'ugcSeason',
+      title: '搬运合集',
+      sourceLabel: 'B 站投稿合集 8597253',
+      current: true,
+      removedBindings: 0,
+    }
+    vi.mocked(previewSeasonBindingChange).mockResolvedValue({ candidates: [pages, collection] })
     renderRoutes('/catalog/1/11')
     const sb = await card('星海旅人 第一季')
-    const values = () =>
-      within(sb.getByRole('group', { name: '集号规则' }))
-        .getAllByRole('textbox')
-        .map((el) => (el as HTMLInputElement).value)
-    expect(values()).toEqual(defaultPatterns)
-    expect(sb.getByRole('button', { name: '上移第 1 条' })).toBeDisabled()
-    expect(sb.getByRole('button', { name: '下移第 2 条' })).toBeDisabled()
-    expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
+    fireEvent.click(sb.getByRole('button', { name: '编辑' }))
 
-    // 调换顺序算改动，恢复默认之后又没有改动
-    fireEvent.click(sb.getByRole('button', { name: '下移第 1 条' }))
-    expect(values()).toEqual(['EP(\\d+)', '第(\\d+)集'])
-    expect(sb.getByRole('button', { name: '保存' })).toBeInTheDocument()
-    await waitFor(() => expect(sb.getByRole('button', { name: '恢复默认' })).toBeEnabled())
-    fireEvent.click(sb.getByRole('button', { name: '恢复默认' }))
-    expect(values()).toEqual(defaultPatterns)
-    expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
+    // 现在的合集默认选中、标出来
+    const choices = within(await sb.findByRole('radiogroup', { name: '选择要绑定的合集' }))
+    expect(choices.getByRole('radio', { name: /搬运合集/ })).toHaveAttribute('aria-checked', 'true')
+    expect(choices.getByRole('radio', { name: /搬运合集/ })).toHaveTextContent('现在绑着的')
 
-    // 新增一条、移到第 2 条；空着的一条提交时丢掉，每条去掉前后的空白
-    fireEvent.click(sb.getByRole('button', { name: '新增' }))
-    fireEvent.change(sb.getByRole('textbox', { name: '集号规则第 3 条' }), {
-      target: { value: '第(\\d+)话 ' },
+    // 改了集号规则：重新预览之前不能保存，重新预览用同一个链接
+    const preview = within(sb.getByRole('region', { name: '预览' }))
+    fireEvent.change(preview.getByRole('textbox', { name: '集号规则第 1 条' }), {
+      target: { value: '/ (\\d+)$' },
     })
-    fireEvent.click(sb.getByRole('button', { name: '上移第 3 条' }))
-    fireEvent.click(sb.getByRole('button', { name: '新增' }))
-    expect(values()).toEqual(['第(\\d+)集', '第(\\d+)话 ', 'EP(\\d+)', ''])
-    fireEvent.click(sb.getByRole('button', { name: '保存' }))
+    expect(preview.getByRole('button', { name: '保存' })).toBeDisabled()
+    fireEvent.click(preview.getByRole('button', { name: '重新预览' }))
+    await waitFor(() =>
+      expect(previewSeasonBindingChange).toHaveBeenLastCalledWith(1, 'https://b23.tv/ss41410', [
+        '/ (\\d+)$',
+        'EP(\\d+)',
+      ]),
+    )
+
+    // 重新预览成功后换上新的预览（规则与这次预览的相同，不再显示"重新预览"）
+    await waitFor(() =>
+      expect(sb.queryByRole('button', { name: '重新预览' })).not.toBeInTheDocument(),
+    )
+    // 选另一个候选：会删掉它建出的绑定，先确认。重新预览之后现在的合集仍然选中
+    const repreviewed = within(await sb.findByRole('radiogroup', { name: '选择要绑定的合集' }))
+    expect(repreviewed.getByRole('radio', { name: /搬运合集/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    fireEvent.click(repreviewed.getByRole('radio', { name: /的 1 个分 P/ }))
+    vi.mocked(updateSeasonBinding).mockRejectedValue(
+      new ApiError('正在补建，补建结束后再换合集', 1, 409),
+    )
+    fireEvent.click(
+      within(sb.getByRole('region', { name: '预览' })).getByRole('button', { name: '保存' }),
+    )
+    const dialog = within(await screen.findByRole('alertdialog'))
+    expect(
+      dialog.getByText('它建出的 1 个绑定的弹幕源不在这个合集里，会连同弹幕一起删除，无法恢复。'),
+    ).toBeInTheDocument()
+    act(() => fireEvent.click(dialog.getByRole('button', { name: '换合集' })))
 
     await waitFor(() =>
       expect(updateSeasonBinding).toHaveBeenCalledWith(1, {
-        episodePatterns: ['第(\\d+)集', '第(\\d+)话', 'EP(\\d+)'],
+        link: 'https://b23.tv/ss41410',
+        kind: 'multiPage',
+        episodePatterns: ['/ (\\d+)$', 'EP(\\d+)'],
       }),
     )
-    expect(await screen.findByText('集号规则已保存，正在后台补建')).toBeInTheDocument()
-    await waitFor(() => expect(sb.queryByRole('button', { name: '保存' })).not.toBeInTheDocument())
-    expect(values()).toEqual(['第(\\d+)集', '第(\\d+)话', 'EP(\\d+)'])
+    expect(
+      await within(sb.getByRole('region', { name: '预览' })).findByRole('alert'),
+    ).toHaveTextContent('正在补建，补建结束后再换合集')
+
+    // 取消：收起编辑，什么都不改
+    fireEvent.click(
+      within(sb.getByRole('region', { name: '预览' })).getByRole('button', { name: '取消' }),
+    )
+    await waitFor(() => expect(sb.queryByRole('region', { name: '预览' })).not.toBeInTheDocument())
+    expect(sb.getByRole('button', { name: '编辑' })).toBeEnabled()
   })
 
   it('关掉追更', async () => {
@@ -570,7 +649,7 @@ describe('季绑定卡片', () => {
     // 不补建、不追更、不会失效，没有条目表
     expect(sb.queryByRole('link')).not.toBeInTheDocument()
     expect(sb.queryByRole('switch', { name: '追更' })).not.toBeInTheDocument()
-    expect(sb.queryByRole('textbox', { name: '合集第几集' })).not.toBeInTheDocument()
+    expect(sb.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument()
     expect(sb.queryByRole('button', { name: '立即补建' })).not.toBeInTheDocument()
     expect(sb.queryByRole('button', { name: '条目表' })).not.toBeInTheDocument()
     expect(sb.queryByText(/检查/)).not.toBeInTheDocument()

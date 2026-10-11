@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
-import { FolderOpenIcon, FolderUpIcon, Loader2Icon } from 'lucide-react'
+import { FolderOpenIcon, Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -11,13 +11,6 @@ import {
 import type { Season } from '@/api/series'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { defaultEpisodePatternsOptions } from '@/hooks/use-season-bindings'
@@ -25,43 +18,47 @@ import { useReloadSeries } from '@/hooks/use-series'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
-import { cleanPatterns, EpisodeRuleRepreview, samePatterns } from './EpisodeRuleInput'
+import { EpisodeRuleRepreview } from './EpisodeRuleInput'
 import MappingInputs, { useMappingDraft } from './MappingInputs'
-import { previewTarget, previewTargetClass, previewTargetText } from './season-binding'
+import {
+  cleanPatterns,
+  previewTarget,
+  previewTargetClass,
+  previewTargetText,
+  samePatterns,
+} from './season-binding'
 import { groupFolderFiles, type FolderGrouping, type UploadEntry } from './season-upload'
 import { takeFiles } from './shared'
 
-/** 一季的上传请求的变更键：上传进行中对话框不能关 */
+/** 一季的上传请求的变更键：上传进行中不能收起 */
 const uploadKey = (seasonId: number) => ['season-upload', seasonId] as const
 
 /**
- * 季面板上"上传弹幕文件夹"的按钮与对话框。对话框每次打开都从选文件夹开始，关掉就当没发生过；
- * 上传进行中不能关。换一季时由调用方用 key 重新挂载
+ * 季面板上点"上传弹幕文件夹"展开的一节，在季面板里内联显示。每次展开都从选文件夹开始，收起就当没发生过；
+ * 上传进行中不能收起，上传成功后由 onClose 收起。换一季时由调用方收起
  */
-export default function SeasonUploadButton({ season }: { season: Season }) {
-  const [open, setOpen] = useState(false)
+export default function SeasonUploadPanel({
+  season,
+  onClose,
+}: {
+  season: Season
+  onClose: () => void
+}) {
   const uploading = useIsMutating({ mutationKey: uploadKey(season.id) }) > 0
   return (
-    <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <FolderUpIcon />
-        上传弹幕文件夹
-      </Button>
-      <Dialog open={open} onOpenChange={(o) => (o || !uploading) && setOpen(o)}>
-        {/* 贴顶显示：预览出来时只有底边动 */}
-        <DialogContent className="top-[5vh] max-h-[90vh] translate-y-0 overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>上传弹幕文件夹</DialogTitle>
-            <DialogDescription>
-              选一个文件夹：每个子目录（里面的 XML 合在一起）或顶层的每份 XML
-              是一个条目，按集号规则认出集号、对到本季的集。
-              勾选的条目各建一个用弹幕文件建的绑定，要么全部建出，要么一个都不建。
-            </DialogDescription>
-          </DialogHeader>
-          <SeasonUpload season={season} uploading={uploading} onDone={() => setOpen(false)} />
-        </DialogContent>
-      </Dialog>
-    </>
+    <section aria-label="上传弹幕文件夹" className="grid min-w-0 gap-3 rounded-lg border p-3">
+      <div className="flex items-start gap-2">
+        <p className="flex-1 text-xs text-muted-foreground">
+          选一个文件夹：每个子目录（里面的 XML 合在一起）或顶层的每份 XML
+          是一个条目，按集号规则认出集号、对到本季的集。
+          勾选的条目各建一个用弹幕文件建的绑定，要么全部建出，要么一个都不建。
+        </p>
+        <Button variant="ghost" size="sm" disabled={uploading} onClick={onClose}>
+          收起
+        </Button>
+      </div>
+      <SeasonUpload season={season} uploading={uploading} onDone={onClose} />
+    </section>
   )
 }
 

@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { folderSeasonBinding, seasonBinding } from '@/__tests__/utils'
+import { defaultPatterns, folderSeasonBinding, seasonBinding } from '@/__tests__/utils'
 import type { Binding } from '@/api/bindings'
 import type { CollectionCandidate, PreviewItem, SeasonBindingItem } from '@/api/season-bindings'
 import type { Episode } from '@/api/series'
 import {
   candidateText,
+  editLink,
   itemStateText,
   parseMappingNumber,
   previewTarget,
   previewTargetText,
+  seasonBindingPatch,
   seasonBindingTag,
 } from '../season-binding'
 
@@ -148,5 +150,60 @@ describe('seasonBindingTag', () => {
     [9, { text: '季绑定', title: '由季绑定建出' }],
   ])('%s', (id, want) => {
     expect(seasonBindingTag(id, seasonBindings)).toEqual(want)
+  })
+})
+
+describe('editLink', () => {
+  it.each([
+    ['记下的链接', seasonBinding(1, { link: 'https://b23.tv/ss41410' }), 'https://b23.tv/ss41410'],
+    [
+      '记下链接之前建的：用合集的链接',
+      seasonBinding(1, { link: null }),
+      'https://www.bilibili.com/bangumi/play/ss41410',
+    ],
+  ])('%s', (_, sb, want) => {
+    expect(editLink(sb)).toBe(want)
+  })
+})
+
+describe('seasonBindingPatch', () => {
+  // 现在：链接 https://b23.tv/ss41410，合集第 1 集 = 本地第 1 集，默认规则
+  const sb = seasonBinding(1)
+  const unchanged = {
+    link: 'https://b23.tv/ss41410',
+    candidate: { kind: 'bangumi', current: true },
+    mapping: { from: 1, to: 1 },
+    patterns: defaultPatterns,
+  }
+  it.each([
+    ['没有改动', {}, {}],
+    ['改集号对应', { mapping: { from: 14, to: 1 } }, { mappingFrom: 14, mappingTo: 1 }],
+    [
+      '调整集号规则的顺序也算改动',
+      { patterns: defaultPatterns.toReversed() },
+      { episodePatterns: defaultPatterns.toReversed() },
+    ],
+    [
+      '选了别的候选',
+      { candidate: { kind: 'ugcSeason', current: false } },
+      { link: 'https://b23.tv/ss41410', kind: 'ugcSeason' },
+    ],
+    [
+      '同一个合集换了一种链接',
+      { link: 'https://www.bilibili.com/bangumi/play/ss41410' },
+      { link: 'https://www.bilibili.com/bangumi/play/ss41410', kind: 'bangumi' },
+    ],
+  ])('%s', (_, edit, want) => {
+    expect(seasonBindingPatch(sb, { ...unchanged, ...edit })).toEqual(want)
+  })
+
+  it('记下链接之前建的：预填的合集链接没改时不算换合集', () => {
+    const legacy = seasonBinding(1, { link: null })
+    expect(
+      seasonBindingPatch(legacy, {
+        ...unchanged,
+        link: 'https://www.bilibili.com/bangumi/play/ss41410',
+      }),
+    ).toEqual({})
   })
 })

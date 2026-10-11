@@ -1,6 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { ChevronDownIcon, ChevronRightIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  Loader2Icon,
+  PencilIcon,
+  RefreshCwIcon,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { isApiStatus } from '@/api/request'
@@ -12,9 +18,9 @@ import {
   type FolderSeasonBinding,
   type SeasonBinding,
   type SeasonBindingDetail,
-  type SeasonBindingPatch,
   type SeasonBindingItemState,
 } from '@/api/season-bindings'
+import type { Season } from '@/api/series'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
@@ -29,16 +35,18 @@ import { formatAgo, formatDateTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
-import { EpisodeRuleEditor } from './EpisodeRuleInput'
-import { MappingEditor } from './MappingInputs'
 import { itemStateText, seasonBindingName } from './season-binding'
+import { EditSeasonBindingForm } from './SeasonBindingForm'
 import { SourceLink, StatusBadge } from './shared'
 
 /** 一个季绑定的卡片，按 kind 分为合集的季绑定和文件夹的季绑定 */
 export default function SeasonBindingCard({
+  season,
   binding,
   summaryUpdatedAt,
 }: {
+  /** 季绑定所在的季：编辑时的对应表按本季的集现算 */
+  season: Season
   /** 剧详情里的这个季绑定 */
   binding: SeasonBinding
   /** 剧详情取到的时间，与轮询到的详情比较哪个新 */
@@ -47,23 +55,30 @@ export default function SeasonBindingCard({
   return binding.kind === 'folder' ? (
     <FolderSeasonBindingCard binding={binding} />
   ) : (
-    <CollectionSeasonBindingCard binding={binding} summaryUpdatedAt={summaryUpdatedAt} />
+    <CollectionSeasonBindingCard
+      season={season}
+      binding={binding}
+      summaryUpdatedAt={summaryUpdatedAt}
+    />
   )
 }
 
 /**
- * 合集的季绑定的卡片：状态、合集标题（链接到原页面）与标签、建出的绑定数、上次检查的时间与错误、补建中的已用秒数；
- * 集号对应与集号规则（投稿合集、多 P 投稿；保存后后台补建）、追更开关、立即补建、删除，以及可展开的条目表。
+ * 合集的季绑定的卡片：状态、合集标题（链接到原页面）与标签、集号对应、建出的绑定数、上次检查的时间与错误、补建中的已用秒数；
+ * 追更开关、编辑（在卡片里展开，与添加同一套表单：换合集、改集号对应和集号规则，先预览再保存）、立即补建、删除，以及可展开的条目表。
  * 操作成功用 toast（立即补建被拒绝的 409 也用 toast）；其余失败的提示显示在卡片下方，保留到下次操作或手动关闭。
  */
 function CollectionSeasonBindingCard({
+  season,
   binding,
   summaryUpdatedAt,
 }: {
+  season: Season
   binding: CollectionSeasonBinding
   summaryUpdatedAt: number
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const clearError = () => setError(null)
   const showError = (e: Error) => setError(e.message)
@@ -74,11 +89,11 @@ function CollectionSeasonBindingCard({
   const { running } = view
   const elapsed = useElapsed(running)
 
-  const update = useMutation({
-    mutationFn: (patch: SeasonBindingPatch) => updateSeasonBinding(binding.id, patch),
+  const follow = useMutation({
+    mutationFn: (on: boolean) => updateSeasonBinding(binding.id, { follow: on }),
     onMutate: clearError,
-    onSuccess: async (d, patch) => {
-      toast.success(updatedText(patch))
+    onSuccess: async (d, on) => {
+      toast.success(on ? '已打开追更，正在后台补建' : '已关闭追更')
       await watch(d.id, d)
       return reload()
     },
@@ -129,14 +144,17 @@ function CollectionSeasonBindingCard({
           <Switch
             size="sm"
             checked={view.follow}
-            disabled={update.isPending || busy}
-            onCheckedChange={(follow) => update.mutate({ follow })}
+            disabled={follow.isPending || busy}
+            onCheckedChange={(on) => follow.mutate(on)}
           />
           追更
         </label>
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span title="合集第 X 集对应本地第 Y 集，之后一一顺延；序号小于 X 的条目不参与">
+          合集第 {view.mappingFrom} 集 = 本地第 {view.mappingTo} 集
+        </span>
         <span>建出 {view.bindingCount} 个绑定</span>
         {view.lastCheckedAt ? (
           <span title={formatDateTime(view.lastCheckedAt)}>
@@ -155,14 +173,20 @@ function CollectionSeasonBindingCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {/* 保存成功、重新加载后对应变了，用新的值重新初始化输入框 */}
-        <MappingEditor
-          key={`${view.mappingFrom}-${view.mappingTo}`}
-          binding={view}
-          disabled={update.isPending || busy}
-          onSave={({ from, to }) => update.mutate({ mappingFrom: from, mappingTo: to })}
-        />
         <div className="ml-auto flex gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={editing || busy}
+            title="换合集、改集号对应和集号规则，先预览再保存"
+            onClick={() => {
+              clearError()
+              setEditing(true)
+            }}
+          >
+            <PencilIcon />
+            编辑
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -194,14 +218,8 @@ function CollectionSeasonBindingCard({
         </div>
       </div>
 
-      {view.numberedByRule && (
-        // 保存成功后规则变了，用新的值重新初始化输入框
-        <EpisodeRuleEditor
-          key={view.episodePatterns.join('\n')}
-          binding={view}
-          disabled={update.isPending || busy}
-          onSave={(episodePatterns) => update.mutate({ episodePatterns })}
-        />
+      {editing && (
+        <EditSeasonBindingForm season={season} binding={view} onClose={() => setEditing(false)} />
       )}
 
       <button
@@ -326,13 +344,6 @@ function DeleteSeasonBindingButton({
       )}
     </ConfirmButton>
   )
-}
-
-/** 改季绑定成功的提示：卡片上每次只改一样（追更、集号对应或集号规则） */
-function updatedText(patch: SeasonBindingPatch) {
-  if (patch.follow !== undefined) return patch.follow ? '已打开追更，正在后台补建' : '已关闭追更'
-  if (patch.episodePatterns !== undefined) return '集号规则已保存，正在后台补建'
-  return '集号对应已保存，正在后台补建'
 }
 
 const stateClass: Partial<Record<SeasonBindingItemState, string>> = {
