@@ -75,9 +75,10 @@ func SyncTest(t *testing.T, f func(t *testing.T, pool *pgxpool.Pool)) {
 
 // AssertInvariants 检查任何时候都成立的不变量：每个绑定的 danmaku_count 等于它实际的弹幕条数、
 // max_time_ms 等于它最晚一条弹幕的时间（不早于 0）、file_count 等于它的弹幕文件份数；
-// images 表里没有不被任何剧引用的图片；每条处理过的记录都指向存在的集；
+// images 表里没有不被任何剧引用的图片；
 // 带 season_binding_id 的绑定，所在的集属于那个季绑定的季；链接绑定只指向合集的季绑定、文件绑定只指向文件夹的季绑定；
-// 文件夹的季绑定没有条目和处理过的记录。
+// 季绑定建出的文件绑定没有 binding_files 行；合集的季绑定没有条目，文件夹的季绑定没有条目表；
+// 每个文件夹的季绑定至少有一个条目，每个条目至少有一份文件。约束能守住的规则不在这里重复检查。
 func AssertInvariants(t testing.TB, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background() // 在 t.Cleanup 里调用时 t.Context() 已经取消
@@ -138,57 +139,53 @@ func AssertInvariants(t testing.TB, pool *pgxpool.Pool) {
 		t.Errorf("images 里有不被任何剧引用的图片：%v", orphans)
 	}
 
-	var dangling int64
-	err = pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM season_binding_handled h
-		WHERE NOT EXISTS (SELECT 1 FROM episodes e WHERE e.id = h.episode_id)`).Scan(&dangling)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dangling > 0 {
-		t.Errorf("有 %d 条处理过的记录指向不存在的集", dangling)
-	}
-
-	var misplaced []int64
-	err = pool.QueryRow(ctx, `
-		SELECT coalesce(array_agg(b.id ORDER BY b.id), '{}')
-		FROM bindings b
-		JOIN episodes e ON e.id = b.episode_id
-		JOIN season_bindings sb ON sb.id = b.season_binding_id
-		WHERE e.season_id <> sb.season_id`).Scan(&misplaced)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(misplaced) > 0 {
-		t.Errorf("绑定 %v 所在的集不属于建出它的季绑定的季", misplaced)
-	}
-
-	var wrongKind []int64
-	err = pool.QueryRow(ctx, `
-		SELECT coalesce(array_agg(b.id ORDER BY b.id), '{}')
-		FROM bindings b
-		JOIN season_bindings sb ON sb.id = b.season_binding_id
-		WHERE (b.kind = 'link') <> (sb.kind = 'collection')`).Scan(&wrongKind)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(wrongKind) > 0 {
-		t.Errorf("绑定 %v 与建出它的季绑定种类不符：链接绑定只能由合集的季绑定、文件绑定只能由文件夹的季绑定建出", wrongKind)
-	}
-
-	var folderWithItems []int64
-	err = pool.QueryRow(ctx, `
-		SELECT coalesce(array_agg(sb.id ORDER BY sb.id), '{}')
-		FROM season_bindings sb
-		WHERE sb.kind = 'folder'
-		  AND (EXISTS (SELECT 1 FROM season_binding_items i WHERE i.season_binding_id = sb.id)
-		    OR EXISTS (SELECT 1 FROM season_binding_handled h WHERE h.season_binding_id = sb.id))`).Scan(&folderWithItems)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(folderWithItems) > 0 {
-		t.Errorf("文件夹的季绑定 %v 有条目或处理过的记录", folderWithItems)
+	for _, check := range []struct {
+		message string // %v 为违反的行的 ID
+		sql     string // 选出违反的行的 ID
+	}{
+		{"绑定 %v 所在的集不属于建出它的季绑定的季", `
+			SELECT b.id
+			FROM bindings b
+			JOIN episodes e ON e.id = b.episode_id
+			JOIN season_bindings sb ON sb.id = b.season_binding_id
+			WHERE e.season_id <> sb.season_id`},
+		{"绑定 %v 与建出它的季绑定种类不符：链接绑定只能由合集的季绑定、文件绑定只能由文件夹的季绑定建出", `
+			SELECT b.id
+			FROM bindings b
+			JOIN season_bindings sb ON sb.id = b.season_binding_id
+			WHERE (b.kind = 'link') <> (sb.kind = 'collection')`},
+		{"季绑定建出的文件绑定 %v 有自己的弹幕文件（应在条目上）", `
+			SELECT b.id
+			FROM bindings b
+			WHERE b.entry_id IS NOT NULL
+			  AND EXISTS (SELECT 1 FROM binding_files f WHERE f.binding_id = b.id)`},
+		{"合集的季绑定 %v 有文件夹的条目", `
+			SELECT sb.id
+			FROM season_bindings sb
+			WHERE sb.kind = 'collection'
+			  AND EXISTS (SELECT 1 FROM season_binding_entries en WHERE en.season_binding_id = sb.id)`},
+		{"文件夹的季绑定 %v 有合集的条目表", `
+			SELECT sb.id
+			FROM season_bindings sb
+			WHERE sb.kind = 'folder'
+			  AND EXISTS (SELECT 1 FROM season_binding_items i WHERE i.season_binding_id = sb.id)`},
+		{"文件夹的季绑定 %v 没有条目", `
+			SELECT sb.id
+			FROM season_bindings sb
+			WHERE sb.kind = 'folder'
+			  AND NOT EXISTS (SELECT 1 FROM season_binding_entries en WHERE en.season_binding_id = sb.id)`},
+		{"条目 %v 没有弹幕文件", `
+			SELECT en.id
+			FROM season_binding_entries en
+			WHERE NOT EXISTS (SELECT 1 FROM season_binding_entry_files f WHERE f.entry_id = en.id)`},
+	} {
+		var ids []int64
+		if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(id ORDER BY id), '{}') FROM (`+check.sql+`) AS v (id)`).Scan(&ids); err != nil {
+			t.Fatal(err)
+		}
+		if len(ids) > 0 {
+			t.Errorf(check.message, ids)
+		}
 	}
 }
 

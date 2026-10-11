@@ -100,7 +100,7 @@ func (s *Service) EpisodeTracks(ctx context.Context, episodeID int64) ([]danmaku
 		if err != nil {
 			return nil, err
 		}
-		tracks[i] = danmaku.Track{BindingID: b.ID, Platform: platform, Offset: b.Offset, Scale: b.Scale}
+		tracks[i] = danmaku.Track{BindingID: b.ID, Platform: platform, Offset: b.Offset}
 		ids[i] = b.ID
 		byBinding[b.ID] = make([]danmaku.Danmaku, 0, b.DanmakuCount)
 	}
