@@ -18,13 +18,12 @@ type Track struct {
 	BindingID int64 // 越小越早创建；去重时保留 id 小的
 	Platform  Platform
 	Offset    float64   // 秒，正数表示弹幕延后
-	Scale     float64   // 时间缩放系数，纠正线性漂移
 	Items     []Danmaku // 时间相对弹幕源视频，未校正
 }
 
 // Merge 读取一集弹幕时的全部处理，与弹幕是否落库无关：
 //  0. 屏蔽：去掉正文命中 blocklist 的。被屏蔽的弹幕就像不存在，不参与之后的去重。
-//  1. 校正：t × Scale + Offset，四舍五入到毫秒。为负的丢弃，超出本集时长的保留。
+//  1. 校正：t + Offset，四舍五入到毫秒。为负的丢弃，超出本集时长的保留。
 //  2. 按 ID 去重：不同绑定之间平台与原始 ID 都相同的，保留 BindingID 小的那条。
 //     兜底同一集的两个绑定实际指向同一个弹幕源，例如番剧的 ep 与同一稿件的 av。
 //  3. 按文本去重：按校正后时间排序，归一化后正文相同、相差不超过 5 秒、来自不同绑定的，保留时间早的，
@@ -49,8 +48,8 @@ func Merge(tracks []Track, blocklist Blocklist) []Item {
 			if blocklist.blocks(d.Text, text) {
 				continue
 			}
-			t := math.Round(float64(d.TimeMs)*tr.Scale + tr.Offset*1000)
-			if t < 0 || t > math.MaxInt32 { // 超出 int32 的只会来自异常的 scale
+			t := math.Round(float64(d.TimeMs) + tr.Offset*1000)
+			if t < 0 || t > math.MaxInt32 { // 超出 int32 的只会来自异常的 offset
 				continue
 			}
 			key := idKey{tr.Platform, d.SourceID}

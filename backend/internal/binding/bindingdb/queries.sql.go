@@ -12,8 +12,7 @@ import (
 
 const addBindingFileCount = `-- name: AddBindingFileCount :exec
 UPDATE bindings
-SET file_count = file_count + $1::int,
-    updated_at = now()
+SET file_count = file_count + $1::int
 WHERE id = $2
 `
 
@@ -46,12 +45,27 @@ func (q *Queries) BindingExists(ctx context.Context, arg BindingExistsParams) (b
 	return exists, err
 }
 
+const countEntryFiles = `-- name: CountEntryFiles :one
+SELECT count(*)::int
+FROM season_binding_entry_files
+WHERE entry_id = $1
+`
+
+// 条目的弹幕文件份数：季绑定建出的文件绑定的标签里写明份数。
+func (q *Queries) CountEntryFiles(ctx context.Context, entryID int64) (int32, error) {
+	row := q.db.QueryRow(ctx, countEntryFiles, entryID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const deleteBinding = `-- name: DeleteBinding :execrows
 DELETE FROM bindings
 WHERE id = $1
+  AND season_binding_id IS NULL
 `
 
-// 删除绑定，它的弹幕随外键级联删除。
+// 删除绑定，它的弹幕随外键级联删除。季绑定建出的绑定不删，没有行（随季绑定的表单增删）。
 func (q *Queries) DeleteBinding(ctx context.Context, id int64) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteBinding, id)
 	if err != nil {
@@ -71,6 +85,23 @@ func (q *Queries) DeleteDanmaku(ctx context.Context, bindingID int64) error {
 	return err
 }
 
+const deleteSlots = `-- name: DeleteSlots :exec
+DELETE FROM bindings
+WHERE season_binding_id = $1::bigint
+  AND episode_id = ANY($2::bigint[])
+`
+
+type DeleteSlotsParams struct {
+	SeasonBindingID int64   `json:"seasonBindingId"`
+	EpisodeIds      []int64 `json:"episodeIds"`
+}
+
+// 删掉季绑定在这些集上的槽位（它建出的绑定），弹幕随外键级联删除。
+func (q *Queries) DeleteSlots(ctx context.Context, arg DeleteSlotsParams) error {
+	_, err := q.db.Exec(ctx, deleteSlots, arg.SeasonBindingID, arg.EpisodeIds)
+	return err
+}
+
 const episodeExists = `-- name: EpisodeExists :one
 SELECT EXISTS (SELECT 1 FROM episodes WHERE id = $1)
 `
@@ -84,7 +115,7 @@ func (q *Queries) EpisodeExists(ctx context.Context, id int64) (bool, error) {
 }
 
 const getBinding = `-- name: GetBinding :one
-SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms
+SELECT id, episode_id, adapter, ref, "offset", status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms, entry_id
 FROM bindings
 WHERE id = $1
 `
@@ -99,7 +130,6 @@ func (q *Queries) GetBinding(ctx context.Context, id int64) (Binding, error) {
 		&i.Adapter,
 		&i.Ref,
 		&i.Offset,
-		&i.Scale,
 		&i.Status,
 		&i.ContentVersion,
 		&i.DanmakuCount,
@@ -107,12 +137,12 @@ func (q *Queries) GetBinding(ctx context.Context, id int64) (Binding, error) {
 		&i.Duration,
 		&i.LastFetchedAt,
 		&i.CreatedAt,
-		&i.UpdatedAt,
 		&i.SeasonBindingID,
 		&i.Kind,
 		&i.FileCount,
 		&i.FetchAttemptedAt,
 		&i.MaxTimeMs,
+		&i.EntryID,
 	)
 	return i, err
 }
@@ -129,6 +159,34 @@ func (q *Queries) GetBindingFileContent(ctx context.Context, id int64) ([]byte, 
 	var content []byte
 	err := row.Scan(&content)
 	return content, err
+}
+
+const getEntryFileContent = `-- name: GetEntryFileContent :one
+SELECT content
+FROM season_binding_entry_files
+WHERE id = $1
+`
+
+// 重新解析季绑定建出的文件绑定时逐份读出条目的文件内容。
+func (q *Queries) GetEntryFileContent(ctx context.Context, id int64) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getEntryFileContent, id)
+	var content []byte
+	err := row.Scan(&content)
+	return content, err
+}
+
+const getSeasonBindingTitle = `-- name: GetSeasonBindingTitle :one
+SELECT title
+FROM season_bindings
+WHERE id = $1
+`
+
+// 建出的绑定不能单独删除、追加文件，提示里写明建出它的季绑定。
+func (q *Queries) GetSeasonBindingTitle(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, getSeasonBindingTitle, id)
+	var title string
+	err := row.Scan(&title)
+	return title, err
 }
 
 const insertBindingFile = `-- name: InsertBindingFile :execrows
@@ -197,21 +255,47 @@ func (q *Queries) InsertDanmaku(ctx context.Context, arg InsertDanmakuParams) (i
 	return result.RowsAffected(), nil
 }
 
+const insertEntryBinding = `-- name: InsertEntryBinding :one
+INSERT INTO bindings (episode_id, kind, title, season_binding_id, entry_id)
+VALUES ($1, 'file', $2, $3::bigint, $4::bigint)
+RETURNING id
+`
+
+type InsertEntryBindingParams struct {
+	EpisodeID       int64  `json:"episodeId"`
+	Title           string `json:"title"`
+	SeasonBindingID int64  `json:"seasonBindingId"`
+	EntryID         int64  `json:"entryId"`
+}
+
+// 文件夹的季绑定按条目建出的文件绑定：弹幕文件存在条目上（season_binding_entry_files），这里没有 binding_files，file_count 为 0。
+// 撞上槽位约束时报错（调用方先删掉旧的槽位）。
+func (q *Queries) InsertEntryBinding(ctx context.Context, arg InsertEntryBindingParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertEntryBinding,
+		arg.EpisodeID,
+		arg.Title,
+		arg.SeasonBindingID,
+		arg.EntryID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertFileBinding = `-- name: InsertFileBinding :one
-INSERT INTO bindings (episode_id, kind, title, season_binding_id)
-VALUES ($1, 'file', $2, $3::bigint)
+INSERT INTO bindings (episode_id, kind, title)
+VALUES ($1, 'file', $2)
 RETURNING id
 `
 
 type InsertFileBindingParams struct {
-	EpisodeID       int64  `json:"episodeId"`
-	Title           string `json:"title"`
-	SeasonBindingID *int64 `json:"seasonBindingId"`
+	EpisodeID int64  `json:"episodeId"`
+	Title     string `json:"title"`
 }
 
-// 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。按季上传建出的带上留下的文件夹的季绑定。
+// 在集上用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。
 func (q *Queries) InsertFileBinding(ctx context.Context, arg InsertFileBindingParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertFileBinding, arg.EpisodeID, arg.Title, arg.SeasonBindingID)
+	row := q.db.QueryRow(ctx, insertFileBinding, arg.EpisodeID, arg.Title)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -234,8 +318,9 @@ type InsertLinkBindingParams struct {
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
-// 贴链接或季绑定补建出的绑定，补建的带上建出它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
-// 这一集已有同一个弹幕源的绑定时（唯一约束 (episode_id, adapter, ref)）什么都不做，没有行。
+// 贴链接建的、或季绑定建出的链接绑定，建出的带上它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
+// 这一集已有同一个弹幕源的绑定时（唯一约束 (episode_id, adapter, ref)）什么都不做，没有行；
+// 撞上槽位约束 (season_binding_id, episode_id) 时报错（调用方先删掉旧的槽位，撞上是程序错误）。
 func (q *Queries) InsertLinkBinding(ctx context.Context, arg InsertLinkBindingParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertLinkBinding,
 		arg.EpisodeID,
@@ -354,7 +439,7 @@ func (q *Queries) ListBindingFiles(ctx context.Context, bindingID int64) ([]List
 }
 
 const listBindingsByEpisode = `-- name: ListBindingsByEpisode :many
-SELECT id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms
+SELECT id, episode_id, adapter, ref, "offset", status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms, entry_id
 FROM bindings
 WHERE episode_id = $1
 ORDER BY id
@@ -376,7 +461,6 @@ func (q *Queries) ListBindingsByEpisode(ctx context.Context, episodeID int64) ([
 			&i.Adapter,
 			&i.Ref,
 			&i.Offset,
-			&i.Scale,
 			&i.Status,
 			&i.ContentVersion,
 			&i.DanmakuCount,
@@ -384,12 +468,12 @@ func (q *Queries) ListBindingsByEpisode(ctx context.Context, episodeID int64) ([
 			&i.Duration,
 			&i.LastFetchedAt,
 			&i.CreatedAt,
-			&i.UpdatedAt,
 			&i.SeasonBindingID,
 			&i.Kind,
 			&i.FileCount,
 			&i.FetchAttemptedAt,
 			&i.MaxTimeMs,
+			&i.EntryID,
 		); err != nil {
 			return nil, err
 		}
@@ -402,7 +486,8 @@ func (q *Queries) ListBindingsByEpisode(ctx context.Context, episodeID int64) ([
 }
 
 const listBindingsBySeries = `-- name: ListBindingsBySeries :many
-SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.scale, b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.updated_at, b.season_binding_id, b.kind, b.file_count, b.fetch_attempted_at, b.max_time_ms
+SELECT b.id, b.episode_id, b.adapter, b.ref, b."offset", b.status, b.content_version, b.danmaku_count, b.title, b.duration, b.last_fetched_at, b.created_at, b.season_binding_id, b.kind, b.file_count, b.fetch_attempted_at, b.max_time_ms, b.entry_id,
+       (SELECT count(*) FROM season_binding_entry_files f WHERE f.entry_id = b.entry_id)::int AS entry_file_count
 FROM bindings b
 JOIN episodes e ON e.id = b.episode_id
 JOIN seasons se ON se.id = e.season_id
@@ -410,36 +495,41 @@ WHERE se.series_id = $1
 ORDER BY b.id
 `
 
-// 剧详情用：一部剧所有集的绑定，按创建顺序排列。
-func (q *Queries) ListBindingsBySeries(ctx context.Context, seriesID int64) ([]Binding, error) {
+type ListBindingsBySeriesRow struct {
+	Binding        Binding `json:"binding"`
+	EntryFileCount int32   `json:"entryFileCount"`
+}
+
+// 剧详情用：一部剧所有集的绑定，按创建顺序排列；季绑定建出的文件绑定带上条目的文件份数（其余为 0）。
+func (q *Queries) ListBindingsBySeries(ctx context.Context, seriesID int64) ([]ListBindingsBySeriesRow, error) {
 	rows, err := q.db.Query(ctx, listBindingsBySeries, seriesID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Binding{}
+	items := []ListBindingsBySeriesRow{}
 	for rows.Next() {
-		var i Binding
+		var i ListBindingsBySeriesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.EpisodeID,
-			&i.Adapter,
-			&i.Ref,
-			&i.Offset,
-			&i.Scale,
-			&i.Status,
-			&i.ContentVersion,
-			&i.DanmakuCount,
-			&i.Title,
-			&i.Duration,
-			&i.LastFetchedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SeasonBindingID,
-			&i.Kind,
-			&i.FileCount,
-			&i.FetchAttemptedAt,
-			&i.MaxTimeMs,
+			&i.Binding.ID,
+			&i.Binding.EpisodeID,
+			&i.Binding.Adapter,
+			&i.Binding.Ref,
+			&i.Binding.Offset,
+			&i.Binding.Status,
+			&i.Binding.ContentVersion,
+			&i.Binding.DanmakuCount,
+			&i.Binding.Title,
+			&i.Binding.Duration,
+			&i.Binding.LastFetchedAt,
+			&i.Binding.CreatedAt,
+			&i.Binding.SeasonBindingID,
+			&i.Binding.Kind,
+			&i.Binding.FileCount,
+			&i.Binding.FetchAttemptedAt,
+			&i.Binding.MaxTimeMs,
+			&i.Binding.EntryID,
+			&i.EntryFileCount,
 		); err != nil {
 			return nil, err
 		}
@@ -525,6 +615,41 @@ func (q *Queries) ListDueScheduledFetches(ctx context.Context, arg ListDueSchedu
 	return items, nil
 }
 
+const listEntryFiles = `-- name: ListEntryFiles :many
+SELECT f.id, f.name, f.size
+FROM season_binding_entry_files f
+JOIN bindings b ON b.entry_id = f.entry_id
+WHERE b.id = $1
+ORDER BY f.id
+`
+
+type ListEntryFilesRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Size int32  `json:"size"`
+}
+
+// 季绑定建出的文件绑定的弹幕文件：它的条目的文件，不含内容，按存入的顺序排列。
+func (q *Queries) ListEntryFiles(ctx context.Context, id int64) ([]ListEntryFilesRow, error) {
+	rows, err := q.db.Query(ctx, listEntryFiles, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEntryFilesRow{}
+	for rows.Next() {
+		var i ListEntryFilesRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Size); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockBinding = `-- name: LockBinding :one
 SELECT id
 FROM bindings
@@ -548,7 +673,7 @@ WHERE id = $1
 FOR KEY SHARE
 `
 
-// 锁住这一集到提交，期间删不掉它：创建绑定的写入事务的第一句；补建的写入事务在锁住季、季绑定之后也用它锁集。
+// 锁住这一集到提交，期间删不掉它：创建绑定的写入事务的第一句；季绑定写入槽位时在锁住季、季绑定之后也用它锁集。
 // FOR KEY SHARE 与同步的 upsert 兼容。这一集已被删除时没有行。
 func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 	row := q.db.QueryRow(ctx, lockEpisode, id)
@@ -557,22 +682,17 @@ func (q *Queries) LockEpisode(ctx context.Context, id int64) (int64, error) {
 	return id_2, err
 }
 
-const lockSeasonEpisodes = `-- name: LockSeasonEpisodes :many
+const lockEpisodes = `-- name: LockEpisodes :many
 SELECT id
 FROM episodes
-WHERE id = ANY($1::bigint[]) AND season_id = $2
+WHERE id = ANY($1::bigint[])
+ORDER BY id
 FOR KEY SHARE
 `
 
-type LockSeasonEpisodesParams struct {
-	Ids      []int64 `json:"ids"`
-	SeasonID int64   `json:"seasonId"`
-}
-
-// 按季上传的写入事务在锁住季、插入季绑定之后一次锁住全部目标集到提交（与补建一样先锁季，所以不会和删季的级联死锁）。
-// 已被删除或不属于这一季的集没有行。
-func (q *Queries) LockSeasonEpisodes(ctx context.Context, arg LockSeasonEpisodesParams) ([]int64, error) {
-	rows, err := q.db.Query(ctx, lockSeasonEpisodes, arg.Ids, arg.SeasonID)
+// 季绑定删除槽位时，在锁住季、季绑定之后按 ID 顺序锁住这些集到提交（随后可能在同一集上写入新的槽位），已被删除的集没有行。
+func (q *Queries) LockEpisodes(ctx context.Context, ids []int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, lockEpisodes, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -595,8 +715,7 @@ const markBindingDead = `-- name: MarkBindingDead :exec
 UPDATE bindings
 SET status             = 'dead',
     last_fetched_at    = $1::timestamptz,
-    fetch_attempted_at = $1::timestamptz,
-    updated_at         = now()
+    fetch_attempted_at = $1::timestamptz
 WHERE id = $2
 `
 
@@ -616,10 +735,9 @@ const recordDanmaku = `-- name: RecordDanmaku :one
 UPDATE bindings
 SET danmaku_count   = CASE WHEN $1::boolean THEN 0 ELSE danmaku_count END + $2::int,
     content_version = content_version + ($1::boolean OR $2::int > 0)::int,
-    max_time_ms     = GREATEST(CASE WHEN $1::boolean THEN 0 ELSE max_time_ms END, $3::int),
-    updated_at      = now()
+    max_time_ms     = GREATEST(CASE WHEN $1::boolean THEN 0 ELSE max_time_ms END, $3::int)
 WHERE id = $4
-RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms
+RETURNING id, episode_id, adapter, ref, "offset", status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms, entry_id
 `
 
 type RecordDanmakuParams struct {
@@ -648,7 +766,6 @@ func (q *Queries) RecordDanmaku(ctx context.Context, arg RecordDanmakuParams) (B
 		&i.Adapter,
 		&i.Ref,
 		&i.Offset,
-		&i.Scale,
 		&i.Status,
 		&i.ContentVersion,
 		&i.DanmakuCount,
@@ -656,12 +773,12 @@ func (q *Queries) RecordDanmaku(ctx context.Context, arg RecordDanmakuParams) (B
 		&i.Duration,
 		&i.LastFetchedAt,
 		&i.CreatedAt,
-		&i.UpdatedAt,
 		&i.SeasonBindingID,
 		&i.Kind,
 		&i.FileCount,
 		&i.FetchAttemptedAt,
 		&i.MaxTimeMs,
+		&i.EntryID,
 	)
 	return i, err
 }
@@ -672,8 +789,7 @@ SET title              = $1,
     duration           = $2::int,
     status             = 'active',
     last_fetched_at    = $3::timestamptz,
-    fetch_attempted_at = $3::timestamptz,
-    updated_at         = now()
+    fetch_attempted_at = $3::timestamptz
 WHERE id = $4
 `
 
@@ -699,8 +815,7 @@ func (q *Queries) RecordFetch(ctx context.Context, arg RecordFetchParams) error 
 
 const recordFetchAttempt = `-- name: RecordFetchAttempt :exec
 UPDATE bindings
-SET fetch_attempted_at = $1::timestamptz,
-    updated_at         = now()
+SET fetch_attempted_at = $1::timestamptz
 WHERE id = $2
 `
 
@@ -718,10 +833,9 @@ func (q *Queries) RecordFetchAttempt(ctx context.Context, arg RecordFetchAttempt
 
 const updateBindingOffset = `-- name: UpdateBindingOffset :one
 UPDATE bindings
-SET "offset"   = $2,
-    updated_at = now()
+SET "offset" = $2
 WHERE id = $1
-RETURNING id, episode_id, adapter, ref, "offset", scale, status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, updated_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms
+RETURNING id, episode_id, adapter, ref, "offset", status, content_version, danmaku_count, title, duration, last_fetched_at, created_at, season_binding_id, kind, file_count, fetch_attempted_at, max_time_ms, entry_id
 `
 
 type UpdateBindingOffsetParams struct {
@@ -739,7 +853,6 @@ func (q *Queries) UpdateBindingOffset(ctx context.Context, arg UpdateBindingOffs
 		&i.Adapter,
 		&i.Ref,
 		&i.Offset,
-		&i.Scale,
 		&i.Status,
 		&i.ContentVersion,
 		&i.DanmakuCount,
@@ -747,12 +860,12 @@ func (q *Queries) UpdateBindingOffset(ctx context.Context, arg UpdateBindingOffs
 		&i.Duration,
 		&i.LastFetchedAt,
 		&i.CreatedAt,
-		&i.UpdatedAt,
 		&i.SeasonBindingID,
 		&i.Kind,
 		&i.FileCount,
 		&i.FetchAttemptedAt,
 		&i.MaxTimeMs,
+		&i.EntryID,
 	)
 	return i, err
 }

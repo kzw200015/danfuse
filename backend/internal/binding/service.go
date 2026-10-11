@@ -1,6 +1,7 @@
 // Package binding 绑定：一集与一个弹幕源的对应关系。贴链接创建（拉取弹幕源的全部弹幕落库）、重新拉取、改偏移与删除，
 // 用弹幕文件建的绑定（file.go），查看保存的弹幕和读取一集合并后的弹幕（danmaku.go），以及定时拉取（scheduled_fetch.go）。
-// 季绑定补建出的绑定（CreateBackfilledInTx）、按季上传建出的绑定（CreateSeasonFilesInTx）也由这里写入，事务由 seasonbinding 开。
+// 季绑定在各集的槽位里建出的绑定（CreateLinkSlotInTx、CreateFileSlotInTx、DeleteSlotsInTx）也由这里写入，事务由 seasonbinding 开；
+// 建出的绑定不能单独删除、追加文件。
 package binding
 
 import (
@@ -28,6 +29,11 @@ var (
 	errNotLinkBinding  = apierr.ErrBadRequest.WithMessage("用弹幕文件建的绑定不能重新拉取")
 )
 
+// errBuiltBinding 季绑定建出的绑定不能单独删除、追加文件，title 是建出它的季绑定的名称。
+func errBuiltBinding(title string) error {
+	return apierr.ErrConflict.WithMessage(fmt.Sprintf("这个绑定由季绑定「%s」建出，不能单独删除或追加文件；要改，去季面板编辑季绑定", title))
+}
+
 // 绑定的 kind：弹幕源的形态（见 docs/adr/0004）。
 const (
 	kindLink = "link" // 贴链接或补建出的，按适配器和 ref 能重新拉取
@@ -35,7 +41,7 @@ const (
 )
 
 // Service 绑定：贴链接创建，拉取弹幕源的全部弹幕落库；重新拉取、改偏移与删除。
-// 用弹幕文件建的绑定（创建、按季上传的写入、追加文件、重新解析）见 file.go。
+// 用弹幕文件建的绑定（创建、追加文件、重新解析）见 file.go，季绑定的槽位见 slot.go。
 // 拉取（网络请求）都在事务之外，拉完才开写入事务，写入事务的第一句锁住要写的行（创建时锁集，重新拉取时锁绑定）；
 // 不加应用层的锁，并发靠行锁、外键级联和唯一约束。
 type Service struct {
@@ -50,14 +56,14 @@ func NewService(pool *pgxpool.Pool, sources *source.Registry, logger *slog.Logge
 }
 
 // View 绑定的 JSON。不对外暴露原始 ref。sourceUrl / sourceLabel：贴链接建的由适配器的
-// Describe 生成；用弹幕文件建的没有链接，标签写明文件的份数。
+// Describe 生成；用弹幕文件建的没有链接，标签写明文件的份数（季绑定建出的为条目的文件份数）。
 type View struct {
 	ID           int64   `json:"id"`
 	Kind         string  `json:"kind"`        // link | file
 	Adapter      *string `json:"adapter"`     // 用弹幕文件建的为 null
 	SourceURL    *string `json:"sourceUrl"`   // 用弹幕文件建的为 null
 	SourceLabel  string  `json:"sourceLabel"` // 例如"B 站投稿 BV1xx411c7XX P2"、"弹幕文件 · 5 份"
-	Title        string  `json:"title"`       // 弹幕源的标题
+	Title        string  `json:"title"`       // 弹幕源的标题；季绑定建出的文件绑定为条目名称
 	Duration     *int32  `json:"duration"`    // 弹幕源视频的时长，秒；用弹幕文件建的没有时长，为 null
 	Offset       float64 `json:"offset"`      // 秒，正数表示弹幕延后
 	Status       string  `json:"status"`      // active | dead
@@ -67,7 +73,7 @@ type View struct {
 	// MaxTimeMs 最晚一条弹幕的时间（毫秒，未校正），管理界面查看弹幕时作为拖动条的长度；没有弹幕时为 0
 	MaxTimeMs     int32      `json:"maxTimeMs"`
 	LastFetchedAt *time.Time `json:"lastFetchedAt"`
-	// SeasonBindingID 建出这个绑定的季绑定；手动贴链接建的、或季绑定已被删除的为 null
+	// SeasonBindingID 建出这个绑定的季绑定；在集上手动建的为 null
 	SeasonBindingID *int64 `json:"seasonBindingId"`
 }
 
@@ -143,11 +149,10 @@ func (s *Service) Create(ctx context.Context, episodeID int64, link string) (Vie
 		return View{}, err
 	}
 	s.logFetched(ctx, binding, fetched, added)
-	return s.view(binding)
+	return s.view(ctx, binding)
 }
 
-// Exists 这一集上是否已有这个弹幕源的绑定。只用来省掉一次注定撞上唯一约束的拉取，并发时以唯一约束为准；
-// 季绑定补建之前也用它跳过已绑定的条目。
+// Exists 这一集上是否已有这个弹幕源的绑定。只用来省掉一次注定撞上唯一约束的拉取，并发时以唯一约束为准。
 func (s *Service) Exists(ctx context.Context, episodeID int64, adapter string, ref []byte) (bool, error) {
 	bound, err := s.q.BindingExists(ctx, bindingdb.BindingExistsParams{EpisodeID: episodeID, Adapter: adapter, Ref: ref})
 	if err != nil {
@@ -158,36 +163,19 @@ func (s *Service) Exists(ctx context.Context, episodeID int64, adapter string, r
 
 // ListBySeries 一部剧的全部绑定，按集 ID 分组，组内按创建顺序。剧详情用。
 func (s *Service) ListBySeries(ctx context.Context, seriesID int64) (map[int64][]View, error) {
-	bindings, err := s.q.ListBindingsBySeries(ctx, seriesID)
+	rows, err := s.q.ListBindingsBySeries(ctx, seriesID)
 	if err != nil {
 		return nil, fmt.Errorf("list bindings of series %d: %w", seriesID, err)
 	}
 	views := make(map[int64][]View) // 集 ID → 这一集的绑定
-	for _, b := range bindings {
-		v, err := s.view(b)
+	for _, r := range rows {
+		v, err := s.describe(r.Binding, r.EntryFileCount)
 		if err != nil {
 			return nil, err
 		}
-		views[b.EpisodeID] = append(views[b.EpisodeID], v)
+		views[r.Binding.EpisodeID] = append(views[r.Binding.EpisodeID], v)
 	}
 	return views, nil
-}
-
-var (
-	// ErrEpisodeGone CreateBackfilledInTx：拉取期间对应的集被删除。
-	ErrEpisodeGone = errors.New("episode deleted")
-	// ErrSourceBound CreateBackfilledInTx：拉取期间有人在对应的集上绑定了同一个弹幕源。
-	ErrSourceBound = errors.New("source already bound")
-)
-
-// Backfilled 季绑定补建出的一个绑定：建在哪一集、弹幕源、建出它的季绑定，以及在事务之外拉取的结果。
-type Backfilled struct {
-	EpisodeID       int64
-	Adapter         string
-	Ref             []byte
-	SeasonBindingID int64
-	Fetched         source.Fetched
-	CreatedAt       time.Time // 建出时间，也是拉取时间；定时拉取按它算窗口
 }
 
 // Saved 写入一次拉取的结果，事务提交之后交给 LogFetched 记日志。
@@ -195,25 +183,6 @@ type Saved struct {
 	Added   int64 // 新增的弹幕条数
 	binding bindingdb.Binding
 	fetched source.Fetched
-}
-
-// CreateBackfilledInTx 在季绑定补建的写入事务里建出一个绑定：锁住集（拉取期间被删除时返回 ErrEpisodeGone），
-// 插入带来源季绑定的绑定（集上已有同一个弹幕源时返回 ErrSourceBound，什么都不写），写入弹幕。
-// 调用方开事务并先锁住季和季绑定，提交之后调用 LogFetched。
-func (s *Service) CreateBackfilledInTx(ctx context.Context, tx pgx.Tx, b Backfilled) (Saved, error) {
-	binding, added, err := insertLinkBinding(ctx, s.q.WithTx(tx), bindingdb.InsertLinkBindingParams{
-		EpisodeID:       b.EpisodeID,
-		Adapter:         b.Adapter,
-		Ref:             b.Ref,
-		Title:           b.Fetched.Title,
-		Duration:        int32(b.Fetched.Duration),
-		SeasonBindingID: &b.SeasonBindingID,
-		CreatedAt:       b.CreatedAt,
-	}, b.Fetched, ErrEpisodeGone)
-	if err != nil {
-		return Saved{}, err
-	}
-	return Saved{Added: added, binding: binding, fetched: b.Fetched}, nil
 }
 
 // insertLinkBinding 在写入事务里建出一个链接绑定：锁住集到提交（之后的删除要等这个事务提交，再连同绑定和弹幕一起删掉；
@@ -233,7 +202,7 @@ func insertLinkBinding(ctx context.Context, q *bindingdb.Queries, p bindingdb.In
 	return saveFetched(ctx, q, id, fetched, false, p.CreatedAt)
 }
 
-// LogFetched 补建出的绑定写入提交之后记一条 "danmaku fetched"，与其他拉取的日志相同。
+// LogFetched 季绑定建出的链接绑定写入提交之后记一条 "danmaku fetched"，与其他拉取的日志相同。
 func (s *Service) LogFetched(ctx context.Context, saved Saved) {
 	s.logFetched(ctx, saved.binding, saved.fetched, saved.Added)
 }
@@ -299,7 +268,7 @@ func (s *Service) refetch(ctx context.Context, id int64, replace bool) (View, in
 		return View{}, 0, err
 	}
 	s.logFetched(ctx, b, fetched, added)
-	view, err := s.view(b)
+	view, err := s.view(ctx, b)
 	return view, added, err
 }
 
@@ -376,19 +345,39 @@ func (s *Service) UpdateOffset(ctx context.Context, id int64, offset float64) (V
 		}
 		return View{}, fmt.Errorf("update offset of binding %d: %w", id, err)
 	}
-	return s.view(b)
+	return s.view(ctx, b)
 }
 
 // Delete 删除绑定，它的弹幕随外键级联删除。单条语句；进行中的拉取写回时会发现绑定已被删除。
+// 季绑定建出的绑定不删，返回 409（见 checkNotBuilt）。
 func (s *Service) Delete(ctx context.Context, id int64) error {
 	n, err := s.q.DeleteBinding(ctx, id)
 	if err != nil {
 		return fmt.Errorf("delete binding %d: %w", id, err)
 	}
-	if n == 0 {
+	if n > 0 {
+		return nil
+	}
+	b, err := s.getBinding(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.checkNotBuilt(ctx, b)
+}
+
+// checkNotBuilt 季绑定建出的绑定（随季绑定的表单增删）不能单独删除、追加文件：返回 409，提示写明建出它的季绑定。
+func (s *Service) checkNotBuilt(ctx context.Context, b bindingdb.Binding) error {
+	if b.SeasonBindingID == nil {
+		return nil
+	}
+	title, err := s.q.GetSeasonBindingTitle(ctx, *b.SeasonBindingID)
+	if errors.Is(err, pgx.ErrNoRows) { // 季绑定刚被删除，它建出的绑定随之删除
 		return errBindingNotFound
 	}
-	return nil
+	if err != nil {
+		return fmt.Errorf("get season binding %d of binding %d: %w", *b.SeasonBindingID, b.ID, err)
+	}
+	return errBuiltBinding(title)
 }
 
 // saveFetched 在写入事务里保存一次拉取的结果：更新标题、时长与拉取时间 fetchedAt，再用 writeDanmaku 写入弹幕。
@@ -482,8 +471,21 @@ func (s *Service) logFetched(ctx context.Context, b bindingdb.Binding, f source.
 	s.logger.LogAttrs(ctx, slog.LevelInfo, "danmaku fetched", attrs...)
 }
 
-// view 绑定的 JSON：贴链接建的，弹幕源的链接和标签交给它的适配器生成；用弹幕文件建的，标签写明文件的份数。
-func (s *Service) view(b bindingdb.Binding) (View, error) {
+// view 绑定的 JSON（见 describe）：季绑定建出的文件绑定另查条目的文件份数。
+func (s *Service) view(ctx context.Context, b bindingdb.Binding) (View, error) {
+	var entryFiles int32
+	if b.EntryID != nil {
+		var err error
+		if entryFiles, err = s.q.CountEntryFiles(ctx, *b.EntryID); err != nil {
+			return View{}, fmt.Errorf("count entry files of binding %d: %w", b.ID, err)
+		}
+	}
+	return s.describe(b, entryFiles)
+}
+
+// describe 绑定的 JSON：贴链接建的，弹幕源的链接和标签交给它的适配器生成；用弹幕文件建的，标签写明文件的份数，
+// 季绑定建出的文件绑定的文件在条目上，份数为 entryFiles。
+func (s *Service) describe(b bindingdb.Binding, entryFiles int32) (View, error) {
 	v := View{
 		ID:              b.ID,
 		Kind:            b.Kind,
@@ -499,7 +501,11 @@ func (s *Service) view(b bindingdb.Binding) (View, error) {
 		SeasonBindingID: b.SeasonBindingID,
 	}
 	if b.Kind == kindFile {
-		v.SourceLabel = fmt.Sprintf("弹幕文件 · %d 份", b.FileCount)
+		files := b.FileCount
+		if b.EntryID != nil {
+			files = entryFiles
+		}
+		v.SourceLabel = fmt.Sprintf("弹幕文件 · %d 份", files)
 		return v, nil
 	}
 	adapter, err := s.linkAdapter(b)

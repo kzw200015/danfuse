@@ -14,15 +14,13 @@ type SeasonBinding struct {
 	Adapter         *string    `json:"adapter"`
 	Ref             []byte     `json:"ref"`
 	Title           string     `json:"title"`
-	Finished        bool       `json:"finished"`
-	MappingFrom     *int32     `json:"mappingFrom"`
-	MappingTo       *int32     `json:"mappingTo"`
+	MappingFrom     int32      `json:"mappingFrom"`
+	MappingTo       int32      `json:"mappingTo"`
 	Follow          bool       `json:"follow"`
 	Status          string     `json:"status"`
 	LastError       *string    `json:"lastError"`
 	LastCheckedAt   *time.Time `json:"lastCheckedAt"`
 	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
 	EpisodePatterns []string   `json:"episodePatterns"`
 	NumberedByRule  *bool      `json:"numberedByRule"`
 	Kind            string     `json:"kind"`
@@ -34,7 +32,6 @@ type SeasonBindingItem struct {
 	Ref             []byte     `json:"ref"`
 	Position        int32      `json:"position"`
 	Number          *int32     `json:"number"`
-	UnmatchedReason *string    `json:"unmatchedReason"`
 	Label           string     `json:"label"`
 	LastError       *string    `json:"lastError"`
 	LastErrorAt     *time.Time `json:"lastErrorAt"`

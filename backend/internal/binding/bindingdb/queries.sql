@@ -3,19 +3,19 @@
 SELECT EXISTS (SELECT 1 FROM episodes WHERE id = $1);
 
 -- name: LockEpisode :one
--- 锁住这一集到提交，期间删不掉它：创建绑定的写入事务的第一句；补建的写入事务在锁住季、季绑定之后也用它锁集。
+-- 锁住这一集到提交，期间删不掉它：创建绑定的写入事务的第一句；季绑定写入槽位时在锁住季、季绑定之后也用它锁集。
 -- FOR KEY SHARE 与同步的 upsert 兼容。这一集已被删除时没有行。
 SELECT id
 FROM episodes
 WHERE id = $1
 FOR KEY SHARE;
 
--- name: LockSeasonEpisodes :many
--- 按季上传的写入事务在锁住季、插入季绑定之后一次锁住全部目标集到提交（与补建一样先锁季，所以不会和删季的级联死锁）。
--- 已被删除或不属于这一季的集没有行。
+-- name: LockEpisodes :many
+-- 季绑定删除槽位时，在锁住季、季绑定之后按 ID 顺序锁住这些集到提交（随后可能在同一集上写入新的槽位），已被删除的集没有行。
 SELECT id
 FROM episodes
-WHERE id = ANY(@ids::bigint[]) AND season_id = @season_id
+WHERE id = ANY(@ids::bigint[])
+ORDER BY id
 FOR KEY SHARE;
 
 -- name: BindingExists :one
@@ -23,18 +23,32 @@ FOR KEY SHARE;
 SELECT EXISTS (SELECT 1 FROM bindings WHERE episode_id = @episode_id AND adapter = @adapter::text AND ref = @ref::jsonb);
 
 -- name: InsertLinkBinding :one
--- 贴链接或季绑定补建出的绑定，补建的带上建出它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
--- 这一集已有同一个弹幕源的绑定时（唯一约束 (episode_id, adapter, ref)）什么都不做，没有行。
+-- 贴链接建的、或季绑定建出的链接绑定，建出的带上它的季绑定；建出时间由应用写入（定时拉取按它算窗口）。
+-- 这一集已有同一个弹幕源的绑定时（唯一约束 (episode_id, adapter, ref)）什么都不做，没有行；
+-- 撞上槽位约束 (season_binding_id, episode_id) 时报错（调用方先删掉旧的槽位，撞上是程序错误）。
 INSERT INTO bindings (episode_id, kind, adapter, ref, title, duration, season_binding_id, created_at)
 VALUES (@episode_id, 'link', @adapter::text, @ref::jsonb, @title, @duration::int, sqlc.narg(season_binding_id)::bigint, @created_at)
 ON CONFLICT (episode_id, adapter, ref) DO NOTHING
 RETURNING id;
 
 -- name: InsertFileBinding :one
--- 用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。按季上传建出的带上留下的文件夹的季绑定。
-INSERT INTO bindings (episode_id, kind, title, season_binding_id)
-VALUES (@episode_id, 'file', @title, sqlc.narg(season_binding_id)::bigint)
+-- 在集上用弹幕文件建出的绑定：没有适配器、ref 和时长，弹幕文件随后在同一个事务里加入。
+INSERT INTO bindings (episode_id, kind, title)
+VALUES (@episode_id, 'file', @title)
 RETURNING id;
+
+-- name: InsertEntryBinding :one
+-- 文件夹的季绑定按条目建出的文件绑定：弹幕文件存在条目上（season_binding_entry_files），这里没有 binding_files，file_count 为 0。
+-- 撞上槽位约束时报错（调用方先删掉旧的槽位）。
+INSERT INTO bindings (episode_id, kind, title, season_binding_id, entry_id)
+VALUES (@episode_id, 'file', @title, @season_binding_id::bigint, @entry_id::bigint)
+RETURNING id;
+
+-- name: DeleteSlots :exec
+-- 删掉季绑定在这些集上的槽位（它建出的绑定），弹幕随外键级联删除。
+DELETE FROM bindings
+WHERE season_binding_id = @season_binding_id::bigint
+  AND episode_id = ANY(@episode_ids::bigint[]);
 
 -- name: InsertBindingFile :execrows
 -- 往绑定里加入一份弹幕文件。同一个绑定里已有内容相同的文件时什么都不做，返回 0。
@@ -48,6 +62,32 @@ SELECT id, name, size, uploaded_at
 FROM binding_files
 WHERE binding_id = $1
 ORDER BY id;
+
+-- name: ListEntryFiles :many
+-- 季绑定建出的文件绑定的弹幕文件：它的条目的文件，不含内容，按存入的顺序排列。
+SELECT f.id, f.name, f.size
+FROM season_binding_entry_files f
+JOIN bindings b ON b.entry_id = f.entry_id
+WHERE b.id = $1
+ORDER BY f.id;
+
+-- name: GetEntryFileContent :one
+-- 重新解析季绑定建出的文件绑定时逐份读出条目的文件内容。
+SELECT content
+FROM season_binding_entry_files
+WHERE id = $1;
+
+-- name: CountEntryFiles :one
+-- 条目的弹幕文件份数：季绑定建出的文件绑定的标签里写明份数。
+SELECT count(*)::int
+FROM season_binding_entry_files
+WHERE entry_id = $1;
+
+-- name: GetSeasonBindingTitle :one
+-- 建出的绑定不能单独删除、追加文件，提示里写明建出它的季绑定。
+SELECT title
+FROM season_bindings
+WHERE id = $1;
 
 -- name: GetBindingFileContent :one
 -- 重新解析时逐份读出文件内容，不一次读进全部文件。
@@ -94,8 +134,7 @@ WHERE binding_id = $1;
 UPDATE bindings
 SET danmaku_count   = CASE WHEN @replace::boolean THEN 0 ELSE danmaku_count END + @added::int,
     content_version = content_version + (@replace::boolean OR @added::int > 0)::int,
-    max_time_ms     = GREATEST(CASE WHEN @replace::boolean THEN 0 ELSE max_time_ms END, @latest_ms::int),
-    updated_at      = now()
+    max_time_ms     = GREATEST(CASE WHEN @replace::boolean THEN 0 ELSE max_time_ms END, @latest_ms::int)
 WHERE id = @id
 RETURNING *;
 
@@ -108,15 +147,13 @@ SET title              = @title,
     duration           = @duration::int,
     status             = 'active',
     last_fetched_at    = @fetched_at::timestamptz,
-    fetch_attempted_at = @fetched_at::timestamptz,
-    updated_at         = now()
+    fetch_attempted_at = @fetched_at::timestamptz
 WHERE id = @id;
 
 -- name: AddBindingFileCount :exec
 -- 追加文件后把新加入的份数计入 file_count，与文件在同一个事务里。
 UPDATE bindings
-SET file_count = file_count + @files::int,
-    updated_at = now()
+SET file_count = file_count + @files::int
 WHERE id = @id;
 
 -- name: MarkBindingDead :exec
@@ -125,16 +162,14 @@ WHERE id = @id;
 UPDATE bindings
 SET status             = 'dead',
     last_fetched_at    = sqlc.arg(fetched_at)::timestamptz,
-    fetch_attempted_at = sqlc.arg(fetched_at)::timestamptz,
-    updated_at         = now()
+    fetch_attempted_at = sqlc.arg(fetched_at)::timestamptz
 WHERE id = sqlc.arg(id);
 
 -- name: RecordFetchAttempt :exec
 -- 拉取失败（弹幕源不存在之外的上游错误、限流）：只记下尝试拉取的时间，定时拉取等满一个间隔再试。
 -- 单条语句，不锁绑定；绑定已被删除时什么都不做。
 UPDATE bindings
-SET fetch_attempted_at = sqlc.arg(attempted_at)::timestamptz,
-    updated_at         = now()
+SET fetch_attempted_at = sqlc.arg(attempted_at)::timestamptz
 WHERE id = sqlc.arg(id);
 
 -- name: ListDueScheduledFetches :many
@@ -152,19 +187,20 @@ ORDER BY fetch_attempted_at NULLS FIRST, id;
 -- name: UpdateBindingOffset :one
 -- 只改偏移，content_version 不变。
 UPDATE bindings
-SET "offset"   = $2,
-    updated_at = now()
+SET "offset" = $2
 WHERE id = $1
 RETURNING *;
 
 -- name: DeleteBinding :execrows
--- 删除绑定，它的弹幕随外键级联删除。
+-- 删除绑定，它的弹幕随外键级联删除。季绑定建出的绑定不删，没有行（随季绑定的表单增删）。
 DELETE FROM bindings
-WHERE id = $1;
+WHERE id = $1
+  AND season_binding_id IS NULL;
 
 -- name: ListBindingsBySeries :many
--- 剧详情用：一部剧所有集的绑定，按创建顺序排列。
-SELECT b.*
+-- 剧详情用：一部剧所有集的绑定，按创建顺序排列；季绑定建出的文件绑定带上条目的文件份数（其余为 0）。
+SELECT sqlc.embed(b),
+       (SELECT count(*) FROM season_binding_entry_files f WHERE f.entry_id = b.entry_id)::int AS entry_file_count
 FROM bindings b
 JOIN episodes e ON e.id = b.episode_id
 JOIN seasons se ON se.id = e.season_id
