@@ -177,11 +177,15 @@ export interface EntryHashes {
   sha256s: string[]
 }
 
-/** 文件夹的表单（预览） */
-export interface FolderPreviewForm extends EpisodeRuleForm {
-  /** 选的文件夹的条目；编辑时不换文件夹就不传，按保存的条目算 */
-  entries?: EntryHashes[]
+/** 选的文件夹：文件夹名与它的条目。后端用"文件夹名 / 条目名称"认集号 */
+export interface PickedFolder {
+  folder: string
+  entries: EntryHashes[]
 }
+
+/** 文件夹的表单（预览）：编辑时不换文件夹就不传 folder 和 entries，按保存的条目和季绑定的标题算 */
+export type FolderPreviewForm = EpisodeRuleForm &
+  (PickedFolder | { folder?: never; entries?: never })
 
 /** 上传的文件夹：要上传的文件，与它们以所选文件夹名开头的相对路径（一一对应、顺序相同），后端按路径分条目 */
 export interface FolderFiles {
@@ -233,7 +237,7 @@ export function saveCollection(id: number, form: CollectionForm) {
 }
 
 /** 预览新建文件夹的季绑定：只传条目名称和文件哈希，不上传文件 */
-export function previewNewFolder(seasonId: number, form: Required<FolderPreviewForm>) {
+export function previewNewFolder(seasonId: number, form: EpisodeRuleForm & PickedFolder) {
   return request<Preview>({
     url: `/seasons/${seasonId}/season-bindings/folder/preview`,
     method: 'POST',
@@ -343,220 +347,4 @@ export function deleteSeasonBinding(id: number) {
 /** 默认的集号规则：编辑的起点，"恢复默认"时取它 */
 export function getDefaultEpisodePatterns() {
   return request<{ episodePatterns: string[] }>({ url: '/episode-rules/default' })
-}
-
-// ---- 旧接口：只供还没换掉的旧组件（SeasonBindingForm、SeasonBindingCard、SeasonUploadPanel）用，工单 14 换掉组件时删除 ----
-
-export type SeasonBindingItemState =
-  | 'bound'
-  | 'alreadyBound'
-  | 'bindingDeleted'
-  | 'unmatched'
-  | 'beforeStart'
-  | 'waitingEpisode'
-  | 'pending'
-  | 'failed'
-
-/** 条目表的一行：上次检查时合集里的一个条目 */
-export interface SeasonBindingItem {
-  label: string
-  /** 合集序号；对不上时为 null */
-  number: number | null
-  state: SeasonBindingItemState
-  /** 对不上、失败的原因 */
-  reason: string | null
-  /** 季绑定建出过绑定的条目为绑定建在的那一集；其余能算出对应的集时为对应的集号 */
-  episodeNumber: number | null
-  /** 失败的时间 */
-  lastErrorAt: string | null
-}
-
-/** 旧的季绑定详情，含旧的条目表（按在合集里的顺序；文件夹的季绑定为空） */
-export type LegacySeasonBindingDetail = SeasonBinding & { items: SeasonBindingItem[] }
-
-/** 旧的合集的季绑定的详情：创建、改季绑定的返回 */
-export type LegacyCollectionSeasonBindingDetail = CollectionSeasonBinding & {
-  items: SeasonBindingItem[]
-}
-
-/** 预览的条目，字段与季绑定的条目相同；重复的序号已标为对不上 */
-export interface PreviewItem {
-  label: string
-  number: number | null
-  /** 对不上的原因 */
-  reason: string | null
-}
-
-/** 链接识别出的一个候选合集 */
-export interface CollectionCandidate {
-  /** 创建、换合集时传回，用来选候选 */
-  kind: string
-  title: string
-  sourceUrl: string
-  sourceLabel: string
-  finished: boolean
-  /** 序号由集号规则认出：预览按请求里的规则认，创建时传同一个规则 */
-  numberedByRule: boolean
-  items: PreviewItem[]
-}
-
-export interface CollectionPreview {
-  candidates: CollectionCandidate[]
-}
-
-/** 编辑合集的季绑定时预览的条目 */
-export interface ChangeItem extends PreviewItem {
-  /** 季绑定处理过这个条目时为绑定建在的那一集：改集号对应、集号规则、换合集都不动它；其余为 null */
-  handledEpisode: number | null
-}
-
-/** 编辑合集的季绑定时，链接识别出的一个候选合集 */
-export interface ChangeCandidate extends Omit<CollectionCandidate, 'items'> {
-  /** 季绑定现在就绑着这个合集 */
-  current: boolean
-  /** 换成这个合集时会删掉的绑定数：季绑定建出的、弹幕源不在这个合集里的；就是现在的合集时为 0 */
-  removedBindings: number
-  items: ChangeItem[]
-}
-
-/** 预览一季要绑定的合集，按集号规则认出序号，不保存任何东西 */
-export function previewSeasonBinding(seasonId: number, link: string, episodePatterns: string[]) {
-  return request<CollectionPreview>({
-    url: `/seasons/${seasonId}/season-bindings/preview`,
-    method: 'POST',
-    data: { link, episodePatterns },
-    timeout: slowRequestTimeout,
-  })
-}
-
-export interface CreateSeasonBinding {
-  link: string
-  /** 链接只有一个候选时可以不传 */
-  kind?: string
-  mappingFrom: number
-  mappingTo: number
-  /** 集号规则，与预览时用的相同 */
-  episodePatterns: string[]
-}
-
-/** 创建季绑定，返回详情；补建随即在后台进行 */
-export function createSeasonBinding(seasonId: number, data: CreateSeasonBinding) {
-  return request<LegacyCollectionSeasonBindingDetail>({
-    url: `/seasons/${seasonId}/season-bindings`,
-    method: 'POST',
-    data,
-    timeout: slowRequestTimeout,
-  })
-}
-
-/** 旧的季绑定详情，不请求平台 */
-export function legacyGetSeasonBinding(id: number) {
-  return request<LegacySeasonBindingDetail>({ url: `/season-bindings/${id}` })
-}
-
-/** 编辑合集的季绑定时的预览：另外标出现在的合集、换过去会删掉的绑定数和处理过的条目，不保存任何东西 */
-export function previewSeasonBindingChange(id: number, link: string, episodePatterns: string[]) {
-  return request<{ candidates: ChangeCandidate[] }>({
-    url: `/season-bindings/${id}/preview`,
-    method: 'POST',
-    data: { link, episodePatterns },
-    timeout: slowRequestTimeout,
-  })
-}
-
-/** 改季绑定：只改传了的字段 */
-export interface SeasonBindingPatch {
-  follow?: boolean
-  mappingFrom?: number
-  mappingTo?: number
-  episodePatterns?: string[]
-  /** 换合集：贴的链接，同创建 */
-  link?: string
-  /** 换合集时选的候选；链接只有一个候选时可以不传 */
-  kind?: string
-}
-
-/**
- * 开关追更、改集号对应和集号规则、换合集，只改传了的字段，只适用于合集的季绑定（文件夹的季绑定返回 400）。
- * 改了规则、换了合集时返回的条目已按新规则认出；打开追更或改了对应、规则、换了合集时后端随即在后台补建。
- * 传了 link 时后端要重新列出合集，正在补建时返回 409；换成另一个合集时，它建出的、弹幕源不在新合集里的绑定连同弹幕删除
- */
-export function updateSeasonBinding(id: number, patch: SeasonBindingPatch) {
-  return request<LegacyCollectionSeasonBindingDetail>({
-    url: `/season-bindings/${id}`,
-    method: 'PATCH',
-    data: patch,
-    timeout: slowRequestTimeout,
-  })
-}
-
-/** 立即在后台补建，只适用于合集的季绑定；正在补建时抛出 status 为 409 的 ApiError */
-export function legacyBackfillSeasonBinding(id: number) {
-  return request<null>({ url: `/season-bindings/${id}/backfill`, method: 'POST' })
-}
-
-/** 删除季绑定（两种都可以）；withBindings 时一起删除它建出的绑定，否则那些绑定变成普通绑定 */
-export function legacyDeleteSeasonBinding(id: number, withBindings: boolean) {
-  return request<null>({
-    url: `/season-bindings/${id}`,
-    method: 'DELETE',
-    params: { withBindings },
-  })
-}
-
-/** 按季上传的预览：按集号规则从条目名称认出集号，不上传文件、不保存任何东西 */
-export function previewSeasonFileBindings(
-  seasonId: number,
-  labels: string[],
-  episodePatterns: string[],
-) {
-  return request<{ items: PreviewItem[] }>({
-    url: `/seasons/${seasonId}/file-bindings/preview`,
-    method: 'POST',
-    data: { labels, episodePatterns },
-  })
-}
-
-/** 按季上传的一个条目对到的集 */
-export interface SeasonUploadTarget {
-  label: string
-  episodeId: number
-}
-
-export interface SeasonUpload {
-  /** 勾选的条目的全部文件 */
-  files: File[]
-  /** 与 files 一一对应、顺序相同的相对路径，以所选文件夹名开头 */
-  paths: string[]
-  /** 每个条目一项 */
-  targets: SeasonUploadTarget[]
-}
-
-export interface SeasonUploadResult {
-  /** 建出的绑定数 */
-  bindings: number
-  /** 新增的弹幕总条数 */
-  added: number
-}
-
-/**
- * 按季上传：每个条目各建一个用弹幕文件建的绑定，在一个事务里，要么全部建出、要么一个都不建。
- * 每份文件以相对路径作为文件名上传，后端按它分条目；targets 是一个 JSON 字段。
- * 一季的文件可能有上百 MB，不设超时；onProgress 收到上传的进度（0～1）
- */
-export function createSeasonFileBindings(
-  seasonId: number,
-  { files, paths, targets }: SeasonUpload,
-  onProgress?: (progress: number) => void,
-) {
-  const form = new FormData()
-  form.append('targets', JSON.stringify(targets))
-  files.forEach((f, i) => form.append('files', f, paths[i]))
-  return request<SeasonUploadResult>({
-    url: `/seasons/${seasonId}/file-bindings`,
-    method: 'POST',
-    data: form,
-    timeout: uploadRequestTimeout,
-    onUploadProgress: (e) => onProgress?.(e.progress ?? (e.total ? e.loaded / e.total : 0)),
-  })
 }

@@ -3,7 +3,7 @@ import type { Episode, Season, SeriesDetail, SeriesSummary, SeriesType } from '@
 
 /**
  * 名称的自然顺序：数字按数值比较（"第2部"排在"第10部"前面），汉字按拼音。
- * 固定用 zh，不随浏览器的语言变，目录和按季上传的排序都用它
+ * 固定用 zh，不随浏览器的语言变，目录和文件夹的条目的排序都用它
  */
 export const naturalOrder = new Intl.Collator('zh', { numeric: true })
 
