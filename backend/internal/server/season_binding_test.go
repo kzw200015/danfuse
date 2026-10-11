@@ -273,9 +273,8 @@ func TestSeasonBindingAPI(t *testing.T) {
 		if err := json.Unmarshal(data, &current); err != nil {
 			t.Fatal(err)
 		}
-		if got := jsonString(current); got != `{"candidates":[{"current":true,"removedBindings":0,"items":[{"handledEpisode":1},{"handledEpisode":2},{"handledEpisode":null}]}]}` {
-			t.Errorf("预览现在的合集 = %s", got)
-		}
+		testenv.AssertJSON(t, current, `{"candidates": [{"current": true, "removedBindings": 0,
+			"items": [{"handledEpisode": 1}, {"handledEpisode": 2}, {"handledEpisode": null}]}]}`)
 
 		// 换合集：只改传了的字段，返回新合集的详情和链接
 		_, _, data = call(t, srv, http.MethodPatch, "/api/season-bindings/1", `{"link": " fakelist/t ", "kind": "list"}`, http.StatusOK)

@@ -212,24 +212,10 @@ func (s *Service) runBackfill(ctx context.Context, r *backfillRound) error {
 		return nil
 	}
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		q := s.q.WithTx(tx)
-		// 集号规则在锁住季绑定的这一句里读：改规则的事务要么已经提交、这里读到新规则，要么等这个事务提交再按新规则重认
-		patterns, err := q.RecordSeasonBindingListed(ctx, seasonbindingdb.RecordSeasonBindingListedParams{
-			ID: r.id, Title: col.Title, Finished: col.Finished, NumberedByRule: col.NumberedByRule,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return errSeasonBindingGone
-			}
-			return fmt.Errorf("record season binding %d listed: %w", r.id, err)
-		}
-		rule, err := source.ParseEpisodeRule(patterns)
-		if err != nil {
-			return fmt.Errorf("parse episode patterns of season binding %d: %w", r.id, err)
-		}
-		items := source.NumberItems(col, rule)
-		r.items = len(items)
-		return saveItems(ctx, q, r.id, items)
+		// 集号规则在锁住季绑定的那一句里读：改规则的事务要么已经提交、这里读到新规则，要么等这个事务提交再按新规则重认
+		var err error
+		r.items, err = saveListed(ctx, s.q.WithTx(tx), r.id, col, errSeasonBindingGone)
+		return err
 	})
 	if err != nil {
 		return err

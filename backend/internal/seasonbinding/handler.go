@@ -32,6 +32,15 @@ func parseRule(patterns []string) (source.EpisodeRule, error) {
 	return rule, nil
 }
 
+// parseLink 去掉贴的链接前后的空白，为空时为 400。
+func parseLink(link string) (string, error) {
+	link = strings.TrimSpace(link)
+	if link == "" {
+		return "", request.InvalidParam("请粘贴合集的链接")
+	}
+	return link, nil
+}
+
 type defaultEpisodeRuleResponse struct {
 	EpisodePatterns []string `json:"episodePatterns"`
 }
@@ -59,11 +68,10 @@ func (r *previewSeasonBindingRequest) Validate() error {
 	if r.SeasonID < 1 {
 		return request.InvalidParam("季 ID 不合法")
 	}
-	r.Link = strings.TrimSpace(r.Link)
-	if r.Link == "" {
-		return request.InvalidParam("请粘贴合集的链接")
-	}
 	var err error
+	if r.Link, err = parseLink(r.Link); err != nil {
+		return err
+	}
 	r.rule, err = parseRule(r.EpisodePatterns)
 	return err
 }
@@ -97,15 +105,14 @@ func (r *createSeasonBindingRequest) Validate() error {
 	if r.SeasonID < 1 {
 		return request.InvalidParam("季 ID 不合法")
 	}
-	r.Link = strings.TrimSpace(r.Link)
-	if r.Link == "" {
-		return request.InvalidParam("请粘贴合集的链接")
+	var err error
+	if r.Link, err = parseLink(r.Link); err != nil {
+		return err
 	}
 	r.Kind = strings.TrimSpace(r.Kind)
 	if !validMapping(r.MappingFrom) || !validMapping(r.MappingTo) {
 		return request.InvalidParam(invalidMapping)
 	}
-	var err error
 	r.rule, err = parseRule(r.EpisodePatterns)
 	return err
 }
@@ -141,11 +148,10 @@ func (r *previewChangeRequest) Validate() error {
 	if r.ID < 1 {
 		return request.InvalidParam("季绑定 ID 不合法")
 	}
-	r.Link = strings.TrimSpace(r.Link)
-	if r.Link == "" {
-		return request.InvalidParam("请粘贴合集的链接")
-	}
 	var err error
+	if r.Link, err = parseLink(r.Link); err != nil {
+		return err
+	}
 	r.rule, err = parseRule(r.EpisodePatterns)
 	return err
 }
@@ -221,9 +227,9 @@ func (r *updateSeasonBindingRequest) Validate() error {
 		r.rule = &rule
 	}
 	if r.Link != nil {
-		link := strings.TrimSpace(*r.Link)
-		if link == "" {
-			return request.InvalidParam("请粘贴合集的链接")
+		link, err := parseLink(*r.Link)
+		if err != nil {
+			return err
 		}
 		r.collection = &CollectionChoice{Link: link, Kind: strings.TrimSpace(r.Kind)}
 	}

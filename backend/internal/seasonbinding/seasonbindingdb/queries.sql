@@ -201,8 +201,8 @@ SET last_checked_at = sqlc.arg(checked_at)::timestamptz,
 WHERE id = sqlc.arg(id);
 
 -- name: UpdateSeasonBinding :one
--- 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号和改过之后的集号规则：
--- 改了集号规则或换了合集时，同一个事务里随后按它认出条目的序号。不存在时没有行。
+-- 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号：改了集号规则时，同一个事务里随后重新认出条目的序号。
+-- 不存在时没有行。
 UPDATE season_bindings
 SET follow           = coalesce(sqlc.narg(follow), follow),
     mapping_from     = coalesce(sqlc.narg(mapping_from), mapping_from),
@@ -210,11 +210,11 @@ SET follow           = coalesce(sqlc.narg(follow), follow),
     episode_patterns = coalesce(sqlc.narg(episode_patterns)::text[], episode_patterns),
     updated_at       = now()
 WHERE id = sqlc.arg(id)
-RETURNING numbered_by_rule, episode_patterns;
+RETURNING numbered_by_rule;
 
 -- name: LockSeasonBindingCollection :one
--- 换合集的写入事务的第二句（第一句锁季）：锁住季绑定到提交，返回它现在是不是就绑着这个合集。季绑定已被删除时没有行。
-SELECT coalesce(adapter = @adapter::text AND ref = @ref::jsonb, false)::boolean AS same
+-- 换合集的写入事务的第二句（第一句锁季）：锁住季绑定到提交，返回它现在的适配器、是不是就绑着这个合集。季绑定已被删除时没有行。
+SELECT adapter::text AS adapter, coalesce(adapter = @adapter::text AND ref = @ref::jsonb, false)::boolean AS same
 FROM season_bindings
 WHERE id = @id
 FOR UPDATE;
@@ -228,28 +228,21 @@ WHERE b.season_binding_id = @season_binding_id::bigint
     AND EXISTS (SELECT 1 FROM unnest(@refs::text[]) AS r (ref) WHERE r.ref::jsonb = b.ref));
 
 -- name: DeleteHandledOutsideCollection :exec
--- 同上，删掉弹幕源不在新合集里的处理过的记录；要在改季绑定的适配器之前执行（按季绑定原来的适配器比较）。
+-- 同上，删掉弹幕源不在新合集里的处理过的记录；old_adapter 是季绑定原来的适配器（处理过的记录只记着 ref）。
 DELETE FROM season_binding_handled h
-USING season_bindings sb
-WHERE sb.id = h.season_binding_id
-  AND h.season_binding_id = @season_binding_id::bigint
-  AND NOT (sb.adapter = @adapter::text
+WHERE h.season_binding_id = @season_binding_id::bigint
+  AND NOT (@old_adapter::text = @adapter::text
     AND EXISTS (SELECT 1 FROM unnest(@refs::text[]) AS r (ref) WHERE r.ref::jsonb = h.ref));
 
 -- name: SetSeasonBindingCollection :exec
--- 换合集（或只改了贴的链接）：写入新的合集与这次列出的标题、完结标志、是否按规则编号，恢复为正常、清掉错误。
+-- 换合集（或只改了贴的链接）：写入新的合集与贴的链接；这次列出的标题等随后由 RecordSeasonBindingListed 写入。
 -- changed（换成了另一个合集）时清掉上次检查时间：新合集还没检查过。同一季已经绑定过这个合集时撞上唯一约束。
 UPDATE season_bindings
-SET adapter          = @adapter::text,
-    ref              = @ref::jsonb,
-    link             = @link::text,
-    title            = @title,
-    finished         = @finished,
-    numbered_by_rule = @numbered_by_rule::boolean,
-    status           = 'active',
-    last_error       = NULL,
-    last_checked_at  = CASE WHEN @changed::boolean THEN NULL ELSE last_checked_at END,
-    updated_at       = now()
+SET adapter         = @adapter::text,
+    ref             = @ref::jsonb,
+    link            = @link::text,
+    last_checked_at = CASE WHEN @changed::boolean THEN NULL ELSE last_checked_at END,
+    updated_at      = now()
 WHERE id = @id;
 
 -- name: GetCollectionChangeImpact :one

@@ -1,6 +1,7 @@
 package seasonbinding
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -82,7 +83,7 @@ type View struct {
 	Title    string `json:"title"` // 合集的季绑定为合集标题，每次检查更新；文件夹的季绑定为所选的文件夹名
 
 	Adapter *string `json:"adapter"`
-	// Link 创建或换合集时贴的链接，编辑时预填；记下链接之前建的季绑定为 null
+	// Link 创建或换合集时贴的链接，编辑时预填；记下链接之前建的季绑定为合集的链接（同 sourceUrl）
 	Link        *string `json:"link"`
 	SourceURL   *string `json:"sourceUrl"`
 	SourceLabel *string `json:"sourceLabel"` // 例如"B 站番剧 ss41410"，含合集的种类
@@ -227,8 +228,10 @@ func (s *Service) changeCandidate(ctx context.Context, id int64, adapter source.
 	if err != nil {
 		return ChangeCandidate{}, err
 	}
+	items := source.NumberItems(l.col, rule)
+	refs := itemRefs(items)
 	impact, err := s.q.GetCollectionChangeImpact(ctx, seasonbindingdb.GetCollectionChangeImpactParams{
-		ID: id, Adapter: adapter.ID(), Ref: l.Ref, Refs: itemRefs(l.col.Items),
+		ID: id, Adapter: adapter.ID(), Ref: l.Ref, Refs: refs,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -241,9 +244,8 @@ func (s *Service) changeCandidate(ctx context.Context, id int64, adapter source.
 		c.RemovedBindings = impact.Outside
 	}
 
-	items := source.NumberItems(l.col, rule)
 	handled, err := s.q.ListHandledEpisodesByRefs(ctx, seasonbindingdb.ListHandledEpisodesByRefsParams{
-		SeasonBindingID: id, Adapter: adapter.ID(), Refs: itemRefs(items),
+		SeasonBindingID: id, Adapter: adapter.ID(), Refs: refs,
 	})
 	if err != nil {
 		return ChangeCandidate{}, fmt.Errorf("list handled items of season binding %d: %w", id, err)
@@ -457,14 +459,13 @@ func chooseCandidate(candidates []source.CollectionCandidate, kind string) (sour
 func saveItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, items []source.CollectionItem) error {
 	p := seasonbindingdb.UpsertSeasonBindingItemsParams{
 		SeasonBindingID: id,
-		Refs:            make([]string, len(items)),
+		Refs:            itemRefs(items),
 		Positions:       make([]int32, len(items)),
 		Numbers:         make([]int32, len(items)),
 		Reasons:         make([]string, len(items)),
 		Labels:          make([]string, len(items)),
 	}
 	for i, it := range items {
-		p.Refs[i] = string(it.Ref)
 		p.Positions[i] = int32(i + 1)
 		p.Numbers[i] = int32(it.Number)
 		if it.Unmatched != "" {
@@ -479,6 +480,26 @@ func saveItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, items 
 		return fmt.Errorf("upsert items of season binding %d: %w", id, err)
 	}
 	return nil
+}
+
+// saveListed 在写入事务里写入一次列出的结果：季绑定恢复为正常、更新合集的标题等，按（锁住季绑定时读到的）集号规则认出序号、
+// 保存条目，返回条目数。补建与换合集共用。季绑定已被删除时返回 gone。
+func saveListed(ctx context.Context, q *seasonbindingdb.Queries, id int64, col source.Collection, gone error) (int, error) {
+	patterns, err := q.RecordSeasonBindingListed(ctx, seasonbindingdb.RecordSeasonBindingListedParams{
+		ID: id, Title: col.Title, Finished: col.Finished, NumberedByRule: col.NumberedByRule,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, gone
+		}
+		return 0, fmt.Errorf("record season binding %d listed: %w", id, err)
+	}
+	rule, err := source.ParseEpisodeRule(patterns)
+	if err != nil {
+		return 0, fmt.Errorf("parse episode patterns of season binding %d: %w", id, err)
+	}
+	items := source.NumberItems(col, rule)
+	return len(items), saveItems(ctx, q, id, items)
 }
 
 // Get 季绑定的详情，条目表各条目的状态由条目、处理过的记录、绑定和本季的集算出；文件夹的季绑定没有条目表。不存在时返回 404。
@@ -629,7 +650,7 @@ func (s *Service) view(sb seasonbindingdb.SeasonBinding, bindingCount int32, run
 	if err != nil {
 		return View{}, fmt.Errorf("describe season binding %d: %w", sb.ID, err)
 	}
-	v.Adapter, v.Link = sb.Adapter, sb.Link
+	v.Adapter, v.Link = sb.Adapter, cmp.Or(sb.Link, &d.URL)
 	v.SourceURL, v.SourceLabel = &d.URL, &d.Label
 	v.Finished = new(sb.Finished)
 	v.MappingFrom, v.MappingTo = sb.MappingFrom, sb.MappingTo
@@ -674,13 +695,11 @@ func (s *Service) Update(ctx context.Context, id int64, p UpdateParams) (Detail,
 		if err != nil {
 			return Detail{}, err
 		}
-		var ok bool
-		lease, ok, err = database.TryLease(ctx, s.pool, s.logger, database.LeaseSeasonBackfill(id))
-		if err != nil {
-			return Detail{}, fmt.Errorf("acquire backfill lease of season binding %d: %w", id, err)
-		}
-		if !ok {
-			return Detail{}, errChangeWhileBackfill
+		if lease, err = s.tryBackfillLease(ctx, id); err != nil {
+			if errors.Is(err, errBackfillRunning) {
+				return Detail{}, errChangeWhileBackfill
+			}
+			return Detail{}, err
 		}
 		defer lease.Release() // 出错返回时；写完之后在补建之前就释放
 		txCtx = lease.Context()
@@ -699,17 +718,15 @@ func (s *Service) Update(ctx context.Context, id int64, p UpdateParams) (Detail,
 				return err
 			}
 		}
-		row, err := q.UpdateSeasonBinding(txCtx, params)
+		byRule, err := q.UpdateSeasonBinding(txCtx, params)
 		switch {
 		case err != nil:
 			return err
 		case p.Collection != nil:
-			rule, err := source.ParseEpisodeRule(row.EpisodePatterns)
-			if err != nil {
-				return fmt.Errorf("parse episode patterns of season binding %d: %w", id, err)
-			}
-			return saveItems(txCtx, q, id, source.NumberItems(r.col, rule))
-		case p.Rule != nil && *row.NumberedByRule:
+			// 集号规则在这一句里读，是上面改过之后的
+			_, err = saveListed(txCtx, q, id, r.col, errSeasonBindingNotFound)
+			return err
+		case p.Rule != nil && *byRule:
 			return renumberItems(txCtx, q, id, *p.Rule)
 		}
 		return nil
@@ -733,12 +750,13 @@ func (s *Service) Update(ctx context.Context, id int64, p UpdateParams) (Detail,
 
 // changeCollection 换合集的写入，在 Update 的事务里：先锁季（与补建、删季的加锁顺序一致），再锁季绑定；
 // 选出的不是现在的合集时，删掉它建出的、弹幕源不在新合集里的绑定和处理过的记录，返回删掉的绑定数；
-// 最后写入新的合集与贴的链接。季（连同季绑定）已被删除时为 404，同一季已经绑定过这个合集时为 409。
+// 最后写入新的合集与贴的链接（这次列出的标题等、条目由 Update 随后写入）。季（连同季绑定）已被删除时为 404，
+// 同一季已经绑定过这个合集时为 409。
 func changeCollection(ctx context.Context, q *seasonbindingdb.Queries, sb seasonbindingdb.SeasonBinding, link string, r resolved) (int64, error) {
 	if err := lockSeason(ctx, q, sb.SeasonID, errSeasonBindingNotFound); err != nil {
 		return 0, err
 	}
-	same, err := q.LockSeasonBindingCollection(ctx, seasonbindingdb.LockSeasonBindingCollectionParams{
+	cur, err := q.LockSeasonBindingCollection(ctx, seasonbindingdb.LockSeasonBindingCollectionParams{
 		ID: sb.ID, Adapter: r.adapter.ID(), Ref: r.ref,
 	})
 	if err != nil {
@@ -748,7 +766,7 @@ func changeCollection(ctx context.Context, q *seasonbindingdb.Queries, sb season
 		return 0, fmt.Errorf("lock season binding %d: %w", sb.ID, err)
 	}
 	var removed int64
-	if !same {
+	if !cur.Same {
 		refs := itemRefs(r.col.Items)
 		removed, err = q.DeleteBindingsOutsideCollection(ctx, seasonbindingdb.DeleteBindingsOutsideCollectionParams{
 			SeasonBindingID: sb.ID, Adapter: r.adapter.ID(), Refs: refs,
@@ -757,21 +775,14 @@ func changeCollection(ctx context.Context, q *seasonbindingdb.Queries, sb season
 			return 0, fmt.Errorf("delete bindings outside collection of season binding %d: %w", sb.ID, err)
 		}
 		err = q.DeleteHandledOutsideCollection(ctx, seasonbindingdb.DeleteHandledOutsideCollectionParams{
-			SeasonBindingID: sb.ID, Adapter: r.adapter.ID(), Refs: refs,
+			SeasonBindingID: sb.ID, OldAdapter: cur.Adapter, Adapter: r.adapter.ID(), Refs: refs,
 		})
 		if err != nil {
 			return 0, fmt.Errorf("delete handled outside collection of season binding %d: %w", sb.ID, err)
 		}
 	}
 	err = q.SetSeasonBindingCollection(ctx, seasonbindingdb.SetSeasonBindingCollectionParams{
-		ID:             sb.ID,
-		Adapter:        r.adapter.ID(),
-		Ref:            r.ref,
-		Link:           link,
-		Title:          r.col.Title,
-		Finished:       r.col.Finished,
-		NumberedByRule: r.col.NumberedByRule,
-		Changed:        !same,
+		ID: sb.ID, Adapter: r.adapter.ID(), Ref: r.ref, Link: link, Changed: !cur.Same,
 	})
 	if err != nil {
 		if database.IsUniqueViolation(err) {
@@ -798,16 +809,10 @@ func renumberItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, ru
 // Backfill 立即在后台补建一次，追更关着时也能用。不存在时返回 404，文件夹的季绑定返回 400；
 // 这个季绑定正在补建时返回 409"正在补建"，不排第二次。
 func (s *Service) Backfill(ctx context.Context, id int64) error {
-	if err := s.checkCollection(ctx, id); err != nil {
+	if _, err := s.getCollection(ctx, id); err != nil {
 		return err
 	}
 	return s.trigger(ctx, id)
-}
-
-// checkCollection 确认是合集的季绑定，见 getCollection。
-func (s *Service) checkCollection(ctx context.Context, id int64) error {
-	_, err := s.getCollection(ctx, id)
-	return err
 }
 
 // getCollection 读合集的季绑定：不存在时为 404，文件夹的季绑定为 400"文件夹的季绑定只能删除"。
@@ -871,18 +876,27 @@ func (s *Service) startBackfill(ctx context.Context, id int64) {
 
 // start 拿到按季绑定的租约就在后台补建一轮，租约由补建的 goroutine 持有到结束；拿不到时返回 errBackfillRunning。
 func (s *Service) start(ctx context.Context, id int64) error {
-	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSeasonBackfill(id))
+	lease, err := s.tryBackfillLease(ctx, id)
 	if err != nil {
-		return fmt.Errorf("acquire backfill lease of season binding %d: %w", id, err)
-	}
-	if !ok {
-		return errBackfillRunning
+		return err
 	}
 	s.loop.Spawn(func() {
 		defer lease.Release()
 		s.backfill(lease.Context(), id, triggerManual, nil)
 	})
 	return nil
+}
+
+// tryBackfillLease 拿按季绑定的补建租约：补建与换合集都要持有它；拿不到（正在补建）时返回 errBackfillRunning。
+func (s *Service) tryBackfillLease(ctx context.Context, id int64) (*database.Lease, error) {
+	lease, ok, err := database.TryLease(ctx, s.pool, s.logger, database.LeaseSeasonBackfill(id))
+	if err != nil {
+		return nil, fmt.Errorf("acquire backfill lease of season binding %d: %w", id, err)
+	}
+	if !ok {
+		return nil, errBackfillRunning
+	}
+	return lease, nil
 }
 
 // nullIfEmpty 空串存为 null。

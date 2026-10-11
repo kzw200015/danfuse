@@ -90,7 +90,7 @@ func TestChangeCollection(t *testing.T) {
 }
 
 // TestChangeCollectionSameCollection 换成的就是现在的合集（同一个合集的另一种链接）：只改记下的链接，
-// 上次检查时间保留；即使合集里已经没有某个条目，它建出的绑定也不删。
+// 上次检查时间保留；即使合集里已经没有某个条目，它建出的绑定也不删。记下链接之前建的季绑定输出合集的链接。
 func TestChangeCollectionSameCollection(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
@@ -102,6 +102,10 @@ func TestChangeCollectionSameCollection(t *testing.T) {
 		before := env.create(1, 1)
 		synctest.Wait()
 		checked := env.get(before.ID).LastCheckedAt
+		env.exec(`UPDATE season_bindings SET link = NULL`)
+		if got := env.get(before.ID); *got.Link != *got.SourceURL {
+			t.Errorf("记下链接之前建的季绑定 link = %s, want 合集的链接 %s", *got.Link, *got.SourceURL)
+		}
 		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 1)}} // UP 主删掉了 b
 
 		preview, err := env.svc.PreviewChange(t.Context(), before.ID, "alias-list/s", source.DefaultEpisodeRule())
