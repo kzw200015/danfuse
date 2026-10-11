@@ -1,5 +1,7 @@
 # 弹幕文件不属于任何平台，绑定用 kind 区分链接与文件
 
+> Consequences 的"原始文件存进库"对季绑定建出的文件绑定不再成立，见 ADR 0010。
+
 用户可以上传弹幕文件建绑定（目前只支持 B 站导出的 XML）。我们决定：
 1. 弹幕文件里的弹幕一律不属于任何平台（`danmaku.PlatformNone`），即使文件是从 B 站导出的；原始弹幕 ID 直接取 XML 里的 dmid。
 2. 绑定加一列 `kind`（`link` / `file`）区分两种弹幕源。文件绑定的 `adapter`、`ref` 为空，用 CHECK 约束守住；弹幕文件的解析不实现 `source.Adapter`，也不进 `source.Registry`。
