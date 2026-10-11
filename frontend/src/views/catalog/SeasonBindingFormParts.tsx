@@ -10,9 +10,9 @@ import { useElapsed } from '@/hooks/use-elapsed'
 import { useDefaultEpisodePatterns } from '@/hooks/use-season-bindings'
 
 import EpisodeRuleInput from './EpisodeRuleInput'
-import MappingInputs, { useMappingDraft } from './MappingInputs'
+import MappingInputs from './MappingInputs'
 import PreviewTable from './PreviewTable'
-import { cleanPatterns, summaryTags } from './season-binding'
+import { cleanPatterns, episodeText, parseMappingNumber, summaryTags } from './season-binding'
 
 /** 添加、编辑季绑定的表单的外框与标题（标题也是它的无障碍名称） */
 export function FormFrame({ label, children }: { label: string; children: ReactNode }) {
@@ -59,17 +59,26 @@ export function AddFormFrame({
 }
 
 /**
- * 表单里的集号规则与集号对应。form 是要发出的部分（规则去掉空白和空行），集号对应不合法时为 null，这时不预览
+ * 表单里的集号规则与集号对应（from、to 是两个输入框）。form 是要发出的部分（规则去掉空白和空行），
+ * 集号对应不合法时为 null，这时不预览
  */
 export function useRuleDraft(initial: EpisodeRuleForm) {
   const [patterns, setPatterns] = useState(initial.episodePatterns)
-  const mapping = useMappingDraft({ from: initial.mappingFrom, to: initial.mappingTo })
-  const form: EpisodeRuleForm | null = mapping.mapping && {
-    episodePatterns: cleanPatterns(patterns),
-    mappingFrom: mapping.mapping.from,
-    mappingTo: mapping.mapping.to,
+  const [fromText, setFromText] = useState(String(initial.mappingFrom))
+  const [toText, setToText] = useState(String(initial.mappingTo))
+  const mappingFrom = parseMappingNumber(fromText)
+  const mappingTo = parseMappingNumber(toText)
+  const form: EpisodeRuleForm | null =
+    mappingFrom === null || mappingTo === null
+      ? null
+      : { episodePatterns: cleanPatterns(patterns), mappingFrom, mappingTo }
+  return {
+    patterns,
+    setPatterns,
+    from: { text: fromText, valid: mappingFrom !== null, onChange: setFromText },
+    to: { text: toText, valid: mappingTo !== null, onChange: setToText },
+    form,
   }
-  return { patterns, setPatterns, mapping, form }
 }
 
 export type RuleDraft = ReturnType<typeof useRuleDraft>
@@ -89,20 +98,12 @@ export function RuleFields({
   prefix: string
   disabled: boolean
 }) {
-  const { mapping } = draft
   return (
     <>
       {showPatterns && (
         <EpisodeRuleInput value={draft.patterns} onChange={draft.setPatterns} disabled={disabled} />
       )}
-      <MappingInputs
-        prefix={prefix}
-        from={mapping.from}
-        to={mapping.to}
-        onFromChange={mapping.setFrom}
-        onToChange={mapping.setTo}
-        disabled={disabled}
-      />
+      <MappingInputs prefix={prefix} from={draft.from} to={draft.to} disabled={disabled} />
     </>
   )
 }
@@ -226,9 +227,7 @@ function SaveConsequences({ candidate }: { candidate: Candidate }) {
           <p>没有条目对到这些集，它们的绑定会连同弹幕一起删除，无法恢复：</p>
           <ul className="ml-4 list-disc">
             {candidate.removed.map((slot) => (
-              <li key={slot.bindingId}>
-                第 {slot.episodeNumber} 集 · {slot.title}
-              </li>
+              <li key={slot.bindingId}>{episodeText(slot.episodeNumber, slot.title)}</li>
             ))}
           </ul>
         </div>
@@ -239,7 +238,7 @@ function SaveConsequences({ candidate }: { candidate: Candidate }) {
           <ul className="ml-4 list-disc">
             {replaced.map(({ item, slot }) => (
               <li key={slot.bindingId}>
-                第 {slot.episodeNumber} 集 · {slot.title} → {item.label}
+                {episodeText(slot.episodeNumber, slot.title)} → {item.label}
               </li>
             ))}
           </ul>

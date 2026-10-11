@@ -1,18 +1,12 @@
-import { useState } from 'react'
-
-import type { Mapping } from '@/api/season-bindings'
 import { Input } from '@/components/ui/input'
 
-import { mappingHint, parseMappingNumber } from './season-binding'
+import { mappingHint } from './season-binding'
 
-/** 集号对应输入框里的文字，以及解析出的对应；任一个不合法时 mapping 为 null */
-export function useMappingDraft(initial: Mapping) {
-  const [from, setFrom] = useState(String(initial.from))
-  const [to, setTo] = useState(String(initial.to))
-  const f = parseMappingNumber(from)
-  const t = parseMappingNumber(to)
-  const mapping: Mapping | null = f === null || t === null ? null : { from: f, to: t }
-  return { from, to, setFrom, setTo, mapping }
+/** 集号对应的一个输入框：输入框里的文字、它是否合法，以及修改它 */
+export interface MappingField {
+  text: string
+  valid: boolean
+  onChange: (text: string) => void
 }
 
 /**
@@ -22,18 +16,14 @@ export function useMappingDraft(initial: Mapping) {
 export default function MappingInputs({
   from,
   to,
-  onFromChange,
-  onToChange,
-  disabled = false,
-  prefix = '合集',
+  disabled,
+  prefix,
 }: {
-  from: string
-  to: string
-  onFromChange: (text: string) => void
-  onToChange: (text: string) => void
-  disabled?: boolean
+  from: MappingField
+  to: MappingField
+  disabled: boolean
   /** X 前面的称呼 */
-  prefix?: string
+  prefix: string
 }) {
   const input = 'h-7 w-12 text-right tabular-nums'
   return (
@@ -46,20 +36,20 @@ export default function MappingInputs({
         aria-label={`${prefix}第几集`}
         className={input}
         inputMode="numeric"
-        aria-invalid={parseMappingNumber(from) === null}
-        value={from}
+        aria-invalid={!from.valid}
+        value={from.text}
         disabled={disabled}
-        onChange={(e) => onFromChange(e.target.value)}
+        onChange={(e) => from.onChange(e.target.value)}
       />
       集 = 本地第
       <Input
         aria-label="本地第几集"
         className={input}
         inputMode="numeric"
-        aria-invalid={parseMappingNumber(to) === null}
-        value={to}
+        aria-invalid={!to.valid}
+        value={to.text}
         disabled={disabled}
-        onChange={(e) => onToChange(e.target.value)}
+        onChange={(e) => to.onChange(e.target.value)}
       />
       集
     </span>

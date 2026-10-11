@@ -10,7 +10,6 @@ import {
   saveFolder,
   type EntryHashes,
   type EpisodeRuleForm,
-  type FolderFiles,
   type FolderPreviewForm,
   type FolderSeasonBinding,
   type FolderSeasonBindingDetail,
@@ -27,6 +26,7 @@ import {
 } from '@/hooks/use-season-bindings'
 import { cn } from '@/lib/utils'
 
+import { defaultRules, savedRules } from './season-binding'
 import { groupFolderFiles, hashEntries, type UploadEntry } from './season-upload'
 import {
   AddFormFrame,
@@ -40,8 +40,6 @@ import { takeFiles } from './shared'
 
 /** 添加与编辑文件夹的季绑定的不同之处，由 AddFolderForm、EditFolderForm 给出；表单只经由它区分两种模式 */
 export interface FolderFormMode {
-  /** 表单的标题和无障碍名称 */
-  label: string
   /** 保存按钮上的动词 */
   verb: string
   /** 保存成功的提示 */
@@ -55,9 +53,9 @@ export interface FolderFormMode {
   /** 预览的查询键前缀 */
   previewKey: QueryKey
   preview: (form: FolderPreviewForm) => Promise<Preview>
-  /** folder 为 null 时不换文件夹；onProgress 收到上传的进度（0～1） */
+  /** files 为 null 时不换文件夹；onProgress 收到上传的进度（0～1） */
   save: (
-    folder: FolderFiles | null,
+    files: File[] | null,
     rules: EpisodeRuleForm,
     onProgress: (progress: number) => void,
   ) => Promise<FolderSeasonBindingDetail>
@@ -71,20 +69,19 @@ export interface FolderFormMode {
  */
 export function AddFolderForm({ season, onClose }: { season: Season; onClose: () => void }) {
   const mode = (patterns: string[]): FolderFormMode => ({
-    label: '上传弹幕文件夹',
     verb: '上传',
     savedText: (d) => `已上传「${d.title}」，建出 ${d.bindingCount} 个绑定`,
     pickLabel: '选择文件夹',
     requireFolder: true,
-    initialRules: { episodePatterns: patterns, mappingFrom: 1, mappingTo: 1 },
+    initialRules: defaultRules(patterns),
     previewKey: seasonBindingKeys.preview('new-folder', season.id),
     preview: (form) => {
       if (form.folder === undefined) throw new Error('还没有选文件夹')
       return previewNewFolder(season.id, form)
     },
-    save: (folder, rules, onProgress) => {
-      if (!folder) throw new Error('还没有选文件夹')
-      return createFolder(season.id, folder, rules, onProgress)
+    save: (files, rules, onProgress) => {
+      if (!files) throw new Error('还没有选文件夹')
+      return createFolder(season.id, files, rules, onProgress)
     },
     onClose,
   })
@@ -107,23 +104,18 @@ export function EditFolderForm({
   onClose: () => void
 }) {
   const mode: FolderFormMode = {
-    label: `编辑「${binding.title}」`,
     verb: '保存',
     savedText: (d) => `已保存「${d.title}」`,
     pickLabel: '换文件夹（不换就只改集号规则、集号对应）',
     requireFolder: false,
-    initialRules: {
-      episodePatterns: binding.episodePatterns,
-      mappingFrom: binding.mappingFrom,
-      mappingTo: binding.mappingTo,
-    },
+    initialRules: savedRules(binding),
     previewKey: seasonBindingKeys.preview('folder', binding.id),
     preview: (form) => previewFolderEdit(binding.id, form),
-    save: (folder, rules, onProgress) => saveFolder(binding.id, folder, rules, onProgress),
+    save: (files, rules, onProgress) => saveFolder(binding.id, files, rules, onProgress),
     onClose,
   }
   return (
-    <FormFrame label={mode.label}>
+    <FormFrame label={`编辑「${binding.title}」`}>
       <FolderFormBody mode={mode} />
     </FormFrame>
   )
@@ -158,13 +150,8 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
   const watch = useWatchSeasonBinding()
   const save = useMutation({
     mutationFn: (form: EpisodeRuleForm) =>
-      mode.save(
-        picked && {
-          files: picked.entries.flatMap((e) => e.files),
-          paths: picked.entries.flatMap((e) => e.paths),
-        },
-        form,
-        (p) => setProgress(Math.floor(p * 100)),
+      mode.save(picked && picked.entries.flatMap((e) => e.files), form, (p) =>
+        setProgress(Math.floor(p * 100)),
       ),
     onMutate: () => setProgress(0),
     onSuccess: async (detail) => {

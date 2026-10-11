@@ -803,16 +803,14 @@ describe('上传弹幕文件夹', () => {
     fireEvent.click(form.getByRole('button', { name: '上传' }))
 
     await waitFor(() => expect(createFolder).toHaveBeenCalledOnce())
-    const [seasonId, folder, rules] = vi.mocked(createFolder).mock.calls[0]!
+    const [seasonId, files, rules] = vi.mocked(createFolder).mock.calls[0]!
     expect(seasonId).toBe(11)
-    const paths = [
+    expect(files.map((f) => f.webkitRelativePath)).toEqual([
       '星海旅人/1/560685.xml',
       '星海旅人/1/20120930.xml',
       '星海旅人/2/20121007.xml',
       '星海旅人/SP/20121231.xml',
-    ]
-    expect(folder.paths).toEqual(paths)
-    expect(folder.files.map((f) => f.webkitRelativePath)).toEqual(paths)
+    ])
     expect(rules).toEqual({ episodePatterns: defaultPatterns, mappingFrom: 1, mappingTo: 1 })
     act(() => progress!(0.5))
     expect(await form.findByText('上传中 50%')).toBeInTheDocument()
@@ -928,9 +926,9 @@ describe('编辑文件夹的季绑定', () => {
     await waitFor(() => expect(again.getByRole('button', { name: '保存' })).toBeEnabled())
     fireEvent.click(again.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(saveFolder).toHaveBeenCalledTimes(2))
-    const [, folder] = vi.mocked(saveFolder).mock.calls[1]!
-    expect(folder?.paths).toHaveLength(4)
-    expect(folder?.paths[0]).toBe('星海旅人 v2/1/560685.xml')
+    const [, files] = vi.mocked(saveFolder).mock.calls[1]!
+    expect(files).toHaveLength(4)
+    expect(files?.[0]?.webkitRelativePath).toBe('星海旅人 v2/1/560685.xml')
   })
 })
 

@@ -20,14 +20,7 @@ import {
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { TableCell } from '@/components/ui/table'
 import { Switch } from '@/components/ui/switch'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { isRunning, useSeasonBinding, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
@@ -39,8 +32,8 @@ import { cn } from '@/lib/utils'
 
 import { EditCollectionForm } from './CollectionForm'
 import { EditFolderForm } from './FolderForm'
-import { itemStatusClass } from './PreviewTable'
-import { itemStatusText, mappingHint, seasonBindingName } from './season-binding'
+import { ItemTable, itemStatusClass } from './PreviewTable'
+import { episodeText, itemStatusText, mappingHint, seasonBindingName } from './season-binding'
 import { SourceLink, StatusBadge } from './shared'
 
 /**
@@ -77,11 +70,10 @@ export default function SeasonBindingCard({
   const follow = useMutation({
     mutationFn: (on: boolean) => setFollow(binding.id, on),
     onMutate: clearError,
-    onSuccess: async (d, on) => {
+    onSuccess: (d, on) => {
       toast.success(on ? '已打开追更，正在后台补建' : '已关闭追更')
-      await watch(d)
       // 剧列表上的追更标记随之更新
-      return reload()
+      return watch(d)
     },
     onError: showError,
   })
@@ -141,9 +133,9 @@ export default function SeasonBindingCard({
             <span className="font-medium break-all">{name}</span>
           )}
           <div className="text-xs text-muted-foreground">
-            {collection
-              ? collection.sourceLabel
-              : `上传的弹幕文件夹 · ${view.kind === 'folder' ? view.entryCount : 0} 个条目`}
+            {view.kind === 'collection'
+              ? view.sourceLabel
+              : `上传的弹幕文件夹 · ${view.entryCount} 个条目`}
           </div>
         </div>
         {collection && (
@@ -282,35 +274,23 @@ function EntryTable({ detail, error }: { detail?: SeasonBindingDetail; error: Er
       {detail.items.length === 0 ? (
         <p className="text-xs text-muted-foreground">没有条目。</p>
       ) : (
-        <Table aria-label="条目表" className="text-xs">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12 text-right">序号</TableHead>
-              <TableHead>条目</TableHead>
-              <TableHead>状态</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {detail.items.map((item, i) => (
-              <TableRow key={i}>
-                <TableCell className="text-right tabular-nums">{item.number ?? '—'}</TableCell>
-                <TableCell className="whitespace-normal">{item.label}</TableCell>
-                <TableCell
-                  className={cn(
-                    'whitespace-normal',
-                    item.lastError ? 'text-destructive' : itemStatusClass[item.status],
-                  )}
-                  title={
-                    item.lastErrorAt ? `失败于 ${formatDateTime(item.lastErrorAt)}` : undefined
-                  }
-                >
-                  {itemStatusText(item, detail.kind)}
-                  {item.lastError && ` · 上次失败：${item.lastError}`}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <ItemTable
+          label="条目表"
+          items={detail.items}
+          statusHead="状态"
+          renderStatus={(item) => (
+            <TableCell
+              className={cn(
+                'whitespace-normal',
+                item.lastError ? 'text-destructive' : itemStatusClass[item.status],
+              )}
+              title={item.lastErrorAt ? `失败于 ${formatDateTime(item.lastErrorAt)}` : undefined}
+            >
+              {itemStatusText(item, detail.kind)}
+              {item.lastError && ` · 上次失败：${item.lastError}`}
+            </TableCell>
+          )}
+        />
       )}
       {detail.emptySlots.length > 0 && (
         <div
@@ -322,7 +302,7 @@ function EntryTable({ detail, error }: { detail?: SeasonBindingDetail; error: Er
           <ul>
             {detail.emptySlots.map((slot) => (
               <li key={slot.bindingId}>
-                第 {slot.episodeNumber} 集 · {slot.title}
+                {episodeText(slot.episodeNumber, slot.title)}
                 {slot.dead && '（失效）'}
               </li>
             ))}

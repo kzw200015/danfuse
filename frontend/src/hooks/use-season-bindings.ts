@@ -87,9 +87,9 @@ export function useSeasonBinding(
 }
 
 /**
- * 返回一个函数：季绑定的写入（创建、保存表单、开关追更、立即补建）成功后，把返回的详情放进缓存。
- * 合集的详情显示正在补建时，useSeasonBinding 随即开始轮询，补建结束后重新加载剧详情；
- * 文件夹的写入当场完成，随即重新加载剧详情（各集的绑定、季绑定的列表）。
+ * 返回一个函数：季绑定的写入（创建、保存表单、开关追更、立即补建）成功后，把返回的详情放进缓存，随即重新加载剧详情
+ * （季绑定的列表、追更标记；文件夹当场建出的绑定、保存表单时删掉的槽位）。
+ * 合集的详情显示正在补建时，useSeasonBinding 随即开始轮询，补建结束后再重新加载一次剧详情。
  */
 export function useWatchSeasonBinding() {
   const queryClient = useQueryClient()
@@ -97,7 +97,7 @@ export function useWatchSeasonBinding() {
   return useCallback(
     async (detail: SeasonBindingDetail) => {
       queryClient.setQueryData(seasonBindingKeys.detail(detail.id), detail)
-      if (detail.kind === 'folder') await reloadSeries()
+      await reloadSeries()
     },
     [queryClient, reloadSeries],
   )

@@ -1,5 +1,6 @@
 import type {
   Candidate,
+  EpisodeRuleForm,
   Item,
   SeasonBinding,
   SeasonBindingKind,
@@ -7,15 +8,22 @@ import type {
 } from '@/api/season-bindings'
 import type { Season } from '@/api/series'
 
-import { catalogPath } from './catalog'
-
 /**
  * 条目表（详情，补建的语义）里一个条目的状态文字：对到的集写在前面；替换写出原来的绑定，合集说"待换新稿件"，文件夹说"待替换"。
  * 上次补建失败的原因（item.lastError）不在这里，由条目表另外标出
  */
 export function itemStatusText(item: Item, kind: SeasonBindingKind) {
-  const text = statusText(item, kind)
-  return item.episodeNumber === null ? text : `第 ${item.episodeNumber} 集 · ${text}`
+  return withEpisode(item, statusText(item, kind))
+}
+
+/** 写明是哪一集的文字："第 N 集 · text"，例如槽位写成"第 N 集 · 绑定的标题" */
+export function episodeText(episodeNumber: number, text: string) {
+  return `第 ${episodeNumber} 集 · ${text}`
+}
+
+/** 条目对到了集时，把集写在 text 前面 */
+function withEpisode(item: Item, text: string) {
+  return item.episodeNumber === null ? text : episodeText(item.episodeNumber, text)
 }
 
 function statusText(item: Item, kind: SeasonBindingKind) {
@@ -43,8 +51,7 @@ function statusText(item: Item, kind: SeasonBindingKind) {
  * 预览表"保存后"一列的文字（保存表单的语义）：对到的集写在前面，接着是保存后的状态；替换写出原来的绑定
  */
 export function previewStatusText(item: Item) {
-  const text = previewText(item)
-  return item.episodeNumber === null ? text : `第 ${item.episodeNumber} 集 · ${text}`
+  return withEpisode(item, previewText(item))
 }
 
 function previewText(item: Item) {
@@ -96,14 +103,14 @@ export function seasonBindingName(sb: SeasonBinding) {
 /**
  * 绑定卡片上季绑定的锁形标签：文字只写季绑定的名称，悬停提示写全名和来源，to 是季面板的路径（建出的绑定要到那里改）。
  * season 是绑定所在的季（剧 seriesId 的，带着剧详情里的季绑定），季绑定与它建出的绑定总在同一季；
- * path 拼出目录页的地址，默认不带查询参数，组件里传 useCatalogPath() 的结果以保留地址栏的分类。
+ * path 拼出目录页的地址，组件里传 useCatalogPath() 的结果以保留地址栏的分类。
  * 不是季绑定建出的绑定为 null，找不到对应的季绑定时（理论上不会发生）只写"季绑定"
  */
 export function seasonBindingTag(
   seasonBindingId: number | null,
   season: Pick<Season, 'id' | 'seasonBindings'>,
   seriesId: number,
-  path: (...ids: number[]) => string = catalogPath,
+  path: (...ids: number[]) => string,
 ) {
   if (seasonBindingId === null) return null
   const to = path(seriesId, season.id)
@@ -120,6 +127,20 @@ export function seasonBindingTag(
   }
 }
 
+/** 添加季绑定时集号规则、集号对应的初始值：默认的集号规则与 1 = 1，不按内容猜 */
+export function defaultRules(episodePatterns: string[]): EpisodeRuleForm {
+  return { episodePatterns, mappingFrom: 1, mappingTo: 1 }
+}
+
+/** 编辑季绑定时集号规则、集号对应的初始值：季绑定保存的 */
+export function savedRules(sb: SeasonBinding): EpisodeRuleForm {
+  return {
+    episodePatterns: sb.episodePatterns,
+    mappingFrom: sb.mappingFrom,
+    mappingTo: sb.mappingTo,
+  }
+}
+
 /** 集号规则：去掉每条前后的空白、丢掉空的，提交和比较都用它 */
 export function cleanPatterns(patterns: string[]) {
   return patterns.map((p) => p.trim()).filter(Boolean)
@@ -131,7 +152,7 @@ export function samePatterns(a: string[], b: string[]) {
 }
 
 /** 集号对应的说明（悬停提示）：prefix 是 X 前面的称呼，见 MappingInputs */
-export function mappingHint(prefix = '合集') {
+export function mappingHint(prefix: string) {
   return `${prefix}第 X 集对应本地第 Y 集，之后一一顺延；序号小于 X 的条目不参与`
 }
 

@@ -1,5 +1,6 @@
 import type { EntryHashes } from '@/api/season-bindings'
 import { sha256 as sha256Bytes } from '@noble/hashes/sha2.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
 
 import { naturalOrder } from './catalog'
 
@@ -7,9 +8,8 @@ import { naturalOrder } from './catalog'
 export interface UploadEntry {
   /** 条目名称，不带文件夹名：子目录名，或去掉扩展名的文件名 */
   label: string
+  /** 条目里的文件，各自带着以所选文件夹名开头的相对路径（webkitRelativePath） */
   files: File[]
-  /** 与 files 一一对应、顺序相同的相对路径，以所选文件夹名开头 */
-  paths: string[]
 }
 
 /**
@@ -54,11 +54,10 @@ export function groupFolderFiles(files: readonly File[]): FolderGrouping {
     let entry = entries.get(key)
     if (!entry) {
       const name = flat ? stripExtension(child) : child
-      entry = { label: name, files: [], paths: [] }
+      entry = { label: name, files: [] }
       entries.set(key, entry)
     }
     entry.files.push(file)
-    entry.paths.push(path)
     folderName = folder
   }
   if (entries.size === 0) {
@@ -88,7 +87,7 @@ async function sha256(file: File) {
   const digest = globalThis.crypto?.subtle
     ? new Uint8Array(await crypto.subtle.digest('SHA-256', content))
     : sha256Bytes(new Uint8Array(content))
-  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')
+  return bytesToHex(digest)
 }
 
 /**

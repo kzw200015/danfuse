@@ -148,11 +148,6 @@ export interface Preview {
   candidates: Candidate[]
 }
 
-export interface Mapping {
-  from: number
-  to: number
-}
-
 /** 两种表单共有的部分：集号规则与集号对应 */
 export interface EpisodeRuleForm {
   episodePatterns: string[]
@@ -186,12 +181,6 @@ export interface PickedFolder {
 /** 文件夹的表单（预览）：编辑时不换文件夹就不传 folder 和 entries，按保存的条目和季绑定的标题算 */
 export type FolderPreviewForm = EpisodeRuleForm &
   (PickedFolder | { folder?: never; entries?: never })
-
-/** 上传的文件夹：要上传的文件，与它们以所选文件夹名开头的相对路径（一一对应、顺序相同），后端按路径分条目 */
-export interface FolderFiles {
-  files: File[]
-  paths: string[]
-}
 
 /** 预览新建合集的季绑定 */
 export function previewNewCollection(seasonId: number, form: CollectionPreviewForm) {
@@ -245,9 +234,12 @@ export function previewNewFolder(seasonId: number, form: EpisodeRuleForm & Picke
   })
 }
 
-/** 文件夹的上传请求：files 以相对路径作文件名，form 是集号规则与集号对应的 JSON */
+/**
+ * 文件夹的上传请求：files 是目录选择选出的文件，以它们的相对路径（webkitRelativePath，以所选文件夹名开头）作文件名，
+ * 后端按路径分条目；form 是集号规则与集号对应的 JSON
+ */
 function folderRequest(
-  folder: FolderFiles | null,
+  files: File[] | null,
   form: EpisodeRuleForm,
   onProgress?: (progress: number) => void,
 ) {
@@ -260,11 +252,11 @@ function folderRequest(
       mappingTo: form.mappingTo,
     }),
   )
-  folder?.files.forEach((f, i) => data.append('files', f, folder.paths[i]))
+  files?.forEach((f) => data.append('files', f, f.webkitRelativePath))
   return {
     data,
     // 一季的文件可能有上百 MB，带文件时不设超时；不带时后端只按保存的条目重新解析
-    timeout: folder ? uploadRequestTimeout : slowRequestTimeout,
+    timeout: files ? uploadRequestTimeout : slowRequestTimeout,
     onUploadProgress: (e: { progress?: number; loaded: number; total?: number }) =>
       onProgress?.(e.progress ?? (e.total ? e.loaded / e.total : 0)),
   }
@@ -276,14 +268,14 @@ function folderRequest(
  */
 export function createFolder(
   seasonId: number,
-  folder: FolderFiles,
+  files: File[],
   form: EpisodeRuleForm,
   onProgress?: (progress: number) => void,
 ) {
   return request<FolderSeasonBindingDetail>({
     url: `/seasons/${seasonId}/season-bindings/folder`,
     method: 'POST',
-    ...folderRequest(folder, form, onProgress),
+    ...folderRequest(files, form, onProgress),
   })
 }
 
@@ -297,19 +289,19 @@ export function previewFolderEdit(id: number, form: FolderPreviewForm) {
 }
 
 /**
- * 保存文件夹的季绑定的表单，当场完成，返回详情。folder 为 null 时不换文件夹，只改集号规则、集号对应；
+ * 保存文件夹的季绑定的表单，当场完成，返回详情。files 为 null 时不换文件夹，只改集号规则、集号对应；
  * 换文件夹时名称和文件哈希都没变的条目沿用。错误同 createFolder
  */
 export function saveFolder(
   id: number,
-  folder: FolderFiles | null,
+  files: File[] | null,
   form: EpisodeRuleForm,
   onProgress?: (progress: number) => void,
 ) {
   return request<FolderSeasonBindingDetail>({
     url: `/season-bindings/${id}/folder`,
     method: 'PUT',
-    ...folderRequest(folder, form, onProgress),
+    ...folderRequest(files, form, onProgress),
   })
 }
 

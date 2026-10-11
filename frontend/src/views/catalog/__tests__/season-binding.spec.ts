@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { folderSeasonBinding, seasonBinding } from '@/__tests__/utils'
 import type { Candidate, Item } from '@/api/season-bindings'
+
+import { catalogPath } from '../catalog'
 import {
   candidateText,
   itemStatusText,
@@ -92,7 +94,7 @@ describe('seasonBindingTag', () => {
     // 找不到对应的季绑定
     [9, { text: '季绑定', title: '由季绑定建出', to: '/catalog/1/11' }],
   ])('%s', (id, want) => {
-    expect(seasonBindingTag(id, season, 1)).toEqual(want)
+    expect(seasonBindingTag(id, season, 1, catalogPath)).toEqual(want)
   })
 
   it('季面板的路径用给的 path 拼出，例如带上地址栏的查询参数', () => {

@@ -24,12 +24,11 @@ import {
   useSeasonBindingPreview,
   useWatchSeasonBinding,
 } from '@/hooks/use-season-bindings'
-import { useReloadSeries } from '@/hooks/use-series'
 import { useSettings } from '@/hooks/use-settings'
 import { followCostText } from '@/lib/follow'
 import { cn } from '@/lib/utils'
 
-import { candidateText } from './season-binding'
+import { candidateText, defaultRules, savedRules } from './season-binding'
 import {
   AddFormFrame,
   FormFrame,
@@ -42,8 +41,6 @@ import { SourceLink } from './shared'
 
 /** 添加与编辑合集的季绑定的不同之处，由 AddCollectionForm、EditCollectionForm 给出；表单只经由它区分两种模式 */
 export interface CollectionFormMode {
-  /** 表单的标题和无障碍名称 */
-  label: string
   /** 保存按钮上的动词 */
   verb: string
   /** 保存成功的提示 */
@@ -72,11 +69,10 @@ const waitingText = '正在列出合集，最长约 25 秒…'
 export function AddCollectionForm({ season, onClose }: { season: Season; onClose: () => void }) {
   const { data: settings } = useSettings()
   const mode = (patterns: string[]): CollectionFormMode => ({
-    label: '绑定合集',
     verb: '创建',
     savedText: '已创建季绑定，正在后台补建',
     initialLink: '',
-    initialRules: { episodePatterns: patterns, mappingFrom: 1, mappingTo: 1 },
+    initialRules: defaultRules(patterns),
     previewKey: seasonBindingKeys.preview('new-collection', season.id),
     preview: (form) => previewNewCollection(season.id, form),
     save: (form) => createCollection(season.id, form),
@@ -102,15 +98,10 @@ export function EditCollectionForm({
   onClose: () => void
 }) {
   const mode: CollectionFormMode = {
-    label: '编辑季绑定',
     verb: '保存',
     savedText: '已保存，正在后台补建',
     initialLink: binding.link,
-    initialRules: {
-      episodePatterns: binding.episodePatterns,
-      mappingFrom: binding.mappingFrom,
-      mappingTo: binding.mappingTo,
-    },
+    initialRules: savedRules(binding),
     previewKey: seasonBindingKeys.preview('collection', binding.id),
     preview: (form) => previewCollectionEdit(binding.id, form),
     save: (form) => saveCollection(binding.id, form),
@@ -118,7 +109,7 @@ export function EditCollectionForm({
     onClose,
   }
   return (
-    <FormFrame label={mode.label}>
+    <FormFrame label="编辑季绑定">
       <CollectionFormBody mode={mode} />
     </FormFrame>
   )
@@ -143,15 +134,13 @@ function CollectionFormBody({ mode }: { mode: CollectionFormMode }) {
   const selected = selectCandidate(candidates, kind)
 
   const watch = useWatchSeasonBinding()
-  const reload = useReloadSeries()
   const save = useMutation({
     mutationFn: mode.save,
-    onSuccess: async (detail) => {
+    onSuccess: (detail) => {
       toast.success(mode.savedText)
-      await watch(detail)
       mode.onClose()
-      // 季面板显示新的（或改过的）季绑定卡片；保存时删掉了没有条目的槽位，各集的绑定也要刷新
-      return reload()
+      // 季面板显示新的（或改过的）季绑定卡片；保存时删掉了没有条目的槽位，各集的绑定也随剧详情刷新
+      return watch(detail)
     },
   })
 

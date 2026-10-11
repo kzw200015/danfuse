@@ -4,20 +4,20 @@ import { picked } from '@/__tests__/utils'
 
 import { groupFolderFiles, hashEntries } from '../season-upload'
 
-/** 分组结果里看得到的部分：文件夹名、条目名称与各自的相对路径（文件与路径一一对应、顺序相同） */
+/** 分组结果里看得到的部分：文件夹名、条目名称与各自文件的相对路径（顺序与文件相同） */
 function shape(paths: string[]) {
   const result = groupFolderFiles(paths.map(picked))
   if (!result.ok) {
     return result
   }
-  for (const e of result.entries) {
-    expect(e.files.map((f) => f.webkitRelativePath)).toEqual(e.paths)
-  }
   return {
     ok: true,
     folder: result.folder,
     ignored: result.ignored,
-    entries: result.entries.map((e) => ({ label: e.label, paths: e.paths })),
+    entries: result.entries.map((e) => ({
+      label: e.label,
+      paths: e.files.map((f) => f.webkitRelativePath),
+    })),
   }
 }
 
@@ -95,8 +95,8 @@ const file = (content: string, name: string) => new File([content], name)
 
 describe('hashEntries', () => {
   const entries = [
-    { label: '1', files: [file('abc', 'a.xml'), file('', 'b.xml')], paths: [] },
-    { label: '2', files: [file('abc', 'c.xml')], paths: [] },
+    { label: '1', files: [file('abc', 'a.xml'), file('', 'b.xml')] },
+    { label: '2', files: [file('abc', 'c.xml')] },
   ]
   const want = [
     {
@@ -128,7 +128,7 @@ describe('hashEntries', () => {
         file('a'.repeat(64), '64.xml'),
         file('弹幕'.repeat(100), 'utf8.xml'),
       ]
-      expect(await hashEntries([{ label: '长', files: more, paths: [] }])).toEqual([
+      expect(await hashEntries([{ label: '长', files: more }])).toEqual([
         {
           label: '长',
           sha256s: [
