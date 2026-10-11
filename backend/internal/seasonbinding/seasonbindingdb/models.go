@@ -26,6 +26,7 @@ type SeasonBinding struct {
 	EpisodePatterns []string   `json:"episodePatterns"`
 	NumberedByRule  *bool      `json:"numberedByRule"`
 	Kind            string     `json:"kind"`
+	Link            *string    `json:"link"`
 }
 
 type SeasonBindingItem struct {

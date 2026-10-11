@@ -17,13 +17,20 @@ WHERE id = $1
 FOR KEY SHARE;
 
 -- name: SeasonBindingExists :one
--- 这一季是否已经绑定过这个合集。只用于在列出合集前省掉一次注定 409 的请求，并发时以唯一约束为准。
-SELECT EXISTS (SELECT 1 FROM season_bindings WHERE season_id = @season_id AND adapter = @adapter::text AND ref = @ref::jsonb);
+-- 这一季是否已经绑定过这个合集（换合集时不算 exclude_id 这个季绑定自己）。只用于在列出合集前省掉一次注定 409 的请求，
+-- 并发时以唯一约束为准。
+SELECT EXISTS (SELECT 1
+               FROM season_bindings
+               WHERE season_id = @season_id
+                 AND adapter = @adapter::text
+                 AND ref = @ref::jsonb
+                 AND id IS DISTINCT FROM sqlc.narg(exclude_id)::bigint);
 
 -- name: InsertSeasonBinding :one
 -- 合集的季绑定。同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
-INSERT INTO season_bindings (season_id, kind, adapter, ref, title, finished, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
-VALUES (@season_id, 'collection', @adapter::text, @ref::jsonb, @title, @finished, @mapping_from::int, @mapping_to::int,
+INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, finished, mapping_from, mapping_to, episode_patterns,
+                             numbered_by_rule)
+VALUES (@season_id, 'collection', @adapter::text, @ref::jsonb, @link::text, @title, @finished, @mapping_from::int, @mapping_to::int,
         @episode_patterns::text[], @numbered_by_rule::boolean)
 RETURNING id;
 
@@ -194,8 +201,8 @@ SET last_checked_at = sqlc.arg(checked_at)::timestamptz,
 WHERE id = sqlc.arg(id);
 
 -- name: UpdateSeasonBinding :one
--- 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号：改了集号规则时，同一个事务里随后重新认出条目的序号。
--- 不存在时没有行。
+-- 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号和改过之后的集号规则：
+-- 改了集号规则或换了合集时，同一个事务里随后按它认出条目的序号。不存在时没有行。
 UPDATE season_bindings
 SET follow           = coalesce(sqlc.narg(follow), follow),
     mapping_from     = coalesce(sqlc.narg(mapping_from), mapping_from),
@@ -203,7 +210,68 @@ SET follow           = coalesce(sqlc.narg(follow), follow),
     episode_patterns = coalesce(sqlc.narg(episode_patterns)::text[], episode_patterns),
     updated_at       = now()
 WHERE id = sqlc.arg(id)
-RETURNING numbered_by_rule;
+RETURNING numbered_by_rule, episode_patterns;
+
+-- name: LockSeasonBindingCollection :one
+-- 换合集的写入事务的第二句（第一句锁季）：锁住季绑定到提交，返回它现在是不是就绑着这个合集。季绑定已被删除时没有行。
+SELECT coalesce(adapter = @adapter::text AND ref = @ref::jsonb, false)::boolean AS same
+FROM season_bindings
+WHERE id = @id
+FOR UPDATE;
+
+-- name: DeleteBindingsOutsideCollection :execrows
+-- 换成另一个合集时，删掉季绑定建出的、弹幕源不在新合集里的绑定（适配器不同的全删），弹幕随外键级联删除。
+-- refs 是新合集的全部条目的 ref（JSON 文本），按 jsonb 比较。
+DELETE FROM bindings b
+WHERE b.season_binding_id = @season_binding_id::bigint
+  AND NOT (b.adapter = @adapter::text
+    AND EXISTS (SELECT 1 FROM unnest(@refs::text[]) AS r (ref) WHERE r.ref::jsonb = b.ref));
+
+-- name: DeleteHandledOutsideCollection :exec
+-- 同上，删掉弹幕源不在新合集里的处理过的记录；要在改季绑定的适配器之前执行（按季绑定原来的适配器比较）。
+DELETE FROM season_binding_handled h
+USING season_bindings sb
+WHERE sb.id = h.season_binding_id
+  AND h.season_binding_id = @season_binding_id::bigint
+  AND NOT (sb.adapter = @adapter::text
+    AND EXISTS (SELECT 1 FROM unnest(@refs::text[]) AS r (ref) WHERE r.ref::jsonb = h.ref));
+
+-- name: SetSeasonBindingCollection :exec
+-- 换合集（或只改了贴的链接）：写入新的合集与这次列出的标题、完结标志、是否按规则编号，恢复为正常、清掉错误。
+-- changed（换成了另一个合集）时清掉上次检查时间：新合集还没检查过。同一季已经绑定过这个合集时撞上唯一约束。
+UPDATE season_bindings
+SET adapter          = @adapter::text,
+    ref              = @ref::jsonb,
+    link             = @link::text,
+    title            = @title,
+    finished         = @finished,
+    numbered_by_rule = @numbered_by_rule::boolean,
+    status           = 'active',
+    last_error       = NULL,
+    last_checked_at  = CASE WHEN @changed::boolean THEN NULL ELSE last_checked_at END,
+    updated_at       = now()
+WHERE id = @id;
+
+-- name: GetCollectionChangeImpact :one
+-- 编辑时的预览：季绑定现在是不是就绑着这个合集，以及它建出的绑定里弹幕源不在这个合集里的有几个（换过去时会删掉）。
+-- refs 同 DeleteBindingsOutsideCollection。季绑定不存在时没有行。
+SELECT coalesce(sb.adapter = @adapter::text AND sb.ref = @ref::jsonb, false)::boolean AS same,
+       (SELECT count(*)
+        FROM bindings b
+        WHERE b.season_binding_id = sb.id
+          AND NOT (b.adapter = @adapter::text
+            AND EXISTS (SELECT 1 FROM unnest(@refs::text[]) AS r (ref) WHERE r.ref::jsonb = b.ref)))::int AS outside
+FROM season_bindings sb
+WHERE sb.id = @id;
+
+-- name: ListHandledEpisodesByRefs :many
+-- 编辑时的预览：这个合集的条目里季绑定处理过的，各自的绑定建在的那一集。refs 按条目的顺序，pos 从 1 开始；
+-- 适配器与季绑定的不同时没有行。
+SELECT r.pos::int AS pos, e.number AS episode_number
+FROM unnest(@refs::text[]) WITH ORDINALITY AS r (ref, pos)
+JOIN season_bindings sb ON sb.id = @season_binding_id::bigint AND sb.adapter = @adapter::text
+JOIN season_binding_handled h ON h.season_binding_id = sb.id AND h.ref = r.ref::jsonb
+JOIN episodes e ON e.id = h.episode_id;
 
 -- name: DeleteBindingsBySeasonBinding :exec
 -- 删除季绑定时"一起删"：它建出的绑定，弹幕随外键级联删除。

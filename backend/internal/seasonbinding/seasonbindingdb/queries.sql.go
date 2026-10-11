@@ -21,6 +21,50 @@ func (q *Queries) DeleteBindingsBySeasonBinding(ctx context.Context, seasonBindi
 	return err
 }
 
+const deleteBindingsOutsideCollection = `-- name: DeleteBindingsOutsideCollection :execrows
+DELETE FROM bindings b
+WHERE b.season_binding_id = $1::bigint
+  AND NOT (b.adapter = $2::text
+    AND EXISTS (SELECT 1 FROM unnest($3::text[]) AS r (ref) WHERE r.ref::jsonb = b.ref))
+`
+
+type DeleteBindingsOutsideCollectionParams struct {
+	SeasonBindingID int64    `json:"seasonBindingId"`
+	Adapter         string   `json:"adapter"`
+	Refs            []string `json:"refs"`
+}
+
+// 换成另一个合集时，删掉季绑定建出的、弹幕源不在新合集里的绑定（适配器不同的全删），弹幕随外键级联删除。
+// refs 是新合集的全部条目的 ref（JSON 文本），按 jsonb 比较。
+func (q *Queries) DeleteBindingsOutsideCollection(ctx context.Context, arg DeleteBindingsOutsideCollectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBindingsOutsideCollection, arg.SeasonBindingID, arg.Adapter, arg.Refs)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteHandledOutsideCollection = `-- name: DeleteHandledOutsideCollection :exec
+DELETE FROM season_binding_handled h
+USING season_bindings sb
+WHERE sb.id = h.season_binding_id
+  AND h.season_binding_id = $1::bigint
+  AND NOT (sb.adapter = $2::text
+    AND EXISTS (SELECT 1 FROM unnest($3::text[]) AS r (ref) WHERE r.ref::jsonb = h.ref))
+`
+
+type DeleteHandledOutsideCollectionParams struct {
+	SeasonBindingID int64    `json:"seasonBindingId"`
+	Adapter         string   `json:"adapter"`
+	Refs            []string `json:"refs"`
+}
+
+// 同上，删掉弹幕源不在新合集里的处理过的记录；要在改季绑定的适配器之前执行（按季绑定原来的适配器比较）。
+func (q *Queries) DeleteHandledOutsideCollection(ctx context.Context, arg DeleteHandledOutsideCollectionParams) error {
+	_, err := q.db.Exec(ctx, deleteHandledOutsideCollection, arg.SeasonBindingID, arg.Adapter, arg.Refs)
+	return err
+}
+
 const deleteSeasonBinding = `-- name: DeleteSeasonBinding :exec
 DELETE FROM season_bindings
 WHERE id = $1
@@ -77,6 +121,43 @@ func (q *Queries) FinishSeasonBindingCheck(ctx context.Context, arg FinishSeason
 	return err
 }
 
+const getCollectionChangeImpact = `-- name: GetCollectionChangeImpact :one
+SELECT coalesce(sb.adapter = $1::text AND sb.ref = $2::jsonb, false)::boolean AS same,
+       (SELECT count(*)
+        FROM bindings b
+        WHERE b.season_binding_id = sb.id
+          AND NOT (b.adapter = $1::text
+            AND EXISTS (SELECT 1 FROM unnest($3::text[]) AS r (ref) WHERE r.ref::jsonb = b.ref)))::int AS outside
+FROM season_bindings sb
+WHERE sb.id = $4
+`
+
+type GetCollectionChangeImpactParams struct {
+	Adapter string   `json:"adapter"`
+	Ref     []byte   `json:"ref"`
+	Refs    []string `json:"refs"`
+	ID      int64    `json:"id"`
+}
+
+type GetCollectionChangeImpactRow struct {
+	Same    bool  `json:"same"`
+	Outside int32 `json:"outside"`
+}
+
+// 编辑时的预览：季绑定现在是不是就绑着这个合集，以及它建出的绑定里弹幕源不在这个合集里的有几个（换过去时会删掉）。
+// refs 同 DeleteBindingsOutsideCollection。季绑定不存在时没有行。
+func (q *Queries) GetCollectionChangeImpact(ctx context.Context, arg GetCollectionChangeImpactParams) (GetCollectionChangeImpactRow, error) {
+	row := q.db.QueryRow(ctx, getCollectionChangeImpact,
+		arg.Adapter,
+		arg.Ref,
+		arg.Refs,
+		arg.ID,
+	)
+	var i GetCollectionChangeImpactRow
+	err := row.Scan(&i.Same, &i.Outside)
+	return i, err
+}
+
 const getEpisodeIDByNumber = `-- name: GetEpisodeIDByNumber :one
 SELECT id
 FROM episodes
@@ -98,7 +179,7 @@ func (q *Queries) GetEpisodeIDByNumber(ctx context.Context, arg GetEpisodeIDByNu
 }
 
 const getSeasonBinding = `-- name: GetSeasonBinding :one
-SELECT id, season_id, adapter, ref, title, finished, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, updated_at, episode_patterns, numbered_by_rule, kind
+SELECT id, season_id, adapter, ref, title, finished, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, updated_at, episode_patterns, numbered_by_rule, kind, link
 FROM season_bindings
 WHERE id = $1
 `
@@ -125,6 +206,7 @@ func (q *Queries) GetSeasonBinding(ctx context.Context, id int64) (SeasonBinding
 		&i.EpisodePatterns,
 		&i.NumberedByRule,
 		&i.Kind,
+		&i.Link,
 	)
 	return i, err
 }
@@ -150,7 +232,7 @@ func (q *Queries) GetSeasonBindingItemNumber(ctx context.Context, arg GetSeasonB
 }
 
 const getSeasonBindingSummary = `-- name: GetSeasonBindingSummary :one
-SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at, sb.episode_patterns, sb.numbered_by_rule, sb.kind,
+SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at, sb.episode_patterns, sb.numbered_by_rule, sb.kind, sb.link,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
                FROM leases l
@@ -194,6 +276,7 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 		&i.SeasonBinding.EpisodePatterns,
 		&i.SeasonBinding.NumberedByRule,
 		&i.SeasonBinding.Kind,
+		&i.SeasonBinding.Link,
 		&i.BindingCount,
 		&i.Running,
 	)
@@ -220,9 +303,10 @@ func (q *Queries) InsertFolderSeasonBinding(ctx context.Context, arg InsertFolde
 }
 
 const insertSeasonBinding = `-- name: InsertSeasonBinding :one
-INSERT INTO season_bindings (season_id, kind, adapter, ref, title, finished, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
-VALUES ($1, 'collection', $2::text, $3::jsonb, $4, $5, $6::int, $7::int,
-        $8::text[], $9::boolean)
+INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, finished, mapping_from, mapping_to, episode_patterns,
+                             numbered_by_rule)
+VALUES ($1, 'collection', $2::text, $3::jsonb, $4::text, $5, $6, $7::int, $8::int,
+        $9::text[], $10::boolean)
 RETURNING id
 `
 
@@ -230,6 +314,7 @@ type InsertSeasonBindingParams struct {
 	SeasonID        int64    `json:"seasonId"`
 	Adapter         string   `json:"adapter"`
 	Ref             []byte   `json:"ref"`
+	Link            string   `json:"link"`
 	Title           string   `json:"title"`
 	Finished        bool     `json:"finished"`
 	MappingFrom     int32    `json:"mappingFrom"`
@@ -244,6 +329,7 @@ func (q *Queries) InsertSeasonBinding(ctx context.Context, arg InsertSeasonBindi
 		arg.SeasonID,
 		arg.Adapter,
 		arg.Ref,
+		arg.Link,
 		arg.Title,
 		arg.Finished,
 		arg.MappingFrom,
@@ -398,6 +484,47 @@ func (q *Queries) ListEpisodeNumbersBySeason(ctx context.Context, seasonID int64
 	return items, nil
 }
 
+const listHandledEpisodesByRefs = `-- name: ListHandledEpisodesByRefs :many
+SELECT r.pos::int AS pos, e.number AS episode_number
+FROM unnest($1::text[]) WITH ORDINALITY AS r (ref, pos)
+JOIN season_bindings sb ON sb.id = $2::bigint AND sb.adapter = $3::text
+JOIN season_binding_handled h ON h.season_binding_id = sb.id AND h.ref = r.ref::jsonb
+JOIN episodes e ON e.id = h.episode_id
+`
+
+type ListHandledEpisodesByRefsParams struct {
+	Refs            []string `json:"refs"`
+	SeasonBindingID int64    `json:"seasonBindingId"`
+	Adapter         string   `json:"adapter"`
+}
+
+type ListHandledEpisodesByRefsRow struct {
+	Pos           int32 `json:"pos"`
+	EpisodeNumber int32 `json:"episodeNumber"`
+}
+
+// 编辑时的预览：这个合集的条目里季绑定处理过的，各自的绑定建在的那一集。refs 按条目的顺序，pos 从 1 开始；
+// 适配器与季绑定的不同时没有行。
+func (q *Queries) ListHandledEpisodesByRefs(ctx context.Context, arg ListHandledEpisodesByRefsParams) ([]ListHandledEpisodesByRefsRow, error) {
+	rows, err := q.db.Query(ctx, listHandledEpisodesByRefs, arg.Refs, arg.SeasonBindingID, arg.Adapter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListHandledEpisodesByRefsRow{}
+	for rows.Next() {
+		var i ListHandledEpisodesByRefsRow
+		if err := rows.Scan(&i.Pos, &i.EpisodeNumber); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSeasonBindingItems = `-- name: ListSeasonBindingItems :many
 SELECT season_binding_id, ref, position, number, unmatched_reason, label, last_error, last_error_at
 FROM season_binding_items
@@ -482,7 +609,7 @@ func (q *Queries) ListSeasonBindingItemsWithHandled(ctx context.Context, seasonB
 }
 
 const listSeasonBindingSummariesBySeries = `-- name: ListSeasonBindingSummariesBySeries :many
-SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at, sb.episode_patterns, sb.numbered_by_rule, sb.kind,
+SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.finished, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.updated_at, sb.episode_patterns, sb.numbered_by_rule, sb.kind, sb.link,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int AS binding_count,
        EXISTS (SELECT 1
                FROM leases l
@@ -533,6 +660,7 @@ func (q *Queries) ListSeasonBindingSummariesBySeries(ctx context.Context, arg Li
 			&i.SeasonBinding.EpisodePatterns,
 			&i.SeasonBinding.NumberedByRule,
 			&i.SeasonBinding.Kind,
+			&i.SeasonBinding.Link,
 			&i.BindingCount,
 			&i.Running,
 		); err != nil {
@@ -602,6 +730,27 @@ func (q *Queries) LockSeason(ctx context.Context, id int64) (int64, error) {
 	return id_2, err
 }
 
+const lockSeasonBindingCollection = `-- name: LockSeasonBindingCollection :one
+SELECT coalesce(adapter = $1::text AND ref = $2::jsonb, false)::boolean AS same
+FROM season_bindings
+WHERE id = $3
+FOR UPDATE
+`
+
+type LockSeasonBindingCollectionParams struct {
+	Adapter string `json:"adapter"`
+	Ref     []byte `json:"ref"`
+	ID      int64  `json:"id"`
+}
+
+// 换合集的写入事务的第二句（第一句锁季）：锁住季绑定到提交，返回它现在是不是就绑着这个合集。季绑定已被删除时没有行。
+func (q *Queries) LockSeasonBindingCollection(ctx context.Context, arg LockSeasonBindingCollectionParams) (bool, error) {
+	row := q.db.QueryRow(ctx, lockSeasonBindingCollection, arg.Adapter, arg.Ref, arg.ID)
+	var same bool
+	err := row.Scan(&same)
+	return same, err
+}
+
 const lockSeasonBindingForDelete = `-- name: LockSeasonBindingForDelete :one
 SELECT id
 FROM season_bindings
@@ -668,18 +817,30 @@ func (q *Queries) RecordSeasonBindingListed(ctx context.Context, arg RecordSeaso
 }
 
 const seasonBindingExists = `-- name: SeasonBindingExists :one
-SELECT EXISTS (SELECT 1 FROM season_bindings WHERE season_id = $1 AND adapter = $2::text AND ref = $3::jsonb)
+SELECT EXISTS (SELECT 1
+               FROM season_bindings
+               WHERE season_id = $1
+                 AND adapter = $2::text
+                 AND ref = $3::jsonb
+                 AND id IS DISTINCT FROM $4::bigint)
 `
 
 type SeasonBindingExistsParams struct {
-	SeasonID int64  `json:"seasonId"`
-	Adapter  string `json:"adapter"`
-	Ref      []byte `json:"ref"`
+	SeasonID  int64  `json:"seasonId"`
+	Adapter   string `json:"adapter"`
+	Ref       []byte `json:"ref"`
+	ExcludeID *int64 `json:"excludeId"`
 }
 
-// 这一季是否已经绑定过这个合集。只用于在列出合集前省掉一次注定 409 的请求，并发时以唯一约束为准。
+// 这一季是否已经绑定过这个合集（换合集时不算 exclude_id 这个季绑定自己）。只用于在列出合集前省掉一次注定 409 的请求，
+// 并发时以唯一约束为准。
 func (q *Queries) SeasonBindingExists(ctx context.Context, arg SeasonBindingExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, seasonBindingExists, arg.SeasonID, arg.Adapter, arg.Ref)
+	row := q.db.QueryRow(ctx, seasonBindingExists,
+		arg.SeasonID,
+		arg.Adapter,
+		arg.Ref,
+		arg.ExcludeID,
+	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -695,6 +856,48 @@ func (q *Queries) SeasonExists(ctx context.Context, id int64) (bool, error) {
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const setSeasonBindingCollection = `-- name: SetSeasonBindingCollection :exec
+UPDATE season_bindings
+SET adapter          = $1::text,
+    ref              = $2::jsonb,
+    link             = $3::text,
+    title            = $4,
+    finished         = $5,
+    numbered_by_rule = $6::boolean,
+    status           = 'active',
+    last_error       = NULL,
+    last_checked_at  = CASE WHEN $7::boolean THEN NULL ELSE last_checked_at END,
+    updated_at       = now()
+WHERE id = $8
+`
+
+type SetSeasonBindingCollectionParams struct {
+	Adapter        string `json:"adapter"`
+	Ref            []byte `json:"ref"`
+	Link           string `json:"link"`
+	Title          string `json:"title"`
+	Finished       bool   `json:"finished"`
+	NumberedByRule bool   `json:"numberedByRule"`
+	Changed        bool   `json:"changed"`
+	ID             int64  `json:"id"`
+}
+
+// 换合集（或只改了贴的链接）：写入新的合集与这次列出的标题、完结标志、是否按规则编号，恢复为正常、清掉错误。
+// changed（换成了另一个合集）时清掉上次检查时间：新合集还没检查过。同一季已经绑定过这个合集时撞上唯一约束。
+func (q *Queries) SetSeasonBindingCollection(ctx context.Context, arg SetSeasonBindingCollectionParams) error {
+	_, err := q.db.Exec(ctx, setSeasonBindingCollection,
+		arg.Adapter,
+		arg.Ref,
+		arg.Link,
+		arg.Title,
+		arg.Finished,
+		arg.NumberedByRule,
+		arg.Changed,
+		arg.ID,
+	)
+	return err
 }
 
 const setSeasonBindingItemError = `-- name: SetSeasonBindingItemError :exec
@@ -731,7 +934,7 @@ SET follow           = coalesce($1, follow),
     episode_patterns = coalesce($4::text[], episode_patterns),
     updated_at       = now()
 WHERE id = $5
-RETURNING numbered_by_rule
+RETURNING numbered_by_rule, episode_patterns
 `
 
 type UpdateSeasonBindingParams struct {
@@ -742,9 +945,14 @@ type UpdateSeasonBindingParams struct {
 	ID              int64    `json:"id"`
 }
 
-// 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号：改了集号规则时，同一个事务里随后重新认出条目的序号。
-// 不存在时没有行。
-func (q *Queries) UpdateSeasonBinding(ctx context.Context, arg UpdateSeasonBindingParams) (*bool, error) {
+type UpdateSeasonBindingRow struct {
+	NumberedByRule  *bool    `json:"numberedByRule"`
+	EpisodePatterns []string `json:"episodePatterns"`
+}
+
+// 改集号对应、集号规则，开关追更：只改传了的字段。返回是否按集号规则编号和改过之后的集号规则：
+// 改了集号规则或换了合集时，同一个事务里随后按它认出条目的序号。不存在时没有行。
+func (q *Queries) UpdateSeasonBinding(ctx context.Context, arg UpdateSeasonBindingParams) (UpdateSeasonBindingRow, error) {
 	row := q.db.QueryRow(ctx, updateSeasonBinding,
 		arg.Follow,
 		arg.MappingFrom,
@@ -752,9 +960,9 @@ func (q *Queries) UpdateSeasonBinding(ctx context.Context, arg UpdateSeasonBindi
 		arg.EpisodePatterns,
 		arg.ID,
 	)
-	var numbered_by_rule *bool
-	err := row.Scan(&numbered_by_rule)
-	return numbered_by_rule, err
+	var i UpdateSeasonBindingRow
+	err := row.Scan(&i.NumberedByRule, &i.EpisodePatterns)
+	return i, err
 }
 
 const upsertSeasonBindingItems = `-- name: UpsertSeasonBindingItems :exec

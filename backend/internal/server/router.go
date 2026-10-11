@@ -55,6 +55,7 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	api.POST("/seasons/:id/season-bindings", h.SeasonBinding.Create)
 	api.GET("/season-bindings/:id", h.SeasonBinding.Get)
 	api.PATCH("/season-bindings/:id", h.SeasonBinding.Update)
+	api.POST("/season-bindings/:id/preview", h.SeasonBinding.PreviewChange)
 	api.POST("/season-bindings/:id/backfill", h.SeasonBinding.Backfill)
 	api.DELETE("/season-bindings/:id", h.SeasonBinding.Delete)
 	api.GET("/episode-rules/default", h.SeasonBinding.DefaultEpisodeRule)

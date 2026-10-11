@@ -129,6 +129,42 @@ func (h *Handler) Create(c *echo.Context) error {
 	return response.Created(c, detail)
 }
 
+type previewChangeRequest struct {
+	ID              int64    `param:"id"`
+	Link            string   `json:"link"`
+	EpisodePatterns []string `json:"episodePatterns"` // 集号规则，必须传
+
+	rule source.EpisodeRule
+}
+
+func (r *previewChangeRequest) Validate() error {
+	if r.ID < 1 {
+		return request.InvalidParam("季绑定 ID 不合法")
+	}
+	r.Link = strings.TrimSpace(r.Link)
+	if r.Link == "" {
+		return request.InvalidParam("请粘贴合集的链接")
+	}
+	var err error
+	r.rule, err = parseRule(r.EpisodePatterns)
+	return err
+}
+
+// PreviewChange POST /api/season-bindings/:id/preview {link, episodePatterns}
+// 编辑合集的季绑定时的预览：同季上的预览，另外标出现在绑着的候选（current）、换成各个候选时会删掉的绑定数（removedBindings），
+// 以及处理过的条目的绑定建在哪一集（handledEpisode）。不保存任何东西。
+func (h *Handler) PreviewChange(c *echo.Context) error {
+	req, err := request.Bind[previewChangeRequest](c)
+	if err != nil {
+		return err
+	}
+	preview, err := h.svc.PreviewChange(c.Request().Context(), req.ID, req.Link, req.rule)
+	if err != nil {
+		return err
+	}
+	return response.OK(c, preview)
+}
+
 type seasonBindingRequest struct {
 	ID int64 `param:"id"`
 }
@@ -160,15 +196,18 @@ type updateSeasonBindingRequest struct {
 	MappingFrom     *int32   `json:"mappingFrom"`
 	MappingTo       *int32   `json:"mappingTo"`
 	EpisodePatterns []string `json:"episodePatterns"` // 集号规则，不传或为 null 时不改
+	Link            *string  `json:"link"`            // 换合集：贴的链接，不传或为 null 时不换
+	Kind            string   `json:"kind"`            // 换合集时选的候选，链接只有一个候选时可以不传
 
-	rule *source.EpisodeRule
+	rule       *source.EpisodeRule
+	collection *CollectionChoice
 }
 
 func (r *updateSeasonBindingRequest) Validate() error {
 	if r.ID < 1 {
 		return request.InvalidParam("季绑定 ID 不合法")
 	}
-	if r.Follow == nil && r.MappingFrom == nil && r.MappingTo == nil && r.EpisodePatterns == nil {
+	if r.Follow == nil && r.MappingFrom == nil && r.MappingTo == nil && r.EpisodePatterns == nil && r.Link == nil {
 		return request.InvalidParam("没有要修改的内容")
 	}
 	if r.MappingFrom != nil && !validMapping(r.MappingFrom) || r.MappingTo != nil && !validMapping(r.MappingTo) {
@@ -181,19 +220,27 @@ func (r *updateSeasonBindingRequest) Validate() error {
 		}
 		r.rule = &rule
 	}
+	if r.Link != nil {
+		link := strings.TrimSpace(*r.Link)
+		if link == "" {
+			return request.InvalidParam("请粘贴合集的链接")
+		}
+		r.collection = &CollectionChoice{Link: link, Kind: strings.TrimSpace(r.Kind)}
+	}
 	return nil
 }
 
-// Update PATCH /api/season-bindings/:id {follow?, mappingFrom?, mappingTo?, episodePatterns?}
-// 开关追更、改集号对应和集号规则，只改传了的字段，返回详情（改了集号规则时条目的序号已按新规则重新认出）。
-// 打开追更、改了对应或规则时随即在后台补建（正在补建时不另起一轮）。
+// Update PATCH /api/season-bindings/:id {follow?, mappingFrom?, mappingTo?, episodePatterns?, link?, kind?}
+// 开关追更、改集号对应和集号规则、换合集，只改传了的字段，返回详情（改了集号规则、换了合集时条目已按新规则重新认出）。
+// 传了 link 时重新识别链接、列出合集（最长约 25 秒），正在补建时返回 409；换成另一个合集时，
+// 它建出的、弹幕源不在新合集里的绑定连同弹幕删除。打开追更、改了对应或规则、换了合集时随即在后台补建（正在补建时不另起一轮）。
 func (h *Handler) Update(c *echo.Context) error {
 	req, err := request.Bind[updateSeasonBindingRequest](c)
 	if err != nil {
 		return err
 	}
 	detail, err := h.svc.Update(c.Request().Context(), req.ID, UpdateParams{
-		Follow: req.Follow, MappingFrom: req.MappingFrom, MappingTo: req.MappingTo, Rule: req.rule,
+		Follow: req.Follow, MappingFrom: req.MappingFrom, MappingTo: req.MappingTo, Rule: req.rule, Collection: req.collection,
 	})
 	if err != nil {
 		return err

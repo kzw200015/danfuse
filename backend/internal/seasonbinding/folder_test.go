@@ -50,7 +50,8 @@ func TestFolderSeasonBindingView(t *testing.T) {
 	})
 }
 
-// TestFolderSeasonBindingDeleteOnly 文件夹的季绑定只能删除：改追更、集号对应、集号规则与立即补建都返回 400，什么都不改，也不补建。
+// TestFolderSeasonBindingDeleteOnly 文件夹的季绑定只能删除：改追更、集号对应、集号规则、换合集、编辑时的预览与立即补建
+// 都返回 400，什么都不改，也不补建、不请求平台。
 func TestFolderSeasonBindingDeleteOnly(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
@@ -64,10 +65,13 @@ func TestFolderSeasonBindingDeleteOnly(t *testing.T) {
 			{Follow: new(false)},
 			{MappingFrom: new(int32(2)), MappingTo: new(int32(1))},
 			{Rule: &rule},
+			{Collection: &seasonbinding.CollectionChoice{Link: "list/s"}},
 		} {
 			_, err := env.svc.Update(t.Context(), id, p)
 			testenv.AssertAppError(t, err, http.StatusBadRequest, "文件夹的季绑定只能删除")
 		}
+		_, err := env.svc.PreviewChange(t.Context(), id, "list/s", rule)
+		testenv.AssertAppError(t, err, http.StatusBadRequest, "文件夹的季绑定只能删除")
 		testenv.AssertAppError(t, env.svc.Backfill(t.Context(), id), http.StatusBadRequest, "文件夹的季绑定只能删除")
 		synctest.Wait()
 

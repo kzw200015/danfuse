@@ -322,7 +322,7 @@ func TestCreateSeasonBinding(t *testing.T) {
 		got := env.get(created.ID)
 		want := seasonbinding.View{
 			ID: 1, SeasonID: 1, Kind: "collection", Title: "某番剧",
-			Adapter: new("fake"), SourceURL: new("https://fake.test/list/s"), SourceLabel: new("假合集 s"), Finished: new(true),
+			Adapter: new("fake"), Link: new("list/s"), SourceURL: new("https://fake.test/list/s"), SourceLabel: new("假合集 s"), Finished: new(true),
 			MappingFrom: new(int32(1)), MappingTo: new(int32(1)), NumberedByRule: new(false),
 			EpisodePatterns: source.DefaultEpisodeRule().Patterns(), LastCheckedAt: &start,
 			Follow: true, Status: "active", BindingCount: 2,
