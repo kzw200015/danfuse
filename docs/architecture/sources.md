@@ -38,7 +38,7 @@
 - 创建绑定、重新拉取由后端当场拉取（最长约 25 秒），`bindings.ts` 里用 `slowRequestTimeout` 放宽超时，界面上用 `useElapsed` 显示已用秒数。
 - 绑定卡片（`BindingCard`）按 `kind` 分出两组操作（`BindingSourceActions.tsx`：重新拉取 / 追加文件、重新解析），各自持有 mutation；一个绑定上改动弹幕的变更都带 `bindingKeys.write(id)` 前缀（`use-bindings.ts`），卡片用 `useIsMutating` 在任何一个进行中时禁用其他操作。
 - 季绑定建出的绑定（`seasonBindingId` 不为空）和手动的排在同一个列表里，归季绑定管（后端的限制见 [`season-binding.md`](season-binding.md#建出的绑定)）：
-  - 卡片右上角是带锁的标签，写"季绑定 · 名称"，点它跳到季面板。集面板把剧详情里这一季的 `seasonBindings` 交给 `BindingCard`，由 `seasonBindingTag`（`season-binding.ts`）按 ID 查出季绑定，给出文字、悬停提示（全名和来源）和季面板的路径；名称取法与季绑定卡片一致（`seasonBindingName`：文件夹的季绑定为文件夹名，合集的季绑定为合集标题、为空时用合集的标签），过长时截断；查不到时只写"季绑定"。
+  - 卡片右上角是带锁的标签，只写季绑定的名称，点它跳到季面板。集面板把剧详情里这一季的 `seasonBindings` 交给 `BindingCard`，由 `seasonBindingTag`（`season-binding.ts`）按 ID 查出季绑定，给出文字、悬停提示（全名和来源）和季面板的路径；名称取法与季绑定卡片一致（`seasonBindingName`：文件夹的季绑定为文件夹名，合集的季绑定为合集标题、为空时用合集的标签），过长时截断；查不到时只写"季绑定"。
   - 删除按钮的位置换成"在季绑定里改 →"，同样跳到季面板，悬停时说明为什么不能单独删除。
   - 偏移照常能改；链接绑定照常重新拉取、清空后重新拉取；文件绑定只能重新解析，没有追加文件（`FileBindingActions`），弹出层里的文件列表是条目的文件、只读，没有加入时间（`BindingFilesPopover`）。
 - 弹幕文件列表的键 `['binding-files', id]`，弹出层打开时才取。
