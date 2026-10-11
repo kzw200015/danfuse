@@ -6,7 +6,6 @@ import type { CollectionCandidate, PreviewItem, SeasonBindingItem } from '@/api/
 import type { Episode } from '@/api/series'
 import {
   candidateText,
-  editLink,
   itemStateText,
   parseMappingNumber,
   previewTarget,
@@ -153,19 +152,6 @@ describe('seasonBindingTag', () => {
   })
 })
 
-describe('editLink', () => {
-  it.each([
-    ['记下的链接', seasonBinding(1, { link: 'https://b23.tv/ss41410' }), 'https://b23.tv/ss41410'],
-    [
-      '记下链接之前建的：用合集的链接',
-      seasonBinding(1, { link: null }),
-      'https://www.bilibili.com/bangumi/play/ss41410',
-    ],
-  ])('%s', (_, sb, want) => {
-    expect(editLink(sb)).toBe(want)
-  })
-})
-
 describe('seasonBindingPatch', () => {
   // 现在：链接 https://b23.tv/ss41410，合集第 1 集 = 本地第 1 集，默认规则
   const sb = seasonBinding(1)
@@ -195,15 +181,5 @@ describe('seasonBindingPatch', () => {
     ],
   ])('%s', (_, edit, want) => {
     expect(seasonBindingPatch(sb, { ...unchanged, ...edit })).toEqual(want)
-  })
-
-  it('记下链接之前建的：预填的合集链接没改时不算换合集', () => {
-    const legacy = seasonBinding(1, { link: null })
-    expect(
-      seasonBindingPatch(legacy, {
-        ...unchanged,
-        link: 'https://www.bilibili.com/bangumi/play/ss41410',
-      }),
-    ).toEqual({})
   })
 })

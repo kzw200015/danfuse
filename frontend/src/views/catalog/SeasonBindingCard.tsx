@@ -35,7 +35,7 @@ import { formatAgo, formatDateTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
 import CollectionItemsTable from './CollectionItemsTable'
-import { itemStateText, seasonBindingName } from './season-binding'
+import { itemStateText, mappingHint, seasonBindingName } from './season-binding'
 import { EditSeasonBindingForm } from './SeasonBindingForm'
 import { SourceLink, StatusBadge } from './shared'
 
@@ -152,7 +152,7 @@ function CollectionSeasonBindingCard({
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span title="合集第 X 集对应本地第 Y 集，之后一一顺延；序号小于 X 的条目不参与">
+        <span title={mappingHint()}>
           合集第 {view.mappingFrom} 集 = 本地第 {view.mappingTo} 集
         </span>
         <span>建出 {view.bindingCount} 个绑定</span>

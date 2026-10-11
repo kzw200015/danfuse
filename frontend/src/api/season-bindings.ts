@@ -12,8 +12,8 @@ export type SeasonBinding = CollectionSeasonBinding | FolderSeasonBinding
 export interface CollectionSeasonBinding extends SeasonBindingBase {
   kind: 'collection'
   adapter: string
-  /** 创建或换合集时贴的链接，编辑时预填；记下链接之前建的季绑定为 null */
-  link: string | null
+  /** 创建或换合集时贴的链接，编辑时预填；记下链接之前建的季绑定为合集的链接（同 sourceUrl） */
+  link: string
   /** 合集在平台上的地址 */
   sourceUrl: string
   /** 例如"B 站番剧 ss41410"，含合集的种类 */

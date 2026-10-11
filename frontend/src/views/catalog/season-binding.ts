@@ -43,6 +43,11 @@ export function samePatterns(a: string[], b: string[]) {
   return a.length === b.length && a.every((p, i) => p === b[i])
 }
 
+/** 集号对应的说明（悬停提示）：prefix 是 X 前面的称呼，见 MappingInputs */
+export function mappingHint(prefix = '合集') {
+  return `${prefix}第 X 集对应本地第 Y 集，之后一一顺延；序号小于 X 的条目不参与`
+}
+
 /** 集号对应的上限：与后端的 int 一致，九位数以内 */
 const maxMappingDigits = 9
 
@@ -134,7 +139,7 @@ export function itemStateText(item: SeasonBindingItem) {
  * 链接对应多个合集时，候选的说明。B 站的稿件既有多个分 P、又属于合集时，两个候选分别是"这个稿件的 N 个分 P"
  * 和"它所在的合集"（种类标识 multiPage、ugcSeason 由 B 站适配器给出）；其他种类写出合集的标签、标题和条数。
  */
-export function candidateText(c: CollectionCandidate | ChangeCandidate) {
+export function candidateText(c: CollectionCandidate) {
   const n = c.items.length
   switch (c.kind) {
     case 'multiPage':
@@ -146,12 +151,7 @@ export function candidateText(c: CollectionCandidate | ChangeCandidate) {
   }
 }
 
-/** 编辑时链接输入框的初始值：记下的链接；记下链接之前建的季绑定用合集的链接代替 */
-export function editLink(sb: CollectionSeasonBinding) {
-  return sb.link ?? sb.sourceUrl
-}
-
-/** 编辑表单里要保存的内容：预览用的链接、选中的候选、集号对应和预览用的集号规则 */
+/** 季绑定表单里要保存的内容（添加、编辑共用）：预览用的链接、选中的候选、集号对应和预览用的集号规则 */
 export interface SeasonBindingEdit {
   link: string
   candidate: Pick<ChangeCandidate, 'kind' | 'current'>
@@ -165,7 +165,7 @@ export interface SeasonBindingEdit {
  */
 export function seasonBindingPatch(sb: CollectionSeasonBinding, edit: SeasonBindingEdit) {
   const patch: SeasonBindingPatch = {}
-  if (edit.link !== editLink(sb) || !edit.candidate.current) {
+  if (edit.link !== sb.link || !edit.candidate.current) {
     patch.link = edit.link
     patch.kind = edit.candidate.kind
   }

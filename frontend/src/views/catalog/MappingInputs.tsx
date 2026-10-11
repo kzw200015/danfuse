@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { Mapping } from '@/api/season-bindings'
 import { Input } from '@/components/ui/input'
 
-import { parseMappingNumber } from './season-binding'
+import { mappingHint, parseMappingNumber } from './season-binding'
 
 /** 集号对应输入框里的文字，以及解析出的对应；任一个不合法时 mapping 为 null */
 export function useMappingDraft(initial: Mapping) {
@@ -39,7 +39,7 @@ export default function MappingInputs({
   return (
     <span
       className="flex items-center gap-1 text-xs text-muted-foreground"
-      title={`${prefix}第 X 集对应本地第 Y 集，之后一一顺延；序号小于 X 的条目不参与`}
+      title={mappingHint(prefix)}
     >
       {prefix}第
       <Input

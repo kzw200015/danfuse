@@ -494,12 +494,7 @@ describe('季绑定卡片', () => {
     fireEvent.change(preview.getByRole('textbox', { name: '合集第几集' }), {
       target: { value: '14' },
     })
-    expect(
-      within(preview.getByRole('table', { name: '对应表' }))
-        .getAllByRole('row')
-        .slice(1)
-        .map((row) => within(row).getAllByRole('cell')[2]!.textContent),
-    ).toEqual(['已处理：第 1 集，不再变动', '第 1 集（已有 1 个绑定）', '第 2 集'])
+    expect(targets()).toEqual(['已处理：第 1 集，不再变动', '第 1 集（已有 1 个绑定）', '第 2 集'])
     fireEvent.click(preview.getByRole('button', { name: '保存' }))
 
     await waitFor(() =>
