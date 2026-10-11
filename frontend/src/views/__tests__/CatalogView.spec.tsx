@@ -332,19 +332,20 @@ describe('绑定', () => {
       )
     })
 
-    it('和手动绑定排在一起，标签写季绑定的名称，悬停提示来源，点它跳到季面板', async () => {
+    it('和手动绑定排在一起，标签只写季绑定的名称，悬停提示来源，点它跳到季面板', async () => {
       const { router } = renderRoutes('/catalog/1/11/110?type=tv')
 
       expect(await screen.findByRole('heading', { name: '绑定（4）' })).toBeInTheDocument()
       const linkTag = (await card('弹幕源 3')).getByRole('link', {
-        name: '季绑定 · 星海旅人 第一季',
+        name: '星海旅人 第一季',
       })
       expect(linkTag).toHaveAttribute('title', '由合集的季绑定「星海旅人 第一季」按集号对应建出')
       // 地址栏里剧列表的分类跟着带过去
       expect(linkTag).toHaveAttribute('href', '/catalog/1/11?type=tv')
-      expect(
-        (await card('20130709')).getByRole('link', { name: '季绑定 · 来自新世界' }),
-      ).toHaveAttribute('title', '由文件夹的季绑定「来自新世界」建出')
+      expect((await card('20130709')).getByRole('link', { name: '来自新世界' })).toHaveAttribute(
+        'title',
+        '由文件夹的季绑定「来自新世界」建出',
+      )
       expect((await card('弹幕源 1')).queryByText(/季绑定/)).not.toBeInTheDocument()
 
       fireEvent.click(linkTag)

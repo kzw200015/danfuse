@@ -67,7 +67,7 @@ describe('seasonBindingTag', () => {
     [
       1,
       {
-        text: '季绑定 · 星海旅人 第一季',
+        text: '星海旅人 第一季',
         title: '由合集的季绑定「星海旅人 第一季」按集号对应建出',
         to: '/catalog/1/11',
       },
@@ -76,7 +76,7 @@ describe('seasonBindingTag', () => {
     [
       2,
       {
-        text: '季绑定 · B 站投稿合集 123',
+        text: 'B 站投稿合集 123',
         title: '由合集的季绑定「B 站投稿合集 123」按集号对应建出',
         to: '/catalog/1/11',
       },
@@ -84,7 +84,7 @@ describe('seasonBindingTag', () => {
     [
       3,
       {
-        text: '季绑定 · 来自新世界',
+        text: '来自新世界',
         title: '由文件夹的季绑定「来自新世界」建出',
         to: '/catalog/1/11',
       },
