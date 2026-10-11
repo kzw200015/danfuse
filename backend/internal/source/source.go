@@ -4,11 +4,15 @@
 package source
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
@@ -17,6 +21,29 @@ import (
 // Ref 弹幕源在平台内的引用，是适配器自己定义的 JSON，存入 bindings.ref（jsonb），
 // 参与唯一约束 (episode_id, adapter, ref)。适配器之外的代码不解析它。
 type Ref []byte
+
+// CanonicalRef 返回 ref 的规范写法，用来比较两个 ref 是不是同一个弹幕源：对象的键按顺序排列、没有多余的空格、
+// 数字保留原文（大整数不丢精度）、字符串的转义统一。从 jsonb 读出的文本带空格、键会重排，不能直接逐字节比较。
+// 季绑定的派生把适配器列出的、条目表里存的和绑定上存的 ref 都经它规范化后再比较。
+// ref 不是单个 JSON 值时原样返回（数据库和适配器给出的 ref 都是合法的 JSON，不会走到这里）。
+func CanonicalRef(ref Ref) string {
+	dec := json.NewDecoder(bytes.NewReader(ref))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return string(ref)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return string(ref)
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return string(ref)
+	}
+	return strings.TrimSuffix(buf.String(), "\n")
+}
 
 // Adapter 源适配器，一个平台一个，方法都要实现：弹幕源的三个（ParseLink、Describe、Fetch）和合集的三个
 // （ParseCollectionLink、ListCollection、DescribeCollection，类型见 collection.go）。

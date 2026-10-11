@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// track 一个绑定的弹幕，不缩放（scale 为 1）。
+// track 一个绑定的弹幕。
 func track(bindingID int64, p Platform, offset float64, items ...Danmaku) Track {
-	return Track{BindingID: bindingID, Platform: p, Offset: offset, Scale: 1, Items: items}
+	return Track{BindingID: bindingID, Platform: p, Offset: offset, Items: items}
 }
 
 // dm 一条滚动、黑色的弹幕。
@@ -38,15 +38,9 @@ func TestMerge(t *testing.T) {
 			[]Item{out(bili, styled, 3500)},
 		},
 		{
-			"t × scale + offset，四舍五入到毫秒",
-			[]Track{{BindingID: 1, Platform: bili, Offset: 0.25, Scale: 0.5, Items: []Danmaku{
-				dm(1, 1001, "a"), // 500.5 + 250 → 751
-				dm(2, 3000, "b"), // 1500 + 250
-			}}, {BindingID: 2, Platform: bili, Scale: 1.04, Items: []Danmaku{
-				dm(3, 10012, "c"), // 10412.48 → 10412
-				dm(4, 10013, "d"), // 10413.52 → 10414
-			}}},
-			[]Item{out(bili, dm(1, 1001, "a"), 751), out(bili, dm(2, 3000, "b"), 1750), out(bili, dm(3, 10012, "c"), 10412), out(bili, dm(4, 10013, "d"), 10414)},
+			"t + offset，四舍五入到毫秒",
+			[]Track{track(1, bili, 0.0004, dm(1, 1000, "a")), track(2, bili, 0.0006, dm(2, 3000, "b"))},
+			[]Item{out(bili, dm(1, 1000, "a"), 1000), out(bili, dm(2, 3000, "b"), 3001)},
 		},
 		{
 			"校正后为负的丢弃，为 0 的保留",

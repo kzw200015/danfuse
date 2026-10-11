@@ -7,7 +7,7 @@
 - 实现接口的类型（包括测试里的假实现）在类型定义旁边写编译期断言 `var _ catalog.Source = (*Source)(nil)`。只嵌入接口、不实现方法的假类型（如 `platformAdapter`）不写。
 - 业务代码只依赖领域包的接口，不对适配器做类型断言；绑定、合集的 ref 只交给适配器解析，原始 ref 不出现在 JSON 输出里。
 - 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`）：`handler*.go` 只绑定与校验参数、调用本领域的 `Service`、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `xxxdb`。
-- 领域之间只调用对方 `Service` 的方法，不引用对方的 `xxxdb`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateBackfilledInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
+- 领域之间只调用对方 `Service` 的方法，不引用对方的 `xxxdb`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateLinkSlotInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
 - 适配器（领域的子包，如 `catalog/jellyfin`、`source/bilibili`）和纯计算包（`source`、`danmaku`、`danmakufile`、`fulltext`、`catalog/naming`）只放接口、类型、纯计算与外部适配，不访问数据库。
 - `app.New` 和各构造函数只构造对象，不做 IO、不连外部系统。新增 service 在 `app.New` 构造，handler 还要加进 `server.Handlers`。
 - `xxxdb/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.txt` 一起更新）。已推到 main 的迁移文件不再修改。
@@ -17,7 +17,7 @@
 - 隔离级别保持默认的 READ COMMITTED，不在应用里加内存锁。
 - 网络请求（取目录源、拉取弹幕）在事务之外，拿到结果才开写入事务；事务用 `pgx.BeginFunc(ctx, s.pool, ...)`，回调里只用 `s.q.WithTx(tx)` 得到的 `q`（以及把 `tx` 传给别的领域）。
 - 写入事务的第一句锁住要写的行（`LockEpisode` 以 `FOR KEY SHARE` 锁集，查不到返回"这一集已被删除"的 404；`LockBinding` 以 `FOR UPDATE` 锁绑定，查不到返回"绑定已被删除"的 404），不靠捕获外键错误。
-- 一个事务要锁一个层级以下的多行时，第一句先锁它们共同的上层行（目前是季），和删除的级联保持同一个加锁顺序（删季的顺序是季 → 集 → 季绑定 → 绑定、处理过的记录、条目）。
+- 一个事务要锁一个层级以下的多行时，第一句先锁它们共同的上层行（目前是季，`FOR KEY SHARE`）。删季的第一步也是锁季，两边在季上排队，所以之后的加锁顺序不必与删季的级联（季 → 集 → 季绑定 → 绑定、条目表、条目、条目文件）一致，季绑定的写入就是季 → 季绑定 → 集 → 绑定；只删一集时先锁集、再删它的绑定，写入也要先锁集、再写这一集的绑定。
 - 拉取前的查重只为省一次请求，并发重复以唯一约束为准（`database.IsUniqueViolation`）；查无记录比较 `pgx.ErrNoRows`。
 - 写回时只更新自己负责的列（例如拉取不覆盖 offset）。
 - 批量写入用数组参数加 `unnest` 一条语句写完，`ON CONFLICT DO NOTHING` 去重、`:execrows` 返回实际插入的条数；`danmaku_count`、`file_count` 这类计数在同一个事务里按插入的条数维护，读取时不 COUNT。

@@ -594,7 +594,7 @@ func TestRefetchFailed(t *testing.T) {
 				if !after.FetchAttemptedAt.After(*before.FetchAttemptedAt) {
 					t.Errorf("fetch_attempted_at = %v, want 晚于创建时的 %v", after.FetchAttemptedAt, before.FetchAttemptedAt)
 				}
-				want.FetchAttemptedAt, want.UpdatedAt = after.FetchAttemptedAt, after.UpdatedAt
+				want.FetchAttemptedAt = after.FetchAttemptedAt
 			}
 			if tt.wantDead {
 				// 另外只改状态和拉取时间；弹幕、计数、标题、时长、content_version 都不动
@@ -677,7 +677,7 @@ func TestRefetchTimeout(t *testing.T) {
 			t.Errorf("fetch_attempted_at = %v, want 超时的时间 %v", at, start.Add(source.FetchTimeout))
 		}
 		want := before
-		want.FetchAttemptedAt, want.UpdatedAt = after.FetchAttemptedAt, after.UpdatedAt
+		want.FetchAttemptedAt = after.FetchAttemptedAt
 		if !reflect.DeepEqual(after, want) {
 			t.Errorf("绑定 = %+v\nwant %+v", after, want)
 		}

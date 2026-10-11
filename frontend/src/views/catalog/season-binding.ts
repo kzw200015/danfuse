@@ -1,11 +1,99 @@
 import type {
-  CollectionCandidate,
-  Mapping,
-  PreviewItem,
+  Candidate,
+  EpisodeRuleForm,
+  Item,
   SeasonBinding,
-  SeasonBindingItem,
+  SeasonBindingKind,
+  Summary,
 } from '@/api/season-bindings'
-import type { Episode } from '@/api/series'
+import type { Season } from '@/api/series'
+
+/**
+ * 条目表（详情，补建的语义）里一个条目的状态文字：对到的集写在前面；替换写出原来的绑定，合集说"待换新稿件"，文件夹说"待替换"。
+ * 上次补建失败的原因（item.lastError）不在这里，由条目表另外标出
+ */
+export function itemStatusText(item: Item, kind: SeasonBindingKind) {
+  return withEpisode(item, statusText(item, kind))
+}
+
+/** 写明是哪一集的文字："第 N 集 · text"，例如槽位写成"第 N 集 · 绑定的标题" */
+export function episodeText(episodeNumber: number, text: string) {
+  return `第 ${episodeNumber} 集 · ${text}`
+}
+
+/** 条目对到了集时，把集写在 text 前面 */
+function withEpisode(item: Item, text: string) {
+  return item.episodeNumber === null ? text : episodeText(item.episodeNumber, text)
+}
+
+function statusText(item: Item, kind: SeasonBindingKind) {
+  switch (item.status) {
+    case 'keep':
+      return '已建绑定'
+    case 'create':
+      return '待补建'
+    case 'replace': {
+      const text = kind === 'collection' ? '待换新稿件' : '待替换'
+      return item.replaces ? `${text}（原：${item.replaces.title}）` : text
+    }
+    case 'alreadyBound':
+      return '已有同源绑定'
+    case 'unmatched':
+      return `对不上（${item.reason ?? '认不出集号'}）`
+    case 'beforeStart':
+      return '在起点之前'
+    case 'noEpisode':
+      return '目录里没有这一集'
+  }
+}
+
+/**
+ * 预览表"保存后"一列的文字（保存表单的语义）：对到的集写在前面，接着是保存后的状态；替换写出原来的绑定
+ */
+export function previewStatusText(item: Item) {
+  return withEpisode(item, previewText(item))
+}
+
+function previewText(item: Item) {
+  switch (item.status) {
+    case 'keep':
+      return '保留'
+    case 'create':
+      return '新建'
+    case 'replace':
+      return item.replaces ? `替换（原：${item.replaces.title}）` : '替换'
+    case 'alreadyBound':
+      return '跳过：已有同源绑定'
+    default:
+      return statusText(item, 'folder')
+  }
+}
+
+/**
+ * 链接对应多个合集时，候选的说明。B 站的稿件既有多个分 P、又属于合集时，两个候选分别是"这个稿件的 N 个分 P"
+ * 和"它所在的合集"（种类标识 multiPage、ugcSeason 由 B 站适配器给出）；其他种类写出合集的标签、标题和条数。
+ */
+export function candidateText(c: Candidate) {
+  const n = c.items.length
+  switch (c.collectionKind) {
+    case 'multiPage':
+      return `这个稿件《${c.title}》的 ${n} 个分 P`
+    case 'ugcSeason':
+      return `它所在的合集《${c.title}》共 ${n} 条`
+    default:
+      return `${c.sourceLabel ?? ''}《${c.title}》共 ${n} 条`
+  }
+}
+
+/** 预览顶部的汇总标签：新建、替换、删除、保留各几个；删除大于 0 时标红 */
+export function summaryTags(summary: Summary) {
+  return [
+    { text: `新建 ${summary.create}`, destructive: false },
+    { text: `替换 ${summary.replace}`, destructive: false },
+    { text: `删除 ${summary.remove}`, destructive: summary.remove > 0 },
+    { text: `保留 ${summary.keep}`, destructive: false },
+  ]
+}
 
 /** 季绑定的名称：文件夹的季绑定为文件夹名；合集的季绑定为合集标题，标题为空时用合集的标签 */
 export function seasonBindingName(sb: SeasonBinding) {
@@ -13,21 +101,59 @@ export function seasonBindingName(sb: SeasonBinding) {
 }
 
 /**
- * 绑定卡片上季绑定的标签：文字写季绑定的名称，悬停提示写全名和来源。seasonBindings 是这一季的季绑定（剧详情里带着）；
+ * 绑定卡片上季绑定的锁形标签：文字只写季绑定的名称，悬停提示写全名和来源，to 是季面板的路径（建出的绑定要到那里改）。
+ * season 是绑定所在的季（剧 seriesId 的，带着剧详情里的季绑定），季绑定与它建出的绑定总在同一季；
+ * path 拼出目录页的地址，组件里传 useCatalogPath() 的结果以保留地址栏的分类。
  * 不是季绑定建出的绑定为 null，找不到对应的季绑定时（理论上不会发生）只写"季绑定"
  */
-export function seasonBindingTag(seasonBindingId: number | null, seasonBindings: SeasonBinding[]) {
+export function seasonBindingTag(
+  seasonBindingId: number | null,
+  season: Pick<Season, 'id' | 'seasonBindings'>,
+  seriesId: number,
+  path: (...ids: number[]) => string,
+) {
   if (seasonBindingId === null) return null
-  const sb = seasonBindings.find((s) => s.id === seasonBindingId)
-  if (!sb) return { text: '季绑定', title: '由季绑定建出' }
+  const to = path(seriesId, season.id)
+  const sb = season.seasonBindings.find((s) => s.id === seasonBindingId)
+  if (!sb) return { text: '季绑定', title: '由季绑定建出', to }
   const name = seasonBindingName(sb)
   return {
-    text: `季绑定 · ${name}`,
+    text: name,
     title:
       sb.kind === 'folder'
         ? `由文件夹的季绑定「${name}」建出`
         : `由合集的季绑定「${name}」按集号对应建出`,
+    to,
   }
+}
+
+/** 添加季绑定时集号规则、集号对应的初始值：默认的集号规则与 1 = 1，不按内容猜 */
+export function defaultRules(episodePatterns: string[]): EpisodeRuleForm {
+  return { episodePatterns, mappingFrom: 1, mappingTo: 1 }
+}
+
+/** 编辑季绑定时集号规则、集号对应的初始值：季绑定保存的 */
+export function savedRules(sb: SeasonBinding): EpisodeRuleForm {
+  return {
+    episodePatterns: sb.episodePatterns,
+    mappingFrom: sb.mappingFrom,
+    mappingTo: sb.mappingTo,
+  }
+}
+
+/** 集号规则：去掉每条前后的空白、丢掉空的，提交和比较都用它 */
+export function cleanPatterns(patterns: string[]) {
+  return patterns.map((p) => p.trim()).filter(Boolean)
+}
+
+/** 两组集号规则逐条相同（顺序不同也算不同） */
+export function samePatterns(a: string[], b: string[]) {
+  return a.length === b.length && a.every((p, i) => p === b[i])
+}
+
+/** 集号对应的说明（悬停提示）：prefix 是 X 前面的称呼，见 MappingInputs */
+export function mappingHint(prefix: string) {
+  return `${prefix}第 X 集对应本地第 Y 集，之后一一顺延；序号小于 X 的条目不参与`
 }
 
 /** 集号对应的上限：与后端的 int 一致，九位数以内 */
@@ -37,98 +163,4 @@ const maxMappingDigits = 9
 export function parseMappingNumber(text: string) {
   const s = text.trim()
   return new RegExp(`^\\d{1,${maxMappingDigits}}$`).test(s) ? Number(s) : null
-}
-
-/** 预览表格里一个条目会对到哪里 */
-export type PreviewTarget =
-  | { kind: 'unmatched'; reason: string }
-  | { kind: 'beforeStart' }
-  | { kind: 'waiting'; episode: number }
-  | { kind: 'episode'; episode: Episode }
-
-/**
- * 按集号对应现算：序号 n 不小于 from 的条目对到本地第 n − from + to 集，在本季的集里找这一集；序号小于 from 的不参与。
- * 对不上的原因（集号不是整数、集号重复）由后端在预览里给出，这里不重复判定。
- */
-export function previewTarget(
-  item: PreviewItem,
-  mapping: Mapping,
-  episodes: Episode[],
-): PreviewTarget {
-  if (item.number === null) {
-    return { kind: 'unmatched', reason: item.reason ?? '对不上' }
-  }
-  if (item.number < mapping.from) {
-    return { kind: 'beforeStart' }
-  }
-  const number = item.number - mapping.from + mapping.to
-  const episode = episodes.find((e) => e.number === number)
-  return episode ? { kind: 'episode', episode } : { kind: 'waiting', episode: number }
-}
-
-/** 预览表格里"对到"一栏的样式；target 为 null（集号对应不合法）时同对不到集 */
-export function previewTargetClass(target: PreviewTarget | null) {
-  switch (target?.kind) {
-    case 'episode':
-      return 'text-foreground'
-    case 'unmatched':
-      return 'text-amber-700'
-    default:
-      return 'text-muted-foreground'
-  }
-}
-
-/** 预览表格里"对到"一栏的文字 */
-export function previewTargetText(target: PreviewTarget) {
-  switch (target.kind) {
-    case 'unmatched':
-      return `对不上：${target.reason}`
-    case 'beforeStart':
-      return '在起点之前'
-    case 'waiting':
-      return `目录里还没有第 ${target.episode} 集`
-    case 'episode': {
-      const n = target.episode.bindings.length
-      return `第 ${target.episode.number} 集${n > 0 ? `（已有 ${n} 个绑定）` : ''}`
-    }
-  }
-}
-
-/** 条目表里一个条目的状态文字 */
-export function itemStateText(item: SeasonBindingItem) {
-  const episode = item.episodeNumber === null ? '' : `第 ${item.episodeNumber} 集`
-  switch (item.state) {
-    case 'bound':
-      return `已建绑定：${episode}`
-    case 'alreadyBound':
-      return `集上已有这个弹幕源：${episode}`
-    case 'bindingDeleted':
-      return `绑定已被删除（${episode}）`
-    case 'unmatched':
-      return `对不上：${item.reason ?? ''}`
-    case 'beforeStart':
-      return '在起点之前'
-    case 'waitingEpisode':
-      return `等待目录里出现${episode}`
-    case 'pending':
-      return `待补建：${episode}`
-    case 'failed':
-      return `最近一次失败：${item.reason ?? ''}`
-  }
-}
-
-/**
- * 链接对应多个合集时，候选的说明。B 站的稿件既有多个分 P、又属于合集时，两个候选分别是"这个稿件的 N 个分 P"
- * 和"它所在的合集"（种类标识 multiPage、ugcSeason 由 B 站适配器给出）；其他种类写出合集的标签、标题和条数。
- */
-export function candidateText(c: CollectionCandidate) {
-  const n = c.items.length
-  switch (c.kind) {
-    case 'multiPage':
-      return `这个稿件《${c.title}》的 ${n} 个分 P`
-    case 'ugcSeason':
-      return `它所在的合集《${c.title}》共 ${n} 条`
-    default:
-      return `${c.sourceLabel}《${c.title}》共 ${n} 条`
-  }
 }

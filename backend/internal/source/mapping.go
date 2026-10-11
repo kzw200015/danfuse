@@ -36,14 +36,14 @@ func markDuplicateNumbers(items []CollectionItem) []CollectionItem {
 	return marked
 }
 
-// uniqueRefs 返回去掉重复 ref 的条目：ref 相同的只保留第一个（季绑定的条目与处理过的记录都按弹幕源区分）。
+// UniqueRefs 返回去掉重复 ref 的条目：规范化之后（CanonicalRef）相同的 ref 只保留第一个（季绑定的条目按弹幕源区分）。
 // 返回新的切片，不改动传入的切片。
-func uniqueRefs(items []CollectionItem) []CollectionItem {
+func UniqueRefs(items []CollectionItem) []CollectionItem {
 	seen := make(map[string]bool, len(items))
 	unique := make([]CollectionItem, 0, len(items))
 	for _, it := range items {
-		if !seen[string(it.Ref)] {
-			seen[string(it.Ref)] = true
+		if ref := CanonicalRef(it.Ref); !seen[ref] {
+			seen[ref] = true
 			unique = append(unique, it)
 		}
 	}

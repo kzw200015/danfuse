@@ -322,22 +322,79 @@ describe('绑定', () => {
     expect(second.getByText(/^弹幕源 23:38/)).toHaveTextContent('弹幕源 23:38 / 本集 23:40')
   })
 
-  it('集面板：季绑定建出的绑定，标签写季绑定的名称，悬停提示全名和来源', async () => {
-    const season = all[0]!.seasons[1]!
-    season.seasonBindings = [seasonBinding(1), folderSeasonBinding(2)]
-    season.episodes[0]!.bindings.push(
-      binding(3, { seasonBindingId: 1 }),
-      fileBinding(4, { seasonBindingId: 2 }),
-    )
-    renderRoutes('/catalog/1/11/110')
+  describe('季绑定建出的绑定', () => {
+    beforeEach(() => {
+      const season = all[0]!.seasons[1]!
+      season.seasonBindings = [seasonBinding(1), folderSeasonBinding(2)]
+      season.episodes[0]!.bindings.push(
+        binding(3, { seasonBindingId: 1 }),
+        fileBinding(4, { seasonBindingId: 2 }),
+      )
+    })
 
-    expect(
-      (await card('弹幕源 3')).getByTitle('由合集的季绑定「星海旅人 第一季」按集号对应建出'),
-    ).toHaveTextContent('季绑定 · 星海旅人 第一季')
-    expect(
-      (await card('20130709')).getByTitle('由文件夹的季绑定「来自新世界」建出'),
-    ).toHaveTextContent('季绑定 · 来自新世界')
-    expect((await card('弹幕源 1')).queryByText(/季绑定/)).not.toBeInTheDocument()
+    it('和手动绑定排在一起，标签只写季绑定的名称，悬停提示来源，点它跳到季面板', async () => {
+      const { router } = renderRoutes('/catalog/1/11/110?type=tv')
+
+      expect(await screen.findByRole('heading', { name: '绑定（4）' })).toBeInTheDocument()
+      const linkTag = (await card('弹幕源 3')).getByRole('link', {
+        name: '星海旅人 第一季',
+      })
+      expect(linkTag).toHaveAttribute('title', '由合集的季绑定「星海旅人 第一季」按集号对应建出')
+      // 地址栏里剧列表的分类跟着带过去
+      expect(linkTag).toHaveAttribute('href', '/catalog/1/11?type=tv')
+      expect((await card('20130709')).getByRole('link', { name: '来自新世界' })).toHaveAttribute(
+        'title',
+        '由文件夹的季绑定「来自新世界」建出',
+      )
+      expect((await card('弹幕源 1')).queryByText(/季绑定/)).not.toBeInTheDocument()
+
+      fireEvent.click(linkTag)
+
+      await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11'))
+      expect(screen.getByText(/季 ID 11/)).toBeInTheDocument()
+    })
+
+    it('不能删除、追加文件，原来删除的位置是"在季绑定里改 →"，悬停说明原因，点它跳到季面板', async () => {
+      const { router } = renderRoutes('/catalog/1/11/110')
+      const link = await card('弹幕源 3')
+      const file = await card('20130709')
+
+      // 偏移、重新拉取、重新解析照旧
+      expect(link.getByRole('textbox', { name: '偏移（秒）' })).toBeInTheDocument()
+      expect(link.getByRole('button', { name: '重新拉取' })).toBeInTheDocument()
+      expect(link.getByRole('button', { name: '清空后重新拉取' })).toBeInTheDocument()
+      expect(file.getByRole('button', { name: '重新解析' })).toBeInTheDocument()
+      for (const c of [link, file]) {
+        expect(c.queryByRole('button', { name: '删除' })).not.toBeInTheDocument()
+        expect(c.getByRole('link', { name: '在季绑定里改 →' })).toHaveAttribute(
+          'title',
+          '季绑定建出的绑定不能单独删除或追加文件：要去掉或换掉这一集，编辑季绑定的集号对应、合集或文件夹',
+        )
+      }
+      expect(file.queryByRole('button', { name: '追加文件' })).not.toBeInTheDocument()
+      expect(file.queryByLabelText('追加文件')).not.toBeInTheDocument()
+      // 手动绑定的照旧
+      expect((await card('弹幕源 1')).getByRole('button', { name: '删除' })).toBeInTheDocument()
+
+      fireEvent.click(file.getByRole('link', { name: '在季绑定里改 →' }))
+
+      await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11'))
+      expect(screen.getByText(/季 ID 11/)).toBeInTheDocument()
+    })
+
+    it('建出的文件绑定的文件在条目上，文件列表不显示加入时间', async () => {
+      vi.mocked(listBindingFiles).mockResolvedValue([
+        { name: '20130709.xml', size: 12_600, uploadedAt: null },
+      ])
+      renderRoutes('/catalog/1/11/110')
+      const file = await card('20130709')
+
+      fireEvent.click(file.getByRole('button', { name: '弹幕文件 · 2 份' }))
+
+      const list = within(await screen.findByRole('list', { name: '弹幕文件' }))
+      expect(list.getByText('12.3 KB')).toBeInTheDocument()
+      expect(list.queryByText(/加入于/)).not.toBeInTheDocument()
+    })
   })
 
   it('贴链接：进行中显示已用秒数，成功后用 toast 提示并显示新的绑定', async () => {

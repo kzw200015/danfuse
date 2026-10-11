@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -178,4 +180,41 @@ func TestDeleteBinding(t *testing.T) {
 		{http.MethodDelete, "/api/bindings/0", "", http.StatusBadRequest, "绑定 ID 不合法"},
 		{http.MethodDelete, "/api/bindings/abc", "", http.StatusBadRequest, "请求参数错误"},
 	})
+}
+
+// TestBuiltBinding 季绑定建出的绑定：不能单独删除、追加文件（409，提示写明季绑定）；偏移照常能改；
+// 建出的文件绑定的文件列表是条目的文件，没有加入时间。
+func TestBuiltBinding(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.Pool(t)
+	seedCatalog(t, pool)
+	testenv.InsertCollectionSeasonBinding(t, pool, 1, "s", 1, 1) // 季绑定 1
+	file := testenv.Snapshot1("01.xml")
+	testenv.InsertFolderSeasonBinding(t, pool, 1, "星海旅人", 1, 1, testenv.FolderEntry{Label: "01", Files: []binding.UploadedFile{file}}) // 季绑定 2，条目 1
+	_, err := pool.Exec(t.Context(), `
+		INSERT INTO bindings (episode_id, adapter, ref, title, duration, season_binding_id) VALUES
+			(2, 'fake', '{"name": "s1"}', '弹幕源 s1', 1420, 1);  -- 绑定 5
+		INSERT INTO bindings (episode_id, kind, title, season_binding_id, entry_id) VALUES
+			(2, 'file', '01', 2, 1);                               -- 绑定 6`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := catalogServer(pool)
+
+	_, _, data := call(t, srv, http.MethodPatch, "/api/bindings/5", `{"offset": 2}`, http.StatusOK)
+	if got := decodeObject(t, data); string(got["offset"]) != "2" || string(got["seasonBindingId"]) != "1" {
+		t.Errorf("改偏移之后 = %s", data)
+	}
+	_, _, data = call(t, srv, http.MethodGet, "/api/bindings/6/files", "", http.StatusOK)
+	testenv.AssertJSON(t, data, fmt.Sprintf(`[{"name": "01.xml", "size": %d, "uploadedAt": null}]`, len(file.Data)))
+
+	const collectionMessage = "这个绑定由季绑定「合集 s」建出，不能单独删除或追加文件；要改，去季面板编辑季绑定"
+	const folderMessage = "这个绑定由季绑定「星海旅人」建出，不能单独删除或追加文件；要改，去季面板编辑季绑定"
+	assertAPIErrors(t, srv, []apiError{
+		{http.MethodDelete, "/api/bindings/5", "", http.StatusConflict, collectionMessage},
+		{http.MethodDelete, "/api/bindings/6", "", http.StatusConflict, folderMessage},
+	})
+	if message, _ := upload(t, srv, "/api/bindings/6/files", []uploadFile{danmakuXML("02.xml", "9")}, http.StatusConflict); message != folderMessage {
+		t.Errorf("追加文件：%q, want %q", message, folderMessage)
+	}
 }

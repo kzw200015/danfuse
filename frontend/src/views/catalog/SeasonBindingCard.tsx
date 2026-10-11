@@ -1,40 +1,46 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { ChevronDownIcon, ChevronRightIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  Loader2Icon,
+  PencilIcon,
+  RefreshCwIcon,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { isApiStatus } from '@/api/request'
 import {
   backfillSeasonBinding,
   deleteSeasonBinding,
-  updateSeasonBinding,
-  type CollectionSeasonBinding,
-  type FolderSeasonBinding,
+  setFollow,
   type SeasonBinding,
   type SeasonBindingDetail,
-  type SeasonBindingPatch,
-  type SeasonBindingItemState,
 } from '@/api/season-bindings'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
+import { TableCell } from '@/components/ui/table'
 import { Switch } from '@/components/ui/switch'
 import { useElapsed } from '@/hooks/use-elapsed'
-import { useSeasonBinding, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
+import { isRunning, useSeasonBinding, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
 import { useReloadSeries } from '@/hooks/use-series'
 import { useSettings } from '@/hooks/use-settings'
 import { followRuleText } from '@/lib/follow'
 import { formatAgo, formatDateTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
-import CollectionItemsTable from './CollectionItemsTable'
-import { EpisodeRuleEditor } from './EpisodeRuleInput'
-import { MappingEditor } from './MappingInputs'
-import { itemStateText, seasonBindingName } from './season-binding'
+import { EditCollectionForm } from './CollectionForm'
+import { EditFolderForm } from './FolderForm'
+import { ItemTable, itemStatusClass } from './PreviewTable'
+import { episodeText, itemStatusText, mappingHint, seasonBindingName } from './season-binding'
 import { SourceLink, StatusBadge } from './shared'
 
-/** 一个季绑定的卡片，按 kind 分为合集的季绑定和文件夹的季绑定 */
+/**
+ * 一个季绑定的卡片，两种季绑定共用：名称与来源、集号对应、建出的绑定数；合集另有状态、追更开关、上次检查与补建进度。
+ * 操作有编辑（在卡片里展开表单）、立即补建、删除，以及可展开的条目表。
+ * 操作成功用 toast（立即补建被拒绝的 409 也用 toast）；其余失败的提示显示在卡片下方，保留到下次操作或手动关闭。
+ */
 export default function SeasonBindingCard({
   binding,
   summaryUpdatedAt,
@@ -44,108 +50,127 @@ export default function SeasonBindingCard({
   /** 剧详情取到的时间，与轮询到的详情比较哪个新 */
   summaryUpdatedAt: number
 }) {
-  return binding.kind === 'folder' ? (
-    <FolderSeasonBindingCard binding={binding} />
-  ) : (
-    <CollectionSeasonBindingCard binding={binding} summaryUpdatedAt={summaryUpdatedAt} />
-  )
-}
-
-/**
- * 合集的季绑定的卡片：状态、合集标题（链接到原页面）与标签、建出的绑定数、上次检查的时间与错误、补建中的已用秒数；
- * 集号对应与集号规则（投稿合集、多 P 投稿；保存后后台补建）、追更开关、立即补建、删除，以及可展开的条目表。
- * 操作成功用 toast（立即补建被拒绝的 409 也用 toast）；其余失败的提示显示在卡片下方，保留到下次操作或手动关闭。
- */
-function CollectionSeasonBindingCard({
-  binding,
-  summaryUpdatedAt,
-}: {
-  binding: CollectionSeasonBinding
-  summaryUpdatedAt: number
-}) {
   const [expanded, setExpanded] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const clearError = () => setError(null)
   const showError = (e: Error) => setError(e.message)
-  const reload = useReloadSeries()
-  const watch = useWatchSeasonBinding()
   // 显示剧详情与轮询到的详情里较新的那一份：补建进行中建出的绑定数等逐条更新
-  const { view, detail, error: detailError } = useSeasonBinding(binding, summaryUpdatedAt, expanded)
-  const { running } = view
+  const {
+    view,
+    detail,
+    error: detailError,
+    refetch,
+  } = useSeasonBinding(binding, summaryUpdatedAt, expanded)
+  const running = isRunning(view)
   const elapsed = useElapsed(running)
+  const watch = useWatchSeasonBinding()
+  const reload = useReloadSeries()
 
-  const update = useMutation({
-    mutationFn: (patch: SeasonBindingPatch) => updateSeasonBinding(binding.id, patch),
+  const follow = useMutation({
+    mutationFn: (on: boolean) => setFollow(binding.id, on),
     onMutate: clearError,
-    onSuccess: async (d, patch) => {
-      toast.success(updatedText(patch))
-      await watch(d.id, d)
-      return reload()
+    onSuccess: (d, on) => {
+      toast.success(on ? '已打开追更，正在后台补建' : '已关闭追更')
+      // 剧列表上的追更标记随之更新
+      return watch(d)
     },
     onError: showError,
   })
   const backfill = useMutation({
     mutationFn: () => backfillSeasonBinding(binding.id),
     onMutate: clearError,
-    onSuccess: () => {
-      toast.success('已开始补建')
-      return watch(binding.id)
+    onSuccess: (d) => {
+      toast.success(d.kind === 'collection' ? '已开始补建' : '已补建')
+      return watch(d)
     },
-    onError: (e) => {
+    onError: async (e) => {
       if (isApiStatus(e, 409)) {
         toast.error(e.message)
-        return watch(binding.id) // 正在补建：显示它的进度
+        // 正在补建：取一次详情，显示它的进度
+        await refetch()
+        return
       }
       showError(e)
     },
   })
-  const remove = useDeleteSeasonBinding(binding.id, clearError, showError)
+  const remove = useMutation({
+    mutationFn: () => deleteSeasonBinding(binding.id),
+    onMutate: clearError,
+    onSuccess: () => {
+      toast.success('已删除季绑定')
+      return reload()
+    },
+    onError: (e) => {
+      showError(e)
+      // 已经不在了（例如在别处删掉了）：重新加载，卡片随之消失
+      if (isApiStatus(e, 404)) return reload()
+    },
+  })
   const busy = remove.isPending
   const { data: settings } = useSettings()
 
-  const dead = view.status === 'dead'
+  const collection = view.kind === 'collection' ? view : null
+  const dead = collection?.status === 'dead'
   const name = seasonBindingName(view)
+  const n = view.bindingCount
   return (
     <article
       aria-label={name}
       className={cn('grid gap-2 rounded-lg border p-3', dead && 'border-destructive/40')}
     >
       <div className="flex items-start gap-2">
-        <StatusBadge
-          dead={dead}
-          deadTitle="上次检查时合集已不存在或已下架；已经建出的绑定不受影响，追更开着时照常检查，恢复后自动变回正常"
-        />
+        {collection && (
+          <StatusBadge
+            dead={dead}
+            deadTitle="上次检查时合集已不存在或已下架；已经建出的绑定不受影响，追更开着时照常检查，恢复后自动变回正常"
+          />
+        )}
         <div className="min-w-0 flex-1">
-          <SourceLink href={view.sourceUrl}>{name}</SourceLink>
+          {collection ? (
+            <SourceLink href={collection.sourceUrl}>{name}</SourceLink>
+          ) : (
+            <span className="font-medium break-all">{name}</span>
+          )}
           <div className="text-xs text-muted-foreground">
-            {view.sourceLabel}
-            {view.finished && ' · 已完结'}
+            {view.kind === 'collection'
+              ? view.sourceLabel
+              : `上传的弹幕文件夹 · ${view.entryCount} 个条目`}
           </div>
         </div>
-        <label
-          className="flex shrink-0 items-center gap-1.5 text-xs"
-          title={settings && `开着时${followRuleText(settings.follow)}`}
-        >
-          <Switch
-            size="sm"
-            checked={view.follow}
-            disabled={update.isPending || busy}
-            onCheckedChange={(follow) => update.mutate({ follow })}
-          />
-          追更
-        </label>
+        {collection && (
+          <label
+            className="flex shrink-0 items-center gap-1.5 text-xs"
+            title={settings && `开着时${followRuleText(settings.follow)}`}
+          >
+            <Switch
+              size="sm"
+              checked={collection.follow}
+              disabled={follow.isPending || busy}
+              onCheckedChange={(on) => follow.mutate(on)}
+            />
+            追更
+          </label>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>建出 {view.bindingCount} 个绑定</span>
-        {view.lastCheckedAt ? (
-          <span title={formatDateTime(view.lastCheckedAt)}>
-            上次检查 {formatAgo(view.lastCheckedAt)}
-          </span>
-        ) : (
-          <span>还没有检查</span>
+        <span title={mappingHint(collection ? '合集' : '')}>
+          {collection ? '合集' : ''}第 {view.mappingFrom} 集 = 本地第 {view.mappingTo} 集
+        </span>
+        <span>建出 {n} 个绑定</span>
+        {collection &&
+          (collection.lastCheckedAt ? (
+            <span title={formatDateTime(collection.lastCheckedAt)}>
+              上次检查 {formatAgo(collection.lastCheckedAt)}
+            </span>
+          ) : (
+            <span>还没有检查</span>
+          ))}
+        {!collection && <span>上传于 {formatDateTime(view.createdAt)}</span>}
+        {collection?.lastError && (
+          <span className="text-destructive">上次检查：{collection.lastError}</span>
         )}
-        {view.lastError && <span className="text-destructive">上次检查：{view.lastError}</span>}
         {running && (
           <span className="inline-flex items-center gap-1 text-foreground">
             <Loader2Icon className="size-3 animate-spin" />
@@ -154,55 +179,63 @@ function CollectionSeasonBindingCard({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {/* 保存成功、重新加载后对应变了，用新的值重新初始化输入框 */}
-        <MappingEditor
-          key={`${view.mappingFrom}-${view.mappingTo}`}
-          binding={view}
-          disabled={update.isPending || busy}
-          onSave={({ from, to }) => update.mutate({ mappingFrom: from, mappingTo: to })}
-        />
-        <div className="ml-auto flex gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={backfill.isPending || busy}
-            title="现在检查一次合集，为新出的集补建绑定；追更关着时也能用"
-            onClick={() => backfill.mutate()}
-          >
-            <RefreshCwIcon />
-            立即补建
-          </Button>
-          <DeleteSeasonBindingButton
-            pending={busy}
-            bindingCount={view.bindingCount}
-            checkboxLabel={`同时删除它建出的 ${view.bindingCount} 个绑定（连同弹幕，无法恢复）`}
-            onConfirm={(withBindings) => remove.mutate(withBindings)}
-          >
-            {() => (
-              <>
-                <p>「{name}」的条目表和处理过的记录会一起删除。</p>
-                {running && <p>正在进行的补建会随即停下。</p>}
-                {view.bindingCount > 0 ? (
-                  <p>它建出的 {view.bindingCount} 个绑定默认保留，变成普通绑定。</p>
-                ) : (
-                  <p>它还没有建出绑定。</p>
-                )}
-              </>
-            )}
-          </DeleteSeasonBindingButton>
-        </div>
+      <div className="flex justify-end gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={editing || busy}
+          title={
+            collection
+              ? '换合集、改集号规则和集号对应，先预览再保存'
+              : '换文件夹、改集号规则和集号对应，先预览再保存'
+          }
+          onClick={() => {
+            clearError()
+            setEditing(true)
+          }}
+        >
+          <PencilIcon />
+          编辑
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={backfill.isPending || busy}
+          title={
+            collection
+              ? '现在检查一次合集，为缺的集补建绑定；追更关着时也能用'
+              : '按保存的条目为缺的集建出绑定'
+          }
+          onClick={() => backfill.mutate()}
+        >
+          {backfill.isPending ? <Loader2Icon className="animate-spin" /> : <RefreshCwIcon />}
+          立即补建
+        </Button>
+        <ConfirmButton
+          trigger={
+            <Button variant="ghost" size="sm" className="text-destructive" disabled={busy}>
+              {busy && <Loader2Icon className="animate-spin" />}
+              删除
+            </Button>
+          }
+          title="删除这个季绑定？"
+          confirmLabel="删除"
+          onConfirm={() => remove.mutate()}
+        >
+          <p>
+            它建出的 {n} 个绑定会连同弹幕一起删除
+            {collection ? '' : '，上传的文件也一起删除'}，无法恢复。
+          </p>
+          {running && <p>正在进行的补建会随即停下。</p>}
+        </ConfirmButton>
       </div>
 
-      {view.numberedByRule && (
-        // 保存成功后规则变了，用新的值重新初始化输入框
-        <EpisodeRuleEditor
-          key={view.episodePatterns.join('\n')}
-          binding={view}
-          disabled={update.isPending || busy}
-          onSave={(episodePatterns) => update.mutate({ episodePatterns })}
-        />
-      )}
+      {editing &&
+        (view.kind === 'collection' ? (
+          <EditCollectionForm binding={view} onClose={() => setEditing(false)} />
+        ) : (
+          <EditFolderForm binding={view} onClose={() => setEditing(false)} />
+        ))}
 
       <button
         type="button"
@@ -217,7 +250,7 @@ function CollectionSeasonBindingCard({
         )}
         条目表
       </button>
-      {expanded && <ItemTable detail={detail} error={detailError} />}
+      {expanded && <EntryTable detail={detail} error={detailError} />}
 
       {error && <ErrorNote onClose={clearError}>{error}</ErrorNote>}
     </article>
@@ -225,124 +258,10 @@ function CollectionSeasonBindingCard({
 }
 
 /**
- * 文件夹的季绑定的卡片：文件夹名、建出的绑定数、上传时间，只能删除。它不补建、不追更、不会失效，没有条目表，也不轮询。
- * 删除成功用 toast；失败的提示显示在卡片下方，保留到下次操作或手动关闭。
+ * 条目表：各条目按补建的语义逐条显示状态，上次补建失败的标红并写出原因；
+ * 表下用黄色提示列出没有条目、绑定还留着的槽位（补建不删，保存一次表单会删掉）
  */
-function FolderSeasonBindingCard({ binding }: { binding: FolderSeasonBinding }) {
-  const [error, setError] = useState<string | null>(null)
-  const clearError = () => setError(null)
-  const remove = useDeleteSeasonBinding(binding.id, clearError, (e) => setError(e.message))
-  const n = binding.bindingCount
-  return (
-    <article aria-label={binding.title} className="grid gap-2 rounded-lg border p-3">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <span className="font-medium break-all">{binding.title}</span>
-          <div className="text-xs text-muted-foreground">上传的弹幕文件夹</div>
-        </div>
-        <DeleteSeasonBindingButton
-          pending={remove.isPending}
-          bindingCount={n}
-          checkboxLabel={`同时删除它建出的 ${n} 个绑定`}
-          onConfirm={(withBindings) => remove.mutate(withBindings)}
-        >
-          {(withBindings) =>
-            n === 0 ? (
-              <p>它建出的绑定都已删除。</p>
-            ) : withBindings ? (
-              <p>它建出的 {n} 个绑定和上传的弹幕文件会一起删除，无法恢复。</p>
-            ) : (
-              <p>它建出的 {n} 个绑定默认保留，变成普通的文件绑定。</p>
-            )
-          }
-        </DeleteSeasonBindingButton>
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>建出 {n} 个绑定</span>
-        <span>上传于 {formatDateTime(binding.createdAt)}</span>
-      </div>
-      {error && <ErrorNote onClose={clearError}>{error}</ErrorNote>}
-    </article>
-  )
-}
-
-/** 删除季绑定：成功后用 toast 提示并重新加载剧详情；已经不在了（例如在别处删掉了）时也重新加载，卡片随之消失 */
-function useDeleteSeasonBinding(id: number, onMutate: () => void, onError: (e: Error) => void) {
-  const reload = useReloadSeries()
-  return useMutation({
-    mutationFn: (withBindings: boolean) => deleteSeasonBinding(id, withBindings),
-    onMutate,
-    onSuccess: () => {
-      toast.success('已删除季绑定')
-      return reload()
-    },
-    onError: (e) => {
-      onError(e)
-      if (isApiStatus(e, 404)) return reload()
-    },
-  })
-}
-
-/**
- * 删除季绑定的按钮与确认框。还有建出的绑定时，确认框末尾是"同时删除建出的绑定"的勾选框，每次打开时恢复成默认的不勾选；
- * children 按是否勾选写出后果
- */
-function DeleteSeasonBindingButton({
-  pending,
-  bindingCount,
-  checkboxLabel,
-  onConfirm,
-  children,
-}: {
-  pending: boolean
-  bindingCount: number
-  checkboxLabel: string
-  onConfirm: (withBindings: boolean) => void
-  children: (withBindings: boolean) => ReactNode
-}) {
-  const [withBindings, setWithBindings] = useState(false)
-  return (
-    <ConfirmButton
-      trigger={
-        <Button variant="ghost" size="sm" className="text-destructive" disabled={pending}>
-          {pending && <Loader2Icon className="animate-spin" />}
-          删除
-        </Button>
-      }
-      title="删除这个季绑定？"
-      confirmLabel="删除"
-      onOpenChange={(open) => open && setWithBindings(false)}
-      onConfirm={() => onConfirm(withBindings)}
-    >
-      {children(withBindings)}
-      {bindingCount > 0 && (
-        <label className="flex items-center gap-2 font-medium text-foreground">
-          <Checkbox
-            checked={withBindings}
-            onCheckedChange={(checked) => setWithBindings(checked)}
-          />
-          {checkboxLabel}
-        </label>
-      )}
-    </ConfirmButton>
-  )
-}
-
-/** 改季绑定成功的提示：卡片上每次只改一样（追更、集号对应或集号规则） */
-function updatedText(patch: SeasonBindingPatch) {
-  if (patch.follow !== undefined) return patch.follow ? '已打开追更，正在后台补建' : '已关闭追更'
-  if (patch.episodePatterns !== undefined) return '集号规则已保存，正在后台补建'
-  return '集号对应已保存，正在后台补建'
-}
-
-const stateClass: Partial<Record<SeasonBindingItemState, string>> = {
-  bound: 'text-emerald-700',
-  failed: 'text-destructive',
-  unmatched: 'text-amber-700',
-}
-
-/** 条目表：上次检查时合集里的条目，按在合集里的顺序，逐条显示状态 */
-function ItemTable({ detail, error }: { detail?: SeasonBindingDetail; error: Error | null }) {
+function EntryTable({ detail, error }: { detail?: SeasonBindingDetail; error: Error | null }) {
   if (!detail) {
     return error ? (
       <ErrorNote>{error.message}</ErrorNote>
@@ -350,20 +269,50 @@ function ItemTable({ detail, error }: { detail?: SeasonBindingDetail; error: Err
       <p className="text-xs text-muted-foreground">加载中…</p>
     )
   }
-  if (detail.items.length === 0) {
-    return <p className="text-xs text-muted-foreground">上次检查时合集里没有条目。</p>
-  }
   return (
-    <CollectionItemsTable
-      label="条目表"
-      heading="状态"
-      rows={detail.items.map((it) => ({
-        number: it.number,
-        label: it.label,
-        text: itemStateText(it),
-        className: stateClass[it.state],
-        title: it.lastErrorAt ? formatDateTime(it.lastErrorAt) : undefined,
-      }))}
-    />
+    <div className="grid gap-2">
+      {detail.items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">没有条目。</p>
+      ) : (
+        <ItemTable
+          label="条目表"
+          items={detail.items}
+          statusHead="状态"
+          renderStatus={(item) => (
+            <TableCell
+              className={cn(
+                'whitespace-normal',
+                item.lastError ? 'text-destructive' : itemStatusClass[item.status],
+              )}
+              title={item.lastErrorAt ? `失败于 ${formatDateTime(item.lastErrorAt)}` : undefined}
+            >
+              {itemStatusText(item, detail.kind)}
+              {item.lastError && ` · 上次失败：${item.lastError}`}
+            </TableCell>
+          )}
+        />
+      )}
+      {detail.emptySlots.length > 0 && (
+        <div
+          role="note"
+          aria-label="没有条目的槽位"
+          className="rounded-md bg-amber-50 p-2 text-xs text-amber-900"
+        >
+          <p className="font-medium">没有条目、绑定还留着（{detail.emptySlots.length}）</p>
+          <ul>
+            {detail.emptySlots.map((slot) => (
+              <li key={slot.bindingId}>
+                {episodeText(slot.episodeNumber, slot.title)}
+                {slot.dead && '（失效）'}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-amber-700">
+            {detail.kind === 'collection' ? '合集' : '文件夹'}
+            里已经没有对到这些集的条目。补建不会删它们；编辑并保存一次季绑定会删掉。
+          </p>
+        </div>
+      )}
+    </div>
   )
 }

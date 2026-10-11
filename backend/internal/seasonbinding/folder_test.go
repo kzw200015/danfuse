@@ -1,13 +1,12 @@
 package seasonbinding_test
 
 import (
-	"fmt"
+	"crypto/sha256"
 	"net/http"
 	"strings"
 	"testing"
-	"testing/synctest"
-	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
@@ -16,135 +15,208 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// TestFolderSeasonBindingView 文件夹的季绑定的详情：照常可用，条目表为空，绑定数是它建出的、现存的绑定；
-// 剧详情的季绑定列表里和合集的季绑定按创建顺序排在一起。
-func TestFolderSeasonBindingView(t *testing.T) {
-	t.Parallel()
-	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &testenv.FakeCollector{
-			Collections: map[string]source.Collection{"s": {Title: "某番剧", Items: []source.CollectionItem{entry("a", 1)}}},
-			Videos:      testenv.FakeVideos("a"),
-		}
-		env := newSeasonEnv(t, pool, src, 1, 2)
-		before := env.upload(1, 2)
-		env.create(1, 1)
-		after := env.upload(2)
-
-		d := env.get(before)
-		if d.Kind != "folder" || d.Title != "来自新世界" || d.BindingCount != 2 || d.Items == nil || len(d.Items) != 0 {
-			t.Errorf("Get = %+v, want 文件夹的季绑定、两个绑定、空的条目表", d)
-		}
-
-		views, err := env.svc.ListBySeries(t.Context(), 1)
-		if err != nil {
-			t.Fatalf("ListBySeries: %v", err)
-		}
-		var got []string
-		for _, v := range views[1] {
-			got = append(got, v.Kind+" "+v.Title)
-		}
-		testenv.AssertStrings(t, "第 1 季的季绑定", got, []string{"folder 来自新世界", "collection 某番剧", "folder 来自新世界"})
-		if views[1][2].ID != after || views[1][2].BindingCount != 1 {
-			t.Errorf("后传的文件夹的季绑定 = %+v, want ID %d、一个绑定", views[1][2], after)
-		}
-	})
+// folderForm 文件夹的表单：第 1 集为本地第 1 集，默认的集号规则。
+func folderForm() seasonbinding.FolderForm {
+	return seasonbinding.FolderForm{Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}
 }
 
-// TestFolderSeasonBindingDeleteOnly 文件夹的季绑定只能删除：改追更、集号对应、集号规则与立即补建都返回 400，什么都不改，也不补建。
-func TestFolderSeasonBindingDeleteOnly(t *testing.T) {
-	t.Parallel()
-	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &testenv.FakeCollector{}
-		env := newSeasonEnv(t, pool, src, 1)
-		id := env.upload(1)
-
-		rule := source.DefaultEpisodeRule()
-		for _, p := range []seasonbinding.UpdateParams{
-			{Follow: new(true)},
-			{Follow: new(false)},
-			{MappingFrom: new(int32(2)), MappingTo: new(int32(1))},
-			{Rule: &rule},
-		} {
-			_, err := env.svc.Update(t.Context(), id, p)
-			testenv.AssertAppError(t, err, http.StatusBadRequest, "文件夹的季绑定只能删除")
-		}
-		testenv.AssertAppError(t, env.svc.Backfill(t.Context(), id), http.StatusBadRequest, "文件夹的季绑定只能删除")
-		synctest.Wait()
-
-		if d := env.get(id); d.Follow || d.LastCheckedAt != nil {
-			t.Errorf("被拒绝之后 follow = %v、lastCheckedAt = %v", d.Follow, d.LastCheckedAt)
-		}
-		if n := src.ListCount(); n != 0 {
-			t.Errorf("列出了 %d 次合集", n)
-		}
-	})
-}
-
-// TestDeleteFolderSeasonBinding 删除文件夹的季绑定：withBindings 时只删掉它建出的绑定，同一集上手动上传的文件绑定、
-// 链接绑定、合集的季绑定建出的绑定都还在，上传的弹幕文件随绑定删掉；不带时它建出的绑定留下，变成普通的文件绑定。
-func TestDeleteFolderSeasonBinding(t *testing.T) {
-	t.Parallel()
-	for _, withBindings := range []bool{false, true} {
-		t.Run(fmt.Sprintf("withBindings=%v", withBindings), func(t *testing.T) {
-			t.Parallel()
-			testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-				src := &testenv.FakeCollector{
-					Collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1), entry("b", 2)}}},
-					Videos:      testenv.FakeVideos("a", "b"),
-				}
-				env := newSeasonEnv(t, pool, src, 1, 2)
-				env.bindManually(1, "m")
-				if _, err := env.bindingSvc.CreateFromFiles(t.Context(), 1, []binding.UploadedFile{testenv.Snapshot1("手动上传.xml")}); err != nil {
-					t.Fatal(err)
-				}
-				collection := env.create(1, 1).ID
-				folder := env.upload(1, 2)
-
-				if err := env.svc.Delete(t.Context(), folder, withBindings); err != nil {
-					t.Fatalf("Delete: %v", err)
-				}
-
-				want := []string{"1 m -", "1 手动上传 -", "1 a 1", "1 来自新世界 / 1 -", "2 b 1", "2 来自新世界 / 2 -"}
-				wantFiles := int64(3)
-				if withBindings {
-					want = []string{"1 m -", "1 手动上传 -", "1 a 1", "2 b 1"}
-					wantFiles = 1 // 只剩手动上传的
-				}
-				testenv.AssertStrings(t, "绑定", env.bindings(), want)
-				if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM binding_files`); n != wantFiles {
-					t.Errorf("弹幕文件 = %d 份, want %d", n, wantFiles)
-				}
-				if d := env.get(collection); d.BindingCount != 2 {
-					t.Errorf("合集的季绑定建出的绑定数 = %d, want 2", d.BindingCount)
-				}
-				_, err := env.svc.Get(t.Context(), folder)
-				testenv.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
-			})
-		})
+// createFolder 用上传的文件给第 1 季创建文件夹的季绑定，返回详情。
+func (e *seasonEnv) createFolder(files ...binding.UploadedFile) seasonbinding.Detail {
+	e.t.Helper()
+	d, err := e.svc.CreateFolder(e.t.Context(), 1, files, folderForm())
+	if err != nil {
+		e.t.Fatalf("CreateFolder: %v", err)
 	}
+	return d
 }
 
-// TestFollowSkipsFolderSeasonBinding 追更的扫描不碰文件夹的季绑定：满了检查周期、季里有了新的集也不检查。
-func TestFollowSkipsFolderSeasonBinding(t *testing.T) {
+// TestCreateFolder 创建：按路径分成条目（子目录里的文件合成一个条目，顶层的文件各自一个条目），条目名称不带文件夹名，
+// 按"文件夹名 / 条目名称"认集号；对到集的当场建出文件绑定（标题为条目名称，弹幕是条目各份文件合并去重的结果），
+// 对不上的条目也保存。
+func TestCreateFolder(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &testenv.FakeCollector{}
-		env := newSeasonEnv(t, pool, src, 1)
-		id := env.upload(1)
-
-		time.Sleep(2 * testFollow.CheckInterval)
-		env.addEpisode(2)
-		time.Sleep(testFollow.ScanInterval)
-		synctest.Wait()
-
-		if d := env.get(id); d.LastCheckedAt != nil || d.LastError != nil || d.Status != "active" {
-			t.Errorf("扫描之后 lastCheckedAt = %v、lastError = %v、status = %s", d.LastCheckedAt, d.LastError, d.Status)
+		env := newSeasonEnv(t, pool, &testenv.FakeCollector{}, 1, 2)
+		d := env.createFolder(
+			testenv.Snapshot1("星海旅人/01.xml"),
+			testenv.Snapshot1("星海旅人/02/a.xml"),
+			testenv.Snapshot2("星海旅人/02/b.XML"),
+			testenv.Snapshot1("星海旅人/花絮.xml"),
+		)
+		if d.Kind != "folder" || d.Title != "星海旅人" || d.EntryCount != 3 || d.BindingCount != 2 {
+			t.Errorf("CreateFolder() = %+v, want 标题为文件夹名、3 个条目、2 个绑定", d.View)
 		}
-		if n := src.ListCount(); n != 0 {
-			t.Errorf("列出了 %d 次合集", n)
+		testenv.AssertStrings(t, "条目", states(d), []string{
+			"星海旅人 / 01 keep 1", "星海旅人 / 02 keep 2", "星海旅人 / 花絮 unmatched - 不符合集号规则",
+		})
+		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 01 1", "2 02 1"})
+		if n := testenv.QueryInt(t, pool, `SELECT danmaku_count FROM bindings WHERE title = '02'`); n != 3 {
+			t.Errorf("条目 02 的绑定有 %d 条弹幕, want 3（两份快照合并去重）", n)
 		}
-		if logs := env.logs.String(); strings.Contains(logs, "level=ERROR") {
-			t.Errorf("扫描出错：\n%s", logs)
+	})
+}
+
+// saveFolder 保存文件夹的季绑定的表单：files 为空时不换文件夹。
+func (e *seasonEnv) saveFolder(id int64, f seasonbinding.FolderForm, files ...binding.UploadedFile) seasonbinding.Detail {
+	e.t.Helper()
+	d, err := e.svc.SaveFolder(e.t.Context(), id, files, f)
+	if err != nil {
+		e.t.Fatalf("SaveFolder: %v", err)
+	}
+	return d
+}
+
+// slots 建出的绑定："集号 标题 #绑定 ID 偏移"，按集号排序。
+func (e *seasonEnv) slots() []string {
+	e.t.Helper()
+	rows, err := e.pool.Query(e.t.Context(), `
+		SELECT format('%s %s #%s %s', e.number, b.title, b.id, b."offset")
+		FROM bindings b
+		JOIN episodes e ON e.id = b.episode_id
+		WHERE b.season_binding_id IS NOT NULL
+		ORDER BY e.number`)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	got, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return got
+}
+
+// TestSaveFolder 保存（不换文件夹）：没变的绑定不动，偏移保留；改了集号对应之后，对到别的集的条目替换那一集的槽位
+// （删旧建新、偏移归零），没有条目的槽位删掉，对到目录里没有的集的条目不建。
+func TestSaveFolder(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		env := newSeasonEnv(t, pool, &testenv.FakeCollector{}, 1, 2, 3)
+		id := env.createFolder(
+			testenv.Snapshot1("星海旅人/01.xml"), testenv.Snapshot1("星海旅人/02.xml"), testenv.Snapshot1("星海旅人/03.xml"),
+		).ID
+		env.exec(`UPDATE bindings SET "offset" = 2.5`)
+		before := env.slots()
+		testenv.AssertStrings(t, "创建后的绑定", before, []string{"1 01 #1 2.5", "2 02 #2 2.5", "3 03 #3 2.5"})
+
+		d := env.saveFolder(id, folderForm())
+		testenv.AssertStrings(t, "原样保存后的绑定", env.slots(), before)
+		testenv.AssertStrings(t, "条目", states(d), []string{"星海旅人 / 01 keep 1", "星海旅人 / 02 keep 2", "星海旅人 / 03 keep 3"})
+
+		f := folderForm()
+		f.Mapping = source.Mapping{From: 1, To: 2}
+		d = env.saveFolder(id, f)
+		testenv.AssertStrings(t, "改了集号对应后的绑定", env.slots(), []string{"2 01 #4 0", "3 02 #5 0"})
+		testenv.AssertStrings(t, "条目", states(d), []string{"星海旅人 / 01 keep 2", "星海旅人 / 02 keep 3", "星海旅人 / 03 noEpisode 4"})
+		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), nil)
+		if d.MappingTo != 2 {
+			t.Errorf("保存后的集号对应 = %d = %d", d.MappingFrom, d.MappingTo)
+		}
+	})
+}
+
+// picked 预览时选的文件夹：各条目的名称和文件哈希取自要上传的文件，与 groupFolder 同样按路径分组。
+func picked(folder string, files ...binding.UploadedFile) *seasonbinding.PickedFolder {
+	p := &seasonbinding.PickedFolder{Folder: folder}
+	index := map[string]int{}
+	for _, f := range files {
+		label := strings.TrimSuffix(strings.Split(strings.TrimPrefix(f.Name, folder+"/"), "/")[0], ".xml")
+		i, ok := index[label]
+		if !ok {
+			i = len(p.Entries)
+			index[label] = i
+			p.Entries = append(p.Entries, seasonbinding.EntryHashes{Label: label})
+		}
+		p.Entries[i].SHA256s = append(p.Entries[i].SHA256s, sha256.Sum256(f.Data))
+	}
+	return p
+}
+
+// TestChangeFolder 换文件夹：预览和保存一致；名称和文件哈希都没变的条目沿用（绑定不动、偏移保留），文件夹改名后照样对得上；
+// 文件变了的条目重建，替换原来的槽位；不在新文件夹里的条目删掉，它的槽位随之删除；标题改为新的文件夹名。
+func TestChangeFolder(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		env := newSeasonEnv(t, pool, &testenv.FakeCollector{}, 1, 2, 3)
+		id := env.createFolder(
+			testenv.Snapshot1("星海旅人/01.xml"), testenv.Snapshot1("星海旅人/02.xml"), testenv.Snapshot1("星海旅人/03.xml"),
+		).ID
+		env.exec(`UPDATE bindings SET "offset" = 2.5`)
+		files := []binding.UploadedFile{
+			testenv.Snapshot1("星海旅人 BD/01.xml"), testenv.Snapshot2("星海旅人 BD/02.xml"), testenv.Snapshot1("星海旅人 BD/04.xml"),
+		}
+
+		p, err := env.svc.PreviewFolderEdit(t.Context(), id, picked("星海旅人 BD", files...), folderForm())
+		if err != nil {
+			t.Fatalf("PreviewFolderEdit: %v", err)
+		}
+		c := p.Candidates[0]
+		testenv.AssertStrings(t, "预览的条目", states(seasonbinding.Detail{Items: c.Items}), []string{
+			"星海旅人 BD / 01 keep 1", "星海旅人 BD / 02 replace 2 替换 02", "星海旅人 BD / 04 noEpisode 4",
+		})
+		testenv.AssertJSON(t, c.Removed, `[{"episodeNumber": 3, "bindingId": 3, "title": "03", "dead": false}]`)
+		testenv.AssertJSON(t, c.Summary, `{"create": 0, "replace": 1, "remove": 1, "keep": 1}`)
+		if c.Title != "星海旅人 BD" || !c.Current || c.CollectionKind != nil {
+			t.Errorf("预览的一组 = %+v", c)
+		}
+
+		d := env.saveFolder(id, folderForm(), files...)
+		if d.Title != "星海旅人 BD" || d.EntryCount != 3 {
+			t.Errorf("换文件夹后的季绑定 = %+v, want 标题为新的文件夹名、3 个条目", d.View)
+		}
+		testenv.AssertStrings(t, "条目", states(d), []string{
+			"星海旅人 BD / 01 keep 1", "星海旅人 BD / 02 keep 2", "星海旅人 BD / 04 noEpisode 4",
+		})
+		testenv.AssertStrings(t, "绑定", env.slots(), []string{"1 01 #1 2.5", "2 02 #4 0"})
+		if got := testenv.FileNames(t, env.bindingSvc, 4); len(got) != 1 {
+			t.Errorf("重建的绑定的文件 = %q", got)
+		}
+	})
+}
+
+// TestBackfillFolder 立即补建：按保存的表单当场新建、替换槽位，不删除没有条目的槽位。
+func TestBackfillFolder(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		env := newSeasonEnv(t, pool, &testenv.FakeCollector{}, 1, 2, 3)
+		id := env.createFolder(
+			testenv.Snapshot1("星海旅人/01.xml"), testenv.Snapshot1("星海旅人/02.xml"), testenv.Snapshot1("星海旅人/03.xml"),
+		).ID
+		env.exec(`UPDATE bindings SET "offset" = 2.5`)
+		// 第 3 集的绑定没了，集号对应改成第 1 集为本地第 2 集：01 → 2、02 → 3、03 → 4（目录里没有）
+		env.exec(`DELETE FROM bindings WHERE title = '03'`)
+		env.exec(`UPDATE season_bindings SET mapping_to = 2`)
+
+		d, err := env.svc.Backfill(t.Context(), id)
+		if err != nil {
+			t.Fatalf("Backfill: %v", err)
+		}
+		testenv.AssertStrings(t, "绑定", env.slots(), []string{"1 01 #1 2.5", "2 01 #4 0", "3 02 #5 0"})
+		testenv.AssertStrings(t, "条目", states(d), []string{
+			"星海旅人 / 01 keep 2", "星海旅人 / 02 keep 3", "星海旅人 / 03 noEpisode 4",
+		})
+		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 01"})
+	})
+}
+
+// TestCreateFolderRejected 有一份文件解析失败时整次 422（提示带着它的相对路径），文件夹的结构不对时 400，什么都不保存。
+func TestCreateFolderRejected(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		env := newSeasonEnv(t, pool, &testenv.FakeCollector{}, 1, 2)
+		_, err := env.svc.CreateFolder(t.Context(), 1, []binding.UploadedFile{
+			testenv.Snapshot1("星海旅人/01.xml"),
+			{Name: "星海旅人/02/坏.xml", Data: []byte("<i><d")},
+		}, folderForm())
+		testenv.AssertAppError(t, err, http.StatusUnprocessableEntity,
+			"无法识别「星海旅人/02/坏.xml」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
+
+		_, err = env.svc.CreateFolder(t.Context(), 1, []binding.UploadedFile{
+			testenv.Snapshot1("星海旅人/01.xml"), testenv.Snapshot1("星海旅人/01/a.xml"),
+		}, folderForm())
+		testenv.AssertAppError(t, err, http.StatusBadRequest, "条目名称重复：01")
+
+		if n := testenv.QueryInt(t, pool, `SELECT (SELECT count(*) FROM season_bindings) + (SELECT count(*) FROM bindings)`); n != 0 {
+			t.Errorf("保存了 %d 个季绑定和绑定", n)
 		}
 	})
 }

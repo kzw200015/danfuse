@@ -153,10 +153,10 @@ export function seasonBinding(
     kind: 'collection',
     seasonId: 11,
     adapter: 'bilibili',
+    link: 'https://b23.tv/ss41410',
     sourceUrl: 'https://www.bilibili.com/bangumi/play/ss41410',
     sourceLabel: 'B 站番剧 ss41410',
     title: '星海旅人 第一季',
-    finished: false,
     mappingFrom: 1,
     mappingTo: 1,
     numberedByRule: false,
@@ -172,7 +172,7 @@ export function seasonBinding(
   }
 }
 
-/** 一个文件夹的季绑定：季 11 上按季上传「来自新世界」文件夹留下的，建出了 1 个绑定 */
+/** 一个文件夹的季绑定：季 11 上上传的「来自新世界」文件夹，1 个条目，建出了 1 个绑定 */
 export function folderSeasonBinding(
   id: number,
   patch: Partial<FolderSeasonBinding> = {},
@@ -182,9 +182,10 @@ export function folderSeasonBinding(
     kind: 'folder',
     seasonId: 11,
     title: '来自新世界',
-    follow: false,
-    status: 'active',
-    running: false,
+    episodePatterns: defaultPatterns,
+    mappingFrom: 1,
+    mappingTo: 1,
+    entryCount: 1,
     bindingCount: 1,
     createdAt: '2026-10-03T08:00:00Z',
     ...patch,
@@ -224,7 +225,9 @@ function summarize({ seasons, ...series }: SeriesDetail): SeriesSummary {
     boundEpisodeCount: episodes.filter((e) => e.bindings.length > 0).length,
     bindingCount: bindings.length,
     deadBindingCount: bindings.filter((b) => b.status === 'dead').length,
-    following: seasons.some((se) => se.seasonBindings.some((sb) => sb.follow)),
+    following: seasons.some((se) =>
+      se.seasonBindings.some((sb) => sb.kind === 'collection' && sb.follow),
+    ),
   }
 }
 

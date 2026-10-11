@@ -106,10 +106,10 @@ func (r EpisodeRule) Patterns() []string {
 	return patterns
 }
 
-// NumberItems 预览、保存之前整理 ListCollection 列出的条目：先用 uniqueRefs 去掉重复的 ref，
+// NumberItems 预览、保存之前整理 ListCollection 列出的条目：先用 UniqueRefs 去掉重复的 ref，
 // 按规则编号的合集再用集号规则从标签认出各条目的序号（认不出的对不上），最后标出重复的序号。不改动传入的切片。
 func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
-	items := uniqueRefs(c.Items)
+	items := UniqueRefs(c.Items)
 	if c.NumberedByRule {
 		for i, it := range items {
 			items[i] = r.match(it)
@@ -119,7 +119,7 @@ func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
 }
 
 // NumberLabels 用集号规则从一组名称认出序号，与按规则编号的合集同一套匹配和"集号重复"的标注，但不按 ref 去重：
-// 结果与 labels 一一对应（名称相同的也各自保留），只填 Label、Number、Unmatched。给没有弹幕源的条目用（按季上传的预览）。
+// 结果与 labels 一一对应（名称相同的也各自保留），只填 Label、Number、Unmatched。给没有弹幕源的条目用（文件夹的季绑定的条目）。
 func NumberLabels(labels []string, r EpisodeRule) []CollectionItem {
 	items := make([]CollectionItem, len(labels))
 	for i, label := range labels {

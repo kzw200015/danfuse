@@ -12,6 +12,13 @@
 //
 // 要在别处创建连接池时（例如在 testing/synctest 的气泡里），先在外面用 dbtest.Config(t) 复制出新库，再在气泡里 dbtest.Open(t, cfg)。
 //
+// 迁移的测试用 NewMigrator 建一个空库，自己迁到指定的版本：
+//
+//	m := dbtest.NewMigrator(t)
+//	m.UpTo(t, 7)   // 迁到旧版本，造出老数据
+//	m.UpTo(t, 8)   // 执行要测的迁移，核对数据
+//	m.DownTo(t, 7) // 回退，核对数据
+//
 // 需要 Docker。go test -short 跳过数据库测试；不加 -short 而 Docker 不可用时直接失败。
 package dbtest
 
@@ -19,15 +26,19 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/kzw200015/danfuse/backend/db"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 )
@@ -120,12 +131,18 @@ func Config(t testing.TB) *pgxpool.Config {
 	if testing.Short() {
 		t.Skip("数据库测试，-short 时跳过")
 	}
+	return createDatabase(t, " TEMPLATE "+templateName)
+}
+
+// createDatabase 按 options（CREATE DATABASE 的选项）新建一个库，返回连到它的连接配置；测试结束时删掉这个库。
+func createDatabase(t testing.TB, options string) *pgxpool.Config {
+	t.Helper()
 	if admin == nil {
 		t.Fatal("dbtest: 需要先在 TestMain 中调用 dbtest.Main")
 	}
 
 	name := fmt.Sprintf("test_%d", seq.Add(1))
-	if _, err := admin.Exec(t.Context(), "CREATE DATABASE "+name+" TEMPLATE "+templateName); err != nil {
+	if _, err := admin.Exec(t.Context(), "CREATE DATABASE "+name+options); err != nil {
 		t.Fatalf("dbtest: create database %s: %v", name, err)
 	}
 	t.Cleanup(func() {
@@ -156,4 +173,51 @@ func Open(t testing.TB, cfg *pgxpool.Config) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 	return pool
+}
+
+// Migrator 迁移的测试用：一个没有执行过迁移的库，由测试自己按版本迁移。
+type Migrator struct {
+	Pool     *pgxpool.Pool // 连到这个库，测试结束时关闭
+	provider *goose.Provider
+}
+
+// NewMigrator 新建一个空库（不从模板复制），返回迁移它的 Migrator；测试结束时删掉这个库。-short 时跳过当前测试。
+func NewMigrator(t testing.TB) *Migrator {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("数据库测试，-short 时跳过")
+	}
+	pool := Open(t, createDatabase(t, ""))
+
+	migrations, err := fs.Sub(db.Migrations, "migrations")
+	if err != nil {
+		t.Fatalf("dbtest: load migrations: %v", err)
+	}
+	// 关闭 provider 会关闭包装出的 *sql.DB，不会关闭底层的 pgxpool；要在关闭连接池之前，所以晚于 Open 登记
+	provider, err := goose.NewProvider(goose.DialectPostgres, stdlib.OpenDBFromPool(pool), migrations)
+	if err != nil {
+		t.Fatalf("dbtest: create migration provider: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := provider.Close(); err != nil {
+			t.Errorf("dbtest: close migration provider: %v", err)
+		}
+	})
+	return &Migrator{Pool: pool, provider: provider}
+}
+
+// UpTo 执行到 version（含）为止还没执行的迁移。
+func (m *Migrator) UpTo(t testing.TB, version int64) {
+	t.Helper()
+	if _, err := m.provider.UpTo(t.Context(), version); err != nil {
+		t.Fatalf("dbtest: migrate up to %d: %v", version, err)
+	}
+}
+
+// DownTo 回退 version 之后的迁移，回到 version。
+func (m *Migrator) DownTo(t testing.TB, version int64) {
+	t.Helper()
+	if _, err := m.provider.DownTo(t.Context(), version); err != nil {
+		t.Fatalf("dbtest: migrate down to %d: %v", version, err)
+	}
 }
