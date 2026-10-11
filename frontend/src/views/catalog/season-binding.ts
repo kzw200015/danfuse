@@ -2,13 +2,58 @@ import type {
   ChangeCandidate,
   CollectionCandidate,
   CollectionSeasonBinding,
+  Item,
   Mapping,
   PreviewItem,
   SeasonBinding,
   SeasonBindingItem,
+  SeasonBindingKind,
   SeasonBindingPatch,
+  Summary,
 } from '@/api/season-bindings'
-import type { Episode } from '@/api/series'
+import type { Episode, Season } from '@/api/series'
+
+import { catalogPath } from './catalog'
+
+/**
+ * 条目表（详情，补建的语义）里一个条目的状态文字：对到的集写在前面；替换写出原来的绑定，合集说"待换新稿件"，文件夹说"待替换"。
+ * 上次补建失败的原因（item.lastError）不在这里，由条目表另外标出
+ */
+export function itemStatusText(item: Item, kind: SeasonBindingKind) {
+  const text = statusText(item, kind)
+  return item.episodeNumber === null ? text : `第 ${item.episodeNumber} 集 · ${text}`
+}
+
+function statusText(item: Item, kind: SeasonBindingKind) {
+  switch (item.status) {
+    case 'keep':
+      return '已建绑定'
+    case 'create':
+      return '待补建'
+    case 'replace': {
+      const text = kind === 'collection' ? '待换新稿件' : '待替换'
+      return item.replaces ? `${text}（原：${item.replaces.title}）` : text
+    }
+    case 'alreadyBound':
+      return '已有同源绑定'
+    case 'unmatched':
+      return `对不上（${item.reason ?? '认不出集号'}）`
+    case 'beforeStart':
+      return '在起点之前'
+    case 'noEpisode':
+      return '目录里没有这一集'
+  }
+}
+
+/** 预览顶部的汇总标签：新建、替换、删除、保留各几个；删除大于 0 时标红 */
+export function summaryTags(summary: Summary) {
+  return [
+    { text: `新建 ${summary.create}`, destructive: false },
+    { text: `替换 ${summary.replace}`, destructive: false },
+    { text: `删除 ${summary.remove}`, destructive: summary.remove > 0 },
+    { text: `保留 ${summary.keep}`, destructive: false },
+  ]
+}
 
 /** 季绑定的名称：文件夹的季绑定为文件夹名；合集的季绑定为合集标题，标题为空时用合集的标签 */
 export function seasonBindingName(sb: SeasonBinding) {
@@ -16,13 +61,21 @@ export function seasonBindingName(sb: SeasonBinding) {
 }
 
 /**
- * 绑定卡片上季绑定的标签：文字写季绑定的名称，悬停提示写全名和来源。seasonBindings 是这一季的季绑定（剧详情里带着）；
+ * 绑定卡片上季绑定的标签：文字写季绑定的名称，悬停提示写全名和来源，to 是季面板的路径（建出的绑定要到那里改）。
+ * season 是绑定所在的季（剧 seriesId 的，带着剧详情里的季绑定），季绑定与它建出的绑定总在同一季；
+ * path 拼出目录页的地址，默认不带查询参数，组件里传 useCatalogPath() 的结果以保留地址栏的分类。
  * 不是季绑定建出的绑定为 null，找不到对应的季绑定时（理论上不会发生）只写"季绑定"
  */
-export function seasonBindingTag(seasonBindingId: number | null, seasonBindings: SeasonBinding[]) {
+export function seasonBindingTag(
+  seasonBindingId: number | null,
+  season: Pick<Season, 'id' | 'seasonBindings'>,
+  seriesId: number,
+  path: (...ids: number[]) => string = catalogPath,
+) {
   if (seasonBindingId === null) return null
-  const sb = seasonBindings.find((s) => s.id === seasonBindingId)
-  if (!sb) return { text: '季绑定', title: '由季绑定建出' }
+  const to = path(seriesId, season.id)
+  const sb = season.seasonBindings.find((s) => s.id === seasonBindingId)
+  if (!sb) return { text: '季绑定', title: '由季绑定建出', to }
   const name = seasonBindingName(sb)
   return {
     text: `季绑定 · ${name}`,
@@ -30,6 +83,7 @@ export function seasonBindingTag(seasonBindingId: number | null, seasonBindings:
       sb.kind === 'folder'
         ? `由文件夹的季绑定「${name}」建出`
         : `由合集的季绑定「${name}」按集号对应建出`,
+    to,
   }
 }
 

@@ -49,7 +49,8 @@ export default function EpisodePanel({
             key={b.id}
             binding={b}
             episodeDuration={episode.duration}
-            seasonBindings={season.seasonBindings}
+            season={season}
+            seriesId={series.id}
           />
         ))}
         {episode.bindings.length === 0 && (
