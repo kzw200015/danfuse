@@ -14,7 +14,7 @@
   - 集号规则（ADR 0005）：投稿合集与多 P 投稿的适配器只给出展开到分 P 的条目和标签、标明 `Collection.NumberedByRule`，序号由季绑定上的规则从标签认出。规则是一组正则，取标签里结束得最靠后的集号、一样靠后时取排在前面的正则（`naming.Parse` 仍按表的优先级认，两者只共用正则），季绑定存它的副本；默认规则取自 `naming.EpisodePatterns`（`catalog/naming`），即 `naming.Parse` 那张表里带 `episode` 组的写法，再加上认结尾 `/ N` 的一条：标签有两级标题时用 `source.LabelSeparator`（` / `）拼成"上级 / 下级"，越靠后越具体（见 `CollectionItem.Label`），新的源适配器拼标签也要照这个约定。
   - `NumberItems` 先按 ref 去重（`uniqueRefs`），按规则编号的合集再认出序号，最后标出重复序号（`markDuplicateNumbers`）；`NumberLabels` 只接收名称，认序号、标重复，不去重，结果与名称一一对应（按季上传的预览用它）。
 - B 站适配器的链接解析（`bilibili/link.go`）只做字符串分类（短链先跳转一次再分类），集面板与季面板各自决定接受哪些（集面板遇到合集的链接时提示到季面板）。
-- 源适配器返回 `*source.Error`（带 Kind）：补建、定时拉取、标为失效都按 Kind 分支；管理 API 由 `binding.SourceAPIError`（季绑定的预览、创建也用它）按 Kind 转成 400/422/502，只包装 Err，日志里提示不重复。
+- 源适配器返回 `*source.Error`（带 Kind）：补建、定时拉取、标为失效都按 Kind 分支；管理 API 由 `binding.SourceAPIError`（季绑定的预览、创建、换合集也用它）按 Kind 转成 400/422/502，只包装 Err，日志里提示不重复。
 
 ## 弹幕文件（ADR 0004）
 
@@ -39,7 +39,7 @@
 - 绑定卡片（`BindingCard`）按 `kind` 分出两组操作（`BindingSourceActions.tsx`：重新拉取 / 追加文件、重新解析），各自持有 mutation；一个绑定上改动弹幕的变更都带 `bindingKeys.write(id)` 前缀（`use-bindings.ts`），卡片用 `useIsMutating` 在任何一个进行中时禁用其他操作。
 - 季绑定建出的绑定（`seasonBindingId` 不为空）在卡片上带一个"季绑定 · 名称"的标签，只用来显示、不是链接：集面板把剧详情里这一季的 `seasonBindings` 交给 `BindingCard`，由 `seasonBindingTag`（`season-binding.ts`）按 ID 查出季绑定，名称取法与季绑定卡片一致（`seasonBindingName`：文件夹的季绑定为文件夹名，合集的季绑定为合集标题、为空时用合集的标签），过长时截断，悬停提示写全名和来源；查不到时只写"季绑定"。
 - 弹幕文件列表的键 `['binding-files', id]`，弹出层打开时才取。
-- 按季上传的对话框（`SeasonUploadButton`，入口在季面板"季绑定"一节的标题行）复用季绑定的 `EpisodeRuleRepreview`（集号规则与重新预览）、`MappingInputs`、`previewTarget` 的现算和 `CollectionItemsTable`（传 `selection` 加勾选列）；集号对应和季绑定一样预填 1 = 1。"已有文件绑定"看目标集的绑定里有没有 `kind` 为 `file` 的，有就默认不勾。上传显示 axios 的上传进度，传完显示"正在保存"；成功后让剧详情失效（新的文件夹的季绑定随之出现），失败时对话框保持原样。
+- 按季上传在季面板里内联展开（`SeasonUploadPanel`，入口是季面板"季绑定"一节标题行的按钮，展开状态记在 `SeasonPanel`，换一季时自然收起，上传进行中不能收起），复用季绑定的 `EpisodeRuleRepreview`（集号规则与重新预览）、`MappingInputs`、`previewTarget` 的现算和 `CollectionItemsTable`（传 `selection` 加勾选列）；集号对应和季绑定一样预填 1 = 1。"已有文件绑定"看目标集的绑定里有没有 `kind` 为 `file` 的，有就默认不勾。上传显示 axios 的上传进度，传完显示"正在保存"；成功后收起、让剧详情失效（新的文件夹的季绑定随之出现），失败时保持原样。
 - 查看绑定的弹幕（`BindingDanmakuDialog`，点卡片上的弹幕条数打开）：`GET /api/bindings/:id/danmaku?fromMs=&after=` 按 `(time_ms, source_id)` 游标分页，每页 200 条，时间未校正，不输出原始 ID（可能超出 JS 的安全整数）；`fromMs` 用于跳转，翻页时照传。绑定 JSON 带着 `contentVersion`（插入了新弹幕或替换全部弹幕时加 1）和 `maxTimeMs`（最晚一条弹幕的时间，拖动条的长度），两者与 `danmaku_count` 一样在写入弹幕的事务里维护。前端的无限查询键是 `['binding-danmaku', id, contentVersion, fromMs]`：不论弹幕怎么变的，剧详情重新加载后版本一变就换一份数据，同一个键不会过时，不重新请求。
 
 ## B 站适配器的测试
