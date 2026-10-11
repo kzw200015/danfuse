@@ -620,7 +620,8 @@ FROM episodes e
 JOIN bindings b ON b.episode_id = e.id
 WHERE e.season_id = $1
   AND b.adapter = $2::text
-  AND b.season_binding_id IS DISTINCT FROM $3::bigint
+  AND ($3::bigint IS NULL
+    OR b.season_binding_id IS DISTINCT FROM $3::bigint)
 `
 
 type ListSeasonOccupiedSourcesParams struct {
@@ -635,6 +636,7 @@ type ListSeasonOccupiedSourcesRow struct {
 }
 
 // 派生的输入（只对合集）：一季各集上、不是季绑定 season_binding_id 建出的、适配器为 adapter 的绑定的弹幕源。
+// season_binding_id 为 null（新建的预览）时为全部绑定，手动建的也算。
 func (q *Queries) ListSeasonOccupiedSources(ctx context.Context, arg ListSeasonOccupiedSourcesParams) ([]ListSeasonOccupiedSourcesRow, error) {
 	rows, err := q.db.Query(ctx, listSeasonOccupiedSources, arg.SeasonID, arg.Adapter, arg.SeasonBindingID)
 	if err != nil {
@@ -758,6 +760,44 @@ func (q *Queries) RecordSeasonBindingListed(ctx context.Context, arg RecordSeaso
 		&i.Link,
 	)
 	return i, err
+}
+
+const saveCollectionForm = `-- name: SaveCollectionForm :exec
+UPDATE season_bindings
+SET adapter          = $1::text,
+    ref              = $2::jsonb,
+    link             = $3::text,
+    mapping_from     = $4::int,
+    mapping_to       = $5::int,
+    episode_patterns = $6::text[],
+    last_checked_at  = CASE WHEN adapter = $1::text AND ref = $2::jsonb THEN last_checked_at END
+WHERE id = $7
+`
+
+type SaveCollectionFormParams struct {
+	Adapter         string   `json:"adapter"`
+	Ref             []byte   `json:"ref"`
+	Link            string   `json:"link"`
+	MappingFrom     int32    `json:"mappingFrom"`
+	MappingTo       int32    `json:"mappingTo"`
+	EpisodePatterns []string `json:"episodePatterns"`
+	ID              int64    `json:"id"`
+}
+
+// 保存合集的表单（调用方已锁住季绑定）：链接、选的合集、集号对应、集号规则。换成另一个合集（适配器或 ref 变了）时
+// 清掉上次检查时间，追更按从没检查过算。同一季已经绑定过这个合集时撞上唯一约束 (season_id, adapter, ref)。
+// 合集的标题、是否按规则编号和条目随后由 RecordSeasonBindingListed 与 UpsertSeasonBindingItems 写入。
+func (q *Queries) SaveCollectionForm(ctx context.Context, arg SaveCollectionFormParams) error {
+	_, err := q.db.Exec(ctx, saveCollectionForm,
+		arg.Adapter,
+		arg.Ref,
+		arg.Link,
+		arg.MappingFrom,
+		arg.MappingTo,
+		arg.EpisodePatterns,
+		arg.ID,
+	)
+	return err
 }
 
 const seasonBindingExists = `-- name: SeasonBindingExists :one

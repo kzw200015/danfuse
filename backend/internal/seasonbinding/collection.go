@@ -19,12 +19,13 @@ var (
 	errSeasonBindingExists = apierr.ErrConflict.WithMessage("这一季已经绑定过这个合集")
 	errKindRequired        = apierr.ErrBadRequest.WithMessage("链接对应多个合集，请选择一个")
 	errKindNotFound        = apierr.ErrBadRequest.WithMessage("链接里没有这种合集，请重新预览")
+	errSaveWhileBackfill   = apierr.ErrConflict.WithMessage("正在补建或保存，稍后再试")
 )
 
 // CollectionForm 合集的表单：贴的链接、选的候选、集号对应、集号规则。
 type CollectionForm struct {
 	Link           string // 原样保存，编辑时预填
-	CollectionKind string // 选哪个候选；链接只有一个候选时可以为空
+	CollectionKind string // 选哪个候选；链接只有一个候选时可以为空；预览列出全部候选，不看它
 	Mapping        source.Mapping
 	Rule           source.EpisodeRule // 集号规则；合集不按规则编号时也照样保存，不起作用
 }
@@ -73,6 +74,181 @@ func (s *Service) CreateCollection(ctx context.Context, seasonID int64, f Collec
 	}
 	s.startBackfill(ctx, id)
 	return s.Get(ctx, id)
+}
+
+// SaveCollection 保存合集的季绑定的表单，每次都走一遍，不比较表单改没改（规格第 4 节"保存表单"）：
+//  1. 拿这个季绑定的补建租约，拿不到（正在补建或保存）为 409，持有到写入提交；
+//  2. 重新识别链接、按 collectionKind 选候选、查重、列出合集（见 resolve）。删除以这次列出的结果为准，不和预览核对；
+//  3. 一个事务里锁季、FOR UPDATE 锁季绑定，写表单（换成另一个合集时清掉上次检查时间），保存这次列出的结果，
+//     派生，删掉没有条目的槽位（DeleteSlotsInTx）。替换和新建不在这里做；
+//  4. 释放租约，随即在后台补建，返回详情。
+//
+// 不存在为 404（保存前季或季绑定被删除也是），文件夹的季绑定为 400；同一季已经绑定过这个合集为 409。
+func (s *Service) SaveCollection(ctx context.Context, id int64, f CollectionForm) (Detail, error) {
+	sb, err := s.getCollection(ctx, id)
+	if err != nil {
+		return Detail{}, err
+	}
+	lease, err := s.tryBackfillLease(ctx, id)
+	if err != nil {
+		if errors.Is(err, errBackfillRunning) {
+			return Detail{}, errSaveWhileBackfill
+		}
+		return Detail{}, err
+	}
+	defer lease.Release()       // 出错返回时；写完之后在补建之前就释放
+	leaseCtx := lease.Context() // 租约丢失时随即停下
+
+	r, err := s.resolve(leaseCtx, sb.SeasonID, &id, f.Link, f.CollectionKind)
+	if err != nil {
+		return Detail{}, err
+	}
+	var removed int
+	err = pgx.BeginFunc(leaseCtx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		removed, err = s.saveCollectionTx(leaseCtx, tx, sb.SeasonID, id, f, r)
+		return err
+	})
+	if err != nil {
+		return Detail{}, err
+	}
+	lease.Release() // 随后的补建才拿得到租约
+	s.logger.InfoContext(ctx, "season binding saved",
+		"season_binding_id", id, "adapter", r.adapter.ID(), "ref", string(r.ref), "removed_bindings", removed)
+	s.startBackfill(ctx, id)
+	return s.Get(ctx, id)
+}
+
+// saveCollectionTx SaveCollection 的写入事务，返回删掉的槽位数。
+func (s *Service) saveCollectionTx(ctx context.Context, tx pgx.Tx, seasonID, id int64, f CollectionForm, r resolved) (int, error) {
+	q := s.q.WithTx(tx)
+	// 加锁顺序同补建：季 → 季绑定 → 集 → 绑定。季删除时季绑定随之删除
+	if err := lockSeason(ctx, q, seasonID, errSeasonBindingNotFound); err != nil {
+		return 0, err
+	}
+	if _, err := q.LockSeasonBindingForUpdate(ctx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, errSeasonBindingNotFound
+		}
+		return 0, fmt.Errorf("lock season binding %d: %w", id, err)
+	}
+	err := q.SaveCollectionForm(ctx, seasonbindingdb.SaveCollectionFormParams{
+		ID:              id,
+		Adapter:         r.adapter.ID(),
+		Ref:             r.ref,
+		Link:            f.Link,
+		MappingFrom:     int32(f.Mapping.From),
+		MappingTo:       int32(f.Mapping.To),
+		EpisodePatterns: f.Rule.Patterns(),
+	})
+	if err != nil {
+		if database.IsUniqueViolation(err) {
+			return 0, errSeasonBindingExists
+		}
+		return 0, fmt.Errorf("save form of season binding %d: %w", id, err)
+	}
+	if _, err := saveListed(ctx, q, id, r.col, errSeasonBindingNotFound); err != nil {
+		return 0, err
+	}
+	episodes, err := episodeSlots(ctx, q, seasonID, &id, r.adapter.ID())
+	if err != nil {
+		return 0, err
+	}
+	plan := Derive(collectionEntries(source.NumberItems(r.col, f.Rule)), f.Mapping, episodes)
+	if len(plan.Empty) == 0 {
+		return 0, nil
+	}
+	episodeIDs := make([]int64, len(plan.Empty))
+	for i, e := range plan.Empty {
+		episodeIDs[i] = e.EpisodeID
+	}
+	return len(episodeIDs), s.bindings.DeleteSlotsInTx(ctx, tx, id, episodeIDs)
+}
+
+// PreviewNewCollection 新建的预览：识别链接、列出每个候选合集，按 f 里的集号规则和集号对应派生（这一季还没有这个季绑定的槽位），
+// 每个候选一组。不看 f.CollectionKind，不写库，不缓存。季不存在为 404，其余错误见 listCandidates。
+func (s *Service) PreviewNewCollection(ctx context.Context, seasonID int64, f CollectionForm) (Preview, error) {
+	if err := s.checkSeason(ctx, seasonID); err != nil {
+		return Preview{}, err
+	}
+	adapter, listed, err := s.listCandidates(ctx, f.Link)
+	if err != nil {
+		return Preview{}, err
+	}
+	episodes, err := episodeSlots(ctx, s.q, seasonID, nil, adapter.ID())
+	if err != nil {
+		return Preview{}, err
+	}
+	return collectionPreview(adapter, listed, f, episodes, nil)
+}
+
+// PreviewCollectionEdit 编辑的预览：同新建的预览，另外按这个季绑定现在的槽位派生（保存后要替换、删除哪些），
+// 标出 ref 与保存的合集相同的候选。不写库。季绑定不存在为 404，文件夹的季绑定为 400，其余错误见 listCandidates。
+func (s *Service) PreviewCollectionEdit(ctx context.Context, id int64, f CollectionForm) (Preview, error) {
+	sb, err := s.getCollection(ctx, id)
+	if err != nil {
+		return Preview{}, err
+	}
+	adapter, listed, err := s.listCandidates(ctx, f.Link)
+	if err != nil {
+		return Preview{}, err
+	}
+	episodes, err := episodeSlots(ctx, s.q, sb.SeasonID, &sb.ID, adapter.ID())
+	if err != nil {
+		return Preview{}, err
+	}
+	var current source.CollectionRef
+	if *sb.Adapter == adapter.ID() {
+		current = sb.Ref
+	}
+	return collectionPreview(adapter, listed, f, episodes, current)
+}
+
+// listedCandidate 链接识别出的一个候选合集，连同这次列出的内容。
+type listedCandidate struct {
+	source.CollectionCandidate
+	col source.Collection
+}
+
+// listCandidates 识别链接、列出每个候选合集，识别与列出共用 source.FetchTimeout。
+// 链接无法识别、不能作为合集绑定为 400；合集不存在为 422；上游故障、限流、超时为 502。
+func (s *Service) listCandidates(ctx context.Context, link string) (source.Adapter, []listedCandidate, error) {
+	netCtx, cancel := context.WithTimeout(ctx, source.FetchTimeout)
+	defer cancel()
+	adapter, candidates, err := s.sources.ParseCollectionLink(netCtx, link)
+	if err != nil {
+		return nil, nil, binding.SourceAPIError(err)
+	}
+	listed := make([]listedCandidate, len(candidates))
+	for i, c := range candidates {
+		col, err := adapter.ListCollection(netCtx, c.Ref)
+		if err != nil {
+			return nil, nil, binding.SourceAPIError(err)
+		}
+		listed[i] = listedCandidate{CollectionCandidate: c, col: col}
+	}
+	return adapter, listed, nil
+}
+
+// collectionPreview 每个候选按 f 的集号规则编号、按 f 的集号对应和 episodes 派生，填上候选的信息；
+// current 不为 nil 时标出 ref 与它相同的候选（编辑时保存的合集）。
+func collectionPreview(adapter source.Adapter, listed []listedCandidate, f CollectionForm, episodes map[int]Episode, current source.CollectionRef) (Preview, error) {
+	p := Preview{Candidates: make([]Candidate, len(listed))}
+	for i, l := range listed {
+		d, err := adapter.DescribeCollection(l.Ref)
+		if err != nil {
+			return Preview{}, fmt.Errorf("describe collection %s: %w", l.Ref, err)
+		}
+		c := newCandidate(Derive(collectionEntries(source.NumberItems(l.col, f.Rule)), f.Mapping, episodes))
+		c.CollectionKind = new(l.Kind)
+		c.Title = l.col.Title
+		c.SourceURL, c.SourceLabel = new(d.URL), new(d.Label)
+		c.Finished = l.col.Finished
+		c.NumberedByRule = l.col.NumberedByRule
+		c.Current = current != nil && source.CanonicalRef(source.Ref(l.Ref)) == source.CanonicalRef(source.Ref(current))
+		p.Candidates[i] = c
+	}
+	return p, nil
 }
 
 // resolved 按链接和种类选定、列出的合集。

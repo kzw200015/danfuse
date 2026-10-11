@@ -74,12 +74,14 @@ ORDER BY e.number;
 
 -- name: ListSeasonOccupiedSources :many
 -- 派生的输入（只对合集）：一季各集上、不是季绑定 season_binding_id 建出的、适配器为 adapter 的绑定的弹幕源。
+-- season_binding_id 为 null（新建的预览）时为全部绑定，手动建的也算。
 SELECT e.number, b.ref
 FROM episodes e
 JOIN bindings b ON b.episode_id = e.id
 WHERE e.season_id = @season_id
   AND b.adapter = @adapter::text
-  AND b.season_binding_id IS DISTINCT FROM sqlc.narg(season_binding_id)::bigint;
+  AND (sqlc.narg(season_binding_id)::bigint IS NULL
+    OR b.season_binding_id IS DISTINCT FROM sqlc.narg(season_binding_id)::bigint);
 
 -- name: SetSeasonBindingFollow :execrows
 -- 开关追更（只有合集的季绑定有追更）。不存在、或不是合集的季绑定时没有行。
@@ -166,6 +168,20 @@ SET last_checked_at = sqlc.arg(checked_at)::timestamptz,
     last_error      = sqlc.narg(error),
     status          = CASE WHEN sqlc.arg(dead)::boolean THEN 'dead' ELSE status END
 WHERE id = sqlc.arg(id);
+
+-- name: SaveCollectionForm :exec
+-- 保存合集的表单（调用方已锁住季绑定）：链接、选的合集、集号对应、集号规则。换成另一个合集（适配器或 ref 变了）时
+-- 清掉上次检查时间，追更按从没检查过算。同一季已经绑定过这个合集时撞上唯一约束 (season_id, adapter, ref)。
+-- 合集的标题、是否按规则编号和条目随后由 RecordSeasonBindingListed 与 UpsertSeasonBindingItems 写入。
+UPDATE season_bindings
+SET adapter          = @adapter::text,
+    ref              = @ref::jsonb,
+    link             = @link::text,
+    mapping_from     = @mapping_from::int,
+    mapping_to       = @mapping_to::int,
+    episode_patterns = @episode_patterns::text[],
+    last_checked_at  = CASE WHEN adapter = @adapter::text AND ref = @ref::jsonb THEN last_checked_at END
+WHERE id = @id;
 
 -- name: ListDueSeasonBindings :many
 -- 追更的扫描：追更开着、并且满足以下任一条件的季绑定，按上次检查时间从早到晚，每个条件各是一列（到期的原因，记进日志）：

@@ -139,6 +139,88 @@ func TestBackfillNewItemsAndEpisodes(t *testing.T) {
 	})
 }
 
+// TestBackfillReplace 槽位里的弹幕源与对到这一集的条目不同：拉取成功时删旧建新，新绑定的偏移归零；
+// 拉取失败时旧的绑定保留，失败原因记在条目上。
+func TestBackfillReplace(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &testenv.FakeCollector{
+			Collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1), entry("b", 2), entry("c", 3)}}},
+			Videos:      testenv.FakeVideos("a", "b", "c", "x", "y"),
+			FetchErrs:   map[string]error{"y": &source.Error{Kind: source.Upstream, Message: "B 站接口异常", Err: errors.New("HTTP 503")}},
+		}
+		env := newSeasonEnv(t, pool, src, 1, 2, 3)
+		id := env.create().ID
+		env.exec(`UPDATE bindings SET "offset" = 1500 WHERE ref->>'name' = 'b'`)
+
+		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 1), entry("x", 2), entry("y", 3)}}
+		env.backfill(id)
+
+		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 x 1", "3 c 1"})
+		if n := testenv.QueryInt(t, pool, `SELECT "offset" FROM bindings WHERE ref->>'name' = 'x'`); n != 0 {
+			t.Errorf("新绑定的偏移 = %d, want 0", n)
+		}
+		d := env.get(id)
+		testenv.AssertStrings(t, "条目", states(d), []string{"a keep 1", "x keep 2", "y replace 3 替换 弹幕源 c"})
+		if it := d.Items[2]; emptyIfNull(it.LastError) != "B 站接口异常" {
+			t.Errorf("替换失败的条目 lastError = %v", it.LastError)
+		}
+	})
+}
+
+// TestBackfillReplaceSourceBound 替换停在拉取上时，有人在那一集手动绑定了同一个弹幕源：事务回滚，旧的绑定保留，
+// 条目为"已有同源绑定"。
+func TestBackfillReplaceSourceBound(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &testenv.FakeCollector{
+			Collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1)}}},
+			Videos:      testenv.FakeVideos("a", "x"),
+		}
+		env := newSeasonEnv(t, pool, src, 1)
+		id := env.create().ID
+		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("x", 1)}}
+		src.Gate()
+
+		env.backfill(id)
+		<-src.Started
+		env.bindManually(1, "x")
+		src.Release <- struct{}{}
+		synctest.Wait()
+
+		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "1 x -"})
+		testenv.AssertStrings(t, "条目", states(env.get(id)), []string{"x alreadyBound 1"})
+	})
+}
+
+// TestBackfillKeepsEmptySlots 补建不删除没有条目的槽位：条目在平台上改了集号、对到另一集时，新的那一集按替换建出，
+// 原来那一集的绑定留着，列在没有条目的槽位里，保存表单时才删掉。
+func TestBackfillKeepsEmptySlots(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &testenv.FakeCollector{
+			Collections: map[string]source.Collection{"s": {Items: []source.CollectionItem{entry("a", 1), entry("b", 2)}}},
+			Videos:      testenv.FakeVideos("a", "b"),
+		}
+		env := newSeasonEnv(t, pool, src, 1, 2)
+		id := env.create().ID
+
+		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 2)}}
+		env.backfill(id)
+
+		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 a 1"})
+		d := env.get(id)
+		testenv.AssertStrings(t, "条目", states(d), []string{"a keep 2"})
+		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 弹幕源 a"})
+
+		if _, err := env.svc.SaveCollection(t.Context(), id, collectionForm("list/s")); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		testenv.AssertStrings(t, "保存之后的绑定", env.bindings(), []string{"2 a 1"})
+	})
+}
+
 // TestBackfillItemError 单个条目上游错误：其他条目照建，失败原因记在条目上；下一轮再试，成功后清掉。
 func TestBackfillItemError(t *testing.T) {
 	t.Parallel()
