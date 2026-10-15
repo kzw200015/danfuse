@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { Link } from 'react-router'
 
 import { deleteSeries, type Episode, type SeriesDetail } from '@/api/series'
@@ -27,6 +28,14 @@ export default function SeriesColumn({
 }) {
   const path = useCatalogPath()
   const tmdb = tmdbUrl(series)
+  const links = [
+    // 核对 Jellyfin 识别得对不对；同步按 TMDB ID 对应这部剧
+    tmdb && { href: tmdb, label: 'TMDB' },
+    // 回到目录源里这部剧的页面
+    series.sourceLink && { href: series.sourceLink.url, label: series.sourceLink.label },
+    // 找弹幕源：用标题在 B 站综合搜索
+    { href: bilibiliSearchUrl(series.title), label: 'B 站' },
+  ].filter((link) => !!link)
   const seasonPanelOpen = !episode && !missing
   return (
     <section className="flex min-h-0 flex-col border-r">
@@ -39,20 +48,14 @@ export default function SeriesColumn({
           )}
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <span>{seriesMeta(series)}</span>
-            {/* 核对 Jellyfin 识别得对不对；同步按 TMDB ID 对应这部剧 */}
-            {tmdb && (
-              <>
+            {links.map(({ href, label }) => (
+              <Fragment key={label}>
                 <span>·</span>
-                <SourceLink href={tmdb} className="font-normal">
-                  TMDB
+                <SourceLink href={href} className="font-normal">
+                  {label}
                 </SourceLink>
-              </>
-            )}
-            {/* 找弹幕源：用标题在 B 站综合搜索 */}
-            <span>·</span>
-            <SourceLink href={bilibiliSearchUrl(series.title)} className="font-normal">
-              B 站
-            </SourceLink>
+              </Fragment>
+            ))}
           </div>
           <DeleteButton
             key={series.id}

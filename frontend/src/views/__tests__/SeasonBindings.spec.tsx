@@ -56,6 +56,7 @@ function starVoyager(): SeriesDetail {
     year: 2019,
     tmdbId: null,
     posterImageId: null,
+    sourceLink: null,
     seasons: [
       {
         id: 11,

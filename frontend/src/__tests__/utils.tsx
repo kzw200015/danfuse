@@ -202,6 +202,7 @@ export function lighthouse(): SeriesDetail {
     year: 2020,
     tmdbId: null,
     posterImageId: null,
+    sourceLink: null,
     seasons: [
       {
         id: 20,

@@ -176,6 +176,7 @@ describe('resolveSelection', () => {
     year: 2019,
     tmdbId: null,
     posterImageId: null,
+    sourceLink: null,
     seasons: [season(10, 0, [100]), season(11, 1, [110, 111])],
   }
   const movie: SeriesDetail = {
@@ -248,6 +249,7 @@ describe('deletionImpact', () => {
     year: 2019,
     tmdbId: null,
     posterImageId: null,
+    sourceLink: null,
     seasons: [season(10, 0), s1, s2],
   }
 
