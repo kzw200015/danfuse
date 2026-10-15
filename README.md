@@ -134,7 +134,7 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `database.connect_timeout` | `DANFUSE_DATABASE_CONNECT_TIMEOUT` | `10s` | 启动时连接数据库的超时，超时后服务退出 |
 | `dandanplay.token` | `DANFUSE_DANDANPLAY_TOKEN` | 空 | 可选。设置后弹弹 API 挂在 `/dandanplay/<token>/api/v2`，否则为 `/dandanplay/api/v2`。只能含字母、数字和 `-` `.` `_` `~`，不能是 `.` 或 `..` |
 | `catalog_source.kind` | `DANFUSE_CATALOG_SOURCE_KIND` | 空 | 目录源的种类。为空表示不启用同步；目前只支持 `jellyfin` |
-| `catalog_source.jellyfin.url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL` | 空 | Jellyfin 的地址，`http://` 或 `https://` 开头，可以带子路径，不能带查询串；末尾的 `/` 会被去掉 |
+| `catalog_source.jellyfin.url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL` | 空 | Jellyfin 的地址，`http://` 或 `https://` 开头，可以带子路径，不能带查询串；末尾的 `/` 会被去掉。管理界面上剧旁边的"Jellyfin"链接也用这个地址，填容器之间的地址（例如 `http://jellyfin:8096`）时浏览器打不开这个链接 |
 | `catalog_source.jellyfin.api_key` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY` | 空 | Jellyfin 的 API key，在"控制台 → API 密钥"里生成 |
 | `catalog_source.jellyfin.libraries` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES` | 空 | 要同步的媒体库名。YAML 里写成列表，环境变量里用逗号分隔，例如 `番剧,电影`。媒体库的类型必须是节目或电影，其他类型的会被跳过 |
 | `catalog_source.jellyfin.list_timeout` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT` | `2m` | 同步时列出媒体库、剧和电影、季和集，每个请求的超时。媒体库很大或 Jellyfin 很慢、同步提示"请求 Jellyfin 超时"时调大 |
