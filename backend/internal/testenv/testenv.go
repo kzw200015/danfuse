@@ -44,7 +44,7 @@ type Env struct {
 	Dandan         *dandan.Service
 }
 
-// New 在 pool 上组装各领域的 service，源适配器只注册 adapters。
+// New 在 pool 上组装各领域的 service，源适配器只注册 adapters；目录源是空的 FakeCatalog，只用来生成剧详情里的链接。
 func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *Env {
 	sources := source.NewRegistry(adapters...)
 	bindings := binding.NewService(pool, sources, logger)
@@ -53,7 +53,7 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *E
 	return &Env{
 		Bindings:       bindings,
 		SeasonBindings: seasonBindings,
-		Catalog:        catalog.NewService(pool, bindings, seasonBindings),
+		Catalog:        catalog.NewService(pool, &FakeCatalog{}, bindings, seasonBindings),
 		BlockedWords:   blockedWords,
 		Dandan:         dandan.NewService(pool, bindings, blockedWords),
 	}

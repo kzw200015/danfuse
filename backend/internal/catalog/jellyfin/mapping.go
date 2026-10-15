@@ -28,6 +28,7 @@ func mapMovie(movie item) catalog.Item {
 			OriginalTitle: strings.TrimSpace(movie.OriginalTitle),
 			Year:          movie.ProductionYear,
 			TMDBID:        tmdbID,
+			SourceID:      movie.ID,
 			Seasons: []catalog.Season{{
 				Number:   1,
 				Episodes: []catalog.Episode{{Number: 1, Duration: seconds(movie.RunTimeTicks)}},
@@ -95,6 +96,7 @@ func mapSeries(series item, children []item) catalog.Item {
 		OriginalTitle: strings.TrimSpace(series.OriginalTitle),
 		Year:          series.ProductionYear,
 		TMDBID:        tmdbID,
+		SourceID:      series.ID,
 	}
 	for _, number := range slices.Sorted(maps.Keys(episodes)) {
 		eps := episodes[number]

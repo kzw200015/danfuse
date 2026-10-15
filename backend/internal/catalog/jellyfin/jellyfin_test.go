@@ -118,8 +118,8 @@ func wantSamples(t *testing.T, version string) []catalog.Item {
 		return title
 	}
 	// 测试媒体库里每部剧的 NFO 写了一个虚构的 TMDB id，见 e2e/gen-media.sh
-	tv := func(title string, year int, tmdbID int64, seasons ...catalog.Season) *catalog.Series {
-		return &catalog.Series{Type: catalog.TypeTV, Title: name(title, year), Year: &year, TMDBID: &tmdbID, Seasons: seasons}
+	tv := func(id, title string, year int, tmdbID int64, seasons ...catalog.Season) *catalog.Series {
+		return &catalog.Series{Type: catalog.TypeTV, Title: name(title, year), Year: &year, TMDBID: &tmdbID, SourceID: id, Seasons: seasons}
 	}
 
 	starSeaS1 := []catalog.Episode{
@@ -135,13 +135,13 @@ func wantSamples(t *testing.T, version string) []catalog.Item {
 		fogHarborS2 = "第 2 季"
 	}
 
-	starSea2019 := tv("星海旅人", 2019, 900001,
+	starSea2019 := tv(seriesStarSea2019, "星海旅人", 2019, 900001,
 		catalog.Season{Number: 0, Title: "Specials", Episodes: []catalog.Episode{ep(1, "星海旅人 S00E01", 20)}},
 		catalog.Season{Number: 1, Title: "第 1 季", Episodes: starSeaS1},
 		catalog.Season{Number: 2, Title: "第 2 季", Episodes: []catalog.Episode{ep(1, "星海旅人 S02E01", 30), ep(2, "星海旅人 S02E02", 30)}},
 	)
 	starSea2019.Poster = poster(seriesStarSea2019, "image/jpeg")
-	fogHarbor := tv("雾港谜案", 2021, 900003,
+	fogHarbor := tv(seriesFogHarbor, "雾港谜案", 2021, 900003,
 		catalog.Season{Number: 2, Title: fogHarborS2, Episodes: []catalog.Episode{ep(1, "雾港谜案 S02E01", 30), ep(2, "雾港谜案 S02E02", 30)}},
 	)
 	fogHarbor.Poster = poster(seriesFogHarbor, "image/png")
@@ -150,7 +150,7 @@ func wantSamples(t *testing.T, version string) []catalog.Item {
 		{
 			Name: "长夜灯塔 (2020)",
 			Series: &catalog.Series{
-				Type: catalog.TypeMovie, Title: "长夜灯塔 (2020)", Year: new(2020), TMDBID: new(int64(900101)),
+				Type: catalog.TypeMovie, Title: "长夜灯塔 (2020)", Year: new(2020), TMDBID: new(int64(900101)), SourceID: movieLighthouse,
 				Poster:  poster(movieLighthouse, "image/jpeg"),
 				Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{ep(1, "", 45)}}},
 			},
@@ -169,13 +169,13 @@ func wantSamples(t *testing.T, version string) []catalog.Item {
 		},
 		{
 			Name: name("星海旅人", 2023),
-			Series: tv("星海旅人", 2023, 900002,
+			Series: tv(seriesStarSea2023, "星海旅人", 2023, 900002,
 				catalog.Season{Number: 1, Title: "第 1 季", Episodes: []catalog.Episode{ep(1, "星海旅人 S01E01", 30), ep(2, "星海旅人 S01E02", 30)}},
 			),
 		},
 		{
 			Name: name("青石巷日常", 2022),
-			Series: tv("青石巷日常", 2022, 900004,
+			Series: tv(seriesStoneLane, "青石巷日常", 2022, 900004,
 				catalog.Season{Number: 1, Title: "第 1 季", Episodes: []catalog.Episode{ep(1, "青石巷日常 S01E01", 30), ep(2, "青石巷日常 S01E02", 30)}},
 			),
 		},
@@ -389,7 +389,7 @@ func TestMapping(t *testing.T) {
 	const folders = `[{"Name":"番剧","ItemId":"lib","CollectionType":"tvshows"}]`
 	const defaultSeries = `{"Id":"s1","Type":"Series","Name":" 测试剧 ","OriginalTitle":" テスト ","ProductionYear":2020,"ProviderIds":{"Tmdb":"1"}}`
 	tv := func(seasons ...catalog.Season) *catalog.Series {
-		return &catalog.Series{Type: catalog.TypeTV, Title: "测试剧", OriginalTitle: "テスト", Year: new(2020), TMDBID: new(int64(1)), Seasons: seasons}
+		return &catalog.Series{Type: catalog.TypeTV, Title: "测试剧", OriginalTitle: "テスト", Year: new(2020), TMDBID: new(int64(1)), SourceID: "s1", Seasons: seasons}
 	}
 	episode := func(id, extra string) string {
 		return fmt.Sprintf(`{"Id":%q,"Type":"Episode","SeriesId":"s1","Name":"集%s","RunTimeTicks":300000000,%s}`, id, id, extra)
@@ -412,7 +412,7 @@ func TestMapping(t *testing.T) {
 			series:   `{"Id":"s1","Type":"Series","Name":"  ","ProviderIds":{"Tmdb":"1"}}`,
 			children: []string{valid},
 			want: catalog.Item{Name: "Jellyfin 条目 s1", Series: &catalog.Series{
-				Type: catalog.TypeTV, TMDBID: new(int64(1)), Seasons: []catalog.Season{validSeason},
+				Type: catalog.TypeTV, TMDBID: new(int64(1)), SourceID: "s1", Seasons: []catalog.Season{validSeason},
 			}},
 		},
 		{
@@ -583,7 +583,7 @@ func TestScraped(t *testing.T) {
 		skipped("ProviderIds 为空"),
 		skipped("id 都是空白"),
 		{Name: "任意外部数据库", Series: &catalog.Series{
-			Type: catalog.TypeTV, Title: "任意外部数据库",
+			Type: catalog.TypeTV, Title: "任意外部数据库", SourceID: "s4",
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1, Title: "第1集"}}}},
 		}},
 	})
@@ -617,22 +617,22 @@ func TestTMDBID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tv := func(name string, tmdbID *int64, warnings ...string) catalog.Item {
+	tv := func(id, name string, tmdbID *int64, warnings ...string) catalog.Item {
 		return catalog.Item{Name: name, Warnings: warnings, Series: &catalog.Series{
-			Type: catalog.TypeTV, Title: name, TMDBID: tmdbID,
+			Type: catalog.TypeTV, Title: name, TMDBID: tmdbID, SourceID: id,
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1, Title: "第1集"}}}},
 		}}
 	}
 	assertItems(t, collect(t, listing.Items), []catalog.Item{
 		{Name: "只有合集 id 的电影", Series: &catalog.Series{
-			Type: catalog.TypeMovie, Title: "只有合集 id 的电影",
+			Type: catalog.TypeMovie, Title: "只有合集 id 的电影", SourceID: "m1",
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1}}}},
 		}},
-		tv("带空白", new(int64(123))),
-		tv("不是数字", nil, "TMDB ID「abc」无效，按标题和年份对应"),
-		tv("零", nil, "TMDB ID「0」无效，按标题和年份对应"),
-		tv("负数", nil, "TMDB ID「-5」无效，按标题和年份对应"),
-		tv("只有 AniDB", nil),
+		tv("s1", "带空白", new(int64(123))),
+		tv("s2", "不是数字", nil, "TMDB ID「abc」无效，按标题和年份对应"),
+		tv("s3", "零", nil, "TMDB ID「0」无效，按标题和年份对应"),
+		tv("s4", "负数", nil, "TMDB ID「-5」无效，按标题和年份对应"),
+		tv("s5", "只有 AniDB", nil),
 	})
 }
 
@@ -655,6 +655,16 @@ func TestURLWithSubpath(t *testing.T) {
 	}
 }
 
+// TestLink 剧的链接是网页客户端的详情页，Jellyfin 挂在子路径下时也在子路径下面。
+func TestLink(t *testing.T) {
+	src := New(config.Jellyfin{URL: "http://192.168.1.10:8096/jellyfin"})
+	got := src.Link("a2e82866ba1950c858d34adbd471dda5")
+	want := catalog.Link{URL: "http://192.168.1.10:8096/jellyfin/web/#/details?id=a2e82866ba1950c858d34adbd471dda5", Label: "Jellyfin"}
+	if got != want {
+		t.Errorf("Link = %+v, want %+v", got, want)
+	}
+}
+
 func TestMapMovie(t *testing.T) {
 	fake := newFake(t, map[string]string{
 		"virtual-folders.json": `[{"Name":"电影","ItemId":"lib","CollectionType":"movies"}]`,
@@ -668,15 +678,15 @@ func TestMapMovie(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	movie := func(title, original string, year *int, tmdbID int64, duration *int) catalog.Item {
+	movie := func(id, title, original string, year *int, tmdbID int64, duration *int) catalog.Item {
 		return catalog.Item{Name: title, Series: &catalog.Series{
-			Type: catalog.TypeMovie, Title: title, OriginalTitle: original, Year: year, TMDBID: &tmdbID,
+			Type: catalog.TypeMovie, Title: title, OriginalTitle: original, Year: year, TMDBID: &tmdbID, SourceID: id,
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1, Duration: duration}}}},
 		}}
 	}
 	assertItems(t, collect(t, listing.Items), []catalog.Item{
-		movie("有时长", "", new(1999), 1, new(7123)),
-		movie("无时长", "No Runtime", nil, 2, nil),
+		movie("m1", "有时长", "", new(1999), 1, new(7123)),
+		movie("m2", "无时长", "No Runtime", nil, 2, nil),
 	})
 	if n := len(fake.requested()); n != 2 {
 		t.Errorf("电影不用取季和集，共请求 %d 次，want 2", n)

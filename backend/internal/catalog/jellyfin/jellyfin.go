@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -62,6 +63,12 @@ func (s *Source) List(ctx context.Context) (catalog.Listing, error) {
 		listed = append(listed, items...)
 	}
 	return catalog.Listing{Total: len(listed), Warnings: warnings, Items: s.items(ctx, listed)}, nil
+}
+
+// Link 见 catalog.Source：Jellyfin 网页客户端里这部剧或电影的详情页，地址用配置的 url（浏览器也要能打开它）。
+// 不带 serverId，网页客户端用当前登录的服务器。
+func (s *Source) Link(sourceID string) catalog.Link {
+	return catalog.Link{URL: s.client.baseURL + "/web/#/details?id=" + url.QueryEscape(sourceID), Label: "Jellyfin"}
 }
 
 // pickLibraries 按名字找到配置的媒体库（去重并按名称排序）；找不到的、类型不是剧集或电影的跳过，返回跳过的原因。

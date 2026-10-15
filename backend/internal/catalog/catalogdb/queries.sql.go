@@ -12,30 +12,33 @@ import (
 
 const adoptSeriesByNaturalKey = `-- name: AdoptSeriesByNaturalKey :one
 UPDATE series
-SET original_title = $1,
-    tmdb_id        = $2,
-    updated_at     = now()
-WHERE type = $3
-  AND title = $4
-  AND year IS NOT DISTINCT FROM $5::int
+SET original_title    = $1,
+    tmdb_id           = $2,
+    catalog_source_id = $3,
+    updated_at        = now()
+WHERE type = $4
+  AND title = $5
+  AND year IS NOT DISTINCT FROM $6::int
   AND tmdb_id IS NULL
-RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id
+RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id, catalog_source_id
 `
 
 type AdoptSeriesByNaturalKeyParams struct {
-	OriginalTitle *string `json:"originalTitle"`
-	TmdbID        *int64  `json:"tmdbId"`
-	Type          string  `json:"type"`
-	Title         string  `json:"title"`
-	Year          *int32  `json:"year"`
+	OriginalTitle   *string `json:"originalTitle"`
+	TmdbID          *int64  `json:"tmdbId"`
+	CatalogSourceID *string `json:"catalogSourceId"`
+	Type            string  `json:"type"`
+	Title           string  `json:"title"`
+	Year            *int32  `json:"year"`
 }
 
-// 按自然键 (type, title, year) 在没有 TMDB ID 的剧里找一部，覆盖原名并补上 TMDB ID（目录源没给时仍为空）。
+// 按自然键 (type, title, year) 在没有 TMDB ID 的剧里找一部，覆盖原名、目录源 ID 并补上 TMDB ID（目录源没给时仍为空）。
 // 年份都为空也算同一部剧。没有这部剧时没有行。
 func (q *Queries) AdoptSeriesByNaturalKey(ctx context.Context, arg AdoptSeriesByNaturalKeyParams) (Series, error) {
 	row := q.db.QueryRow(ctx, adoptSeriesByNaturalKey,
 		arg.OriginalTitle,
 		arg.TmdbID,
+		arg.CatalogSourceID,
 		arg.Type,
 		arg.Title,
 		arg.Year,
@@ -51,6 +54,7 @@ func (q *Queries) AdoptSeriesByNaturalKey(ctx context.Context, arg AdoptSeriesBy
 		&i.UpdatedAt,
 		&i.PosterImageID,
 		&i.TmdbID,
+		&i.CatalogSourceID,
 	)
 	return i, err
 }
@@ -173,7 +177,7 @@ func (q *Queries) GetImageSHA256(ctx context.Context, id int64) ([]byte, error) 
 }
 
 const getSeries = `-- name: GetSeries :one
-SELECT id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id
+SELECT id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id, catalog_source_id
 FROM series
 WHERE id = $1
 `
@@ -191,6 +195,7 @@ func (q *Queries) GetSeries(ctx context.Context, id int64) (Series, error) {
 		&i.UpdatedAt,
 		&i.PosterImageID,
 		&i.TmdbID,
+		&i.CatalogSourceID,
 	)
 	return i, err
 }
@@ -242,17 +247,18 @@ func (q *Queries) InsertImage(ctx context.Context, arg InsertImageParams) (int64
 }
 
 const insertSeries = `-- name: InsertSeries :one
-INSERT INTO series (type, title, original_title, year, tmdb_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id
+INSERT INTO series (type, title, original_title, year, tmdb_id, catalog_source_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id, catalog_source_id
 `
 
 type InsertSeriesParams struct {
-	Type          string  `json:"type"`
-	Title         string  `json:"title"`
-	OriginalTitle *string `json:"originalTitle"`
-	Year          *int32  `json:"year"`
-	TmdbID        *int64  `json:"tmdbId"`
+	Type            string  `json:"type"`
+	Title           string  `json:"title"`
+	OriginalTitle   *string `json:"originalTitle"`
+	Year            *int32  `json:"year"`
+	TmdbID          *int64  `json:"tmdbId"`
+	CatalogSourceID *string `json:"catalogSourceId"`
 }
 
 func (q *Queries) InsertSeries(ctx context.Context, arg InsertSeriesParams) (Series, error) {
@@ -262,6 +268,7 @@ func (q *Queries) InsertSeries(ctx context.Context, arg InsertSeriesParams) (Ser
 		arg.OriginalTitle,
 		arg.Year,
 		arg.TmdbID,
+		arg.CatalogSourceID,
 	)
 	var i Series
 	err := row.Scan(
@@ -274,6 +281,7 @@ func (q *Queries) InsertSeries(ctx context.Context, arg InsertSeriesParams) (Ser
 		&i.UpdatedAt,
 		&i.PosterImageID,
 		&i.TmdbID,
+		&i.CatalogSourceID,
 	)
 	return i, err
 }
@@ -534,30 +542,33 @@ func (q *Queries) SetSeriesPoster(ctx context.Context, arg SetSeriesPosterParams
 
 const updateSeriesByTMDBID = `-- name: UpdateSeriesByTMDBID :one
 UPDATE series
-SET title          = $1,
-    original_title = $2,
-    year           = $3,
-    updated_at     = now()
-WHERE type = $4
-  AND tmdb_id = $5::bigint
-RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id
+SET title             = $1,
+    original_title    = $2,
+    year              = $3,
+    catalog_source_id = $4,
+    updated_at        = now()
+WHERE type = $5
+  AND tmdb_id = $6::bigint
+RETURNING id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id, catalog_source_id
 `
 
 type UpdateSeriesByTMDBIDParams struct {
-	Title         string  `json:"title"`
-	OriginalTitle *string `json:"originalTitle"`
-	Year          *int32  `json:"year"`
-	Type          string  `json:"type"`
-	TmdbID        int64   `json:"tmdbId"`
+	Title           string  `json:"title"`
+	OriginalTitle   *string `json:"originalTitle"`
+	Year            *int32  `json:"year"`
+	CatalogSourceID *string `json:"catalogSourceId"`
+	Type            string  `json:"type"`
+	TmdbID          int64   `json:"tmdbId"`
 }
 
-// 按身份 (type, tmdb_id) 更新一部剧：标题、年份、原名都随目录源覆盖（见 docs/adr/0007）。没有这部剧时没有行。
+// 按身份 (type, tmdb_id) 更新一部剧：标题、年份、原名、目录源 ID 都随目录源覆盖（见 docs/adr/0007）。没有这部剧时没有行。
 // 海报由同步核心随后按 sha256 处理，带回整行是为了剧现在的海报。
 func (q *Queries) UpdateSeriesByTMDBID(ctx context.Context, arg UpdateSeriesByTMDBIDParams) (Series, error) {
 	row := q.db.QueryRow(ctx, updateSeriesByTMDBID,
 		arg.Title,
 		arg.OriginalTitle,
 		arg.Year,
+		arg.CatalogSourceID,
 		arg.Type,
 		arg.TmdbID,
 	)
@@ -572,6 +583,7 @@ func (q *Queries) UpdateSeriesByTMDBID(ctx context.Context, arg UpdateSeriesByTM
 		&i.UpdatedAt,
 		&i.PosterImageID,
 		&i.TmdbID,
+		&i.CatalogSourceID,
 	)
 	return i, err
 }

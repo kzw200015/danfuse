@@ -1,4 +1,4 @@
-// Package catalog 目录：剧/季/集的层级。这里有目录的规则（本文件），目录源适配与同步核心之间的接口（Source），
+// Package catalog 目录：剧/季/集的层级。这里有目录的规则（本文件），目录源适配的接口（Source，同步取目录、剧详情取链接），
 // 管理界面浏览与删除目录、取海报（service.go），以及同步（sync.go，按剧写入目录的同步核心在 sync_core.go）。
 // 各目录源的适配在子包里（jellyfin），由 app 按配置的 kind 选择；名称里的季号、集号怎么认在子包 naming。
 //
@@ -29,6 +29,14 @@ type Source interface {
 	// List 列出配置的所有媒体库里要同步的剧，只列清单，不取季和集。
 	// 配置的媒体库都不可用、或请求失败时返回 *Error，这次同步失败。
 	List(ctx context.Context) (Listing, error)
+	// Link 由目录源 ID（Series.SourceID）生成目录源里这部剧的页面，纯计算，不联网。
+	Link(sourceID string) Link
+}
+
+// Link 目录源里一部剧的页面，管理界面上的链接。
+type Link struct {
+	URL   string // 例如 http://192.168.1.10:8096/web/#/details?id=…
+	Label string // 目录源的名称，例如 Jellyfin
 }
 
 // Error 目录源适配返回的错误（List、Items 产出的错误和 Series.PosterErr）。Message 是同步页上显示的提示，
@@ -80,6 +88,7 @@ type Series struct {
 	OriginalTitle string // 空串存为 null
 	Year          *int
 	TMDBID        *int64 // TMDB 上的编号（电视剧和电影各有一套），目录源没给或给的不合法时为 nil
+	SourceID      string // 目录源 ID，只用来生成 Link，不参与身份；空串存为 null
 	Poster        *Image
 	PosterErr     error
 	Seasons       []Season

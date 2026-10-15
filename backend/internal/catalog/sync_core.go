@@ -159,8 +159,8 @@ func upsertEpisodes(ctx context.Context, q *catalogdb.Queries, seasonID int64, e
 }
 
 // upsertSeries 按身份写入一部剧（见 docs/adr/0007），返回写入后的行和是否新增：
-//  1. 有 TMDB ID 时先按（类型，TMDB ID）找，找到就覆盖标题、年份和原名；
-//  2. 没找到（或没有 TMDB ID）再按（类型，标题，年份）在没有 TMDB ID 的剧里找，找到就覆盖原名、补上 TMDB ID。
+//  1. 有 TMDB ID 时先按（类型，TMDB ID）找，找到就覆盖标题、年份、原名和目录源 ID；
+//  2. 没找到（或没有 TMDB ID）再按（类型，标题，年份）在没有 TMDB ID 的剧里找，找到就覆盖原名和目录源 ID、补上 TMDB ID。
 //     只在没有 TMDB ID 的剧里找：已有 TMDB ID 的剧标题年份相同也是另一部，在 Jellyfin 里重新识别成另一个条目按新剧处理；
 //  3. 都没找到就新增。
 //
@@ -168,11 +168,12 @@ func upsertEpisodes(ctx context.Context, q *catalogdb.Queries, seasonID int64, e
 func upsertSeries(ctx context.Context, q *catalogdb.Queries, series Series) (catalogdb.Series, bool, error) {
 	if series.TMDBID != nil {
 		row, err := q.UpdateSeriesByTMDBID(ctx, catalogdb.UpdateSeriesByTMDBIDParams{
-			Type:          string(series.Type),
-			TmdbID:        *series.TMDBID,
-			Title:         series.Title,
-			OriginalTitle: nullIfEmpty(series.OriginalTitle),
-			Year:          int32Ptr(series.Year),
+			Type:            string(series.Type),
+			TmdbID:          *series.TMDBID,
+			Title:           series.Title,
+			OriginalTitle:   nullIfEmpty(series.OriginalTitle),
+			Year:            int32Ptr(series.Year),
+			CatalogSourceID: nullIfEmpty(series.SourceID),
 		})
 		if err == nil {
 			return row, false, nil
@@ -183,11 +184,12 @@ func upsertSeries(ctx context.Context, q *catalogdb.Queries, series Series) (cat
 	}
 
 	row, err := q.AdoptSeriesByNaturalKey(ctx, catalogdb.AdoptSeriesByNaturalKeyParams{
-		Type:          string(series.Type),
-		Title:         series.Title,
-		Year:          int32Ptr(series.Year),
-		OriginalTitle: nullIfEmpty(series.OriginalTitle),
-		TmdbID:        series.TMDBID,
+		Type:            string(series.Type),
+		Title:           series.Title,
+		Year:            int32Ptr(series.Year),
+		OriginalTitle:   nullIfEmpty(series.OriginalTitle),
+		TmdbID:          series.TMDBID,
+		CatalogSourceID: nullIfEmpty(series.SourceID),
 	})
 	if err == nil {
 		return row, false, nil
@@ -197,11 +199,12 @@ func upsertSeries(ctx context.Context, q *catalogdb.Queries, series Series) (cat
 	}
 
 	row, err = q.InsertSeries(ctx, catalogdb.InsertSeriesParams{
-		Type:          string(series.Type),
-		Title:         series.Title,
-		OriginalTitle: nullIfEmpty(series.OriginalTitle),
-		Year:          int32Ptr(series.Year),
-		TmdbID:        series.TMDBID,
+		Type:            string(series.Type),
+		Title:           series.Title,
+		OriginalTitle:   nullIfEmpty(series.OriginalTitle),
+		Year:            int32Ptr(series.Year),
+		TmdbID:          series.TMDBID,
+		CatalogSourceID: nullIfEmpty(series.SourceID),
 	})
 	if err != nil {
 		return catalogdb.Series{}, false, fmt.Errorf("insert series: %w", err)
