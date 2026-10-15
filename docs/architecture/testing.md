@@ -8,7 +8,7 @@
 
 - 数据库测试用真实的 PostgreSQL，基座是 `internal/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库，测试之间互不干扰，可以 `t.Parallel()`。
 - `-short` 时 `dbtest.Pool` 跳过当前测试。要在别处创建连接池时（例如 synctest 的气泡里），先在外面用 `dbtest.Config(t)` 建好库、登记删库，拿到连接配置，再用 `dbtest.Open(t, cfg)` 新建连接池。
-- `internal/testenv` 是各领域的测试共用的环境：`testenv.New(pool, logger, adapters...)` 按 `app.New` 的依赖关系组装各领域的 service（后台循环不运行），另有准备数据和断言的辅助函数（`SeedEpisodes`、`QueryInt`、`AssertAppError`、`AssertJSON` 等，弹幕文件的 `XMLFile`、两份快照 `Snapshot1`/`Snapshot2` 和 `FileNames`）、假目录源 `FakeCatalog`（连同 `StartSync`、`SyncOnce`）和有合集的假源适配器 `FakeCollector`。
+- `internal/testenv` 是各领域的测试共用的环境：`testenv.New(pool, logger, adapters...)` 按 `app.New` 的依赖关系组装各领域的 service（后台循环不运行；目录源是一个空的 `FakeCatalog`，剧详情的链接是 `https://catalog.test/<目录源 ID>`），另有准备数据和断言的辅助函数（`SeedEpisodes`、`QueryInt`、`AssertAppError`、`AssertJSON` 等，弹幕文件的 `XMLFile`、两份快照 `Snapshot1`/`Snapshot2` 和 `FileNames`）、假目录源 `FakeCatalog`（连同 `StartSync`、`SyncOnce`）和有合集的假源适配器 `FakeCollector`。
 
 ### HTTP
 

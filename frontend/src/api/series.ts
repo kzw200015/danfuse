@@ -57,8 +57,17 @@ export interface SeriesDetail {
   tmdbId: number | null
   /** 海报的图片 ID，没有海报时为 null */
   posterImageId: number | null
+  /** 目录源里这部剧的页面；还没有目录源 ID（下次同步补上）、或未配置目录源时为 null */
+  sourceLink: CatalogSourceLink | null
   /** 按季号排序 */
   seasons: Season[]
+}
+
+/** 目录源里一部剧的页面 */
+export interface CatalogSourceLink {
+  url: string
+  /** 目录源的名称，例如 Jellyfin */
+  label: string
 }
 
 /** 全部剧，不分页 */

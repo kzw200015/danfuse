@@ -29,12 +29,13 @@ var (
 type Service struct {
 	pool           *pgxpool.Pool
 	q              *catalogdb.Queries
+	catalogSource  Source                 // 剧详情里跳回目录源的链接；未配置目录源时为 nil
 	bindings       *binding.Service       // 剧详情里各集的绑定
 	seasonBindings *seasonbinding.Service // 剧详情里各季的季绑定
 }
 
-func NewService(pool *pgxpool.Pool, bindings *binding.Service, seasonBindings *seasonbinding.Service) *Service {
-	return &Service{pool: pool, q: catalogdb.New(pool), bindings: bindings, seasonBindings: seasonBindings}
+func NewService(pool *pgxpool.Pool, catalogSource Source, bindings *binding.Service, seasonBindings *seasonbinding.Service) *Service {
+	return &Service{pool: pool, q: catalogdb.New(pool), catalogSource: catalogSource, bindings: bindings, seasonBindings: seasonBindings}
 }
 
 // ListSeries 全部剧连同海报的图片 ID、季数、集数与绑定统计，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
@@ -55,7 +56,14 @@ type SeriesDetail struct {
 	Year          *int32         `json:"year"`
 	TMDBID        *int64         `json:"tmdbId"`        // 没有 TMDB ID 时为 null
 	PosterImageID *int64         `json:"posterImageId"` // 没有海报时为 null
+	SourceLink    *SourceLink    `json:"sourceLink"`    // 没有目录源 ID 或未配置目录源时为 null
 	Seasons       []SeasonDetail `json:"seasons"`
+}
+
+// SourceLink 目录源里这部剧的页面，由目录源的 Link 生成。
+type SourceLink struct {
+	URL   string `json:"url"`
+	Label string `json:"label"` // 目录源的名称，例如 Jellyfin
 }
 
 type SeasonDetail struct {
@@ -111,6 +119,10 @@ func (s *Service) GetSeries(ctx context.Context, id int64) (SeriesDetail, error)
 		TMDBID:        series.TmdbID,
 		PosterImageID: series.PosterImageID,
 		Seasons:       make([]SeasonDetail, len(seasons)),
+	}
+	if s.catalogSource != nil && series.CatalogSourceID != nil {
+		link := s.catalogSource.Link(*series.CatalogSourceID)
+		detail.SourceLink = &SourceLink{URL: link.URL, Label: link.Label}
 	}
 	seasonIndex := make(map[int64]int, len(seasons)) // 季 ID → 在 detail.Seasons 里的下标
 	for i, se := range seasons {

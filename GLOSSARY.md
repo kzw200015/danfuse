@@ -36,6 +36,10 @@ _Avoid_: 作品（内部指代时）、anime
 目录的外部来源，提供剧/季/集与视频文件，例如一台 Jellyfin 服务器或一个本地文件夹。
 _Avoid_: 媒体库、媒体服务器、导入来源、LibrarySource
 
+**目录源 ID（Catalog Source ID）**:
+剧在目录源里的编号，只用来从 danfuse 打开目录源里这部剧的页面，不是剧的身份；一部剧在目录源里有多份时，取同步时最后写入的那份。
+_Avoid_: 条目（指季绑定的条目）、Jellyfin ID、item
+
 **媒体库（Library）**:
 媒体服务器里按内容划分的一个库，例如 Jellyfin 的"番剧"库；一个 Jellyfin 目录源只同步选中的媒体库。
 

@@ -1,22 +1,24 @@
 -- name: UpdateSeriesByTMDBID :one
--- 按身份 (type, tmdb_id) 更新一部剧：标题、年份、原名都随目录源覆盖（见 docs/adr/0007）。没有这部剧时没有行。
+-- 按身份 (type, tmdb_id) 更新一部剧：标题、年份、原名、目录源 ID 都随目录源覆盖（见 docs/adr/0007）。没有这部剧时没有行。
 -- 海报由同步核心随后按 sha256 处理，带回整行是为了剧现在的海报。
 UPDATE series
-SET title          = sqlc.arg(title),
-    original_title = sqlc.arg(original_title),
-    year           = sqlc.arg(year),
-    updated_at     = now()
+SET title             = sqlc.arg(title),
+    original_title    = sqlc.arg(original_title),
+    year              = sqlc.arg(year),
+    catalog_source_id = sqlc.arg(catalog_source_id),
+    updated_at        = now()
 WHERE type = sqlc.arg(type)
   AND tmdb_id = sqlc.arg(tmdb_id)::bigint
 RETURNING *;
 
 -- name: AdoptSeriesByNaturalKey :one
--- 按自然键 (type, title, year) 在没有 TMDB ID 的剧里找一部，覆盖原名并补上 TMDB ID（目录源没给时仍为空）。
+-- 按自然键 (type, title, year) 在没有 TMDB ID 的剧里找一部，覆盖原名、目录源 ID 并补上 TMDB ID（目录源没给时仍为空）。
 -- 年份都为空也算同一部剧。没有这部剧时没有行。
 UPDATE series
-SET original_title = sqlc.arg(original_title),
-    tmdb_id        = sqlc.arg(tmdb_id),
-    updated_at     = now()
+SET original_title    = sqlc.arg(original_title),
+    tmdb_id           = sqlc.arg(tmdb_id),
+    catalog_source_id = sqlc.arg(catalog_source_id),
+    updated_at        = now()
 WHERE type = sqlc.arg(type)
   AND title = sqlc.arg(title)
   AND year IS NOT DISTINCT FROM sqlc.narg(year)::int
@@ -24,8 +26,8 @@ WHERE type = sqlc.arg(type)
 RETURNING *;
 
 -- name: InsertSeries :one
-INSERT INTO series (type, title, original_title, year, tmdb_id)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO series (type, title, original_title, year, tmdb_id, catalog_source_id)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: SetSeriesPoster :exec

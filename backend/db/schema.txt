@@ -233,18 +233,19 @@ Referenced by:
     TABLE "episodes" CONSTRAINT "episodes_season_id_fkey" FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
     TABLE "season_bindings" CONSTRAINT "season_bindings_season_id_fkey" FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
 
-                                      Table "public.series"
-     Column      |           Type           | Collation | Nullable |           Default
------------------+--------------------------+-----------+----------+------------------------------
- id              | bigint                   |           | not null | generated always as identity
- type            | text                     |           | not null |
- title           | text                     |           | not null |
- original_title  | text                     |           |          |
- year            | integer                  |           |          |
- created_at      | timestamp with time zone |           | not null | now()
- updated_at      | timestamp with time zone |           | not null | now()
- poster_image_id | bigint                   |           |          |
- tmdb_id         | bigint                   |           |          |
+                                       Table "public.series"
+      Column       |           Type           | Collation | Nullable |           Default
+-------------------+--------------------------+-----------+----------+------------------------------
+ id                | bigint                   |           | not null | generated always as identity
+ type              | text                     |           | not null |
+ title             | text                     |           | not null |
+ original_title    | text                     |           |          |
+ year              | integer                  |           |          |
+ created_at        | timestamp with time zone |           | not null | now()
+ updated_at        | timestamp with time zone |           | not null | now()
+ poster_image_id   | bigint                   |           |          |
+ tmdb_id           | bigint                   |           |          |
+ catalog_source_id | text                     |           |          |
 Indexes:
     "series_pkey" PRIMARY KEY, btree (id)
     "series_natural_key_idx" UNIQUE, btree (type, title, year) NULLS NOT DISTINCT WHERE tmdb_id IS NULL

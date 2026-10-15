@@ -47,6 +47,7 @@ const tv: SeriesDetail = {
   year: 2019,
   tmdbId: 60735,
   posterImageId: 5,
+  sourceLink: { url: 'http://jellyfin.test/web/#/details?id=jf1', label: 'Jellyfin' },
   seasons: [
     {
       id: 10,
@@ -109,6 +110,10 @@ describe('CatalogView', () => {
       'href',
       'https://search.bilibili.com/all?keyword=%E6%98%9F%E6%B5%B7%E6%97%85%E4%BA%BA',
     )
+    expect(screen.getByRole('link', { name: 'Jellyfin' })).toHaveAttribute(
+      'href',
+      'http://jellyfin.test/web/#/details?id=jf1',
+    )
     expect(
       within(screen.getByRole('complementary')).getByRole('link', { name: /星海旅人/ }),
     ).toHaveAttribute('aria-current', 'true')
@@ -155,6 +160,7 @@ describe('CatalogView', () => {
     expect(screen.queryByRole('navigation', { name: '季' })).not.toBeInTheDocument()
     expect(screen.queryByTitle('查看整季')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'TMDB' })).not.toBeInTheDocument() // 没有 TMDB ID
+    expect(screen.queryByRole('link', { name: 'Jellyfin' })).not.toBeInTheDocument() // 没有目录源链接
     expect(screen.getByRole('link', { name: 'B 站' })).toHaveAttribute(
       'href',
       'https://search.bilibili.com/all?keyword=%E9%95%BF%E5%A4%9C%E7%81%AF%E5%A1%94',

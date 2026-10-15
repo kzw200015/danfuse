@@ -19,15 +19,16 @@ type Episode struct {
 }
 
 type Series struct {
-	ID            int64     `json:"id"`
-	Type          string    `json:"type"`
-	Title         string    `json:"title"`
-	OriginalTitle *string   `json:"originalTitle"`
-	Year          *int32    `json:"year"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	PosterImageID *int64    `json:"posterImageId"`
-	TmdbID        *int64    `json:"tmdbId"`
+	ID              int64     `json:"id"`
+	Type            string    `json:"type"`
+	Title           string    `json:"title"`
+	OriginalTitle   *string   `json:"originalTitle"`
+	Year            *int32    `json:"year"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	PosterImageID   *int64    `json:"posterImageId"`
+	TmdbID          *int64    `json:"tmdbId"`
+	CatalogSourceID *string   `json:"catalogSourceId"`
 }
 
 type SyncRun struct {

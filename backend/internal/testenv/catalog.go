@@ -57,6 +57,11 @@ func (f *FakeCatalog) List(ctx context.Context) (catalog.Listing, error) {
 	}, nil
 }
 
+// Link 标签是"假目录源"。
+func (f *FakeCatalog) Link(sourceID string) catalog.Link {
+	return catalog.Link{URL: "https://catalog.test/" + sourceID, Label: "假目录源"}
+}
+
 // TV 一部剧集。
 func TV(title string, year *int, seasons ...catalog.Season) *catalog.Series {
 	return &catalog.Series{Type: catalog.TypeTV, Title: title, Year: year, Seasons: seasons}

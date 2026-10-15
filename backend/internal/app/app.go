@@ -44,7 +44,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	bindings := binding.NewService(pool, sources, logger)
 	scheduledFetch := binding.NewScheduledFetchService(pool, bindings, cfg.ScheduledFetch, logger)
 	seasonBindings := seasonbinding.NewService(pool, sources, bindings, cfg.Follow, logger)
-	catalogs := catalog.NewService(pool, bindings, seasonBindings)
+	catalogs := catalog.NewService(pool, catalogSource, bindings, seasonBindings)
 	syncs := catalog.NewSyncService(pool, catalogSource, cfg.Sync, logger)
 	blockedWords := blockword.NewService(pool)
 	dandans := dandan.NewService(pool, bindings, blockedWords)

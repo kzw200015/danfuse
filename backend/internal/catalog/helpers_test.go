@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
 	"github.com/kzw200015/danfuse/backend/internal/database"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
@@ -71,11 +72,24 @@ func texts(rows []catalogRow) []string {
 	return result
 }
 
-// readSeries 目录里的全部剧，按 id 排序："id|类型|标题|年份|TMDB ID"，空值写作 -。
+// withTMDB 给目录源交出的剧设上 TMDB ID。
+func withTMDB(s *catalog.Series, id int64) *catalog.Series {
+	s.TMDBID = &id
+	return s
+}
+
+// withSourceID 给目录源交出的剧设上目录源 ID。
+func withSourceID(s *catalog.Series, id string) *catalog.Series {
+	s.SourceID = id
+	return s
+}
+
+// readSeries 目录里的全部剧，按 id 排序："id|类型|标题|年份|TMDB ID|目录源 ID"，空值写作 -。
 func readSeries(t *testing.T, pool *pgxpool.Pool) []string {
 	t.Helper()
 	rows, err := pool.Query(t.Context(), `
-		SELECT format('%s|%s|%s|%s|%s', id, type, title, coalesce(year::text, '-'), coalesce(tmdb_id::text, '-'))
+		SELECT format('%s|%s|%s|%s|%s|%s', id, type, title, coalesce(year::text, '-'), coalesce(tmdb_id::text, '-'),
+		              coalesce(catalog_source_id, '-'))
 		FROM series
 		ORDER BY id`)
 	if err != nil {
