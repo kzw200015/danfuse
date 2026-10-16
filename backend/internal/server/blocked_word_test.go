@@ -16,9 +16,9 @@ import (
 // TestBlockedWords 屏蔽词的增删查：响应结构、状态码与参数校验。判断重复、生效的规则见 blockword 与 danmaku 包的测试。
 func TestBlockedWords(t *testing.T) {
 	t.Parallel()
-	srv := New(config.Server{}, slog.New(slog.DiscardHandler), &Handlers{
+	srv := New(config.Server{}, slog.New(slog.DiscardHandler), complete(&Handlers{
 		BlockedWord: blockwordhandler.NewHandler(blockwordsvc.NewService(dbtest.Pool(t))),
-	})
+	}))
 
 	_, _, data := call(t, srv, http.MethodGet, "/api/blocked-words", "", http.StatusOK)
 	testenv.AssertJSON(t, data, `[]`)

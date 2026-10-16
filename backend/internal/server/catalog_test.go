@@ -24,11 +24,11 @@ var uploadLimits = config.DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 
 func catalogServer(pool *pgxpool.Pool) *Server {
 	logger := slog.New(slog.DiscardHandler)
 	env := testenv.New(pool, logger, fakeAdapter{})
-	return New(config.Server{}, logger, &Handlers{
+	return New(config.Server{}, logger, complete(&Handlers{
 		Catalog:       cataloghandler.NewHandler(env.Catalog),
 		Binding:       bindinghandler.NewHandler(env.Bindings, uploadLimits),
 		SeasonBinding: seasonbindinghandler.NewHandler(env.SeasonBindings, uploadLimits),
-	})
+	}))
 }
 
 // posterPNG 种子目录里星海旅人的海报（图片 1）。

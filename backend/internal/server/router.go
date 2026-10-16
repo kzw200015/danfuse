@@ -36,8 +36,5 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	h.SeasonBinding.Register(api)
 	h.BlockedWord.Register(api)
 
-	// 其余 handler 注册时只取方法值，为 nil 也能注册；弹弹 API 注册时要读 token，测试里只组装用到的 handler 时会是 nil
-	if h.Dandan != nil {
-		h.Dandan.Register(e)
-	}
+	h.Dandan.Register(e)
 }

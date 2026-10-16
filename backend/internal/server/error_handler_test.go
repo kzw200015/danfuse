@@ -41,7 +41,7 @@ func TestErrorHandlerLogsServerErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var logs bytes.Buffer
-			srv := New(config.Server{}, slog.New(slog.NewJSONHandler(&logs, nil)), &Handlers{Health: healthhandler.NewHandler(nil)})
+			srv := New(config.Server{}, slog.New(slog.NewJSONHandler(&logs, nil)), complete(&Handlers{Health: healthhandler.NewHandler(nil)}))
 			srv.echo.GET("/items/:id", tt.handler)
 
 			rec := serve(t, srv, http.MethodGet, tt.target, "")
@@ -79,7 +79,7 @@ func TestErrorHandlerLogsServerErrors(t *testing.T) {
 // TestErrorHandlerClientGone 客户端断开（请求的 ctx 已取消）时出的 5xx 不算服务端故障：记 info 级别的 "request canceled"。
 func TestErrorHandlerClientGone(t *testing.T) {
 	var logs bytes.Buffer
-	srv := New(config.Server{}, slog.New(slog.NewJSONHandler(&logs, nil)), &Handlers{Health: healthhandler.NewHandler(nil)})
+	srv := New(config.Server{}, slog.New(slog.NewJSONHandler(&logs, nil)), complete(&Handlers{Health: healthhandler.NewHandler(nil)}))
 	srv.echo.GET("/items/:id", func(c *echo.Context) error {
 		return fmt.Errorf("list items: %w", c.Request().Context().Err())
 	})

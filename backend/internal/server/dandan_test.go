@@ -96,10 +96,10 @@ func dandanServer(pool *pgxpool.Pool, token string, logs io.Writer) *Server {
 		logs = io.Discard
 	}
 	env := testenv.New(pool, slog.New(slog.DiscardHandler), biliAdapter{}, fakeAdapter{})
-	return New(config.Server{}, slog.New(slog.NewJSONHandler(logs, nil)), &Handlers{
+	return New(config.Server{}, slog.New(slog.NewJSONHandler(logs, nil)), complete(&Handlers{
 		Health: healthhandler.NewHandler(healthsvc.NewService(pool)),
 		Dandan: dandanhandler.NewHandler(env.Dandan, config.Dandanplay{Token: token}),
-	})
+	}))
 }
 
 // newDandanServer 新建一个库，用同步写入 items，再起弹弹 API。要在同步之外补写数据（例如绑定和弹幕）时，

@@ -80,11 +80,11 @@ func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.P
 	env := testenv.New(pool, logger, fakeAdapter{})
 	testenv.RunInBackground(t, env.SeasonBindings)
 
-	return New(config.Server{}, logger, &Handlers{
+	return New(config.Server{}, logger, complete(&Handlers{
 		Catalog:       cataloghandler.NewHandler(env.Catalog),
 		Binding:       bindinghandler.NewHandler(env.Bindings, uploadLimits),
 		SeasonBinding: seasonbindinghandler.NewHandler(env.SeasonBindings, uploadLimits),
-	}), pool
+	})), pool
 }
 
 // TestSeasonBindingAPI 合集的季绑定：创建、详情、开关追更、立即补建、删除，以及剧详情、剧列表里的季绑定。
