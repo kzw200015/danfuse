@@ -48,7 +48,7 @@ linters:
         pure:
           files:
             - "**/internal/catalog/jellyfin/**"
-            - "**/internal/catalog/naming/**"
+            - "**/internal/naming/**"
             - "**/internal/source/**"
             - "**/internal/danmaku/**"
             - "**/internal/danmakufile/**"

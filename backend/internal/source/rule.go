@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/kzw200015/danfuse/backend/internal/catalog/naming"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 const (

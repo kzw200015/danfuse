@@ -11,6 +11,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -44,7 +45,7 @@ func searchCatalog() []catalog.Item {
 
 // describe 把一季写成一行，便于整体比较："名称 · 类别 年份 · 共 N 集 · 集号 集标题, …"，N 是总集数。
 func describe(s dandan.Season) string {
-	kinds := map[catalog.SeasonKind]string{catalog.KindSeries: "剧集", catalog.KindSpecial: "特别篇", catalog.KindMovie: "电影"}
+	kinds := map[naming.SeasonKind]string{naming.KindSeries: "剧集", naming.KindSpecial: "特别篇", naming.KindMovie: "电影"}
 	year := "-"
 	if s.Year != nil {
 		year = fmt.Sprint(*s.Year)

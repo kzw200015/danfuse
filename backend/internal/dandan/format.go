@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 // kinds 季的类别在协议里的 type（AnimeType 枚举）和 typeDescription 里的类型名。
-var kinds = map[catalog.SeasonKind]struct{ animeType, name string }{
-	catalog.KindSeries:  {"tvseries", "剧集"},
-	catalog.KindSpecial: {"tvspecial", "特别篇"},
-	catalog.KindMovie:   {"movie", "电影"},
+var kinds = map[naming.SeasonKind]struct{ animeType, name string }{
+	naming.KindSeries:  {"tvseries", "剧集"},
+	naming.KindSpecial: {"tvspecial", "特别篇"},
+	naming.KindMovie:   {"movie", "电影"},
 }
 
 // typeOf 季在协议里的 type 和 typeDescription：typeDescription 是类型名，有年份时加上年份，如"剧集 · 2011"。

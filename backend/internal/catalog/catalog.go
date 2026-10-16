@@ -14,14 +14,7 @@ import (
 	"strings"
 
 	"github.com/kzw200015/danfuse/backend/internal/fulltext"
-)
-
-// SeriesType 剧的类型，与 series.type 列的取值一致。
-type SeriesType string
-
-const (
-	TypeTV    SeriesType = "tv"
-	TypeMovie SeriesType = "movie"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 // Source 目录源适配。
@@ -83,7 +76,7 @@ type Item struct {
 //   - Poster 与 PosterErr 都为 nil：目录源里没有图，清空这部剧的海报；
 //   - PosterErr 不为 nil：下载失败（*Error），保留现有海报并记警告。
 type Series struct {
-	Type          SeriesType
+	Type          naming.SeriesType
 	Title         string
 	OriginalTitle string // 空串存为 null
 	Year          *int
@@ -115,7 +108,7 @@ type Image struct {
 // Validate 核心的防御性校验：类型有效、标题非空、TMDB ID 为正数、至少一季、每季至少一集、编号 ≥ 0、
 // 电影恰好只有第 1 季第 1 集。不合格的整部剧跳过，返回的 error 文本作为警告记入同步记录。
 func (s Series) Validate() error {
-	if s.Type != TypeTV && s.Type != TypeMovie {
+	if s.Type != naming.TypeTV && s.Type != naming.TypeMovie {
 		return fmt.Errorf("类型 %q 无效", s.Type)
 	}
 	if strings.TrimSpace(s.Title) == "" {
@@ -140,7 +133,7 @@ func (s Series) Validate() error {
 			}
 		}
 	}
-	if s.Type == TypeMovie {
+	if s.Type == naming.TypeMovie {
 		if len(s.Seasons) != 1 || s.Seasons[0].Number != 1 ||
 			len(s.Seasons[0].Episodes) != 1 || s.Seasons[0].Episodes[0].Number != 1 {
 			return errors.New("电影只能有第 1 季第 1 集")
@@ -149,50 +142,15 @@ func (s Series) Validate() error {
 	return nil
 }
 
-// SeasonName 季对外的名称（弹弹play 的 animeTitle）：第 1 季和电影为"剧名"，第 N 季为"剧名 第N季"，
-// 第 0 季为"剧名 特别篇"，都不带年份。naming.Parse 认得"第N季""特别篇"这两种写法，能从它拆回剧名和季号，
-// 拿它搜索能找回这一季。
-func SeasonName(t SeriesType, seriesTitle string, number int) string {
-	switch {
-	case t == TypeMovie || number == 1:
-		return seriesTitle
-	case number == 0:
-		return seriesTitle + " 特别篇"
-	default:
-		return fmt.Sprintf("%s 第%d季", seriesTitle, number)
-	}
-}
-
-// SeasonKind 季的类别。
-type SeasonKind int
-
-const (
-	KindSeries  SeasonKind = iota + 1 // 剧集的第 1 季及以后
-	KindSpecial                       // 剧集的第 0 季
-	KindMovie
-)
-
-// KindOf 季的类别：电影的季为电影，剧集的第 0 季为特别篇，其余为剧集。
-func KindOf(t SeriesType, number int) SeasonKind {
-	switch {
-	case t == TypeMovie:
-		return KindMovie
-	case number == 0:
-		return KindSpecial
-	default:
-		return KindSeries
-	}
-}
-
 // SearchVector 一季的搜索列（tsvector 文本）：A 档为剧名和季号，B 档为原名，C 档为目录源给的季标题。
 // 季号只以数字出现（剧集的第 1 季起，特别篇和电影没有），给"剧名2"这种没有标注的写法用：光看数字分不出是标题的一部分
 // 还是季号，交给全文搜索，数字在标题里、季号里都能命中。写明了的季号（"第2季"、"S02"、"特别篇"）由 naming.Parse 拆出，
 // 按季号精确过滤，不经过搜索列。季号放在最后，不挪动前面各词的位置：同一部剧的各季按剧名、原名搜索时得分相同，
 // 先后由季号决定（ts_rank 会看命中的词之间的距离）。
 // 同步写入季时用它计算；改动它的组成时，要新增一个 goose Go 迁移，重算所有季的搜索列。
-func SearchVector(t SeriesType, seriesTitle, originalTitle string, number int, seasonTitle string) string {
+func SearchVector(t naming.SeriesType, seriesTitle, originalTitle string, number int, seasonTitle string) string {
 	seasonNumber := ""
-	if t == TypeTV && number > 0 {
+	if t == naming.TypeTV && number > 0 {
 		seasonNumber = strconv.Itoa(number)
 	}
 	return fulltext.Vector(

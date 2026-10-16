@@ -17,6 +17,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -306,7 +307,7 @@ func TestSyncSkipsInvalidSeries(t *testing.T) {
 				{Name: "雾港谜案", Warnings: []string{"集「雾港谜案」（第1季，第 1 集）没有季号，已跳过", "没有有效的集，整部跳过"}},
 				{Name: "标题空白", Series: testenv.TV(" ", nil, testenv.Season(1, "", testenv.Episode(1, "", 30)))},
 				testenv.Item(testenv.Movie("长夜灯塔", nil, 5400), "集号范围异常"),
-				{Name: "两集的电影", Series: &catalog.Series{Type: catalog.TypeMovie, Title: "两集的电影", Seasons: []catalog.Season{
+				{Name: "两集的电影", Series: &catalog.Series{Type: naming.TypeMovie, Title: "两集的电影", Seasons: []catalog.Season{
 					testenv.Season(1, "", testenv.Episode(1, "", 30), testenv.Episode(2, "", 30)),
 				}}},
 			},

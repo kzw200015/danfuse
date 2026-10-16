@@ -11,6 +11,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
 	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 // FakeCatalog 实现 catalog.Source 的假目录源：List 返回 Items 的清单，Items 依次产出 Items。
@@ -64,12 +65,12 @@ func (f *FakeCatalog) Link(sourceID string) catalog.Link {
 
 // TV 一部剧集。
 func TV(title string, year *int, seasons ...catalog.Season) *catalog.Series {
-	return &catalog.Series{Type: catalog.TypeTV, Title: title, Year: year, Seasons: seasons}
+	return &catalog.Series{Type: naming.TypeTV, Title: title, Year: year, Seasons: seasons}
 }
 
 // Movie 一部电影：只有一季一集，集的时长为 duration 秒。
 func Movie(title string, year *int, duration int) *catalog.Series {
-	return &catalog.Series{Type: catalog.TypeMovie, Title: title, Year: year, Seasons: []catalog.Season{
+	return &catalog.Series{Type: naming.TypeMovie, Title: title, Year: year, Seasons: []catalog.Season{
 		{Number: 1, Episodes: []catalog.Episode{{Number: 1, Duration: &duration}}},
 	}}
 }

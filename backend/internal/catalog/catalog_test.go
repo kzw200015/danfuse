@@ -1,11 +1,10 @@
 package catalog
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/kzw200015/danfuse/backend/internal/catalog/naming"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 func TestSeriesValidate(t *testing.T) {
@@ -17,10 +16,10 @@ func TestSeriesValidate(t *testing.T) {
 		return eps
 	}
 	tv := func(seasons ...Season) Series {
-		return Series{Type: TypeTV, Title: "星海旅人", Seasons: seasons}
+		return Series{Type: naming.TypeTV, Title: "星海旅人", Seasons: seasons}
 	}
 	movie := func(seasons ...Season) Series {
-		return Series{Type: TypeMovie, Title: "长夜灯塔", Seasons: seasons}
+		return Series{Type: naming.TypeMovie, Title: "长夜灯塔", Seasons: seasons}
 	}
 
 	tests := []struct {
@@ -32,8 +31,8 @@ func TestSeriesValidate(t *testing.T) {
 		{"集号可以为 0", tv(Season{Number: 1, Episodes: episodes(0)}), ""},
 		{"电影", movie(Season{Number: 1, Episodes: episodes(1)}), ""},
 		{"类型无效", Series{Type: "anime", Title: "星海旅人", Seasons: []Season{{Number: 1, Episodes: episodes(1)}}}, "类型"},
-		{"标题为空", Series{Type: TypeTV, Title: " ", Seasons: []Season{{Number: 1, Episodes: episodes(1)}}}, "标题为空"},
-		{"TMDB ID 不是正数", Series{Type: TypeTV, Title: "星海旅人", TMDBID: new(int64(0)), Seasons: []Season{{Number: 1, Episodes: episodes(1)}}}, "TMDB ID 0 无效"},
+		{"标题为空", Series{Type: naming.TypeTV, Title: " ", Seasons: []Season{{Number: 1, Episodes: episodes(1)}}}, "标题为空"},
+		{"TMDB ID 不是正数", Series{Type: naming.TypeTV, Title: "星海旅人", TMDBID: new(int64(0)), Seasons: []Season{{Number: 1, Episodes: episodes(1)}}}, "TMDB ID 0 无效"},
 		{"没有季", tv(), "没有任何季"},
 		{"季里没有集", tv(Season{Number: 1}), "没有任何集"},
 		{"季号为负", tv(Season{Number: -1, Episodes: episodes(1)}), "季号 -1"},
@@ -56,60 +55,23 @@ func TestSeriesValidate(t *testing.T) {
 	}
 }
 
-// TestSeasonName 季的名称，以及 ParseName 能从它拆回剧名和季号：插件手动选过一季之后，拿这个名称作为关键词搜回同一季。
-// 第 1 季和电影的名称就是剧名，没有季号。
-func TestSeasonName(t *testing.T) {
-	tests := []struct {
-		typ        SeriesType
-		number     int
-		wantName   string
-		wantParsed string // naming.Parse 拆出的"标题 | 季号 | 集号"
-	}{
-		{TypeTV, 1, "星海旅人", "星海旅人 | - | -"},
-		{TypeTV, 2, "星海旅人 第2季", "星海旅人 | 2 | -"},
-		{TypeTV, 12, "星海旅人 第12季", "星海旅人 | 12 | -"},
-		{TypeTV, 0, "星海旅人 特别篇", "星海旅人 | 0 | -"},
-		{TypeMovie, 1, "星海旅人", "星海旅人 | - | -"},
-	}
-	for _, tt := range tests {
-		name := SeasonName(tt.typ, "星海旅人", tt.number)
-		if name != tt.wantName {
-			t.Errorf("SeasonName(%s, %d) = %q, want %q", tt.typ, tt.number, name, tt.wantName)
-		}
-		if got := describeParsed(naming.Parse(name)); got != tt.wantParsed {
-			t.Errorf("naming.Parse(%q) = %q, want %q", name, got, tt.wantParsed)
-		}
-	}
-}
-
-// describeParsed 把解析结果写成一行便于比较："标题 | 季号 | 集号"，没有的写 -。
-func describeParsed(p naming.Parsed) string {
-	number := func(n *int) string {
-		if n == nil {
-			return "-"
-		}
-		return fmt.Sprint(*n)
-	}
-	return fmt.Sprintf("%s | %s | %s", p.Title, number(p.Season), number(p.Episode))
-}
-
 func TestSearchVector(t *testing.T) {
 	tests := []struct {
 		name                 string
-		typ                  SeriesType
+		typ                  naming.SeriesType
 		title, originalTitle string
 		number               int
 		seasonTitle          string
 		want                 string
 	}{
 		{
-			"剧名和季号为 A 档，原名为 B 档，季标题为 C 档，季号在最后", TypeTV, "星海旅人", "Star Voyager", 2, "归航",
+			"剧名和季号为 A 档，原名为 B 档，季标题为 C 档，季号在最后", naming.TypeTV, "星海旅人", "Star Voyager", 2, "归航",
 			"'星':1A '星海':1A '海':2A '海旅':2A '旅':3A '旅人':3A '人':4A " +
 				"'star':6B 'voyager':11B '归':19C '归航':19C '航':20C '2':22A",
 		},
-		{"特别篇没有季号", TypeTV, "星海", "", 0, "", "'星':1A '星海':1A '海':2A"},
+		{"特别篇没有季号", naming.TypeTV, "星海", "", 0, "", "'星':1A '星海':1A '海':2A"},
 		{
-			"电影没有季号", TypeMovie, "长夜灯塔", "", 1, "",
+			"电影没有季号", naming.TypeMovie, "长夜灯塔", "", 1, "",
 			"'长':1A '长夜':1A '夜':2A '夜灯':2A '灯':3A '灯塔':3A '塔':4A",
 		},
 	}

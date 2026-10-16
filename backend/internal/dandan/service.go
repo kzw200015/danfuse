@@ -12,11 +12,10 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/blockword"
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/catalog/naming"
 	"github.com/kzw200015/danfuse/backend/internal/dandan/dandandb"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/fulltext"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 // Service 弹弹 API 背后的查询：在目录里搜索季、按名称识别一集、按 ID 取季，读取一集所有绑定的弹幕。
@@ -49,9 +48,9 @@ type SearchResult struct {
 
 type Season struct {
 	ID           int64
-	Name         string   // 按 catalog.SeasonName 拼
+	Name         string   // 按 naming.SeasonName 拼
 	Titles       []string // 所属剧的标题，有原名时加上原名；识别时用来判断文件名里的标题是不是这部剧
-	Kind         catalog.SeasonKind
+	Kind         naming.SeasonKind
 	Year         *int32
 	Episodes     []Episode // 按集号升序
 	EpisodeCount int       // 这一季的总集数；按集号过滤时 Episodes 只有那一集，总集数不变
@@ -180,16 +179,16 @@ func (d *Service) listEpisodes(ctx context.Context, seasonIDs []int64, number *i
 
 // seasonOf 由查出的一季（季号与所属剧的类型、剧名、原名、年份）和它的集组装一季，名称和类别按目录的规则得出。
 func seasonOf(r dandandb.SearchSeasonsRow, episodes seasonEpisodes) Season {
-	typ, n := catalog.SeriesType(r.Type), int(r.Number)
+	typ, n := naming.SeriesType(r.Type), int(r.Number)
 	titles := []string{r.Title}
 	if r.OriginalTitle != nil {
 		titles = append(titles, *r.OriginalTitle)
 	}
 	return Season{
 		ID:           r.ID,
-		Name:         catalog.SeasonName(typ, r.Title, n),
+		Name:         naming.SeasonName(typ, r.Title, n),
 		Titles:       titles,
-		Kind:         catalog.KindOf(typ, n),
+		Kind:         naming.KindOf(typ, n),
 		Year:         r.Year,
 		Episodes:     episodes.list,
 		EpisodeCount: episodes.count,

@@ -24,6 +24,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -54,22 +55,22 @@ func syncCatalog(t *testing.T, cfg *pgxpool.Config, items ...catalog.Item) {
 // 没有同名的剧：同名剧的自动匹配可能选错，是插件的已知限制。季都没有绑定。
 func pluginCatalog() []catalog.Item {
 	series := []*catalog.Series{
-		{Type: catalog.TypeTV, Title: "星海旅人", OriginalTitle: "ほしうみの旅人", Year: new(2019), Seasons: []catalog.Season{
+		{Type: naming.TypeTV, Title: "星海旅人", OriginalTitle: "ほしうみの旅人", Year: new(2019), Seasons: []catalog.Season{
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1, Title: "启程"}, {Number: 2, Title: "归航"}}}, // 季 1：集 1、2
 			{Number: 2, Episodes: []catalog.Episode{{Number: 13, Title: "新的航程"}, {Number: 14}}},          // 季 2：集 3、4，集号接着第 1 季往下数
 			{Number: 0, Title: "Specials", Episodes: []catalog.Episode{{Number: 1, Title: "番外"}}},        // 季 3：集 5
 		}},
-		{Type: catalog.TypeTV, Title: "Night Watch", Year: new(2010), Seasons: []catalog.Season{
+		{Type: naming.TypeTV, Title: "Night Watch", Year: new(2010), Seasons: []catalog.Season{
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1}, {Number: 2}}}, // 季 4：集 6、7
 			{Number: 2, Episodes: []catalog.Episode{{Number: 1}}},              // 季 5：集 8
 		}},
-		{Type: catalog.TypeMovie, Title: "长夜灯塔", OriginalTitle: "Night Lighthouse", Year: new(2020), Seasons: []catalog.Season{
+		{Type: naming.TypeMovie, Title: "长夜灯塔", OriginalTitle: "Night Lighthouse", Year: new(2020), Seasons: []catalog.Season{
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1}}}, // 季 6：集 9
 		}},
-		{Type: catalog.TypeTV, Title: "无名之旅", Seasons: []catalog.Season{ // 没有年份
+		{Type: naming.TypeTV, Title: "无名之旅", Seasons: []catalog.Season{ // 没有年份
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1}}}, // 季 7：集 10
 		}},
-		{Type: catalog.TypeTV, Title: "Steins;Gate", Year: new(2011), Seasons: []catalog.Season{
+		{Type: naming.TypeTV, Title: "Steins;Gate", Year: new(2011), Seasons: []catalog.Season{
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1}}}, // 季 8：集 11
 		}},
 	}
@@ -372,7 +373,7 @@ func TestSearchEpisodesHasMore(t *testing.T) {
 	for i := range seasons {
 		seasons[i] = catalog.Season{Number: i + 1, Episodes: []catalog.Episode{{Number: 1}}}
 	}
-	srv := newDandanServer(t, "", catalog.Item{Name: "长篇连载", Series: &catalog.Series{Type: catalog.TypeTV, Title: "长篇连载", Seasons: seasons}})
+	srv := newDandanServer(t, "", catalog.Item{Name: "长篇连载", Series: &catalog.Series{Type: naming.TypeTV, Title: "长篇连载", Seasons: seasons}})
 
 	_, body := pluginGet(t, srv, "/dandanplay/api/v2/search/episodes?anime=长篇连载", nil)
 	var resp struct {

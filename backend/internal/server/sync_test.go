@@ -14,6 +14,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -33,7 +34,7 @@ func TestSyncRunsAPI(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		src := &testenv.FakeCatalog{
 			Items: []catalog.Item{
-				{Name: "甲", Series: &catalog.Series{Type: catalog.TypeTV, Title: "甲", Seasons: []catalog.Season{
+				{Name: "甲", Series: &catalog.Series{Type: naming.TypeTV, Title: "甲", Seasons: []catalog.Season{
 					{Number: 1, Episodes: []catalog.Episode{{Number: 1}, {Number: 2}}},
 				}}},
 				{Name: "乙", Warnings: []string{"没有有效的集，整部跳过"}},

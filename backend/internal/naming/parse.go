@@ -1,5 +1,5 @@
-// Package naming 认名称（搜索关键词、弹弹 API match 的文件名）里写明的季号、集号。纯计算，目录的搜索和识别、
-// 季绑定集号规则的默认值（source.DefaultEpisodeRule）都用它。
+// Package naming 季的名称：季对外的名称和类别（season.go），以及认名称（搜索关键词、弹弹 API match 的文件名）里
+// 写明的季号、集号（本文件）。纯计算，目录的同步、弹弹 API 的搜索和识别、季绑定集号规则的默认值（source.DefaultEpisodeRule）都用它。
 package naming
 
 import (
@@ -54,7 +54,7 @@ func EpisodePatterns() []string {
 
 // Parse 认出名称里写明了的季号和集号，其余部分作为标题。搜索关键词和 match 的文件名都用它，规则相同：
 //   - 季号和集号：S01E11；
-//   - 季号：S01、第1季，"特别篇"为第 0 季，与 catalog.SeasonName 输出的写法一致；
+//   - 季号：S01、第1季，"特别篇"为第 0 季，与 SeasonName 输出的写法一致；
 //   - 集号：第11话（第11話、第11集）、EP11。
 //
 // 按 namePatterns 的顺序认，季号、集号各取第一个认出的，认出的部分从标题里去掉。先清洗为 NFKC，全角的数字、字母也能认出。
