@@ -23,7 +23,7 @@ func syncServer(t *testing.T, cfg *pgxpool.Config, src catalog.Source) *Server {
 	t.Helper()
 	svc, pool := startSync(t, cfg, src)
 	return New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{
-		Health: NewHealthHandler(pool),
+		Health: NewHealthHandler(NewHealthService(pool)),
 		Sync:   catalog.NewSyncHandler(svc),
 	})
 }

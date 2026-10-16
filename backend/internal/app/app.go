@@ -50,7 +50,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	dandans := dandan.NewService(pool, bindings, blockedWords)
 
 	handlers := &server.Handlers{
-		Health:        server.NewHealthHandler(pool),
+		Health:        server.NewHealthHandler(server.NewHealthService(pool)),
 		Settings:      server.NewSettingsHandler(cfg),
 		Catalog:       catalog.NewHandler(catalogs),
 		Sync:          catalog.NewSyncHandler(syncs),
