@@ -12,7 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/testenv"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 )
 
 // uploadFile multipart 请求里的一份文件。
@@ -83,7 +83,7 @@ func TestFileBinding(t *testing.T) {
 	// 创建：201 和绑定，没有适配器、链接和时长
 	_, data := upload(t, srv, "/api/episodes/2/file-bindings",
 		[]uploadFile{danmakuXML("20130709.xml", "1", "2"), danmakuXML("20130711.xml", "2", "3")}, http.StatusCreated)
-	testenv.AssertJSON(t, data, `{
+	testutil.AssertJSON(t, data, `{
 		"id": 5, "kind": "file", "adapter": null, "sourceUrl": null, "sourceLabel": "弹幕文件 · 2 份",
 		"title": "20130709", "duration": null, "offset": 0, "status": "active", "contentVersion": 1, "danmakuCount": 3, "maxTimeMs": 1500,
 		"lastFetchedAt": null, "seasonBindingId": null

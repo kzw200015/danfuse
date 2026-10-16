@@ -12,6 +12,7 @@ import (
 	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -83,7 +84,7 @@ func TestListSeries(t *testing.T) {
 
 	seedCatalog(t, pool)
 	_, _, data := call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK)
-	testenv.AssertJSON(t, data, `[
+	testutil.AssertJSON(t, data, `[
 		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "tmdbId": 60735,
 		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3,
 		 "boundEpisodeCount": 2, "bindingCount": 3, "deadBindingCount": 2, "following": false},
@@ -149,7 +150,7 @@ func TestGetSeries(t *testing.T) {
 	}
 	for _, tt := range tests {
 		_, _, data := call(t, srv, http.MethodGet, tt.target, "", http.StatusOK)
-		testenv.AssertJSON(t, data, tt.want)
+		testutil.AssertJSON(t, data, tt.want)
 	}
 
 	assertAPIErrors(t, srv, []apiError{

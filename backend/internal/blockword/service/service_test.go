@@ -8,6 +8,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -45,9 +46,9 @@ func TestCreateListDelete(t *testing.T) {
 
 	// 关键词按归一化后的内容判断重复
 	_, err := svc.Create(ctx, danmaku.BlockedWord{Kind: danmaku.BlockedKeyword, Pattern: "ａ w s l"})
-	testenv.AssertAppError(t, err, http.StatusConflict, "已有相同的屏蔽词")
+	testutil.AssertAppError(t, err, http.StatusConflict, "已有相同的屏蔽词")
 	_, err = svc.Create(ctx, danmaku.BlockedWord{Kind: danmaku.BlockedRegex, Pattern: "AWSL"})
-	testenv.AssertAppError(t, err, http.StatusConflict, "已有相同的屏蔽词")
+	testutil.AssertAppError(t, err, http.StatusConflict, "已有相同的屏蔽词")
 
 	words, err := svc.List(ctx)
 	if err != nil {
@@ -60,7 +61,7 @@ func TestCreateListDelete(t *testing.T) {
 	if err := svc.Delete(ctx, ids[1]); err != nil {
 		t.Fatal(err)
 	}
-	testenv.AssertAppError(t, svc.Delete(ctx, ids[1]), http.StatusNotFound, "屏蔽词不存在")
+	testutil.AssertAppError(t, svc.Delete(ctx, ids[1]), http.StatusNotFound, "屏蔽词不存在")
 	words, err = svc.List(ctx)
 	if err != nil {
 		t.Fatal(err)

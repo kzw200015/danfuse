@@ -18,6 +18,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -145,7 +146,7 @@ func TestSyncMatchesTMDBID(t *testing.T) {
 			testenv.Item(withSourceID(testenv.TV("雾港谜案", new(2021), ep1()), "b")),
 		}
 		testenv.SyncOnce(t, svc)
-		testenv.AssertStrings(t, "第一次同步：剧", readSeries(t, pool), []string{"1|tv|星海旅人|2019|1|a", "2|tv|雾港谜案|2021|-|b"})
+		testutil.AssertStrings(t, "第一次同步：剧", readSeries(t, pool), []string{"1|tv|星海旅人|2019|1|a", "2|tv|雾港谜案|2021|-|b"})
 
 		// 星海旅人改了标题和年份（换元数据语言、重新识别成同一个条目）仍是同一部；雾港谜案刮上了 TMDB，按自然键对上并补上 TMDB ID。
 		// 两部在目录源里都换了 ID（例如移到了另一个媒体库），目录源 ID 跟着换
@@ -157,7 +158,7 @@ func TestSyncMatchesTMDBID(t *testing.T) {
 		if got, want := runCounts(run), "succeeded 2/2 新增剧 0 季 0 集 0"; got != want {
 			t.Errorf("标题年份变化、补上 TMDB ID：%s, want %s", got, want)
 		}
-		testenv.AssertStrings(t, "标题年份变化、补上 TMDB ID：剧", readSeries(t, pool), []string{"1|tv|Star Sea|2020|1|c", "2|tv|雾港谜案|2021|2|d"})
+		testutil.AssertStrings(t, "标题年份变化、补上 TMDB ID：剧", readSeries(t, pool), []string{"1|tv|Star Sea|2020|1|c", "2|tv|雾港谜案|2021|2|d"})
 
 		// 雾港谜案重新识别成了另一个条目（TMDB 3，标题年份没变）：新剧，旧的保留；
 		// 另一个媒体库里没刮上 TMDB 的「Star Sea (2020)」与有 TMDB ID 的那部标题年份相同，也是另一部；
@@ -171,7 +172,7 @@ func TestSyncMatchesTMDBID(t *testing.T) {
 		if got, want := runCounts(run), "succeeded 3/3 新增剧 3 季 3 集 3"; got != want {
 			t.Errorf("重新识别、同名无 TMDB ID、电影同号：%s, want %s", got, want)
 		}
-		testenv.AssertStrings(t, "重新识别、同名无 TMDB ID、电影同号：剧", readSeries(t, pool), []string{
+		testutil.AssertStrings(t, "重新识别、同名无 TMDB ID、电影同号：剧", readSeries(t, pool), []string{
 			"1|tv|Star Sea|2020|1|c", "2|tv|雾港谜案|2021|2|d", "3|tv|雾港谜案|2021|3|-", "4|tv|Star Sea|2020|-|-", "5|movie|长夜灯塔|2020|1|-",
 		})
 	})
@@ -205,7 +206,7 @@ func TestSyncDuplicateKeysLastWins(t *testing.T) {
 			if got := texts(readCatalog(t, pool)); !slices.Equal(got, want) {
 				t.Errorf("第 %d 次同步后目录 = %q\nwant %q", i+1, got, want)
 			}
-			testenv.AssertStrings(t, fmt.Sprintf("第 %d 次同步后剧", i+1), readSeries(t, pool), []string{"1|tv|星海旅人|2019|-|c"})
+			testutil.AssertStrings(t, fmt.Sprintf("第 %d 次同步后剧", i+1), readSeries(t, pool), []string{"1|tv|星海旅人|2019|-|c"})
 		}
 	})
 }
@@ -542,7 +543,7 @@ func TestTriggerRejected(t *testing.T) {
 			stop() // Run 已返回：不再等它接收触发
 
 			_, err := svc.Trigger(t.Context())
-			testenv.AssertAppError(t, err, http.StatusServiceUnavailable, "服务正在关闭")
+			testutil.AssertAppError(t, err, http.StatusServiceUnavailable, "服务正在关闭")
 		})
 	})
 

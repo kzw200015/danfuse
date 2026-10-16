@@ -10,6 +10,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -89,10 +90,10 @@ func TestListDanmakuErrors(t *testing.T) {
 	id := createS1(t, svc)
 
 	_, err := svc.ListDanmaku(t.Context(), 99, nil, "")
-	testenv.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
+	testutil.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
 	for _, cursor := range []string{"abc", "1_", "_1", "99999999999_1"} {
 		_, err := svc.ListDanmaku(t.Context(), id, nil, cursor)
-		testenv.AssertAppError(t, err, http.StatusBadRequest, "游标不合法")
+		testutil.AssertAppError(t, err, http.StatusBadRequest, "游标不合法")
 	}
 }
 

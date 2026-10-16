@@ -11,6 +11,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -105,7 +106,7 @@ func TestCreateFromFilesErrors(t *testing.T) {
 
 			_, err := svc.CreateFromFiles(t.Context(), tt.episodeID, tt.files)
 
-			testenv.AssertAppError(t, err, tt.status, tt.message)
+			testutil.AssertAppError(t, err, tt.status, tt.message)
 			assertNothingWritten(t, pool)
 			if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM binding_files`); n != 0 {
 				t.Errorf("存下了 %d 份文件", n)
@@ -158,7 +159,7 @@ func TestAppendFiles(t *testing.T) {
 
 	// 有一份认不出：什么都不加
 	_, err = svc.AppendFiles(t.Context(), created.ID, []danmakufile.File{testenv.XMLFile("新.xml", "1,1,25,0,0,0,x,9", "新"), notDanmaku})
-	testenv.AssertAppError(t, err, http.StatusUnprocessableEntity, "无法识别「README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
+	testutil.AssertAppError(t, err, http.StatusUnprocessableEntity, "无法识别「README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
 	if names := testenv.FileNames(t, svc, created.ID); len(names) != 2 {
 		t.Errorf("有一份认不出：弹幕文件 = %v, want 仍是 2 份", names)
 	}
@@ -180,20 +181,20 @@ func TestFileBindingKind(t *testing.T) {
 
 	const notFile = "这个绑定不是用弹幕文件建的"
 	_, err = svc.AppendFiles(t.Context(), link.ID, []danmakufile.File{snapshot2})
-	testenv.AssertAppError(t, err, http.StatusBadRequest, notFile)
+	testutil.AssertAppError(t, err, http.StatusBadRequest, notFile)
 	_, err = svc.Reparse(t.Context(), link.ID)
-	testenv.AssertAppError(t, err, http.StatusBadRequest, notFile)
+	testutil.AssertAppError(t, err, http.StatusBadRequest, notFile)
 	_, err = svc.ListFiles(t.Context(), link.ID)
-	testenv.AssertAppError(t, err, http.StatusBadRequest, notFile)
+	testutil.AssertAppError(t, err, http.StatusBadRequest, notFile)
 	_, _, err = svc.Refetch(t.Context(), file.ID, false)
-	testenv.AssertAppError(t, err, http.StatusBadRequest, "用弹幕文件建的绑定不能重新拉取")
+	testutil.AssertAppError(t, err, http.StatusBadRequest, "用弹幕文件建的绑定不能重新拉取")
 
 	_, err = svc.AppendFiles(t.Context(), 99, []danmakufile.File{snapshot2})
-	testenv.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
+	testutil.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
 	_, err = svc.Reparse(t.Context(), 99)
-	testenv.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
+	testutil.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
 	_, err = svc.ListFiles(t.Context(), 99)
-	testenv.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
+	testutil.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
 
 	// 偏移、删除两种绑定都能用
 	if _, err := svc.UpdateOffset(t.Context(), file.ID, -1); err != nil {
@@ -254,7 +255,7 @@ func TestReparseUnparsable(t *testing.T) {
 
 	_, err = svc.Reparse(t.Context(), created.ID)
 
-	testenv.AssertAppError(t, err, http.StatusUnprocessableEntity, "无法识别「20130709.xml」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
+	testutil.AssertAppError(t, err, http.StatusUnprocessableEntity, "无法识别「20130709.xml」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
 	if items := readDanmaku(t, pool, created.ID); len(items) != 2 {
 		t.Errorf("弹幕 = %+v, want 原来的 2 条", items)
 	}

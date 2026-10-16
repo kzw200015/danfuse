@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -28,7 +29,7 @@ func TestUpdateOffset(t *testing.T) {
 	}
 
 	_, err = svc.UpdateOffset(t.Context(), 2, 1)
-	testenv.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
+	testutil.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
 }
 
 // TestDeleteBinding 删除绑定，它的弹幕随之删除；同一个弹幕源在别的集上的绑定不受影响。
@@ -55,5 +56,5 @@ func TestDeleteBinding(t *testing.T) {
 		t.Errorf("别的集上的绑定有 %d 条弹幕，want 3", len(ids))
 	}
 
-	testenv.AssertAppError(t, svc.Delete(t.Context(), id), http.StatusNotFound, "绑定不存在")
+	testutil.AssertAppError(t, svc.Delete(t.Context(), id), http.StatusNotFound, "绑定不存在")
 }

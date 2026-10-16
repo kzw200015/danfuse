@@ -15,6 +15,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -123,7 +124,7 @@ func TestCreateBindingFailed(t *testing.T) {
 
 			_, err := svc.Create(t.Context(), tt.episodeID, tt.link)
 
-			testenv.AssertAppError(t, err, tt.wantStatus, tt.wantMessage)
+			testutil.AssertAppError(t, err, tt.wantStatus, tt.wantMessage)
 			assertSourceCause(t, err, tt.err)
 			if n := adapter.fetches.Load(); n != tt.wantFetches {
 				t.Errorf("拉取了 %d 次，want %d", n, tt.wantFetches)
@@ -143,7 +144,7 @@ func TestCreateBindingDuplicate(t *testing.T) {
 		t.Fatalf("第一次 Create: %v", err)
 	}
 	_, err := svc.Create(t.Context(), 1, "alias/s1")
-	testenv.AssertAppError(t, err, http.StatusConflict, "这一集已经绑定过这个弹幕源")
+	testutil.AssertAppError(t, err, http.StatusConflict, "这一集已经绑定过这个弹幕源")
 	if n := adapter.fetches.Load(); n != 1 {
 		t.Errorf("拉取了 %d 次，want 1：重复的不拉取", n)
 	}
@@ -178,7 +179,7 @@ func TestCreateBindingTimeout(t *testing.T) {
 				start := time.Now()
 				_, err := svc.Create(t.Context(), 1, "fake/s1")
 
-				testenv.AssertAppError(t, err, http.StatusBadGateway, "B 站接口异常")
+				testutil.AssertAppError(t, err, http.StatusBadGateway, "B 站接口异常")
 				if elapsed := time.Since(start); elapsed != source.FetchTimeout {
 					t.Errorf("%v 后才失败，want 总时限 %v", elapsed, source.FetchTimeout)
 				}
@@ -206,7 +207,7 @@ func TestCreateBindingEpisodeDeleted(t *testing.T) {
 	}
 	close(adapter.release)
 
-	testenv.AssertAppError(t, <-errc, http.StatusNotFound, "这一集已被删除")
+	testutil.AssertAppError(t, <-errc, http.StatusNotFound, "这一集已被删除")
 	assertNothingWritten(t, pool)
 }
 
@@ -236,7 +237,7 @@ func TestCreateBindingConcurrently(t *testing.T) {
 	if errs[0] != nil {
 		t.Errorf("两次都失败：%v；%v", errs[0], errs[1])
 	}
-	testenv.AssertAppError(t, errs[1], http.StatusConflict, "这一集已经绑定过这个弹幕源")
+	testutil.AssertAppError(t, errs[1], http.StatusConflict, "这一集已经绑定过这个弹幕源")
 	if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM bindings`); n != 1 {
 		t.Errorf("库里有 %d 个绑定，want 1", n)
 	}
@@ -358,7 +359,7 @@ func TestRefetchFailed(t *testing.T) {
 
 			_, _, err := svc.Refetch(t.Context(), tt.id, true)
 
-			testenv.AssertAppError(t, err, tt.wantStatus, tt.wantMessage)
+			testutil.AssertAppError(t, err, tt.wantStatus, tt.wantMessage)
 			assertSourceCause(t, err, tt.err)
 			if n := adapter.fetches.Load(); n != tt.wantFetches {
 				t.Errorf("拉取了 %d 次，want %d", n, tt.wantFetches)
@@ -401,7 +402,7 @@ func TestRefetchDeadAndRecover(t *testing.T) {
 
 	adapter.err = &source.Error{Kind: source.NotFound, Message: "视频不存在、已删除或不可见", Err: errors.New("code -404")}
 	_, _, err := svc.Refetch(t.Context(), id, false)
-	testenv.AssertAppError(t, err, http.StatusUnprocessableEntity, "视频不存在、已删除或不可见")
+	testutil.AssertAppError(t, err, http.StatusUnprocessableEntity, "视频不存在、已删除或不可见")
 	if b := getBinding(t, pool, id); b.Status != "dead" || b.DanmakuCount != 3 {
 		t.Errorf("状态 %s、%d 条弹幕，want 失效、保留 3 条", b.Status, b.DanmakuCount)
 	}
@@ -411,7 +412,7 @@ func TestRefetchDeadAndRecover(t *testing.T) {
 
 	adapter.err = &source.Error{Kind: source.Upstream, Message: "B 站接口异常"}
 	_, _, err = svc.Refetch(t.Context(), id, true)
-	testenv.AssertAppError(t, err, http.StatusBadGateway, "B 站接口异常")
+	testutil.AssertAppError(t, err, http.StatusBadGateway, "B 站接口异常")
 	if b := getBinding(t, pool, id); b.Status != "dead" || b.DanmakuCount != 3 {
 		t.Errorf("状态 %s、%d 条弹幕，want 仍然失效、保留 3 条", b.Status, b.DanmakuCount)
 	}
@@ -444,7 +445,7 @@ func TestRefetchTimeout(t *testing.T) {
 		start := time.Now()
 		_, _, err := svc.Refetch(t.Context(), id, true)
 
-		testenv.AssertAppError(t, err, http.StatusBadGateway, "B 站接口异常")
+		testutil.AssertAppError(t, err, http.StatusBadGateway, "B 站接口异常")
 		if elapsed := time.Since(start); elapsed != source.FetchTimeout {
 			t.Errorf("%v 后才失败，want 总时限 %v", elapsed, source.FetchTimeout)
 		}
@@ -493,7 +494,7 @@ func TestRefetchBindingDeleted(t *testing.T) {
 			}
 			close(adapter.release)
 
-			testenv.AssertAppError(t, <-errc, http.StatusNotFound, "绑定已被删除")
+			testutil.AssertAppError(t, <-errc, http.StatusNotFound, "绑定已被删除")
 			assertNothingWritten(t, pool)
 		})
 	}

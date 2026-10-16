@@ -22,6 +22,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -98,7 +99,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 
 		// 默认的集号规则
 		_, _, data := call(t, srv, http.MethodGet, "/api/episode-rules/default", "", http.StatusOK)
-		testenv.AssertJSON(t, data, `{"episodePatterns": `+defaultPatterns+`}`)
+		testutil.AssertJSON(t, data, `{"episodePatterns": `+defaultPatterns+`}`)
 
 		// 创建：201 和详情，只有合集的字段，不含原始 ref；补建在后台进行
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/collection",
@@ -116,7 +117,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 		detail := decodeObject(t, data)
 		popTime(t, detail, "lastCheckedAt") // 这一轮的开始时间
 		popTime(t, detail, "createdAt")
-		testenv.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
+		testutil.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
 			"id": 1, "seasonId": 1, "kind": "collection", "adapter": "fake", "link": "fakelist/s",
 			"sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"title": "合集 s", "mappingFrom": 1, "mappingTo": 1, "numberedByRule": false, "episodePatterns": `+defaultPatterns+`,
@@ -265,7 +266,7 @@ func TestCollectionPreviewAndSaveAPI(t *testing.T) {
 		// 新建的预览：每个候选一组，条目里没有失败原因的字段
 		_, _, data := call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/collection/preview",
 			`{"link": " fakelist/s ", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": `+patterns+`}`, http.StatusOK)
-		testenv.AssertJSON(t, data, `{"candidates": [{
+		testutil.AssertJSON(t, data, `{"candidates": [{
 			"collectionKind": "list", "title": "合集 s", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"finished": false, "numberedByRule": false, "current": false,
 			"items": [
@@ -284,7 +285,7 @@ func TestCollectionPreviewAndSaveAPI(t *testing.T) {
 		// 编辑的预览：改集号对应，第 2 集的条目改对到第 1 集，替换那里的绑定；第 2 集的槽位保存后删除
 		shifted := `{"link": "fakelist/s", "mappingFrom": 2, "mappingTo": 1, "episodePatterns": ` + patterns + `}`
 		_, _, data = call(t, srv, http.MethodPost, "/api/season-bindings/1/collection/preview", shifted, http.StatusOK)
-		testenv.AssertJSON(t, data, `{"candidates": [{
+		testutil.AssertJSON(t, data, `{"candidates": [{
 			"collectionKind": "list", "title": "合集 s", "sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"finished": false, "numberedByRule": false, "current": true,
 			"items": [
@@ -360,7 +361,7 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 		// 预览新建：只传文件夹名、条目名称和文件哈希
 		_, _, data := call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/folder/preview",
 			`{"folder": "来自新世界", "entries": `+entries+`, `+folderRules(1)+`}`, http.StatusOK)
-		testenv.AssertJSON(t, data, `{"candidates": [{
+		testutil.AssertJSON(t, data, `{"candidates": [{
 			"collectionKind": null, "title": "来自新世界", "sourceUrl": null, "sourceLabel": null, "finished": false,
 			"numberedByRule": true, "current": false,
 			"items": [
@@ -383,7 +384,7 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 			t.Errorf("季绑定的字段 = %q\nwant %q", got, wantFields)
 		}
 		popTime(t, detail, "createdAt")
-		testenv.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
+		testutil.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
 			"id": 1, "seasonId": 1, "kind": "folder", "title": "来自新世界",
 			"episodePatterns": `+jsonString(source.DefaultEpisodeRule().Patterns())+`, "mappingFrom": 1, "mappingTo": 1,
 			"bindingCount": 2, "entryCount": 3,
@@ -418,7 +419,7 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 		if c := preview.Candidates[0]; c.Title != "来自新世界" || !c.Current {
 			t.Errorf("预览编辑 = %+v", c)
 		}
-		testenv.AssertJSON(t, preview.Candidates[0].Summary, `{"create": 0, "replace": 1, "remove": 1, "keep": 0}`)
+		testutil.AssertJSON(t, preview.Candidates[0].Summary, `{"create": 0, "replace": 1, "remove": 1, "keep": 0}`)
 
 		// 预览编辑，换文件夹：条目按名称和文件哈希对上
 		_, _, data = call(t, srv, http.MethodPost, "/api/season-bindings/1/folder/preview",
@@ -426,7 +427,7 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 		if err := json.Unmarshal(data, &preview); err != nil {
 			t.Fatal(err)
 		}
-		testenv.AssertJSON(t, preview.Candidates[0].Summary, `{"create": 0, "replace": 0, "remove": 0, "keep": 2}`)
+		testutil.AssertJSON(t, preview.Candidates[0].Summary, `{"create": 0, "replace": 0, "remove": 0, "keep": 2}`)
 
 		// 保存，不带文件：只改集号对应，返回 200 和详情
 		_, data = sendMultipart(t, srv, http.MethodPut, "/api/season-bindings/1/folder", nil,

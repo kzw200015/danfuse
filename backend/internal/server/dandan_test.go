@@ -26,6 +26,7 @@ import (
 	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -333,14 +334,14 @@ func TestSearchEpisodesResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			testenv.AssertJSON(t, body, tt.want)
+			testutil.AssertJSON(t, body, tt.want)
 		})
 	}
 
 	// 没有 anime 参数时 episode、tmdbId 不起作用
 	for _, target := range []string{"/dandanplay/api/v2/search/episodes", "/dandanplay/api/v2/search/episodes?tmdbId=1&episode=1"} {
 		_, body := pluginGet(t, srv, target, nil)
-		testenv.AssertJSON(t, body, empty)
+		testutil.AssertJSON(t, body, empty)
 	}
 }
 
@@ -366,7 +367,7 @@ func TestSearchEpisodesEpisode(t *testing.T) {
 	} {
 		t.Run(tt.query, func(t *testing.T) {
 			_, body := pluginGet(t, srv, "/dandanplay/api/v2/search/episodes?"+tt.query, nil)
-			testenv.AssertJSON(t, body, tt.want)
+			testutil.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -447,7 +448,7 @@ func TestSearchAnimeResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			testenv.AssertJSON(t, body, tt.want)
+			testutil.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -487,7 +488,7 @@ func TestBangumiResponse(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("bangumi/%s: status = %d, want 200", tt.id, rec.Code)
 		}
-		testenv.AssertJSON(t, body, tt.want)
+		testutil.AssertJSON(t, body, tt.want)
 	}
 
 	// 找不到作品：HTTP 200、success 为 false、bangumi 为 null。Echo 里路由末尾的参数匹配到路径末尾，
@@ -498,7 +499,7 @@ func TestBangumiResponse(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("bangumi/%s: status = %d, want 200", id, rec.Code)
 		}
-		testenv.AssertJSON(t, body, notFound)
+		testutil.AssertJSON(t, body, notFound)
 	}
 }
 
@@ -646,7 +647,7 @@ func TestCommentResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			testenv.AssertJSON(t, body, tt.want)
+			testutil.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -758,7 +759,7 @@ func TestMatch(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			testenv.AssertJSON(t, got, tt.want)
+			testutil.AssertJSON(t, got, tt.want)
 		})
 	}
 }
@@ -773,7 +774,7 @@ func TestRelated(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s: status = %d, want 200", target, rec.Code)
 		}
-		testenv.AssertJSON(t, body, `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "relateds": []}`)
+		testutil.AssertJSON(t, body, `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "relateds": []}`)
 	}
 }
 
@@ -789,7 +790,7 @@ func TestDandanUnregisteredEndpoints(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s: status = %d, want 404", target, rec.Code)
 		}
-		testenv.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`) // 前缀下没命中的路由走全局处理
+		testutil.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`) // 前缀下没命中的路由走全局处理
 	}
 	if rec, body := dandanPost(t, srv, "/dandanplay/api/v2/match/batch", `{"requests": []}`); rec.Code != http.StatusNotFound {
 		t.Errorf("POST match/batch: status = %d, want 404, body %s", rec.Code, body)
@@ -905,7 +906,7 @@ func TestDandanToken(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s: status = %d, want 404", target, rec.Code)
 		}
-		testenv.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`)
+		testutil.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`)
 	}
 }
 
@@ -981,7 +982,7 @@ func TestDandanServerError(t *testing.T) {
 			if rec.Code != http.StatusInternalServerError {
 				t.Errorf("status = %d, want 500", rec.Code)
 			}
-			testenv.AssertJSON(t, body, tt.wantBody)
+			testutil.AssertJSON(t, body, tt.wantBody)
 			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 				t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
 			}

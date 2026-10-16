@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -41,7 +42,7 @@ func TestCollectionDetail(t *testing.T) {
 		if created.CollectionView == nil || !created.Running || !created.Follow || created.FolderView != nil {
 			t.Errorf("创建时的详情 = %+v, want 合集的季绑定、正在补建、追更开着", created.View)
 		}
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b -", "3 other -", "3 c 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b -", "3 other -", "3 c 1"})
 
 		got := env.get(created.ID)
 		want := service.View{
@@ -60,11 +61,11 @@ func TestCollectionDetail(t *testing.T) {
 		if !reflect.DeepEqual(got.View, want) {
 			t.Errorf("Get() = %+v %+v\nwant %+v %+v", got.View, got.CollectionView, want, want.CollectionView)
 		}
-		testenv.AssertStrings(t, "条目", states(got), []string{
+		testutil.AssertStrings(t, "条目", states(got), []string{
 			"z beforeStart -", "a keep 1", "b alreadyBound 2", "c keep 3", "sp unmatched - 平台没有给出整数集号",
 			"d1 unmatched - 集号重复", "d2 unmatched - 集号重复", "e noEpisode 5",
 		})
-		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(got), nil)
+		testutil.AssertStrings(t, "没有条目的槽位", emptySlots(got), nil)
 	})
 }
 
@@ -84,10 +85,10 @@ func TestDetailEmptySlotAndReplace(t *testing.T) {
 		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("b2", 2)}}
 		env.backfill(id)
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
 		d := env.get(id)
-		testenv.AssertStrings(t, "条目", states(d), []string{"b2 replace 2 替换 弹幕源 b"})
-		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 弹幕源 a"})
+		testutil.AssertStrings(t, "条目", states(d), []string{"b2 replace 2 替换 弹幕源 b"})
+		testutil.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 弹幕源 a"})
 		if it := d.Items[0]; emptyIfNull(it.LastError) != "B 站接口异常" || it.LastErrorAt == nil {
 			t.Errorf("条目的失败原因 = %v、%v", it.LastError, it.LastErrorAt)
 		}
@@ -106,14 +107,14 @@ func TestFolderDetail(t *testing.T) {
 		if d.Kind != "folder" || d.FolderView == nil || d.EntryCount != 3 || d.BindingCount != 1 || d.CollectionView != nil {
 			t.Errorf("Get() = %+v, want 文件夹的季绑定、3 个条目、1 个绑定", d.View)
 		}
-		testenv.AssertStrings(t, "条目", states(d), []string{
+		testutil.AssertStrings(t, "条目", states(d), []string{
 			"星海旅人 / 01 keep 1", "星海旅人 / 02 create 2", "星海旅人 / 花絮 unmatched - 不符合集号规则",
 		})
-		testenv.AssertJSON(t, d.Items[0], `{
+		testutil.AssertJSON(t, d.Items[0], `{
 			"label": "星海旅人 / 01", "number": 1, "episodeNumber": 1, "status": "keep", "reason": null, "replaces": null,
 			"lastError": null, "lastErrorAt": null
 		}`)
-		testenv.AssertJSON(t, d.EmptySlots, `[]`)
+		testutil.AssertJSON(t, d.EmptySlots, `[]`)
 	})
 }
 
@@ -159,7 +160,7 @@ func TestListBySeries(t *testing.T) {
 			if err := json.Unmarshal(b, &m); err != nil {
 				t.Fatal(err)
 			}
-			testenv.AssertStrings(t, want.kind+"的字段", slices.Sorted(maps.Keys(m)), slices.Sorted(slices.Values(append(want.fields, common...))))
+			testutil.AssertStrings(t, want.kind+"的字段", slices.Sorted(maps.Keys(m)), slices.Sorted(slices.Values(append(want.fields, common...))))
 		}
 		if views[1][0].EntryCount != 2 {
 			t.Errorf("entryCount = %d, want 2", views[1][0].EntryCount)
@@ -189,9 +190,9 @@ func TestSetFollow(t *testing.T) {
 		}
 
 		_, err := env.svc.SetFollow(t.Context(), folder, true)
-		testenv.AssertAppError(t, err, http.StatusBadRequest, "这不是合集的季绑定")
+		testutil.AssertAppError(t, err, http.StatusBadRequest, "这不是合集的季绑定")
 		_, err = env.svc.SetFollow(t.Context(), 9, true)
-		testenv.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
+		testutil.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
 	})
 }
 
@@ -215,7 +216,7 @@ func TestDeleteSeasonBinding(t *testing.T) {
 		if err := env.svc.Delete(t.Context(), folder); err != nil {
 			t.Fatalf("Delete(folder): %v", err)
 		}
-		testenv.AssertStrings(t, "删掉文件夹的季绑定之后的绑定", env.bindings(), []string{"1 m -", "1 手动上传 -", "1 a 1", "2 b 1"})
+		testutil.AssertStrings(t, "删掉文件夹的季绑定之后的绑定", env.bindings(), []string{"1 m -", "1 手动上传 -", "1 a 1", "2 b 1"})
 		for _, table := range []string{"season_binding_entries", "season_binding_entry_files"} {
 			if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM `+table); n != 0 {
 				t.Errorf("%s 还有 %d 行", table, n)
@@ -225,7 +226,7 @@ func TestDeleteSeasonBinding(t *testing.T) {
 		if err := env.svc.Delete(t.Context(), collection); err != nil {
 			t.Fatalf("Delete(collection): %v", err)
 		}
-		testenv.AssertStrings(t, "删掉合集的季绑定之后的绑定", env.bindings(), []string{"1 m -", "1 手动上传 -"})
+		testutil.AssertStrings(t, "删掉合集的季绑定之后的绑定", env.bindings(), []string{"1 m -", "1 手动上传 -"})
 		for _, table := range []string{"season_bindings", "season_binding_items"} {
 			if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM `+table); n != 0 {
 				t.Errorf("%s 还有 %d 行", table, n)
@@ -234,7 +235,7 @@ func TestDeleteSeasonBinding(t *testing.T) {
 		if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM danmaku d JOIN bindings b ON b.id = d.binding_id`); n != testenv.QueryInt(t, pool, `SELECT count(*) FROM danmaku`) {
 			t.Error("留下了不属于任何绑定的弹幕")
 		}
-		testenv.AssertAppError(t, env.svc.Delete(t.Context(), collection), http.StatusNotFound, "季绑定不存在")
+		testutil.AssertAppError(t, env.svc.Delete(t.Context(), collection), http.StatusNotFound, "季绑定不存在")
 	})
 }
 
@@ -259,8 +260,8 @@ func TestDeleteSeasonBindingDuringBackfill(t *testing.T) {
 		src.Release <- struct{}{}
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), nil)
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), nil)
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b"})
 	})
 }
 
@@ -284,8 +285,8 @@ func TestDeleteSeasonBindingQueuesBehindDeleteSeason(t *testing.T) {
 		if err := <-deletedSeason; err != nil {
 			t.Fatalf("删季: %v", err)
 		}
-		testenv.AssertAppError(t, <-deletedBinding, http.StatusNotFound, "季绑定不存在")
-		testenv.AssertStrings(t, "绑定", env.bindings(), nil)
+		testutil.AssertAppError(t, <-deletedBinding, http.StatusNotFound, "季绑定不存在")
+		testutil.AssertStrings(t, "绑定", env.bindings(), nil)
 	})
 }
 
@@ -310,7 +311,7 @@ func TestDeleteSeasonBindingDuringDeleteSeason(t *testing.T) {
 		if err := <-deletedSeason; err != nil {
 			t.Fatalf("删季: %v", err)
 		}
-		testenv.AssertAppError(t, <-deletedBinding, http.StatusNotFound, "季绑定不存在")
-		testenv.AssertStrings(t, "绑定", env.bindings(), nil)
+		testutil.AssertAppError(t, <-deletedBinding, http.StatusNotFound, "季绑定不存在")
+		testutil.AssertStrings(t, "绑定", env.bindings(), nil)
 	})
 }

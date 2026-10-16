@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -46,10 +47,10 @@ func TestCreateFolder(t *testing.T) {
 		if d.Kind != "folder" || d.Title != "星海旅人" || d.EntryCount != 3 || d.BindingCount != 2 {
 			t.Errorf("CreateFolder() = %+v, want 标题为文件夹名、3 个条目、2 个绑定", d.View)
 		}
-		testenv.AssertStrings(t, "条目", states(d), []string{
+		testutil.AssertStrings(t, "条目", states(d), []string{
 			"星海旅人 / 01 keep 1", "星海旅人 / 02 keep 2", "星海旅人 / 花絮 unmatched - 不符合集号规则",
 		})
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 01 1", "2 02 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 01 1", "2 02 1"})
 		if n := testenv.QueryInt(t, pool, `SELECT danmaku_count FROM bindings WHERE title = '02'`); n != 3 {
 			t.Errorf("条目 02 的绑定有 %d 条弹幕, want 3（两份快照合并去重）", n)
 		}
@@ -96,18 +97,18 @@ func TestSaveFolder(t *testing.T) {
 		).ID
 		env.exec(`UPDATE bindings SET "offset" = 2.5`)
 		before := env.slots()
-		testenv.AssertStrings(t, "创建后的绑定", before, []string{"1 01 #1 2.5", "2 02 #2 2.5", "3 03 #3 2.5"})
+		testutil.AssertStrings(t, "创建后的绑定", before, []string{"1 01 #1 2.5", "2 02 #2 2.5", "3 03 #3 2.5"})
 
 		d := env.saveFolder(id, folderForm())
-		testenv.AssertStrings(t, "原样保存后的绑定", env.slots(), before)
-		testenv.AssertStrings(t, "条目", states(d), []string{"星海旅人 / 01 keep 1", "星海旅人 / 02 keep 2", "星海旅人 / 03 keep 3"})
+		testutil.AssertStrings(t, "原样保存后的绑定", env.slots(), before)
+		testutil.AssertStrings(t, "条目", states(d), []string{"星海旅人 / 01 keep 1", "星海旅人 / 02 keep 2", "星海旅人 / 03 keep 3"})
 
 		f := folderForm()
 		f.Mapping = source.Mapping{From: 1, To: 2}
 		d = env.saveFolder(id, f)
-		testenv.AssertStrings(t, "改了集号对应后的绑定", env.slots(), []string{"2 01 #4 0", "3 02 #5 0"})
-		testenv.AssertStrings(t, "条目", states(d), []string{"星海旅人 / 01 keep 2", "星海旅人 / 02 keep 3", "星海旅人 / 03 noEpisode 4"})
-		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), nil)
+		testutil.AssertStrings(t, "改了集号对应后的绑定", env.slots(), []string{"2 01 #4 0", "3 02 #5 0"})
+		testutil.AssertStrings(t, "条目", states(d), []string{"星海旅人 / 01 keep 2", "星海旅人 / 02 keep 3", "星海旅人 / 03 noEpisode 4"})
+		testutil.AssertStrings(t, "没有条目的槽位", emptySlots(d), nil)
 		if d.MappingTo != 2 {
 			t.Errorf("保存后的集号对应 = %d = %d", d.MappingFrom, d.MappingTo)
 		}
@@ -150,11 +151,11 @@ func TestChangeFolder(t *testing.T) {
 			t.Fatalf("PreviewFolderEdit: %v", err)
 		}
 		c := p.Candidates[0]
-		testenv.AssertStrings(t, "预览的条目", states(service.Detail{Items: c.Items}), []string{
+		testutil.AssertStrings(t, "预览的条目", states(service.Detail{Items: c.Items}), []string{
 			"星海旅人 BD / 01 keep 1", "星海旅人 BD / 02 replace 2 替换 02", "星海旅人 BD / 04 noEpisode 4",
 		})
-		testenv.AssertJSON(t, c.Removed, `[{"episodeNumber": 3, "bindingId": 3, "title": "03", "dead": false}]`)
-		testenv.AssertJSON(t, c.Summary, `{"create": 0, "replace": 1, "remove": 1, "keep": 1}`)
+		testutil.AssertJSON(t, c.Removed, `[{"episodeNumber": 3, "bindingId": 3, "title": "03", "dead": false}]`)
+		testutil.AssertJSON(t, c.Summary, `{"create": 0, "replace": 1, "remove": 1, "keep": 1}`)
 		if c.Title != "星海旅人 BD" || !c.Current || c.CollectionKind != nil {
 			t.Errorf("预览的一组 = %+v", c)
 		}
@@ -163,10 +164,10 @@ func TestChangeFolder(t *testing.T) {
 		if d.Title != "星海旅人 BD" || d.EntryCount != 3 {
 			t.Errorf("换文件夹后的季绑定 = %+v, want 标题为新的文件夹名、3 个条目", d.View)
 		}
-		testenv.AssertStrings(t, "条目", states(d), []string{
+		testutil.AssertStrings(t, "条目", states(d), []string{
 			"星海旅人 BD / 01 keep 1", "星海旅人 BD / 02 keep 2", "星海旅人 BD / 04 noEpisode 4",
 		})
-		testenv.AssertStrings(t, "绑定", env.slots(), []string{"1 01 #1 2.5", "2 02 #4 0"})
+		testutil.AssertStrings(t, "绑定", env.slots(), []string{"1 01 #1 2.5", "2 02 #4 0"})
 		if got := testenv.FileNames(t, env.bindingSvc, 4); len(got) != 1 {
 			t.Errorf("重建的绑定的文件 = %q", got)
 		}
@@ -190,11 +191,11 @@ func TestBackfillFolder(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Backfill: %v", err)
 		}
-		testenv.AssertStrings(t, "绑定", env.slots(), []string{"1 01 #1 2.5", "2 01 #4 0", "3 02 #5 0"})
-		testenv.AssertStrings(t, "条目", states(d), []string{
+		testutil.AssertStrings(t, "绑定", env.slots(), []string{"1 01 #1 2.5", "2 01 #4 0", "3 02 #5 0"})
+		testutil.AssertStrings(t, "条目", states(d), []string{
 			"星海旅人 / 01 keep 2", "星海旅人 / 02 keep 3", "星海旅人 / 03 noEpisode 4",
 		})
-		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 01"})
+		testutil.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 01"})
 	})
 }
 
@@ -207,13 +208,13 @@ func TestCreateFolderRejected(t *testing.T) {
 			testenv.Snapshot1("星海旅人/01.xml"),
 			{Name: "星海旅人/02/坏.xml", Data: []byte("<i><d")},
 		}, folderForm())
-		testenv.AssertAppError(t, err, http.StatusUnprocessableEntity,
+		testutil.AssertAppError(t, err, http.StatusUnprocessableEntity,
 			"无法识别「星海旅人/02/坏.xml」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
 
 		_, err = env.svc.CreateFolder(t.Context(), 1, []danmakufile.File{
 			testenv.Snapshot1("星海旅人/01.xml"), testenv.Snapshot1("星海旅人/01/a.xml"),
 		}, folderForm())
-		testenv.AssertAppError(t, err, http.StatusBadRequest, "条目名称重复：01")
+		testutil.AssertAppError(t, err, http.StatusBadRequest, "条目名称重复：01")
 
 		if n := testenv.QueryInt(t, pool, `SELECT (SELECT count(*) FROM season_bindings) + (SELECT count(*) FROM bindings)`); n != 0 {
 			t.Errorf("保存了 %d 个季绑定和绑定", n)

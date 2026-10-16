@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -27,14 +28,14 @@ func TestBackfillSkipsBoundSource(t *testing.T) {
 		env.bindManually(2, "b")
 		id := env.create().ID
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b -"})
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a"})
-		testenv.AssertStrings(t, "条目", states(env.get(id)), []string{"a keep 1", "b alreadyBound 2"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b -"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a"})
+		testutil.AssertStrings(t, "条目", states(env.get(id)), []string{"a keep 1", "b alreadyBound 2"})
 
 		env.exec(`DELETE FROM bindings WHERE season_binding_id IS NULL`)
-		testenv.AssertStrings(t, "删掉手动绑定之后的条目", states(env.get(id)), []string{"a keep 1", "b create 2"})
+		testutil.AssertStrings(t, "删掉手动绑定之后的条目", states(env.get(id)), []string{"a keep 1", "b create 2"})
 		env.backfill(id)
-		testenv.AssertStrings(t, "再补建之后的绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
+		testutil.AssertStrings(t, "再补建之后的绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
 	})
 }
 
@@ -51,8 +52,8 @@ func TestBackfillSourceBoundDuringFetch(t *testing.T) {
 		src.Release <- struct{}{}
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a -"})
-		testenv.AssertStrings(t, "条目", states(env.get(d.ID)), []string{"a alreadyBound 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a -"})
+		testutil.AssertStrings(t, "条目", states(env.get(d.ID)), []string{"a alreadyBound 1"})
 	})
 }
 
@@ -83,7 +84,7 @@ func TestBackfillSourceBoundClearsItemError(t *testing.T) {
 		synctest.Wait()
 
 		d := env.get(id)
-		testenv.AssertStrings(t, "条目", states(d), []string{"a alreadyBound 1"})
+		testutil.AssertStrings(t, "条目", states(d), []string{"a alreadyBound 1"})
 		if it := d.Items[0]; it.LastError != nil || it.LastErrorAt != nil {
 			t.Errorf("lastError = %v、lastErrorAt = %v, want 都清掉", it.LastError, it.LastErrorAt)
 		}
@@ -107,16 +108,16 @@ func TestBackfillSharedSource(t *testing.T) {
 		second := env.createAsync("list/t").ID
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1"})
-		testenv.AssertStrings(t, "后来的季绑定的条目", states(env.get(second)), []string{"a alreadyBound 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1"})
+		testutil.AssertStrings(t, "后来的季绑定的条目", states(env.get(second)), []string{"a alreadyBound 1"})
 
 		if err := env.svc.Delete(t.Context(), first); err != nil {
 			t.Fatal(err)
 		}
 		env.backfill(second)
 
-		testenv.AssertStrings(t, "删掉之后的绑定", env.bindings(), []string{"1 a 2"})
-		testenv.AssertStrings(t, "后来的季绑定的条目", states(env.get(second)), []string{"a keep 1"})
+		testutil.AssertStrings(t, "删掉之后的绑定", env.bindings(), []string{"1 a 2"})
+		testutil.AssertStrings(t, "后来的季绑定的条目", states(env.get(second)), []string{"a keep 1"})
 	})
 }
 
@@ -131,16 +132,16 @@ func TestBackfillRecreatedEpisode(t *testing.T) {
 		env := newSeasonEnv(t, pool, src, 1)
 		id := env.create().ID
 		env.exec(`DELETE FROM episodes WHERE id = 1`)
-		testenv.AssertStrings(t, "删掉集之后的条目", states(env.get(id)), []string{"a noEpisode 1"})
+		testutil.AssertStrings(t, "删掉集之后的条目", states(env.get(id)), []string{"a noEpisode 1"})
 		newID := env.addEpisode(1)
 
 		env.backfill(id)
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1"})
 		if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM bindings WHERE episode_id = $1`, newID); n != 1 {
 			t.Errorf("新的集上有 %d 个绑定，want 1", n)
 		}
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "a"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "a"})
 	})
 }
 
@@ -154,22 +155,22 @@ func TestBackfillNewItemsAndEpisodes(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2)
 		id := env.create().ID
-		testenv.AssertStrings(t, "第一轮的拉取", src.FetchedNames(), []string{"a", "b"})
+		testutil.AssertStrings(t, "第一轮的拉取", src.FetchedNames(), []string{"a", "b"})
 
 		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 1), entry("b", 2), entry("c", 3), entry("d", 4)}}
 		env.addEpisode(3)
 		env.backfill(id)
 
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b", "c"})
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
-		testenv.AssertStrings(t, "条目", states(env.get(id)), []string{"a keep 1", "b keep 2", "c keep 3", "d noEpisode 4"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b", "c"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
+		testutil.AssertStrings(t, "条目", states(env.get(id)), []string{"a keep 1", "b keep 2", "c keep 3", "d noEpisode 4"})
 
 		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("b", 2), entry("c", 3)}}
 		env.backfill(id)
 		d := env.get(id)
-		testenv.AssertStrings(t, "去掉条目之后", states(d), []string{"b keep 2", "c keep 3"})
-		testenv.AssertStrings(t, "去掉条目之后的绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
-		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 弹幕源 a"})
+		testutil.AssertStrings(t, "去掉条目之后", states(d), []string{"b keep 2", "c keep 3"})
+		testutil.AssertStrings(t, "去掉条目之后的绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
+		testutil.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 弹幕源 a"})
 	})
 }
 
@@ -190,12 +191,12 @@ func TestBackfillReplace(t *testing.T) {
 		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 1), entry("x", 2), entry("y", 3)}}
 		env.backfill(id)
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 x 1", "3 c 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 x 1", "3 c 1"})
 		if n := testenv.QueryInt(t, pool, `SELECT "offset" FROM bindings WHERE ref->>'name' = 'x'`); n != 0 {
 			t.Errorf("新绑定的偏移 = %d, want 0", n)
 		}
 		d := env.get(id)
-		testenv.AssertStrings(t, "条目", states(d), []string{"a keep 1", "x keep 2", "y replace 3 替换 弹幕源 c"})
+		testutil.AssertStrings(t, "条目", states(d), []string{"a keep 1", "x keep 2", "y replace 3 替换 弹幕源 c"})
 		if it := d.Items[2]; emptyIfNull(it.LastError) != "B 站接口异常" {
 			t.Errorf("替换失败的条目 lastError = %v", it.LastError)
 		}
@@ -222,8 +223,8 @@ func TestBackfillReplaceSourceBound(t *testing.T) {
 		src.Release <- struct{}{}
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "1 x -"})
-		testenv.AssertStrings(t, "条目", states(env.get(id)), []string{"x alreadyBound 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "1 x -"})
+		testutil.AssertStrings(t, "条目", states(env.get(id)), []string{"x alreadyBound 1"})
 	})
 }
 
@@ -242,16 +243,16 @@ func TestBackfillKeepsEmptySlots(t *testing.T) {
 		src.Collections["s"] = source.Collection{Items: []source.CollectionItem{entry("a", 2)}}
 		env.backfill(id)
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 a 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 a 1"})
 		d := env.get(id)
-		testenv.AssertStrings(t, "条目", states(d), []string{"a keep 2"})
-		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 弹幕源 a"})
+		testutil.AssertStrings(t, "条目", states(d), []string{"a keep 2"})
+		testutil.AssertStrings(t, "没有条目的槽位", emptySlots(d), []string{"1 弹幕源 a"})
 
 		if _, err := env.svc.SaveCollection(t.Context(), id, collectionForm("list/s")); err != nil {
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		testenv.AssertStrings(t, "保存之后的绑定", env.bindings(), []string{"2 a 1"})
+		testutil.AssertStrings(t, "保存之后的绑定", env.bindings(), []string{"2 a 1"})
 	})
 }
 
@@ -269,7 +270,7 @@ func TestBackfillItemError(t *testing.T) {
 		id := env.create().ID
 
 		d := env.get(id)
-		testenv.AssertStrings(t, "条目", states(d), []string{"a keep 1", "b create 2", "c keep 3"})
+		testutil.AssertStrings(t, "条目", states(d), []string{"a keep 1", "b create 2", "c keep 3"})
 		if it := d.Items[1]; emptyIfNull(it.LastError) != "B 站接口异常" || it.LastErrorAt == nil || !it.LastErrorAt.Equal(failedAt) {
 			t.Errorf("lastError = %v、lastErrorAt = %v, want B 站接口异常、%v", it.LastError, it.LastErrorAt, failedAt)
 		}
@@ -281,11 +282,11 @@ func TestBackfillItemError(t *testing.T) {
 		env.backfill(id)
 
 		d = env.get(id)
-		testenv.AssertStrings(t, "再补建一次之后的条目", states(d), []string{"a keep 1", "b keep 2", "c keep 3"})
+		testutil.AssertStrings(t, "再补建一次之后的条目", states(d), []string{"a keep 1", "b keep 2", "c keep 3"})
 		if d.Items[1].LastErrorAt != nil {
 			t.Error("成功之后 lastErrorAt 应清掉")
 		}
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b", "c", "b"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b", "c", "b"})
 	})
 }
 
@@ -302,16 +303,16 @@ func TestBackfillRateLimited(t *testing.T) {
 		start := time.Now()
 		id := env.create().ID
 
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b"})
 		d := env.get(id)
 		if emptyIfNull(d.LastError) != "B 站限流，请稍后再试" || d.LastCheckedAt == nil || !d.LastCheckedAt.Equal(start) {
 			t.Errorf("lastError = %v, lastCheckedAt = %v, want 限流的原因、这一轮的开始时间", d.LastError, d.LastCheckedAt)
 		}
-		testenv.AssertStrings(t, "条目", states(d), []string{"a keep 1", "b create 2", "c create 3"})
+		testutil.AssertStrings(t, "条目", states(d), []string{"a keep 1", "b create 2", "c create 3"})
 
 		delete(src.FetchErrs, "b")
 		env.backfill(id)
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
 		if d := env.get(id); d.LastError != nil {
 			t.Errorf("lastError = %q, want 成功后清掉", *d.LastError)
 		}
@@ -346,7 +347,7 @@ func TestBackfillCollectionGone(t *testing.T) {
 			if d.Status != step.wantStatus || emptyIfNull(d.LastError) != step.wantError {
 				t.Errorf("%s：状态 %s、错误 %q，want %s、%q", step.name, d.Status, emptyIfNull(d.LastError), step.wantStatus, step.wantError)
 			}
-			testenv.AssertStrings(t, step.name+"：绑定", env.bindings(), []string{"1 a 1"})
+			testutil.AssertStrings(t, step.name+"：绑定", env.bindings(), []string{"1 a 1"})
 		}
 	})
 }
@@ -377,7 +378,7 @@ func TestBackfillWriteDuringDeleteSeason(t *testing.T) {
 		if logs := env.logs.String(); strings.Contains(logs, "level=ERROR") {
 			t.Errorf("补建出错：\n%s", logs)
 		}
-		testenv.AssertStrings(t, "绑定", env.bindings(), nil)
+		testutil.AssertStrings(t, "绑定", env.bindings(), nil)
 	})
 }
 
@@ -392,7 +393,7 @@ func TestBackfillTwice(t *testing.T) {
 		<-src.Started
 
 		_, err := env.svc.Backfill(t.Context(), d.ID)
-		testenv.AssertAppError(t, err, http.StatusConflict, "正在补建")
+		testutil.AssertAppError(t, err, http.StatusConflict, "正在补建")
 		if got := env.get(d.ID); !got.Running {
 			t.Error("running = false, want 正在补建")
 		}
@@ -404,9 +405,9 @@ func TestBackfillTwice(t *testing.T) {
 		if got := env.get(d.ID); got.Running {
 			t.Error("补建结束后 running = true")
 		}
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a"})
 		_, err = env.svc.Backfill(t.Context(), 9)
-		testenv.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
+		testutil.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
 	})
 }
 
@@ -428,8 +429,8 @@ func TestBackfillEpisodeDeletedDuringFetch(t *testing.T) {
 		src.Release <- struct{}{}
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"2 b 1"})
-		testenv.AssertStrings(t, "条目", states(env.get(d.ID)), []string{"a noEpisode 1", "b keep 2"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"2 b 1"})
+		testutil.AssertStrings(t, "条目", states(env.get(d.ID)), []string{"a noEpisode 1", "b keep 2"})
 	})
 }
 
@@ -493,7 +494,7 @@ func TestFollowNewEpisode(t *testing.T) {
 				if follow {
 					want = append(want, "2 b 1")
 				}
-				testenv.AssertStrings(t, "绑定", env.bindings(), want)
+				testutil.AssertStrings(t, "绑定", env.bindings(), want)
 			})
 		})
 	}
@@ -522,7 +523,7 @@ func TestFollowRechecksDue(t *testing.T) {
 		if n := src.ListCount() - lists; n != 1 {
 			t.Errorf("第二个季绑定检查了 %d 次，want 只有手动补建的 1 次", n)
 		}
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1"})
 	})
 }
 
@@ -545,15 +546,15 @@ func TestFollowResumesAfterRestart(t *testing.T) {
 		if got := env.get(d.ID); got.LastCheckedAt != nil || got.Running {
 			t.Errorf("关闭后 lastCheckedAt = %v、running = %v，want 不写、不在补建", got.LastCheckedAt, got.Running)
 		}
-		testenv.AssertStrings(t, "关闭时的绑定", env.bindings(), []string{"1 a 1"})
+		testutil.AssertStrings(t, "关闭时的绑定", env.bindings(), []string{"1 a 1"})
 
 		src.Started = nil
 		env.start()
 		time.Sleep(testFollow.ScanInterval)
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "重启后的绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b", "b", "c"})
+		testutil.AssertStrings(t, "重启后的绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b", "b", "c"})
 	})
 }
 
@@ -586,8 +587,8 @@ func TestManualBackfillConcurrent(t *testing.T) {
 		src.Release <- struct{}{}
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 2"})
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 2"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "b"})
 	})
 }
 

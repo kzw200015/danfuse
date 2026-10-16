@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -30,8 +31,8 @@ func TestCreateCollection(t *testing.T) {
 
 		env.create()
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b -", "3 other -", "3 c 1"})
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "c"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b -", "3 other -", "3 c 1"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"a", "c"})
 	})
 }
 
@@ -66,7 +67,7 @@ func TestCreateCollectionFailed(t *testing.T) {
 				f.CollectionKind = tt.kind
 				_, err := env.svc.CreateCollection(t.Context(), tt.seasonID, f)
 
-				testenv.AssertAppError(t, err, tt.wantStatus, tt.wantMessage)
+				testutil.AssertAppError(t, err, tt.wantStatus, tt.wantMessage)
 				if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM season_bindings`); n != 0 {
 					t.Errorf("写入了 %d 个季绑定", n)
 				}
@@ -86,7 +87,7 @@ func TestCreateCollectionDuplicate(t *testing.T) {
 		lists := src.ListCount()
 
 		_, err := env.svc.CreateCollection(t.Context(), 1, collectionForm("alias-list/s"))
-		testenv.AssertAppError(t, err, http.StatusConflict, "这一季已经绑定过这个合集")
+		testutil.AssertAppError(t, err, http.StatusConflict, "这一季已经绑定过这个合集")
 		if n := src.ListCount(); n != lists {
 			t.Errorf("又列出了 %d 次合集，want 0：重复的不列出", n-lists)
 		}
@@ -109,7 +110,7 @@ func TestCreateCollectionDuplicate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		testenv.AssertStrings(t, "季绑定", got, want)
+		testutil.AssertStrings(t, "季绑定", got, want)
 	})
 }
 
@@ -130,7 +131,7 @@ func TestCreateCollectionSeasonDeleted(t *testing.T) {
 		env.exec(`DELETE FROM seasons WHERE id = 1`)
 		close(src.ListRelease)
 
-		testenv.AssertAppError(t, <-errc, http.StatusNotFound, "这一季已被删除")
+		testutil.AssertAppError(t, <-errc, http.StatusNotFound, "这一季已被删除")
 		if n := testenv.QueryInt(t, pool, `SELECT count(*) FROM season_bindings`); n != 0 {
 			t.Errorf("写入了 %d 个季绑定", n)
 		}
@@ -166,7 +167,7 @@ func TestPreviewNewCollection(t *testing.T) {
 			if *c.CollectionKind != want.kind || *c.SourceLabel != want.label || c.Title != "某番剧" || !c.Finished || c.Current {
 				t.Errorf("候选 %d = %s %s %q finished=%v current=%v", i, *c.CollectionKind, *c.SourceLabel, c.Title, c.Finished, c.Current)
 			}
-			testenv.AssertStrings(t, "条目", candidateStates(c), []string{
+			testutil.AssertStrings(t, "条目", candidateStates(c), []string{
 				"z beforeStart -", "a create 1", "b alreadyBound 2", "sp unmatched - 集号「SP」不是整数", "e noEpisode 5",
 			})
 			if want := (service.Summary{Create: 1}); c.Summary != want {
@@ -178,7 +179,7 @@ func TestPreviewNewCollection(t *testing.T) {
 		}
 
 		_, err = env.svc.PreviewNewCollection(t.Context(), 9, collectionForm("list/s"))
-		testenv.AssertAppError(t, err, http.StatusNotFound, "季不存在")
+		testutil.AssertAppError(t, err, http.StatusNotFound, "季不存在")
 	})
 }
 
@@ -210,17 +211,17 @@ func TestPreviewCollectionEdit(t *testing.T) {
 			t.Fatalf("候选 = %+v，want 第二个（list）是保存的", p.Candidates)
 		}
 		c := p.Candidates[1]
-		testenv.AssertStrings(t, "条目", candidateStates(c), []string{"a keep 1", "x replace 2 替换 弹幕源 b"})
-		testenv.AssertStrings(t, "保存后删除", removedSlots(c), []string{"3 弹幕源 c"})
+		testutil.AssertStrings(t, "条目", candidateStates(c), []string{"a keep 1", "x replace 2 替换 弹幕源 b"})
+		testutil.AssertStrings(t, "保存后删除", removedSlots(c), []string{"3 弹幕源 c"})
 		if want := (service.Summary{Replace: 1, Remove: 1, Keep: 1}); c.Summary != want {
 			t.Errorf("汇总 = %+v, want %+v", c.Summary, want)
 		}
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})
 
 		_, err = env.svc.PreviewCollectionEdit(t.Context(), 99, collectionForm("list/s"))
-		testenv.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
+		testutil.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
 		_, err = env.svc.PreviewCollectionEdit(t.Context(), folder, collectionForm("list/s"))
-		testenv.AssertAppError(t, err, http.StatusBadRequest, "这不是合集的季绑定")
+		testutil.AssertAppError(t, err, http.StatusBadRequest, "这不是合集的季绑定")
 	})
 }
 
@@ -259,7 +260,7 @@ func TestSaveCollection(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		testenv.AssertStrings(t, "预览里保存后删除的", removedSlots(p.Candidates[0]), nil)
+		testutil.AssertStrings(t, "预览里保存后删除的", removedSlots(p.Candidates[0]), nil)
 
 		// 预览之后合集又变了：保存以这次列出的为准
 		src.Collections["s"] = source.Collection{Title: "某番剧（新）", Items: []source.CollectionItem{entry("a", 1), entry("x", 2)}}
@@ -272,14 +273,14 @@ func TestSaveCollection(t *testing.T) {
 		if d.Title != "某番剧（新）" {
 			t.Errorf("title = %q", d.Title)
 		}
-		testenv.AssertStrings(t, "保存之后、补建之前的绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
-		testenv.AssertStrings(t, "保存返回的条目", states(d), []string{"a keep 1", "x replace 2 替换 弹幕源 b"})
-		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(d), nil)
+		testutil.AssertStrings(t, "保存之后、补建之前的绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
+		testutil.AssertStrings(t, "保存返回的条目", states(d), []string{"a keep 1", "x replace 2 替换 弹幕源 b"})
+		testutil.AssertStrings(t, "没有条目的槽位", emptySlots(d), nil)
 		<-src.Started
 		src.Release <- struct{}{}
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "补建之后的绑定", env.bindings(), []string{"1 a 1", "2 x 1"})
+		testutil.AssertStrings(t, "补建之后的绑定", env.bindings(), []string{"1 a 1", "2 x 1"})
 		if got := env.bindingIDs(id); got[0] != before[0] {
 			t.Errorf("保留的绑定 = %s, want %s：不动", got[0], before[0])
 		}
@@ -320,8 +321,8 @@ func TestSaveCollectionSwitch(t *testing.T) {
 			d.MappingFrom != 1 || d.MappingTo != 2 || len(d.EpisodePatterns) != 1 {
 			t.Errorf("保存之后 = %+v %+v", d.View, d.CollectionView)
 		}
-		testenv.AssertStrings(t, "条目", states(d), []string{"b keep 2", "y create 3"})
-		testenv.AssertStrings(t, "保存之后的绑定", env.bindings(), []string{"2 b 1"})
+		testutil.AssertStrings(t, "条目", states(d), []string{"b keep 2", "y create 3"})
+		testutil.AssertStrings(t, "保存之后的绑定", env.bindings(), []string{"2 b 1"})
 		if got := env.bindingIDs(id); got[0] != before[1] {
 			t.Errorf("弹幕源相同的槽位 = %s, want %s", got[0], before[1])
 		}
@@ -329,7 +330,7 @@ func TestSaveCollectionSwitch(t *testing.T) {
 		src.Release <- struct{}{}
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "补建之后的绑定", env.bindings(), []string{"2 b 1", "3 y 1"})
+		testutil.AssertStrings(t, "补建之后的绑定", env.bindings(), []string{"2 b 1", "3 y 1"})
 		if d := env.get(id); d.LastCheckedAt == nil {
 			t.Error("补建之后应写上次检查时间")
 		}
@@ -356,13 +357,13 @@ func TestSaveCollectionFailed(t *testing.T) {
 		tID := env.createAsync("list/t").ID
 		<-src.Started
 		_, err := env.svc.SaveCollection(t.Context(), tID, collectionForm("list/s"))
-		testenv.AssertAppError(t, err, http.StatusConflict, "正在补建或保存，稍后再试")
+		testutil.AssertAppError(t, err, http.StatusConflict, "正在补建或保存，稍后再试")
 		src.Release <- struct{}{}
 		synctest.Wait()
 		src.Started = nil
 
 		_, err = env.svc.SaveCollection(t.Context(), tID, collectionForm("alias-list/s"))
-		testenv.AssertAppError(t, err, http.StatusConflict, "这一季已经绑定过这个合集")
+		testutil.AssertAppError(t, err, http.StatusConflict, "这一季已经绑定过这个合集")
 		if d := env.get(tID); d.Link != "list/t" {
 			t.Errorf("link = %q, want 不变", d.Link)
 		}
@@ -372,9 +373,9 @@ func TestSaveCollectionFailed(t *testing.T) {
 		synctest.Wait()
 
 		_, err = env.svc.SaveCollection(t.Context(), 99, collectionForm("list/s"))
-		testenv.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
+		testutil.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
 		_, err = env.svc.SaveCollection(t.Context(), folder, collectionForm("list/s"))
-		testenv.AssertAppError(t, err, http.StatusBadRequest, "这不是合集的季绑定")
+		testutil.AssertAppError(t, err, http.StatusBadRequest, "这不是合集的季绑定")
 	})
 }
 
@@ -394,7 +395,7 @@ func TestSetFollowKeepsBindings(t *testing.T) {
 		env.setFollow(id, true)
 		synctest.Wait()
 
-		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
-		testenv.AssertStrings(t, "没有条目的槽位", emptySlots(env.get(id)), []string{"2 弹幕源 b"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1"})
+		testutil.AssertStrings(t, "没有条目的槽位", emptySlots(env.get(id)), []string{"2 弹幕源 b"})
 	})
 }

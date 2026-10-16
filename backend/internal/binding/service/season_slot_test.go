@@ -12,6 +12,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -76,7 +77,7 @@ func TestLinkSlot(t *testing.T) {
 		t.Errorf("有 %d 个绑定，want 2", n)
 	}
 
-	testenv.AssertAppError(t, svc.Delete(t.Context(), b.ID), http.StatusConflict,
+	testutil.AssertAppError(t, svc.Delete(t.Context(), b.ID), http.StatusConflict,
 		"这个绑定由季绑定「合集 s」建出，不能单独删除或追加文件；要改，去季面板编辑季绑定")
 	if _, err := svc.UpdateOffset(t.Context(), b.ID, 2); err != nil {
 		t.Errorf("UpdateOffset: %v", err)
@@ -153,9 +154,9 @@ func TestFileSlot(t *testing.T) {
 	}
 
 	const message = "这个绑定由季绑定「星海旅人」建出，不能单独删除或追加文件；要改，去季面板编辑季绑定"
-	testenv.AssertAppError(t, svc.Delete(t.Context(), v.ID), http.StatusConflict, message)
+	testutil.AssertAppError(t, svc.Delete(t.Context(), v.ID), http.StatusConflict, message)
 	_, err = svc.AppendFiles(t.Context(), v.ID, []danmakufile.File{snapshot1})
-	testenv.AssertAppError(t, err, http.StatusConflict, message)
+	testutil.AssertAppError(t, err, http.StatusConflict, message)
 
 	slot.EpisodeID = 9
 	err = testenv.InTx(t, pool, func(tx pgx.Tx) error { return svc.CreateFileSlotInTx(t.Context(), tx, slot) })

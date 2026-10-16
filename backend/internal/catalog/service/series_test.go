@@ -13,6 +13,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -131,7 +132,7 @@ func TestDeleteCatalog(t *testing.T) {
 				if got := readImages(t, pool); !slices.Equal(got, tt.wantImages) {
 					t.Errorf("图片 = %q, want %q", got, tt.wantImages)
 				}
-				testenv.AssertAppError(t, tt.del(svc, t.Context(), tt.id), http.StatusNotFound, tt.wantMessage)
+				testutil.AssertAppError(t, tt.del(svc, t.Context(), tt.id), http.StatusNotFound, tt.wantMessage)
 			})
 		})
 	}

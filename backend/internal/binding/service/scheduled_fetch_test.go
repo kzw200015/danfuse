@@ -11,6 +11,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -66,11 +67,11 @@ func TestScheduledFetch(t *testing.T) {
 		if _, _, err := env.bindings.Refetch(t.Context(), b, false); err != nil {
 			t.Fatalf("Refetch: %v", err)
 		}
-		testenv.AssertStrings(t, "6 小时后的拉取", src.FetchedNames(), []string{"b"})
+		testutil.AssertStrings(t, "6 小时后的拉取", src.FetchedNames(), []string{"b"})
 
 		time.Sleep(testScheduledFetch.Interval / 2)
 		synctest.Wait()
-		testenv.AssertStrings(t, "12 小时后的拉取", src.FetchedNames(), []string{"b", "a"})
+		testutil.AssertStrings(t, "12 小时后的拉取", src.FetchedNames(), []string{"b", "a"})
 		got := getBinding(t, pool, a)
 		if want := start.Add(testScheduledFetch.Interval); !got.LastFetchedAt.Equal(want) || !got.FetchAttemptedAt.Equal(want) {
 			t.Errorf("上次拉取 %v、尝试拉取 %v，want 都是 %v", got.LastFetchedAt, got.FetchAttemptedAt, want)
@@ -81,11 +82,11 @@ func TestScheduledFetch(t *testing.T) {
 
 		time.Sleep(testScheduledFetch.Interval / 2)
 		synctest.Wait()
-		testenv.AssertStrings(t, "18 小时后的拉取", src.FetchedNames(), []string{"b", "a", "b"})
+		testutil.AssertStrings(t, "18 小时后的拉取", src.FetchedNames(), []string{"b", "a", "b"})
 
 		time.Sleep(testScheduledFetch.Interval / 2)
 		synctest.Wait()
-		testenv.AssertStrings(t, "24 小时后的拉取", src.FetchedNames(), []string{"b", "a", "b", "a"})
+		testutil.AssertStrings(t, "24 小时后的拉取", src.FetchedNames(), []string{"b", "a", "b", "a"})
 	})
 }
 
@@ -108,7 +109,7 @@ func TestScheduledFetchWindow(t *testing.T) {
 
 		time.Sleep(service.ScheduledFetchScanInterval)
 		synctest.Wait()
-		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"b", "d"})
+		testutil.AssertStrings(t, "拉取", src.FetchedNames(), []string{"b", "d"})
 		if b := getBinding(t, pool, d); b.Status != "dead" {
 			t.Errorf("d 的状态 = %s, want dead", b.Status)
 		}
@@ -135,18 +136,18 @@ func TestScheduledFetchFailed(t *testing.T) {
 
 		time.Sleep(service.ScheduledFetchScanInterval)
 		synctest.Wait()
-		testenv.AssertStrings(t, "第一轮", src.FetchedNames(), []string{"a", "b"})
+		testutil.AssertStrings(t, "第一轮", src.FetchedNames(), []string{"a", "b"})
 		if want := `level=WARN msg="scheduled fetch finished"`; !strings.Contains(env.logs.String(), want) {
 			t.Errorf("日志 = %s\nwant 含 %s", env.logs.String(), want)
 		}
 
 		time.Sleep(service.ScheduledFetchScanInterval)
 		synctest.Wait()
-		testenv.AssertStrings(t, "第二轮", src.FetchedNames(), []string{"a", "b", "c"})
+		testutil.AssertStrings(t, "第二轮", src.FetchedNames(), []string{"a", "b", "c"})
 
 		src.FetchErrs = nil
 		time.Sleep(testScheduledFetch.Interval)
 		synctest.Wait()
-		testenv.AssertStrings(t, "12 小时后", src.FetchedNames(), []string{"a", "b", "c", "a", "b", "c"})
+		testutil.AssertStrings(t, "12 小时后", src.FetchedNames(), []string{"a", "b", "c", "a", "b", "c"})
 	})
 }

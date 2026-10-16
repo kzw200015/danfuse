@@ -10,7 +10,7 @@ import (
 	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/testenv"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 )
 
 // TestBlockedWords 屏蔽词的增删查：响应结构、状态码与参数校验。判断重复、生效的规则见 blockword 与 danmaku 包的测试。
@@ -21,12 +21,12 @@ func TestBlockedWords(t *testing.T) {
 	}))
 
 	_, _, data := call(t, srv, http.MethodGet, "/api/blocked-words", "", http.StatusOK)
-	testenv.AssertJSON(t, data, `[]`)
+	testutil.AssertJSON(t, data, `[]`)
 
 	_, _, data = call(t, srv, http.MethodPost, "/api/blocked-words", `{"kind": "keyword", "pattern": " 剧透 "}`, http.StatusCreated)
 	obj := decodeObject(t, data)
 	popTime(t, obj, "createdAt")
-	testenv.AssertJSON(t, obj, `{"id": 1, "kind": "keyword", "pattern": "剧透"}`)
+	testutil.AssertJSON(t, obj, `{"id": 1, "kind": "keyword", "pattern": "剧透"}`)
 	call(t, srv, http.MethodPost, "/api/blocked-words", `{"kind": "regex", "pattern": "^\\d+$"}`, http.StatusCreated)
 
 	_, _, data = call(t, srv, http.MethodGet, "/api/blocked-words", "", http.StatusOK)
@@ -37,13 +37,13 @@ func TestBlockedWords(t *testing.T) {
 	for _, w := range words {
 		popTime(t, w, "createdAt")
 	}
-	testenv.AssertJSON(t, words, `[
+	testutil.AssertJSON(t, words, `[
 		{"id": 2, "kind": "regex", "pattern": "^\\d+$"},
 		{"id": 1, "kind": "keyword", "pattern": "剧透"}
 	]`)
 
 	_, _, data = call(t, srv, http.MethodDelete, "/api/blocked-words/1", "", http.StatusOK)
-	testenv.AssertJSON(t, data, `null`)
+	testutil.AssertJSON(t, data, `null`)
 
 	assertAPIErrors(t, srv, []apiError{
 		{http.MethodPost, "/api/blocked-words", `{"kind": "regex", "pattern": "^\\d+$"}`, http.StatusConflict, "已有相同的屏蔽词"},
