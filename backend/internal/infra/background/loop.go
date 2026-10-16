@@ -8,14 +8,13 @@ package background
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
-
-	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 )
 
-// ErrStopped 循环已经返回、服务正在关闭时，Call 返回它（503）。
-var ErrStopped = apierr.ErrServiceUnavailable.WithMessage("服务正在关闭")
+// ErrStopped 循环已经返回、服务正在关闭时，Call 返回它；给用户看的错误（例如 503）由调用方转换。
+var ErrStopped = errors.New("background loop stopped")
 
 type Loop struct {
 	calls   chan call

@@ -43,9 +43,13 @@ func (s *Service) Run(ctx context.Context) {
 }
 
 // trigger 请 Run 的循环立即在后台补建一次。正在补建时返回 errBackfillRunning；
-// Run 已经返回（服务正在关闭）时返回 background.ErrStopped（503）。
+// Run 已经返回（服务正在关闭）时返回 errShuttingDown（503），它包着 background.ErrStopped。
 func (s *Service) trigger(ctx context.Context, id int64) error {
-	return s.loop.Call(ctx, func(ctx context.Context) error { return s.start(ctx, id) })
+	err := s.loop.Call(ctx, func(ctx context.Context) error { return s.start(ctx, id) })
+	if errors.Is(err, background.ErrStopped) {
+		return errShuttingDown.Wrap(err)
+	}
+	return err
 }
 
 // startBackfill 创建、保存、打开追更之后随即在后台补建一次：正在补建时不另起一轮；服务正在关闭时不补建，

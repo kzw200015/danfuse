@@ -40,6 +40,7 @@ var (
 	errSyncRunning     = apierr.ErrConflict.WithMessage("同步正在进行")
 	errNoCatalogSource = apierr.ErrConflict.WithMessage("未配置目录源")
 	errSyncRunNotFound = apierr.ErrNotFound.WithMessage("同步记录不存在")
+	errShuttingDown    = apierr.ErrServiceUnavailable.WithMessage("服务正在关闭")
 )
 
 // internalErrorMessage 同步遇到服务器内部错误时存在同步记录上给管理界面看的原因，完整的错误进日志。
@@ -119,7 +120,7 @@ func (s *SyncService) untilDue(ctx context.Context) time.Duration {
 
 // Trigger 手动触发一次同步，同步开始后立即返回它的 ID，同步在后台进行。
 // 未配置目录源返回 errNoCatalogSource；已有同步在跑（包括其他实例）返回 errSyncRunning；
-// Run 已经返回（服务正在关闭）时返回 background.ErrStopped（503），不拖住优雅关闭。
+// Run 已经返回（服务正在关闭）时返回 errShuttingDown（503），不拖住优雅关闭。
 func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 	if s.catalogSource == nil {
 		return 0, errNoCatalogSource
@@ -133,6 +134,9 @@ func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 		runID, err = s.start(lease, triggerManual)
 		return err
 	})
+	if errors.Is(err, background.ErrStopped) {
+		return 0, errShuttingDown.Wrap(err)
+	}
 	return runID, err
 }
 

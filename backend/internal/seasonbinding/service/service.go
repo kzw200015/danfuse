@@ -25,6 +25,7 @@ var (
 	errSeasonBindingNotFound = apierr.ErrNotFound.WithMessage("季绑定不存在")
 	errBackfillRunning       = apierr.ErrConflict.WithMessage("正在补建")
 	errNotCollection         = apierr.ErrBadRequest.WithMessage("这不是合集的季绑定")
+	errShuttingDown          = apierr.ErrServiceUnavailable.WithMessage("服务正在关闭")
 )
 
 // 季绑定的种类（season_bindings.kind）。
