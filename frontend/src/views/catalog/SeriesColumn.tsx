@@ -46,12 +46,13 @@ export default function SeriesColumn({
           {series.originalTitle && (
             <div className="truncate text-xs text-muted-foreground">{series.originalTitle}</div>
           )}
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <span>{seriesMeta(series)}</span>
-            {links.map(({ href, label }) => (
+          <div className="text-xs text-muted-foreground">{seriesMeta(series)}</div>
+          {/* 外链单独一行；中栏窄，放不下时整个外链换到下一行，不在单词中间断开 */}
+          <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+            {links.map(({ href, label }, i) => (
               <Fragment key={label}>
-                <span>·</span>
-                <SourceLink href={href} className="font-normal">
+                {i > 0 && <span>·</span>}
+                <SourceLink href={href} className="font-normal break-normal whitespace-nowrap">
                   {label}
                 </SourceLink>
               </Fragment>
