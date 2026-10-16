@@ -1,4 +1,4 @@
-package dandan
+package handler
 
 import (
 	"log/slog"
@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/kzw200015/danfuse/backend/internal/dandan/service"
 )
 
 // searchEpisodesResponse 官方 Swagger 的 SearchEpisodesResponse。
@@ -53,7 +55,7 @@ func (h *Handler) SearchEpisodes(c *echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	result, err := h.svc.Search(c.Request().Context(), SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons, Episode: episode})
+	result, err := h.svc.Search(c.Request().Context(), service.SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons, Episode: episode})
 	if err != nil {
 		return serverError(c, err, searchEpisodesResponse{responseBase: failed, Animes: []anime{}})
 	}
@@ -99,7 +101,7 @@ func (h *Handler) SearchAnime(c *echo.Context) error {
 		return c.JSON(http.StatusOK, resp)
 	}
 
-	result, err := h.svc.Search(c.Request().Context(), SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons})
+	result, err := h.svc.Search(c.Request().Context(), service.SearchQuery{Keyword: keyword, MaxSeasons: maxSeasons})
 	if err != nil {
 		return serverError(c, err, searchAnimeResponse{responseBase: failed, Animes: []searchAnime{}})
 	}
@@ -135,7 +137,7 @@ func searchKeyword(query url.Values, name string) (keyword string, ok bool) {
 
 // toAnime 一季转成 search/episodes 里的作品。集按 service 给的顺序（集号升序）输出，不补占位：
 // 插件按"集号 − 首集标题里的 N"作为下标取集，目录中间缺集时会错位。
-func toAnime(s Season) anime {
+func toAnime(s service.Season) anime {
 	typ, description := typeOf(s)
 	a := anime{
 		AnimeID:         s.ID,
@@ -151,7 +153,7 @@ func toAnime(s Season) anime {
 }
 
 // toSearchAnime 一季转成 search/anime 里的作品：不带集，只给总集数。bangumiId 是同一个 ID 的字符串。
-func toSearchAnime(s Season) searchAnime {
+func toSearchAnime(s service.Season) searchAnime {
 	typ, description := typeOf(s)
 	return searchAnime{
 		AnimeID:         s.ID,

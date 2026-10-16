@@ -1,4 +1,4 @@
-package dandan
+package handler
 
 import (
 	"log/slog"
@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/kzw200015/danfuse/backend/internal/dandan/service"
 )
 
 // bangumiResponse 官方的 BangumiDetailsResponse：作品不存在时 bangumi 为 null。
@@ -84,7 +86,7 @@ func (h *Handler) Bangumi(c *echo.Context) error {
 
 // toBangumi 一季转成作品详情。集的顺序和标题与 search/episodes 相同，episodeNumber 是集号；
 // 目录里没有的信息输出零值（见 bangumiDetails）。
-func toBangumi(s Season) *bangumiDetails {
+func toBangumi(s service.Season) *bangumiDetails {
 	typ, description := typeOf(s)
 	b := &bangumiDetails{
 		AnimeID:         s.ID,

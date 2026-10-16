@@ -26,7 +26,7 @@ import (
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/dandan"
+	dandansvc "github.com/kzw200015/danfuse/backend/internal/dandan/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
@@ -41,7 +41,7 @@ type Env struct {
 	SeasonBindings *seasonbindingsvc.Service // 追更的时间规则取配置项的默认值
 	Catalog        *catalog.Service
 	BlockedWords   *blockwordsvc.Service
-	Dandan         *dandan.Service
+	Dandan         *dandansvc.Service
 }
 
 // New 在 pool 上组装各领域的 service，源适配器只注册 adapters；目录源是空的 FakeCatalog，只用来生成剧详情里的链接。
@@ -55,7 +55,7 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *E
 		SeasonBindings: seasonBindings,
 		Catalog:        catalog.NewService(pool, &FakeCatalog{}, bindings, seasonBindings),
 		BlockedWords:   blockedWords,
-		Dandan:         dandan.NewService(pool, bindings, blockedWords),
+		Dandan:         dandansvc.NewService(pool, bindings, blockedWords),
 	}
 }
 

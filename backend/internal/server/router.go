@@ -10,7 +10,7 @@ import (
 	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
 	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/dandan"
+	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
@@ -26,7 +26,7 @@ type Handlers struct {
 	Binding       *bindinghandler.Handler
 	SeasonBinding *seasonbindinghandler.Handler
 	BlockedWord   *blockwordhandler.Handler
-	Dandan        *dandan.Handler
+	Dandan        *dandanhandler.Handler
 }
 
 func registerRoutes(e *echo.Echo, h *Handlers) {
@@ -81,7 +81,7 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 // CORS（浏览器里的客户端跨域请求，例如插件从 Jellyfin 的源请求）与 Gzip 只作用于这个前缀，管理 API 不加。
 // 配置了 token 时前缀注册为 /dandanplay/:token/api/v2，由组中间件比较 token：5xx 日志记录的是注册时的路由模式，
 // token 因此不会出现在日志里。只注册从搜索到取弹幕的接口，其余（match/batch、extcomment、search/tmdb 等）返回 404。
-func registerDandanRoutes(e *echo.Echo, cfg config.Dandanplay, h *dandan.Handler) {
+func registerDandanRoutes(e *echo.Echo, cfg config.Dandanplay, h *dandanhandler.Handler) {
 	prefix := "/dandanplay/api/v2"
 	var middlewares []echo.MiddlewareFunc
 	if cfg.Token != "" {

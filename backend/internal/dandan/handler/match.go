@@ -1,4 +1,4 @@
-package dandan
+package handler
 
 import (
 	"encoding/json"
@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/kzw200015/danfuse/backend/internal/dandan/service"
 )
 
 // matchRequest 官方 MatchRequest 里用到的字段。fileHash、fileSize、videoDuration 不用：目录里没有文件的 hash，只按文件名识别。
@@ -76,7 +78,7 @@ func (h *Handler) Match(c *echo.Context) error {
 }
 
 // toMatchResult 一季里的一集转成 match 的候选：作品的名称、类型与搜索结果相同，集标题与 search/episodes 相同。
-func toMatchResult(s Season, e Episode) matchResult {
+func toMatchResult(s service.Season, e service.Episode) matchResult {
 	typ, description := typeOf(s)
 	return matchResult{
 		EpisodeID:       e.ID,

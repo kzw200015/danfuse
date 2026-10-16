@@ -15,7 +15,8 @@ import (
 	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
-	"github.com/kzw200015/danfuse/backend/internal/dandan"
+	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
+	dandansvc "github.com/kzw200015/danfuse/backend/internal/dandan/service"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
@@ -53,7 +54,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	catalogs := catalog.NewService(pool, catalogSource, bindings, seasonBindings)
 	syncs := catalog.NewSyncService(pool, catalogSource, cfg.Sync, logger)
 	blockedWords := blockwordsvc.NewService(pool)
-	dandans := dandan.NewService(pool, bindings, blockedWords)
+	dandans := dandansvc.NewService(pool, bindings, blockedWords)
 
 	handlers := &server.Handlers{
 		Health:        healthhandler.NewHandler(healthsvc.NewService(pool)),
@@ -63,7 +64,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Binding:       bindinghandler.NewHandler(bindings, cfg.DanmakuFile),
 		SeasonBinding: seasonbindinghandler.NewHandler(seasonBindings, cfg.DanmakuFile),
 		BlockedWord:   blockwordhandler.NewHandler(blockedWords),
-		Dandan:        dandan.NewHandler(dandans),
+		Dandan:        dandanhandler.NewHandler(dandans),
 	}
 	return &App{
 		server:     server.New(cfg.Server, cfg.Dandanplay, logger, handlers),

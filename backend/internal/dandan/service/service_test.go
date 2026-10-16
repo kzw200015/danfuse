@@ -1,4 +1,4 @@
-package dandan_test
+package service_test
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/dandan"
+	"github.com/kzw200015/danfuse/backend/internal/dandan/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -44,7 +44,7 @@ func searchCatalog() []catalog.Item {
 }
 
 // describe 把一季写成一行，便于整体比较："名称 · 类别 年份 · 共 N 集 · 集号 集标题, …"，N 是总集数。
-func describe(s dandan.Season) string {
+func describe(s service.Season) string {
 	kinds := map[naming.SeasonKind]string{naming.KindSeries: "剧集", naming.KindSpecial: "特别篇", naming.KindMovie: "电影"}
 	year := "-"
 	if s.Year != nil {
@@ -57,7 +57,7 @@ func describe(s dandan.Season) string {
 	return fmt.Sprintf("%s · %s %s · 共 %d 集 · %s", s.Name, kinds[s.Kind], year, s.EpisodeCount, strings.Join(episodes, ", "))
 }
 
-func searchSeasons(t *testing.T, pool *pgxpool.Pool, q dandan.SearchQuery) (seasons []string, hasMore bool) {
+func searchSeasons(t *testing.T, pool *pgxpool.Pool, q service.SearchQuery) (seasons []string, hasMore bool) {
 	t.Helper()
 	result, err := testenv.New(pool, testenv.Logger(t)).Dandan.Search(t.Context(), q)
 	if err != nil {
@@ -114,7 +114,7 @@ func TestSearch(t *testing.T) {
 			{"切不出词", "・！", nil},
 		}
 		for _, tt := range tests {
-			got, hasMore := searchSeasons(t, pool, dandan.SearchQuery{Keyword: tt.keyword, MaxSeasons: 50})
+			got, hasMore := searchSeasons(t, pool, service.SearchQuery{Keyword: tt.keyword, MaxSeasons: 50})
 			if !slices.Equal(got, tt.want) || hasMore {
 				t.Errorf("%s：Search(%q) = %q, hasMore %v\nwant %q", tt.name, tt.keyword, got, hasMore, tt.want)
 			}
@@ -139,7 +139,7 @@ func TestSearchHasMore(t *testing.T) {
 			{50, 50, true},
 			{51, 51, false},
 		} {
-			got, hasMore := searchSeasons(t, pool, dandan.SearchQuery{Keyword: "长篇连载", MaxSeasons: tt.maxSeasons})
+			got, hasMore := searchSeasons(t, pool, service.SearchQuery{Keyword: "长篇连载", MaxSeasons: tt.maxSeasons})
 			if len(got) != tt.wantLen || hasMore != tt.wantHasMore {
 				t.Errorf("最多 %d 季：返回 %d 季，hasMore %v；want %d 季，hasMore %v", tt.maxSeasons, len(got), hasMore, tt.wantLen, tt.wantHasMore)
 			}
@@ -168,28 +168,28 @@ func TestSearchSeasonEpisode(t *testing.T) {
 		episode13 := []string{"星海旅人 第2季 · 剧集 2019 · 共 2 集 · 13 启程"}
 		tests := []struct {
 			name    string
-			q       dandan.SearchQuery
+			q       service.SearchQuery
 			want    []string
 			hasMore bool
 		}{
-			{"集号参数", dandan.SearchQuery{Keyword: "星海旅人", Episode: new(1)}, episodeOne, false},
-			{"截断之前过滤", dandan.SearchQuery{Keyword: "星海旅人", Episode: new(13), MaxSeasons: 1}, episode13, false},
-			{"截断之后还有", dandan.SearchQuery{Keyword: "星海旅人", Episode: new(1), MaxSeasons: 2}, episodeOne[:2], true},
-			{"没有这一集", dandan.SearchQuery{Keyword: "星海旅人", Episode: new(99)}, nil, false},
-			{"关键词里的集号", dandan.SearchQuery{Keyword: "星海旅人 第13话"}, episode13, false},
-			{"集号参数优先", dandan.SearchQuery{Keyword: "星海旅人 第13话", Episode: new(1)}, episodeOne, false},
-			{"关键词里的季号", dandan.SearchQuery{Keyword: "星海旅人 第2季"}, []string{secondSeason}, false},
-			{"关键词里的季号和集号", dandan.SearchQuery{Keyword: "星海旅人 S02E13"}, episode13, false},
-			{"这一季没有这一集", dandan.SearchQuery{Keyword: "星海旅人 第2季 第1话"}, nil, false},
+			{"集号参数", service.SearchQuery{Keyword: "星海旅人", Episode: new(1)}, episodeOne, false},
+			{"截断之前过滤", service.SearchQuery{Keyword: "星海旅人", Episode: new(13), MaxSeasons: 1}, episode13, false},
+			{"截断之后还有", service.SearchQuery{Keyword: "星海旅人", Episode: new(1), MaxSeasons: 2}, episodeOne[:2], true},
+			{"没有这一集", service.SearchQuery{Keyword: "星海旅人", Episode: new(99)}, nil, false},
+			{"关键词里的集号", service.SearchQuery{Keyword: "星海旅人 第13话"}, episode13, false},
+			{"集号参数优先", service.SearchQuery{Keyword: "星海旅人 第13话", Episode: new(1)}, episodeOne, false},
+			{"关键词里的季号", service.SearchQuery{Keyword: "星海旅人 第2季"}, []string{secondSeason}, false},
+			{"关键词里的季号和集号", service.SearchQuery{Keyword: "星海旅人 S02E13"}, episode13, false},
+			{"这一季没有这一集", service.SearchQuery{Keyword: "星海旅人 第2季 第1话"}, nil, false},
 			// 电影唯一的一季也是第 1 季
-			{"只写季号", dandan.SearchQuery{Keyword: "星海旅人 S01"}, []string{
+			{"只写季号", service.SearchQuery{Keyword: "星海旅人 S01"}, []string{
 				"星海旅人 · 剧集 2023 · 共 1 集 · 1",
 				"星海旅人 · 电影 2019 · 共 1 集 · 1",
 				"星海旅人 · 剧集 2019 · 共 2 集 · 1, 2",
 				"星海旅人 · 剧集 - · 共 1 集 · 1",
 				"星海旅人外传 · 剧集 2021 · 共 1 集 · 1",
 			}, false},
-			{"没有标题", dandan.SearchQuery{Keyword: "第2季 第13话"}, nil, false},
+			{"没有标题", service.SearchQuery{Keyword: "第2季 第13话"}, nil, false},
 		}
 		for _, tt := range tests {
 			if tt.q.MaxSeasons == 0 {
@@ -203,7 +203,7 @@ func TestSearchSeasonEpisode(t *testing.T) {
 
 		// 按集号过滤时总集数不变
 		svc := testenv.New(pool, testenv.Logger(t)).Dandan
-		result, err := svc.Search(t.Context(), dandan.SearchQuery{Keyword: "星海旅人 S02E13", MaxSeasons: 50})
+		result, err := svc.Search(t.Context(), service.SearchQuery{Keyword: "星海旅人 S02E13", MaxSeasons: 50})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -215,7 +215,7 @@ func TestSearchSeasonEpisode(t *testing.T) {
 			"长夜灯塔":   {"长夜灯塔", "Night Lighthouse"},
 			"星海旅人外传": {"星海旅人外传"},
 		} {
-			result, err := svc.Search(t.Context(), dandan.SearchQuery{Keyword: keyword, MaxSeasons: 50})
+			result, err := svc.Search(t.Context(), service.SearchQuery{Keyword: keyword, MaxSeasons: 50})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -233,7 +233,7 @@ func TestSeason(t *testing.T) {
 		testenv.SyncOnce(t, testenv.StartSync(t, pool, &testenv.FakeCatalog{Items: searchCatalog()}))
 		svc := testenv.New(pool, testenv.Logger(t)).Dandan
 
-		result, err := svc.Search(t.Context(), dandan.SearchQuery{Keyword: "星海旅人", MaxSeasons: 50})
+		result, err := svc.Search(t.Context(), service.SearchQuery{Keyword: "星海旅人", MaxSeasons: 50})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -279,7 +279,7 @@ func TestSyncRecomputesSearchVectors(t *testing.T) {
 			"Star Voyager":  nil,
 			"归航":            {"星海旅人 第2季 · 剧集 2019 · 共 1 集 · 1"}, // 这次没有给出的季保留原来的季标题
 		} {
-			if got, _ := searchSeasons(t, pool, dandan.SearchQuery{Keyword: keyword, MaxSeasons: 50}); !slices.Equal(got, want) {
+			if got, _ := searchSeasons(t, pool, service.SearchQuery{Keyword: keyword, MaxSeasons: 50}); !slices.Equal(got, want) {
 				t.Errorf("Search(%q) = %q, want %q", keyword, got, want)
 			}
 		}
