@@ -181,7 +181,7 @@ func (e *seasonEnv) folder(labels []string, slots map[int]int) int64 {
 	e.t.Helper()
 	entries := make([]testenv.FolderEntry, len(labels))
 	for i, label := range labels {
-		entries[i] = testenv.FolderEntry{Label: label, Files: []bindingsvc.UploadedFile{testenv.Snapshot1(label + ".xml")}}
+		entries[i] = testenv.FolderEntry{Label: label, Files: []danmakufile.File{testenv.Snapshot1(label + ".xml")}}
 	}
 	id, entryIDs := testenv.InsertFolderSeasonBinding(e.t, e.pool, 1, "星海旅人", 1, 1, entries...)
 	for i, number := range slots {

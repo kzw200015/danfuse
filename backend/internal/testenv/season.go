@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
+	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -30,7 +30,7 @@ func InsertCollectionSeasonBinding(t testing.TB, pool *pgxpool.Pool, seasonID in
 // FolderEntry 文件夹的季绑定里的一个条目：名称（不带文件夹名）和它的弹幕文件。
 type FolderEntry struct {
 	Label string
-	Files []bindingsvc.UploadedFile
+	Files []danmakufile.File
 }
 
 // InsertFolderSeasonBinding 直接写入一个文件夹的季绑定（标题为文件夹名 title）和它的条目、条目的文件，默认的集号规则，

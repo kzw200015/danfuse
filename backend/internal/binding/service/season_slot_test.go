@@ -106,9 +106,9 @@ func TestFileSlot(t *testing.T) {
 	t.Parallel()
 	svc, pool := newBindingService(t, &fakeAdapter{}, testenv.Logger(t))
 	sb, entries := testenv.InsertFolderSeasonBinding(t, pool, 1, "星海旅人", 1, 1,
-		testenv.FolderEntry{Label: "第1话", Files: []service.UploadedFile{snapshot1, snapshot2}})
+		testenv.FolderEntry{Label: "第1话", Files: []danmakufile.File{snapshot1, snapshot2}})
 	var items []danmaku.Danmaku
-	for _, f := range []service.UploadedFile{snapshot1, snapshot2} {
+	for _, f := range []danmakufile.File{snapshot1, snapshot2} {
 		parsed, err := danmakufile.Parse(f.Name, f.Data)
 		if err != nil {
 			t.Fatal(err)
@@ -154,7 +154,7 @@ func TestFileSlot(t *testing.T) {
 
 	const message = "这个绑定由季绑定「星海旅人」建出，不能单独删除或追加文件；要改，去季面板编辑季绑定"
 	testenv.AssertAppError(t, svc.Delete(t.Context(), v.ID), http.StatusConflict, message)
-	_, err = svc.AppendFiles(t.Context(), v.ID, []service.UploadedFile{snapshot1})
+	_, err = svc.AppendFiles(t.Context(), v.ID, []danmakufile.File{snapshot1})
 	testenv.AssertAppError(t, err, http.StatusConflict, message)
 
 	slot.EpisodeID = 9

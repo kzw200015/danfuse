@@ -28,7 +28,7 @@
 
 按季上传创建、保存的是文件夹的季绑定，流程、事务和预览见 [`season-binding.md`](season-binding.md#文件夹)（ADR 0010）。这里只说弹幕文件的部分：
 
-- 文件存在季绑定名下，不在绑定上：上传的文件夹由 `seasonbinding`（`folder.go`）分成条目、逐份用 `danmakufile.Parse` 解析，写进 `season_binding_entry_files`（文件名取 base name，条目内按 sha256 去重）。与单集上传共用的只有文件类型 `binding.UploadedFile`（按季上传时 `Name` 是相对路径）。
+- 文件存在季绑定名下，不在绑定上：上传的文件夹由 `seasonbinding`（`folder.go`）分成条目、逐份用 `danmakufile.Parse` 解析，写进 `season_binding_entry_files`（文件名取 base name，条目内按 sha256 去重）。与单集上传共用的只有文件类型 `danmakufile.File`（按季上传时 `Name` 是相对路径）。
 - 建出的文件绑定由 `binding.Service.CreateFileSlotInTx` 写入：带 `season_binding_id` 和 `entry_id`，标题是条目名称，弹幕是条目的各份文件合并后的；没有 `binding_files` 行，`file_count` 为 0。
 - `binding` 在自己的 `queries.sql` 里读条目的文件（`ListEntryFiles`、`GetEntryFileContent`、`CountEntryFiles`）：文件列表、重新解析读条目的文件，绑定 JSON 的 `sourceLabel` 里的份数是条目的文件份数。文件列表里条目的文件没有加入时间，`uploadedAt` 为 null。
 - 写入是同步的：带文件的请求前端不设超时（`uploadRequestTimeout`，单集上传、追加文件也是），不带文件的保存用 `slowRequestTimeout`；HTTP 服务也不限整个请求的读写时长，只限制读请求头和空闲连接（见 `server.go`）。

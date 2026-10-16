@@ -19,14 +19,6 @@ import (
 
 var errNotFileBinding = apierr.ErrBadRequest.WithMessage("这个绑定不是用弹幕文件建的")
 
-// UploadedFile 上传的一份弹幕文件。
-type UploadedFile struct {
-	// Name 上传的文件名，认不出时的提示用它；上传文件夹时是在所选文件夹里的相对路径（以文件夹名开头、用 / 分隔），
-	// 存下的文件名取它的 base name
-	Name string
-	Data []byte
-}
-
 // FilesAdded 追加文件的结果。
 type FilesAdded struct {
 	Binding View  `json:"binding"`
@@ -45,21 +37,21 @@ type FileView struct {
 
 // ParsedFile 解析好的一份弹幕文件，连同内容的哈希。
 type ParsedFile struct {
-	UploadedFile
+	danmakufile.File
 	Sum     [sha256.Size]byte
 	Danmaku []danmaku.Danmaku
 }
 
 // ParseFiles 解析上传的全部弹幕文件、算出内容的哈希，在写入事务之前做完。
 // 有一份认不出就整次返回 422，提示里用文件的 Name 写明是哪一份。
-func ParseFiles(files []UploadedFile) ([]ParsedFile, error) {
+func ParseFiles(files []danmakufile.File) ([]ParsedFile, error) {
 	parsed := make([]ParsedFile, len(files))
 	for i, f := range files {
 		items, err := ParseFile(f.Name, f.Data)
 		if err != nil {
 			return nil, err
 		}
-		parsed[i] = ParsedFile{UploadedFile: f, Sum: sha256.Sum256(f.Data), Danmaku: items}
+		parsed[i] = ParsedFile{File: f, Sum: sha256.Sum256(f.Data), Danmaku: items}
 	}
 	return parsed, nil
 }
@@ -76,7 +68,7 @@ func ParseFile(name string, data []byte) ([]danmaku.Danmaku, error) {
 // CreateFromFiles 用一组弹幕文件给一集创建绑定：一次上传的几份文件合起来是一个弹幕源。
 // 先解析（有一份认不出就不创建），再在一个事务里锁住这一集、建出绑定、存下原文件、写入弹幕。
 // 标题取第一份文件的文件名（去掉扩展名）。同一集可以有多个用弹幕文件建的绑定，不查重。
-func (s *Service) CreateFromFiles(ctx context.Context, episodeID int64, files []UploadedFile) (View, error) {
+func (s *Service) CreateFromFiles(ctx context.Context, episodeID int64, files []danmakufile.File) (View, error) {
 	parsed, err := ParseFiles(files)
 	if err != nil {
 		return View{}, err
@@ -111,7 +103,7 @@ func (s *Service) CreateFromFiles(ctx context.Context, episodeID int64, files []
 // AppendFiles 追加文件：往用弹幕文件建的绑定里再加入弹幕文件，只增不删。
 // 绑定里已有内容相同的文件时跳过它，全部跳过时什么都不改（Files 为 0）。弹幕按原始 ID 去重。
 // 季绑定建出的文件绑定不能追加（409）。
-func (s *Service) AppendFiles(ctx context.Context, id int64, files []UploadedFile) (FilesAdded, error) {
+func (s *Service) AppendFiles(ctx context.Context, id int64, files []danmakufile.File) (FilesAdded, error) {
 	b, err := s.getFileBinding(ctx, id)
 	if err != nil {
 		return FilesAdded{}, err

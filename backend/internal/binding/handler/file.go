@@ -5,22 +5,22 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding/service"
+	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 // readUploadedFiles 单集上传：读出字段 files 的全部文件，名称为上传的文件名（去掉目录），超出上限（config.DanmakuFile 里单集的那组）时返回 400。
 // 在 request.Bind 之前调用。
-func (h *Handler) readUploadedFiles(c *echo.Context) ([]service.UploadedFile, error) {
+func (h *Handler) readUploadedFiles(c *echo.Context) ([]danmakufile.File, error) {
 	limits := request.FileLimits{MaxFiles: h.upload.MaxFiles, MaxFileMB: h.upload.MaxFileMB, MaxUploadMB: h.upload.MaxUploadMB}
 	read, err := request.ReadFiles(c, limits)
 	if err != nil {
 		return nil, err
 	}
-	files := make([]service.UploadedFile, len(read))
+	files := make([]danmakufile.File, len(read))
 	for i, f := range read {
-		files[i] = service.UploadedFile{Name: path.Base(f.Name), Data: f.Data}
+		files[i] = danmakufile.File{Name: path.Base(f.Name), Data: f.Data}
 	}
 	return files, nil
 }

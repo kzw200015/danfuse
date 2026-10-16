@@ -17,8 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
-	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
+	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
@@ -317,7 +317,7 @@ func TestCollectionPreviewAndSaveAPI(t *testing.T) {
 		lease.Release()
 
 		folder, _ := testenv.InsertFolderSeasonBinding(t, pool, 1, "来自新世界", 1, 1,
-			testenv.FolderEntry{Label: "1", Files: []bindingsvc.UploadedFile{testenv.Snapshot1("1.xml")}})
+			testenv.FolderEntry{Label: "1", Files: []danmakufile.File{testenv.Snapshot1("1.xml")}})
 		folderPath := "/api/season-bindings/" + jsonString(folder)
 		assertAPIErrors(t, srv, []apiError{
 			{http.MethodPost, "/api/seasons/0/season-bindings/collection/preview", shifted, http.StatusBadRequest, "季 ID 不合法"},

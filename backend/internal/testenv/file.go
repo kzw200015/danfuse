@@ -5,27 +5,28 @@ import (
 	"testing"
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
+	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 )
 
 // XMLFile 一份 B 站导出的 XML 弹幕文件。ds 是 <d> 的 p 与正文交替排列。
-func XMLFile(name string, ds ...string) bindingsvc.UploadedFile {
+func XMLFile(name string, ds ...string) danmakufile.File {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>934042</chatid>`)
 	for i := 0; i < len(ds); i += 2 {
 		b.WriteString(`<d p="` + ds[i] + `">` + ds[i+1] + "</d>\n")
 	}
 	b.WriteString("</i>")
-	return bindingsvc.UploadedFile{Name: name, Data: []byte(b.String())}
+	return danmakufile.File{Name: name, Data: []byte(b.String())}
 }
 
 // Snapshot1、Snapshot2 同一个视频不同日期的两份快照：dmid 2 两份都有（新快照里时间精度不同），dmid 1、3 各在一份里。
-func Snapshot1(name string) bindingsvc.UploadedFile {
+func Snapshot1(name string) danmakufile.File {
 	return XMLFile(name,
 		"1.5,1,25,16777215,1373250214,0,d9df08a7,1", "前排",
 		"61.25,1,25,16777215,1373250228,0,500cea0d,2", "好看")
 }
 
-func Snapshot2(name string) bindingsvc.UploadedFile {
+func Snapshot2(name string) danmakufile.File {
 	return XMLFile(name,
 		"61.2499980927,1,25,16777215,1373250228,0,500cea0d,2", "好看",
 		"120,5,25,16711680,1373250271,0,3ae9ab45,3", "顶部")

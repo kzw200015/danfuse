@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
+	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -206,7 +206,7 @@ func TestDeleteSeasonBinding(t *testing.T) {
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2)
 		env.bindManually(1, "m")
-		if _, err := env.bindingSvc.CreateFromFiles(t.Context(), 1, []bindingsvc.UploadedFile{testenv.Snapshot1("手动上传.xml")}); err != nil {
+		if _, err := env.bindingSvc.CreateFromFiles(t.Context(), 1, []danmakufile.File{testenv.Snapshot1("手动上传.xml")}); err != nil {
 			t.Fatal(err)
 		}
 		collection := env.create().ID

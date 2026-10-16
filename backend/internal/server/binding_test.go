@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -190,7 +190,7 @@ func TestBuiltBinding(t *testing.T) {
 	seedCatalog(t, pool)
 	testenv.InsertCollectionSeasonBinding(t, pool, 1, "s", 1, 1) // 季绑定 1
 	file := testenv.Snapshot1("01.xml")
-	testenv.InsertFolderSeasonBinding(t, pool, 1, "星海旅人", 1, 1, testenv.FolderEntry{Label: "01", Files: []bindingsvc.UploadedFile{file}}) // 季绑定 2，条目 1
+	testenv.InsertFolderSeasonBinding(t, pool, 1, "星海旅人", 1, 1, testenv.FolderEntry{Label: "01", Files: []danmakufile.File{file}}) // 季绑定 2，条目 1
 	_, err := pool.Exec(t.Context(), `
 		INSERT INTO bindings (episode_id, adapter, ref, title, duration, season_binding_id) VALUES
 			(2, 'fake', '{"name": "s1"}', '弹幕源 s1', 1420, 1);  -- 绑定 5

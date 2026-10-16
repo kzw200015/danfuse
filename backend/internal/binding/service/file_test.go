@@ -10,6 +10,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -23,7 +24,7 @@ var (
 		{SourceID: 2, TimeMs: 61250, Mode: danmaku.ModeScroll, Color: 0xFFFFFF, Text: "好看"},
 		{SourceID: 3, TimeMs: 120000, Mode: danmaku.ModeTop, Color: 0xFF0000, Text: "顶部"},
 	}
-	notDanmaku = service.UploadedFile{Name: "README.html", Data: []byte("<html><body>历史弹幕</body></html>")}
+	notDanmaku = danmakufile.File{Name: "README.html", Data: []byte("<html><body>历史弹幕</body></html>")}
 )
 
 func TestCreateFromFiles(t *testing.T) {
@@ -31,7 +32,7 @@ func TestCreateFromFiles(t *testing.T) {
 	var logs bytes.Buffer
 	svc, pool := newBindingService(t, &fakeAdapter{}, testenv.SlogTo(&logs))
 
-	got, err := svc.CreateFromFiles(t.Context(), 1, []service.UploadedFile{snapshot1, snapshot2})
+	got, err := svc.CreateFromFiles(t.Context(), 1, []danmakufile.File{snapshot1, snapshot2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestCreateFromFiles(t *testing.T) {
 	}
 
 	// 同一集可以再建一个用弹幕文件建的绑定，不查重
-	if _, err := svc.CreateFromFiles(t.Context(), 1, []service.UploadedFile{snapshot1}); err != nil {
+	if _, err := svc.CreateFromFiles(t.Context(), 1, []danmakufile.File{snapshot1}); err != nil {
 		t.Errorf("同一集再建一个: %v", err)
 	}
 }
@@ -69,9 +70,9 @@ func TestCreateFromFiles(t *testing.T) {
 func TestCreateFromFilesSameContent(t *testing.T) {
 	t.Parallel()
 	svc, _ := newBindingService(t, &fakeAdapter{}, testenv.Logger(t))
-	copied := service.UploadedFile{Name: "副本.xml", Data: snapshot1.Data}
+	copied := danmakufile.File{Name: "副本.xml", Data: snapshot1.Data}
 
-	got, err := svc.CreateFromFiles(t.Context(), 1, []service.UploadedFile{snapshot1, copied})
+	got, err := svc.CreateFromFiles(t.Context(), 1, []danmakufile.File{snapshot1, copied})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,17 +86,17 @@ func TestCreateFromFilesErrors(t *testing.T) {
 	tests := []struct {
 		name      string
 		episodeID int64
-		files     []service.UploadedFile
+		files     []danmakufile.File
 		status    int
 		message   string
 	}{
 		{
 			"有一份认不出：整次不创建", 1,
-			[]service.UploadedFile{snapshot1, notDanmaku},
+			[]danmakufile.File{snapshot1, notDanmaku},
 			http.StatusUnprocessableEntity,
 			"无法识别「README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整",
 		},
-		{"集不存在", 99, []service.UploadedFile{snapshot1}, http.StatusNotFound, "集不存在"},
+		{"集不存在", 99, []danmakufile.File{snapshot1}, http.StatusNotFound, "集不存在"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,7 +117,7 @@ func TestCreateFromFilesErrors(t *testing.T) {
 func TestAppendFiles(t *testing.T) {
 	t.Parallel()
 	svc, pool := newBindingService(t, &fakeAdapter{}, testenv.Logger(t))
-	created, err := svc.CreateFromFiles(t.Context(), 1, []service.UploadedFile{snapshot1})
+	created, err := svc.CreateFromFiles(t.Context(), 1, []danmakufile.File{snapshot1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func TestAppendFiles(t *testing.T) {
 	}
 
 	// 一份新的、一份已有的：已有的跳过；新的那份与已有的重叠的弹幕按原始 ID 去重
-	got, err := svc.AppendFiles(t.Context(), created.ID, []service.UploadedFile{snapshot2, snapshot1})
+	got, err := svc.AppendFiles(t.Context(), created.ID, []danmakufile.File{snapshot2, snapshot1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestAppendFiles(t *testing.T) {
 	}
 
 	// 全部已有：什么都不改
-	got, err = svc.AppendFiles(t.Context(), created.ID, []service.UploadedFile{snapshot1, snapshot2})
+	got, err = svc.AppendFiles(t.Context(), created.ID, []danmakufile.File{snapshot1, snapshot2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +157,7 @@ func TestAppendFiles(t *testing.T) {
 	}
 
 	// 有一份认不出：什么都不加
-	_, err = svc.AppendFiles(t.Context(), created.ID, []service.UploadedFile{testenv.XMLFile("新.xml", "1,1,25,0,0,0,x,9", "新"), notDanmaku})
+	_, err = svc.AppendFiles(t.Context(), created.ID, []danmakufile.File{testenv.XMLFile("新.xml", "1,1,25,0,0,0,x,9", "新"), notDanmaku})
 	testenv.AssertAppError(t, err, http.StatusUnprocessableEntity, "无法识别「README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
 	if names := testenv.FileNames(t, svc, created.ID); len(names) != 2 {
 		t.Errorf("有一份认不出：弹幕文件 = %v, want 仍是 2 份", names)
@@ -172,13 +173,13 @@ func TestFileBindingKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := svc.CreateFromFiles(t.Context(), 1, []service.UploadedFile{snapshot1})
+	file, err := svc.CreateFromFiles(t.Context(), 1, []danmakufile.File{snapshot1})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	const notFile = "这个绑定不是用弹幕文件建的"
-	_, err = svc.AppendFiles(t.Context(), link.ID, []service.UploadedFile{snapshot2})
+	_, err = svc.AppendFiles(t.Context(), link.ID, []danmakufile.File{snapshot2})
 	testenv.AssertAppError(t, err, http.StatusBadRequest, notFile)
 	_, err = svc.Reparse(t.Context(), link.ID)
 	testenv.AssertAppError(t, err, http.StatusBadRequest, notFile)
@@ -187,7 +188,7 @@ func TestFileBindingKind(t *testing.T) {
 	_, _, err = svc.Refetch(t.Context(), file.ID, false)
 	testenv.AssertAppError(t, err, http.StatusBadRequest, "用弹幕文件建的绑定不能重新拉取")
 
-	_, err = svc.AppendFiles(t.Context(), 99, []service.UploadedFile{snapshot2})
+	_, err = svc.AppendFiles(t.Context(), 99, []danmakufile.File{snapshot2})
 	testenv.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
 	_, err = svc.Reparse(t.Context(), 99)
 	testenv.AssertAppError(t, err, http.StatusNotFound, "绑定不存在")
@@ -208,7 +209,7 @@ func TestReparse(t *testing.T) {
 	t.Parallel()
 	var logs bytes.Buffer
 	svc, pool := newBindingService(t, &fakeAdapter{}, testenv.SlogTo(&logs))
-	created, err := svc.CreateFromFiles(t.Context(), 1, []service.UploadedFile{snapshot1, snapshot2})
+	created, err := svc.CreateFromFiles(t.Context(), 1, []danmakufile.File{snapshot1, snapshot2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +244,7 @@ func TestReparse(t *testing.T) {
 func TestReparseUnparsable(t *testing.T) {
 	t.Parallel()
 	svc, pool := newBindingService(t, &fakeAdapter{}, testenv.Logger(t))
-	created, err := svc.CreateFromFiles(t.Context(), 1, []service.UploadedFile{snapshot1})
+	created, err := svc.CreateFromFiles(t.Context(), 1, []danmakufile.File{snapshot1})
 	if err != nil {
 		t.Fatal(err)
 	}
