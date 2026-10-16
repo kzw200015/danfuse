@@ -1,4 +1,4 @@
-package catalog
+package service
 
 import (
 	"strconv"

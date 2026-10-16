@@ -9,7 +9,7 @@ import (
 
 	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
 	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
@@ -21,8 +21,8 @@ import (
 type Handlers struct {
 	Health        *healthhandler.Handler
 	Settings      *settingshandler.Handler
-	Catalog       *catalog.Handler
-	Sync          *catalog.SyncHandler
+	Catalog       *cataloghandler.Handler
+	Sync          *cataloghandler.SyncHandler
 	Binding       *bindinghandler.Handler
 	SeasonBinding *seasonbindinghandler.Handler
 	BlockedWord   *blockwordhandler.Handler

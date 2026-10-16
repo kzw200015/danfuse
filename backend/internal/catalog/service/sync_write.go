@@ -1,4 +1,4 @@
-package catalog
+package service
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 )
 
@@ -57,7 +58,7 @@ func (s *SyncService) saveProgress(ctx context.Context, run *syncRun) error {
 
 // syncItem 处理一部剧：适配给的警告和校验的警告都加上剧名；Series 为 nil 或校验不通过的整部跳过，否则写入目录。
 // 海报下载失败只记一条警告（旧海报保留，警告里是适配写的提示，完整的错误记 info 日志），不影响这部剧的其他内容。
-func (s *SyncService) syncItem(ctx context.Context, run *syncRun, item Item) error {
+func (s *SyncService) syncItem(ctx context.Context, run *syncRun, item catalog.Item) error {
 	for _, w := range item.Warnings {
 		run.warn(item.Name + "：" + w)
 	}
@@ -89,7 +90,7 @@ type createdCounts struct{ series, seasons, episodes int32 }
 // 键以外的字段用目录源的数据覆盖（没变的集不重写），重算这部剧所有季的搜索列，最后按 sha256 处理海报（下载失败的保留旧海报）。
 // 同一个身份出现多次时后写的覆盖先写的。返回这个事务里新增的剧、季、集数量。
 // 网络请求都在事务之外：适配在交出这部剧之前已经取完了它的季和集、下载完了海报。
-func (s *SyncService) writeSeries(ctx context.Context, series Series) (createdCounts, error) {
+func (s *SyncService) writeSeries(ctx context.Context, series catalog.Series) (createdCounts, error) {
 	var created createdCounts
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -138,7 +139,7 @@ func (s *SyncService) writeSeries(ctx context.Context, series Series) (createdCo
 }
 
 // upsertEpisodes 一条语句写入一季的集（见 UpsertEpisodes），返回新增的集数。集号相同的以后出现的为准。
-func upsertEpisodes(ctx context.Context, q *dao.Queries, seasonID int64, episodes []Episode) (int32, error) {
+func upsertEpisodes(ctx context.Context, q *dao.Queries, seasonID int64, episodes []catalog.Episode) (int32, error) {
 	p := dao.UpsertEpisodesParams{SeasonID: seasonID}
 	index := make(map[int]int, len(episodes)) // 集号 → 在参数数组里的下标
 	for _, ep := range episodes {
@@ -165,7 +166,7 @@ func upsertEpisodes(ctx context.Context, q *dao.Queries, seasonID int64, episode
 //  3. 都没找到就新增。
 //
 // 分三步而不是一条 ON CONFLICT：同步持有租约，没有并发的写入者；同步进行中删除的剧，下一步按新行处理即可。
-func upsertSeries(ctx context.Context, q *dao.Queries, series Series) (dao.Series, bool, error) {
+func upsertSeries(ctx context.Context, q *dao.Queries, series catalog.Series) (dao.Series, bool, error) {
 	if series.TMDBID != nil {
 		row, err := q.UpdateSeriesByTMDBID(ctx, dao.UpdateSeriesByTMDBIDParams{
 			Type:            string(series.Type),
@@ -214,7 +215,7 @@ func upsertSeries(ctx context.Context, q *dao.Queries, series Series) (dao.Serie
 
 // writeSearchVectors 重算一部剧所有季的搜索列，在这部剧的事务里调用。包括这次目录源没有给出的季：
 // 剧名、原名是每一季搜索列的一部分，原名变了每一季都要重算。
-func writeSearchVectors(ctx context.Context, q *dao.Queries, seriesID int64, series Series) error {
+func writeSearchVectors(ctx context.Context, q *dao.Queries, seriesID int64, series catalog.Series) error {
 	seasons, err := q.ListSeasonsBySeries(ctx, seriesID)
 	if err != nil {
 		return fmt.Errorf("list seasons: %w", err)
@@ -235,7 +236,7 @@ func writeSearchVectors(ctx context.Context, q *dao.Queries, seriesID int64, ser
 //   - 与旧图的 sha256 相同：不写；
 //   - 不同（或原来没有海报）：插入新图 → 剧指向新图 → 删除旧图；
 //   - 没有图：清空剧的海报 → 删除旧图。
-func writePoster(ctx context.Context, q *dao.Queries, seriesID int64, oldID *int64, poster *Image) error {
+func writePoster(ctx context.Context, q *dao.Queries, seriesID int64, oldID *int64, poster *catalog.Image) error {
 	if poster == nil && oldID == nil {
 		return nil
 	}

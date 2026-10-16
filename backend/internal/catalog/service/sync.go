@@ -1,4 +1,4 @@
-package catalog
+package service
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/background"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
@@ -55,14 +56,14 @@ const internalErrorMessage = "服务器内部错误，详见日志"
 type SyncService struct {
 	pool          *pgxpool.Pool // 开事务，拿同步的租约
 	q             *dao.Queries
-	catalogSource Source // nil 表示未配置目录源
+	catalogSource catalog.Source // nil 表示未配置目录源
 	interval      time.Duration
 	keepRuns      int32 // 同步记录保留最近几次
 	logger        *slog.Logger
 	loop          *background.Loop // Run 的循环：定时与手动触发，进行中的同步
 }
 
-func NewSyncService(pool *pgxpool.Pool, catalogSource Source, cfg config.Sync, logger *slog.Logger) *SyncService {
+func NewSyncService(pool *pgxpool.Pool, catalogSource catalog.Source, cfg config.Sync, logger *slog.Logger) *SyncService {
 	return &SyncService{
 		pool:          pool,
 		q:             dao.New(pool),
@@ -302,7 +303,7 @@ func (s *SyncService) execute(ctx context.Context, runID int64) {
 // failureReason 同步页上显示的失败原因：目录源的错误用适配写的提示，其他错误（写库失败等）不展示细节。
 // 完整的错误由 execute 记进 "sync finished" 日志。
 func failureReason(err error) string {
-	if catalogErr, ok := errors.AsType[*Error](err); ok {
+	if catalogErr, ok := errors.AsType[*catalog.Error](err); ok {
 		return catalogErr.Message
 	}
 	return internalErrorMessage

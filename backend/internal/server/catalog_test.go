@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
@@ -25,7 +25,7 @@ func catalogServer(pool *pgxpool.Pool) *Server {
 	logger := slog.New(slog.DiscardHandler)
 	env := testenv.New(pool, logger, fakeAdapter{})
 	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
-		Catalog:       catalog.NewHandler(env.Catalog),
+		Catalog:       cataloghandler.NewHandler(env.Catalog),
 		Binding:       bindinghandler.NewHandler(env.Bindings, uploadLimits),
 		SeasonBinding: seasonbindinghandler.NewHandler(env.SeasonBindings, uploadLimits),
 	})

@@ -18,7 +18,7 @@ import (
 
 	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
@@ -81,7 +81,7 @@ func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.P
 	testenv.RunInBackground(t, env.SeasonBindings)
 
 	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
-		Catalog:       catalog.NewHandler(env.Catalog),
+		Catalog:       cataloghandler.NewHandler(env.Catalog),
 		Binding:       bindinghandler.NewHandler(env.Bindings, uploadLimits),
 		SeasonBinding: seasonbindinghandler.NewHandler(env.SeasonBindings, uploadLimits),
 	}), pool

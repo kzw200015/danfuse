@@ -1,20 +1,22 @@
-package catalog
+// Package handler 目录的管理 API：浏览、删除、海报，以及同步（sync.go）。只绑定与校验参数、调用 service、输出响应。
+package handler
 
 import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 // Handler 目录的管理 API：浏览、删除、海报，路由注册在 server/router.go。
 type Handler struct {
-	svc *Service
+	svc *service.Service
 }
 
-func NewHandler(svc *Service) *Handler {
+func NewHandler(svc *service.Service) *Handler {
 	return &Handler{svc: svc}
 }
 

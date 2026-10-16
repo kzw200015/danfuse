@@ -25,7 +25,7 @@ import (
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	dandansvc "github.com/kzw200015/danfuse/backend/internal/dandan/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
@@ -39,7 +39,7 @@ import (
 type Env struct {
 	Bindings       *bindingsvc.Service
 	SeasonBindings *seasonbindingsvc.Service // 追更的时间规则取配置项的默认值
-	Catalog        *catalog.Service
+	Catalog        *catalogsvc.Service
 	BlockedWords   *blockwordsvc.Service
 	Dandan         *dandansvc.Service
 }
@@ -53,7 +53,7 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *E
 	return &Env{
 		Bindings:       bindings,
 		SeasonBindings: seasonBindings,
-		Catalog:        catalog.NewService(pool, &FakeCatalog{}, bindings, seasonBindings),
+		Catalog:        catalogsvc.NewService(pool, &FakeCatalog{}, bindings, seasonBindings),
 		BlockedWords:   blockedWords,
 		Dandan:         dandansvc.NewService(pool, bindings, blockedWords),
 	}

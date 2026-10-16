@@ -1,3 +1,7 @@
+// Package catalog 目录：剧/季/集的层级。根包只放目录源适配的接口（Source，同步取目录、剧详情取链接）、交换的类型，
+// 以及核心对它们的校验，jellyfin 与 service 共用；不访问数据库。
+// 其余按层放在子包：handler（HTTP）→ service（业务）→ dao（sqlc）；目录源的适配在 jellyfin，由 app 按配置的 kind 选择。
+// 划分原则：目录本身的规则放在核心；取决于目录源怎么表示数据的，放在适配。
 package catalog
 
 import (

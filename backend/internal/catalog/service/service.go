@@ -1,12 +1,10 @@
-// Package catalog 目录：剧/季/集的层级。
-//   - source.go：目录源适配的接口（Source，同步取目录、剧详情取链接）、交换的类型，以及核心对它们的校验；
-//   - search.go：季的搜索列；
+// Package service 目录的业务层。
 //   - service.go：管理界面浏览与删除目录、取海报；
+//   - search.go：季的搜索列；
 //   - sync.go：同步的调度（后台循环、手动触发、租约、同步记录）；sync_write.go：按剧把目录源给的数据写进目录。
 //
-// 各目录源的适配在子包里（jellyfin），由 app 按配置的 kind 选择；季的名称、名称里的季号集号在 naming 包。
-// 划分原则：目录本身的规则放在核心；取决于目录源怎么表示数据的，放在适配。
-package catalog
+// 目录源适配的接口与交换的类型在根包 catalog；季的名称、名称里的季号集号在 naming 包。
+package service
 
 import (
 	"context"
@@ -17,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
+	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
@@ -37,12 +36,12 @@ var (
 type Service struct {
 	pool           *pgxpool.Pool
 	q              *dao.Queries
-	catalogSource  Source                    // 剧详情里跳回目录源的链接；未配置目录源时为 nil
+	catalogSource  catalog.Source            // 剧详情里跳回目录源的链接；未配置目录源时为 nil
 	bindings       *bindingsvc.Service       // 剧详情里各集的绑定
 	seasonBindings *seasonbindingsvc.Service // 剧详情里各季的季绑定
 }
 
-func NewService(pool *pgxpool.Pool, catalogSource Source, bindings *bindingsvc.Service, seasonBindings *seasonbindingsvc.Service) *Service {
+func NewService(pool *pgxpool.Pool, catalogSource catalog.Source, bindings *bindingsvc.Service, seasonBindings *seasonbindingsvc.Service) *Service {
 	return &Service{pool: pool, q: dao.New(pool), catalogSource: catalogSource, bindings: bindings, seasonBindings: seasonBindings}
 }
 

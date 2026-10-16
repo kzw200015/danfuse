@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
@@ -26,7 +27,7 @@ func syncServer(t *testing.T, cfg *pgxpool.Config, src catalog.Source) *Server {
 	svc, pool := startSync(t, cfg, src)
 	return New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{
 		Health: healthhandler.NewHandler(healthsvc.NewService(pool)),
-		Sync:   catalog.NewSyncHandler(svc),
+		Sync:   cataloghandler.NewSyncHandler(svc),
 	})
 }
 

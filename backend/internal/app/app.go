@@ -14,7 +14,9 @@ import (
 	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
 	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
+	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
 	dandansvc "github.com/kzw200015/danfuse/backend/internal/dandan/service"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
@@ -51,16 +53,16 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	bindings := bindingsvc.NewService(pool, sources, logger)
 	scheduledFetch := bindingsvc.NewScheduledFetchService(pool, bindings, cfg.ScheduledFetch, logger)
 	seasonBindings := seasonbindingsvc.NewService(pool, sources, bindings, cfg.Follow, logger)
-	catalogs := catalog.NewService(pool, catalogSource, bindings, seasonBindings)
-	syncs := catalog.NewSyncService(pool, catalogSource, cfg.Sync, logger)
+	catalogs := catalogsvc.NewService(pool, catalogSource, bindings, seasonBindings)
+	syncs := catalogsvc.NewSyncService(pool, catalogSource, cfg.Sync, logger)
 	blockedWords := blockwordsvc.NewService(pool)
 	dandans := dandansvc.NewService(pool, bindings, blockedWords)
 
 	handlers := &server.Handlers{
 		Health:        healthhandler.NewHandler(healthsvc.NewService(pool)),
 		Settings:      settingshandler.NewHandler(cfg),
-		Catalog:       catalog.NewHandler(catalogs),
-		Sync:          catalog.NewSyncHandler(syncs),
+		Catalog:       cataloghandler.NewHandler(catalogs),
+		Sync:          cataloghandler.NewSyncHandler(syncs),
 		Binding:       bindinghandler.NewHandler(bindings, cfg.DanmakuFile),
 		SeasonBinding: seasonbindinghandler.NewHandler(seasonBindings, cfg.DanmakuFile),
 		BlockedWord:   blockwordhandler.NewHandler(blockedWords),

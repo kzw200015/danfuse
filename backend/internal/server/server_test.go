@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
@@ -119,7 +120,7 @@ func jsonString(v any) string {
 
 // startSync 在 synctest 气泡里新建连接池和不开定时同步的 SyncService，在后台运行 Run，等它停下来再返回。
 // src 为 nil 表示未配置目录源。连接池在气泡里创建、在气泡里关闭：测试结束时先取消 Run 并等它返回，再关闭连接池。
-func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*catalog.SyncService, *pgxpool.Pool) {
+func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*catalogsvc.SyncService, *pgxpool.Pool) {
 	t.Helper()
 	pool := dbtest.Open(t, cfg)
 	return testenv.StartSync(t, pool, src), pool

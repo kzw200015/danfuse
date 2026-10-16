@@ -1,18 +1,19 @@
-package catalog
+package handler
 
 import (
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 // SyncHandler 同步的管理 API：触发同步、同步记录，路由注册在 server/router.go。
 type SyncHandler struct {
-	svc *SyncService
+	svc *service.SyncService
 }
 
-func NewSyncHandler(svc *SyncService) *SyncHandler {
+func NewSyncHandler(svc *service.SyncService) *SyncHandler {
 	return &SyncHandler{svc: svc}
 }
 

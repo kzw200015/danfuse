@@ -1,4 +1,4 @@
-package catalog_test
+package service_test
 
 import (
 	"fmt"

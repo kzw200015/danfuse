@@ -1,4 +1,4 @@
-package catalog_test
+package service_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	"github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -75,7 +76,7 @@ func readImages(t *testing.T, pool *pgxpool.Pool) []string {
 	return images
 }
 
-func newCatalogService(pool *pgxpool.Pool) *catalog.Service {
+func newCatalogService(pool *pgxpool.Pool) *service.Service {
 	return testenv.New(pool, slog.New(slog.DiscardHandler)).Catalog
 }
 
@@ -85,7 +86,7 @@ func TestDeleteCatalog(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
-		del         func(*catalog.Service, context.Context, int64) error
+		del         func(*service.Service, context.Context, int64) error
 		id          int64
 		want        []string // 删除之后目录里的集
 		wantImages  []string
@@ -93,25 +94,25 @@ func TestDeleteCatalog(t *testing.T) {
 	}{
 		{
 			name: "集：它的绑定和弹幕一起删除",
-			del:  (*catalog.Service).DeleteEpisode, id: 1,
+			del:  (*service.Service).DeleteEpisode, id: 1,
 			want:       []string{"星海旅人 S1E2 绑定 0 弹幕 0", "星海旅人 S2E1 绑定 1 弹幕 1", "长夜灯塔 S1E1 绑定 1 弹幕 1"},
 			wantImages: []string{"星海旅人的海报"}, wantMessage: "集不存在",
 		},
 		{
 			name: "季：它的集、绑定和弹幕一起删除",
-			del:  (*catalog.Service).DeleteSeason, id: 1,
+			del:  (*service.Service).DeleteSeason, id: 1,
 			want:       []string{"星海旅人 S2E1 绑定 1 弹幕 1", "长夜灯塔 S1E1 绑定 1 弹幕 1"},
 			wantImages: []string{"星海旅人的海报"}, wantMessage: "季不存在",
 		},
 		{
 			name: "剧：它的季、集、绑定、弹幕和海报一起删除",
-			del:  (*catalog.Service).DeleteSeries, id: 1,
+			del:  (*service.Service).DeleteSeries, id: 1,
 			want:       []string{"长夜灯塔 S1E1 绑定 1 弹幕 1"},
 			wantImages: []string{}, wantMessage: "剧不存在",
 		},
 		{
 			name: "没有海报的剧",
-			del:  (*catalog.Service).DeleteSeries, id: 2,
+			del:  (*service.Service).DeleteSeries, id: 2,
 			want:       []string{"星海旅人 S1E1 绑定 2 弹幕 3", "星海旅人 S1E2 绑定 0 弹幕 0", "星海旅人 S2E1 绑定 1 弹幕 1"},
 			wantImages: []string{"星海旅人的海报"}, wantMessage: "剧不存在",
 		},
@@ -151,15 +152,15 @@ func TestDeleteDuringSync(t *testing.T) {
 	)
 	tests := []struct {
 		name        string
-		del         func(*catalog.Service, context.Context, int64) error
+		del         func(*service.Service, context.Context, int64) error
 		id          int64
 		wantCounts  string
 		wantRenewed []string // 换了新 ID 的集
 		wantPoster  bool     // 海报换了新图：随剧删掉，又随剧建回来
 	}{
-		{"剧", (*catalog.Service).DeleteSeries, 1, "succeeded 2/2 新增剧 1 季 2 集 3", []string{e11, e12, e21}, true},
-		{"季", (*catalog.Service).DeleteSeason, 1, "succeeded 2/2 新增剧 0 季 1 集 2", []string{e11, e12}, false},
-		{"集", (*catalog.Service).DeleteEpisode, 1, "succeeded 2/2 新增剧 0 季 0 集 1", []string{e11}, false},
+		{"剧", (*service.Service).DeleteSeries, 1, "succeeded 2/2 新增剧 1 季 2 集 3", []string{e11, e12, e21}, true},
+		{"季", (*service.Service).DeleteSeason, 1, "succeeded 2/2 新增剧 0 季 1 集 2", []string{e11, e12}, false},
+		{"集", (*service.Service).DeleteEpisode, 1, "succeeded 2/2 新增剧 0 季 0 集 1", []string{e11}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -222,7 +223,7 @@ func TestSourceLinkWithoutCatalogSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := testenv.New(pool, slog.New(slog.DiscardHandler))
-	svc := catalog.NewService(pool, nil, env.Bindings, env.SeasonBindings)
+	svc := service.NewService(pool, nil, env.Bindings, env.SeasonBindings)
 
 	detail, err := svc.GetSeries(t.Context(), 1)
 	if err != nil {
