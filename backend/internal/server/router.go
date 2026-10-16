@@ -8,24 +8,24 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 
 	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
-	"github.com/kzw200015/danfuse/backend/internal/blockword"
+	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
-	"github.com/kzw200015/danfuse/backend/internal/health"
+	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
 	"github.com/kzw200015/danfuse/backend/internal/settings"
 )
 
 // Handlers 汇总各领域的 handler，供路由注册使用。
 type Handlers struct {
-	Health        *health.Handler
+	Health        *healthhandler.Handler
 	Settings      *settings.Handler
 	Catalog       *catalog.Handler
 	Sync          *catalog.SyncHandler
 	Binding       *bindinghandler.Handler
-	SeasonBinding *seasonbinding.Handler
-	BlockedWord   *blockword.Handler
+	SeasonBinding *seasonbindinghandler.Handler
+	BlockedWord   *blockwordhandler.Handler
 	Dandan        *dandan.Handler
 }
 

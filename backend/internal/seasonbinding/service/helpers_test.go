@@ -1,4 +1,4 @@
-package seasonbinding_test
+package service_test
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -39,7 +39,7 @@ type seasonEnv struct {
 	t    *testing.T
 	pool *pgxpool.Pool
 	src  *testenv.FakeCollector
-	svc  *seasonbinding.Service
+	svc  *service.Service
 	// bindingSvc 与 svc 共用的 binding.Service，查看建出的绑定、写入文件夹的槽位用
 	bindingSvc *bindingsvc.Service
 	stop       func()               // 取消 Run 并等它返回
@@ -71,7 +71,7 @@ func (e *seasonEnv) start() {
 	sources := source.NewRegistry(e.src)
 	logger := testenv.SlogTo(io.MultiWriter(e.t.Output(), &e.logs))
 	e.bindingSvc = bindingsvc.NewService(e.pool, sources, logger)
-	e.svc = seasonbinding.NewService(e.pool, sources, e.bindingSvc, testFollow, logger)
+	e.svc = service.NewService(e.pool, sources, e.bindingSvc, testFollow, logger)
 	e.stop = testenv.RunInBackground(e.t, e.svc)
 }
 
@@ -96,12 +96,12 @@ func (e *seasonEnv) exec(sql string, args ...any) {
 }
 
 // collectionForm 合集的表单：链接 link，合集第 1 集为本地第 1 集，默认的集号规则。
-func collectionForm(link string) seasonbinding.CollectionForm {
-	return seasonbinding.CollectionForm{Link: link, Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}
+func collectionForm(link string) service.CollectionForm {
+	return service.CollectionForm{Link: link, Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}
 }
 
 // create 用链接 list/s 给第 1 季创建合集的季绑定（合集第 1 集为第 1 集），等后台的补建结束，返回创建时的详情。
-func (e *seasonEnv) create() seasonbinding.Detail {
+func (e *seasonEnv) create() service.Detail {
 	e.t.Helper()
 	d, err := e.svc.CreateCollection(e.t.Context(), 1, collectionForm("list/s"))
 	if err != nil {
@@ -112,7 +112,7 @@ func (e *seasonEnv) create() seasonbinding.Detail {
 }
 
 // createAsync 用链接 link 给第 1 季创建合集的季绑定（合集第 1 集为第 1 集），不等后台的补建，返回创建时的详情。
-func (e *seasonEnv) createAsync(link string) seasonbinding.Detail {
+func (e *seasonEnv) createAsync(link string) service.Detail {
 	e.t.Helper()
 	d, err := e.svc.CreateCollection(e.t.Context(), 1, collectionForm(link))
 	if err != nil {
@@ -130,7 +130,7 @@ func (e *seasonEnv) backfill(id int64) {
 	synctest.Wait()
 }
 
-func (e *seasonEnv) get(id int64) seasonbinding.Detail {
+func (e *seasonEnv) get(id int64) service.Detail {
 	e.t.Helper()
 	d, err := e.svc.Get(e.t.Context(), id)
 	if err != nil {
@@ -203,7 +203,7 @@ func (e *seasonEnv) folder(labels []string, slots map[int]int) int64 {
 }
 
 // states 条目表："名称 状态 集号 原因"，没有的写作 -。
-func states(d seasonbinding.Detail) []string {
+func states(d service.Detail) []string {
 	got := make([]string, len(d.Items))
 	for i, it := range d.Items {
 		episode := "-"
@@ -223,7 +223,7 @@ func states(d seasonbinding.Detail) []string {
 }
 
 // emptySlots 没有条目对到的槽位："集号 绑定标题"。
-func emptySlots(d seasonbinding.Detail) []string {
+func emptySlots(d service.Detail) []string {
 	got := make([]string, len(d.EmptySlots))
 	for i, s := range d.EmptySlots {
 		got[i] = fmt.Sprintf("%d %s", s.EpisodeNumber, s.Title)

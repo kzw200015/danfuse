@@ -1,4 +1,4 @@
-package seasonbinding
+package service
 
 import (
 	"context"
@@ -32,7 +32,7 @@ func storedInput(ctx context.Context, q *dao.Queries, sb dao.SeasonBinding) (der
 	in := derivedInput{mapping: formMapping(sb)}
 	adapter := ""
 	switch sb.Kind {
-	case kindCollection:
+	case KindCollection:
 		adapter = *sb.Adapter
 		rows, err := q.ListSeasonBindingItems(ctx, sb.ID)
 		if err != nil {
@@ -43,7 +43,7 @@ func storedInput(ctx context.Context, q *dao.Queries, sb dao.SeasonBinding) (der
 		for _, r := range rows {
 			in.errors[source.CanonicalRef(r.Ref)] = ItemError{LastError: r.LastError, LastErrorAt: r.LastErrorAt}
 		}
-	case kindFolder:
+	case KindFolder:
 		saved, err := savedEntries(ctx, q, sb.ID)
 		if err != nil {
 			return derivedInput{}, err

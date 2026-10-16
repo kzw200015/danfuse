@@ -1,4 +1,6 @@
-package seasonbinding
+// Package service 季绑定的业务层：合集与文件夹的季绑定、派生、补建与追更，文件划分见 Service 的注释。
+// HTTP 在同级的 handler 包，查询在 dao 包（sqlc）。
+package service
 
 import (
 	"context"
@@ -28,8 +30,8 @@ var (
 
 // 季绑定的种类（season_bindings.kind）。
 const (
-	kindCollection = "collection" // 合集的季绑定：按表单在后台补建出链接绑定，可以追更
-	kindFolder     = "folder"     // 文件夹的季绑定：按表单当场建出文件绑定，文件存在条目上
+	KindCollection = "collection" // 合集的季绑定：按表单在后台补建出链接绑定，可以追更
+	KindFolder     = "folder"     // 文件夹的季绑定：按表单当场建出文件绑定，文件存在条目上
 )
 
 // Service 季绑定：一季与一个合集、或一个上传的弹幕文件夹的对应关系，保存着一份表单（见 GLOSSARY），
@@ -140,9 +142,9 @@ func (s *Service) Backfill(ctx context.Context, id int64) (Detail, error) {
 		return Detail{}, err
 	}
 	switch sb.Kind {
-	case kindCollection:
+	case KindCollection:
 		err = s.trigger(ctx, id)
-	case kindFolder:
+	case KindFolder:
 		err = s.backfillFolder(ctx, sb)
 	default:
 		err = fmt.Errorf("season binding %d: unknown kind %q", id, sb.Kind)
@@ -187,7 +189,7 @@ func (s *Service) getSeasonBinding(ctx context.Context, id int64, gone error) (d
 
 // getCollection 读合集的季绑定：不存在时 404，文件夹的季绑定 400（种类不符）。种类建出后不变，在事务之外判断即可。
 func (s *Service) getCollection(ctx context.Context, id int64) (dao.SeasonBinding, error) {
-	return s.getKind(ctx, id, kindCollection, errNotCollection)
+	return s.getKind(ctx, id, KindCollection, errNotCollection)
 }
 
 // getKind 读种类为 kind 的季绑定：不存在时 404，种类不符时返回 mismatch（400）。

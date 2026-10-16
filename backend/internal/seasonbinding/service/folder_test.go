@@ -1,4 +1,4 @@
-package seasonbinding_test
+package service_test
 
 import (
 	"crypto/sha256"
@@ -10,18 +10,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 // folderForm 文件夹的表单：第 1 集为本地第 1 集，默认的集号规则。
-func folderForm() seasonbinding.FolderForm {
-	return seasonbinding.FolderForm{Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}
+func folderForm() service.FolderForm {
+	return service.FolderForm{Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}
 }
 
 // createFolder 用上传的文件给第 1 季创建文件夹的季绑定，返回详情。
-func (e *seasonEnv) createFolder(files ...bindingsvc.UploadedFile) seasonbinding.Detail {
+func (e *seasonEnv) createFolder(files ...bindingsvc.UploadedFile) service.Detail {
 	e.t.Helper()
 	d, err := e.svc.CreateFolder(e.t.Context(), 1, files, folderForm())
 	if err != nil {
@@ -57,7 +57,7 @@ func TestCreateFolder(t *testing.T) {
 }
 
 // saveFolder 保存文件夹的季绑定的表单：files 为空时不换文件夹。
-func (e *seasonEnv) saveFolder(id int64, f seasonbinding.FolderForm, files ...bindingsvc.UploadedFile) seasonbinding.Detail {
+func (e *seasonEnv) saveFolder(id int64, f service.FolderForm, files ...bindingsvc.UploadedFile) service.Detail {
 	e.t.Helper()
 	d, err := e.svc.SaveFolder(e.t.Context(), id, files, f)
 	if err != nil {
@@ -115,8 +115,8 @@ func TestSaveFolder(t *testing.T) {
 }
 
 // picked 预览时选的文件夹：各条目的名称和文件哈希取自要上传的文件，与 groupFolder 同样按路径分组。
-func picked(folder string, files ...bindingsvc.UploadedFile) *seasonbinding.PickedFolder {
-	p := &seasonbinding.PickedFolder{Folder: folder}
+func picked(folder string, files ...bindingsvc.UploadedFile) *service.PickedFolder {
+	p := &service.PickedFolder{Folder: folder}
 	index := map[string]int{}
 	for _, f := range files {
 		label := strings.TrimSuffix(strings.Split(strings.TrimPrefix(f.Name, folder+"/"), "/")[0], ".xml")
@@ -124,7 +124,7 @@ func picked(folder string, files ...bindingsvc.UploadedFile) *seasonbinding.Pick
 		if !ok {
 			i = len(p.Entries)
 			index[label] = i
-			p.Entries = append(p.Entries, seasonbinding.EntryHashes{Label: label})
+			p.Entries = append(p.Entries, service.EntryHashes{Label: label})
 		}
 		p.Entries[i].SHA256s = append(p.Entries[i].SHA256s, sha256.Sum256(f.Data))
 	}
@@ -150,7 +150,7 @@ func TestChangeFolder(t *testing.T) {
 			t.Fatalf("PreviewFolderEdit: %v", err)
 		}
 		c := p.Candidates[0]
-		testenv.AssertStrings(t, "预览的条目", states(seasonbinding.Detail{Items: c.Items}), []string{
+		testenv.AssertStrings(t, "预览的条目", states(service.Detail{Items: c.Items}), []string{
 			"星海旅人 BD / 01 keep 1", "星海旅人 BD / 02 replace 2 替换 02", "星海旅人 BD / 04 noEpisode 4",
 		})
 		testenv.AssertJSON(t, c.Removed, `[{"episodeNumber": 3, "bindingId": 3, "title": "03", "dead": false}]`)

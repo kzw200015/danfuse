@@ -1,4 +1,4 @@
-package seasonbinding
+package service
 
 import (
 	"fmt"
@@ -172,7 +172,7 @@ func (s *Service) view(sb dao.SeasonBinding, bindingCount, entryCount int32, run
 		BindingCount:    bindingCount,
 		CreatedAt:       sb.CreatedAt,
 	}
-	if sb.Kind == kindFolder {
+	if sb.Kind == KindFolder {
 		v.FolderView = &FolderView{EntryCount: entryCount}
 		return v, nil
 	}

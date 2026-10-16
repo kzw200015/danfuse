@@ -1,8 +1,10 @@
-package blockword
+// Package handler 屏蔽词的管理 API：只绑定与校验参数、调用 service、输出响应。
+package handler
 
 import (
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
@@ -10,10 +12,10 @@ import (
 
 // Handler 屏蔽词的管理 API，路由注册在 server/router.go。
 type Handler struct {
-	svc *Service
+	svc *service.Service
 }
 
-func NewHandler(svc *Service) *Handler {
+func NewHandler(svc *service.Service) *Handler {
 	return &Handler{svc: svc}
 }
 

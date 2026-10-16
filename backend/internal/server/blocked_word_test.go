@@ -6,7 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/kzw200015/danfuse/backend/internal/blockword"
+	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
+	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -16,7 +17,7 @@ import (
 func TestBlockedWords(t *testing.T) {
 	t.Parallel()
 	srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{
-		BlockedWord: blockword.NewHandler(blockword.NewService(dbtest.Pool(t))),
+		BlockedWord: blockwordhandler.NewHandler(blockwordsvc.NewService(dbtest.Pool(t))),
 	})
 
 	_, _, data := call(t, srv, http.MethodGet, "/api/blocked-words", "", http.StatusOK)

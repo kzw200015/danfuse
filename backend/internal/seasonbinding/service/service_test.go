@@ -1,4 +1,4 @@
-package seasonbinding_test
+package service_test
 
 import (
 	"encoding/json"
@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -44,10 +44,10 @@ func TestCollectionDetail(t *testing.T) {
 		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b -", "3 other -", "3 c 1"})
 
 		got := env.get(created.ID)
-		want := seasonbinding.View{
+		want := service.View{
 			ID: 1, SeasonID: 1, Kind: "collection", Title: "某番剧",
 			EpisodePatterns: source.DefaultEpisodeRule().Patterns(), MappingFrom: 1, MappingTo: 1, BindingCount: 2,
-			CollectionView: &seasonbinding.CollectionView{
+			CollectionView: &service.CollectionView{
 				Adapter: "fake", Link: "list/s", SourceURL: "https://fake.test/list/s", SourceLabel: "假合集 s",
 				Follow: true, Status: "active", LastCheckedAt: &start,
 			},

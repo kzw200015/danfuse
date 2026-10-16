@@ -1,4 +1,4 @@
-package seasonbinding
+package handler
 
 import (
 	"crypto/sha256"
@@ -12,6 +12,7 @@ import (
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 )
 
 // pickedFolderForm 文件夹的预览里选的文件夹：文件夹名与各条目的名称和文件哈希，代替文件本身。
@@ -20,7 +21,7 @@ type pickedFolderForm struct {
 	Folder  *string     `json:"folder"`
 	Entries []entryForm `json:"entries"`
 
-	picked *PickedFolder // parse 的结果，省略时为 nil
+	picked *service.PickedFolder // parse 的结果，省略时为 nil
 }
 
 type entryForm struct {
@@ -44,7 +45,7 @@ func (f *pickedFolderForm) parse(required bool) error {
 	if folder == "" || len(f.Entries) == 0 {
 		return request.InvalidParam("请选择弹幕文件夹")
 	}
-	p := &PickedFolder{Folder: folder, Entries: make([]EntryHashes, len(f.Entries))}
+	p := &service.PickedFolder{Folder: folder, Entries: make([]service.EntryHashes, len(f.Entries))}
 	labels := make(map[string]bool, len(f.Entries))
 	for i, e := range f.Entries {
 		switch {
@@ -56,7 +57,7 @@ func (f *pickedFolderForm) parse(required bool) error {
 			return request.InvalidParam(fmt.Sprintf("条目「%s」没有文件", e.Label))
 		}
 		labels[e.Label] = true
-		p.Entries[i] = EntryHashes{Label: e.Label, SHA256s: make([][sha256.Size]byte, len(e.SHA256s))}
+		p.Entries[i] = service.EntryHashes{Label: e.Label, SHA256s: make([][sha256.Size]byte, len(e.SHA256s))}
 		for j, s := range e.SHA256s {
 			sum, err := hex.DecodeString(s)
 			if err != nil || len(sum) != sha256.Size {
@@ -92,7 +93,7 @@ func (h *Handler) PreviewNewFolder(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	preview, err := h.svc.PreviewNewFolder(c.Request().Context(), req.SeasonID, *req.picked, FolderForm{Mapping: req.mapping, Rule: req.rule})
+	preview, err := h.svc.PreviewNewFolder(c.Request().Context(), req.SeasonID, *req.picked, service.FolderForm{Mapping: req.mapping, Rule: req.rule})
 	if err != nil {
 		return err
 	}
@@ -122,7 +123,7 @@ func (h *Handler) PreviewFolderEdit(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	preview, err := h.svc.PreviewFolderEdit(c.Request().Context(), req.ID, req.picked, FolderForm{Mapping: req.mapping, Rule: req.rule})
+	preview, err := h.svc.PreviewFolderEdit(c.Request().Context(), req.ID, req.picked, service.FolderForm{Mapping: req.mapping, Rule: req.rule})
 	if err != nil {
 		return err
 	}
@@ -130,15 +131,15 @@ func (h *Handler) PreviewFolderEdit(c *echo.Context) error {
 }
 
 // parseFolderForm 文件夹的 multipart 里的 form 字段：集号规则与集号对应的 JSON {episodePatterns, mappingFrom, mappingTo}。
-func parseFolderForm(form string) (FolderForm, error) {
+func parseFolderForm(form string) (service.FolderForm, error) {
 	var rules ruleForm
 	if err := json.Unmarshal([]byte(form), &rules); err != nil {
-		return FolderForm{}, request.InvalidParam("表单格式不对，请刷新页面后重试")
+		return service.FolderForm{}, request.InvalidParam("表单格式不对，请刷新页面后重试")
 	}
 	if err := rules.parse(); err != nil {
-		return FolderForm{}, err
+		return service.FolderForm{}, err
 	}
-	return FolderForm{Mapping: rules.mapping, Rule: rules.rule}, nil
+	return service.FolderForm{Mapping: rules.mapping, Rule: rules.rule}, nil
 }
 
 // createFolderRequest multipart 里除文件以外的字段。
@@ -146,7 +147,7 @@ type createFolderRequest struct {
 	SeasonID int64  `param:"id"`
 	Form     string `form:"form"` // 见 parseFolderForm
 
-	form FolderForm
+	form service.FolderForm
 }
 
 func (r *createFolderRequest) Validate() error {
@@ -182,7 +183,7 @@ type saveFolderRequest struct {
 	ID   int64  `param:"id"`
 	Form string `form:"form"` // 见 parseFolderForm
 
-	form FolderForm
+	form service.FolderForm
 }
 
 func (r *saveFolderRequest) Validate() error {

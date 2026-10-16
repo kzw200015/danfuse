@@ -1,4 +1,4 @@
-package seasonbinding
+package handler
 
 import (
 	"strings"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 )
 
 // collectionForm 合集的表单（和预览）：贴的链接、选的候选，加上集号规则与集号对应。嵌进各自的请求结构体，在 Validate 里调用 parse。
@@ -27,8 +28,8 @@ func (f *collectionForm) parse() error {
 }
 
 // form 交给 service 的表单，parse 之后调用。
-func (f *collectionForm) form() CollectionForm {
-	return CollectionForm{Link: f.Link, CollectionKind: f.CollectionKind, Mapping: f.mapping, Rule: f.rule}
+func (f *collectionForm) form() service.CollectionForm {
+	return service.CollectionForm{Link: f.Link, CollectionKind: f.CollectionKind, Mapping: f.mapping, Rule: f.rule}
 }
 
 type previewNewCollectionRequest struct {

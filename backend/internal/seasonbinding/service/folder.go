@@ -1,4 +1,4 @@
-package seasonbinding
+package service
 
 import (
 	"context"
@@ -200,7 +200,7 @@ func folderPreview(title string, r Result, current bool) Preview {
 
 // getFolder 读文件夹的季绑定：不存在时 404，合集的季绑定 400（种类不符）。
 func (s *Service) getFolder(ctx context.Context, id int64) (dao.SeasonBinding, error) {
-	return s.getKind(ctx, id, kindFolder, errNotFolder)
+	return s.getKind(ctx, id, KindFolder, errNotFolder)
 }
 
 // folderResult 一次写入建出、替换、删除的槽位数，记进日志。

@@ -19,7 +19,7 @@ import (
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 )
 
 var (
@@ -37,12 +37,12 @@ var (
 type Service struct {
 	pool           *pgxpool.Pool
 	q              *dao.Queries
-	catalogSource  Source                 // 剧详情里跳回目录源的链接；未配置目录源时为 nil
-	bindings       *bindingsvc.Service    // 剧详情里各集的绑定
-	seasonBindings *seasonbinding.Service // 剧详情里各季的季绑定
+	catalogSource  Source                    // 剧详情里跳回目录源的链接；未配置目录源时为 nil
+	bindings       *bindingsvc.Service       // 剧详情里各集的绑定
+	seasonBindings *seasonbindingsvc.Service // 剧详情里各季的季绑定
 }
 
-func NewService(pool *pgxpool.Pool, catalogSource Source, bindings *bindingsvc.Service, seasonBindings *seasonbinding.Service) *Service {
+func NewService(pool *pgxpool.Pool, catalogSource Source, bindings *bindingsvc.Service, seasonBindings *seasonbindingsvc.Service) *Service {
 	return &Service{pool: pool, q: dao.New(pool), catalogSource: catalogSource, bindings: bindings, seasonBindings: seasonBindings}
 }
 
@@ -75,11 +75,11 @@ type SourceLink struct {
 }
 
 type SeasonDetail struct {
-	ID             int64                `json:"id"`
-	Number         int32                `json:"number"`
-	Title          *string              `json:"title"`
-	SeasonBindings []seasonbinding.View `json:"seasonBindings"` // 按创建顺序，不含条目表
-	Episodes       []EpisodeDetail      `json:"episodes"`
+	ID             int64                   `json:"id"`
+	Number         int32                   `json:"number"`
+	Title          *string                 `json:"title"`
+	SeasonBindings []seasonbindingsvc.View `json:"seasonBindings"` // 按创建顺序，不含条目表
+	Episodes       []EpisodeDetail         `json:"episodes"`
 }
 
 type EpisodeDetail struct {
@@ -138,7 +138,7 @@ func (s *Service) GetSeries(ctx context.Context, id int64) (SeriesDetail, error)
 			ID:             se.ID,
 			Number:         se.Number,
 			Title:          se.Title,
-			SeasonBindings: append([]seasonbinding.View{}, seasonBindings[se.ID]...), // 没有季绑定时输出 []
+			SeasonBindings: append([]seasonbindingsvc.View{}, seasonBindings[se.ID]...), // 没有季绑定时输出 []
 			Episodes:       []EpisodeDetail{},
 		}
 		seasonIndex[se.ID] = i

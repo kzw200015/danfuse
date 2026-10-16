@@ -1,4 +1,4 @@
-package seasonbinding_test
+package service_test
 
 import (
 	"net/http"
@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -138,8 +138,8 @@ func TestCreateCollectionSeasonDeleted(t *testing.T) {
 }
 
 // candidateStates 预览的一组里的条目，写法同 states。
-func candidateStates(c seasonbinding.Candidate) []string {
-	return states(seasonbinding.Detail{Items: c.Items})
+func candidateStates(c service.Candidate) []string {
+	return states(service.Detail{Items: c.Items})
 }
 
 // TestPreviewNewCollection 新建的预览：每个候选各一组，按请求里的集号规则、集号对应派生；集上已有同一个弹幕源的手动绑定为"已有同源绑定"。
@@ -169,7 +169,7 @@ func TestPreviewNewCollection(t *testing.T) {
 			testenv.AssertStrings(t, "条目", candidateStates(c), []string{
 				"z beforeStart -", "a create 1", "b alreadyBound 2", "sp unmatched - 集号「SP」不是整数", "e noEpisode 5",
 			})
-			if want := (seasonbinding.Summary{Create: 1}); c.Summary != want {
+			if want := (service.Summary{Create: 1}); c.Summary != want {
 				t.Errorf("汇总 = %+v, want %+v", c.Summary, want)
 			}
 		}
@@ -183,8 +183,8 @@ func TestPreviewNewCollection(t *testing.T) {
 }
 
 // removedSlots 预览的一组里保存后删除的槽位，写法同 emptySlots。
-func removedSlots(c seasonbinding.Candidate) []string {
-	return emptySlots(seasonbinding.Detail{EmptySlots: c.Removed})
+func removedSlots(c service.Candidate) []string {
+	return emptySlots(service.Detail{EmptySlots: c.Removed})
 }
 
 // TestPreviewCollectionEdit 编辑的预览：按这次列出的结果与季绑定的槽位比较，标出保存的候选；
@@ -212,7 +212,7 @@ func TestPreviewCollectionEdit(t *testing.T) {
 		c := p.Candidates[1]
 		testenv.AssertStrings(t, "条目", candidateStates(c), []string{"a keep 1", "x replace 2 替换 弹幕源 b"})
 		testenv.AssertStrings(t, "保存后删除", removedSlots(c), []string{"3 弹幕源 c"})
-		if want := (seasonbinding.Summary{Replace: 1, Remove: 1, Keep: 1}); c.Summary != want {
+		if want := (service.Summary{Replace: 1, Remove: 1, Keep: 1}); c.Summary != want {
 			t.Errorf("汇总 = %+v, want %+v", c.Summary, want)
 		}
 		testenv.AssertStrings(t, "绑定", env.bindings(), []string{"1 a 1", "2 b 1", "3 c 1"})

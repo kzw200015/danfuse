@@ -1,4 +1,4 @@
-package seasonbinding_test
+package service_test
 
 import (
 	"errors"

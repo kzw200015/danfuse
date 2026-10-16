@@ -24,13 +24,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
-	"github.com/kzw200015/danfuse/backend/internal/blockword"
+	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -38,9 +38,9 @@ import (
 // 要它们时测试自己构造、用 RunInBackground 运行。
 type Env struct {
 	Bindings       *bindingsvc.Service
-	SeasonBindings *seasonbinding.Service // 追更的时间规则取配置项的默认值
+	SeasonBindings *seasonbindingsvc.Service // 追更的时间规则取配置项的默认值
 	Catalog        *catalog.Service
-	BlockedWords   *blockword.Service
+	BlockedWords   *blockwordsvc.Service
 	Dandan         *dandan.Service
 }
 
@@ -48,8 +48,8 @@ type Env struct {
 func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *Env {
 	sources := source.NewRegistry(adapters...)
 	bindings := bindingsvc.NewService(pool, sources, logger)
-	seasonBindings := seasonbinding.NewService(pool, sources, bindings, config.Defaults().Follow, logger)
-	blockedWords := blockword.NewService(pool)
+	seasonBindings := seasonbindingsvc.NewService(pool, sources, bindings, config.Defaults().Follow, logger)
+	blockedWords := blockwordsvc.NewService(pool)
 	return &Env{
 		Bindings:       bindings,
 		SeasonBindings: seasonBindings,

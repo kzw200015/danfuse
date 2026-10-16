@@ -25,7 +25,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
-	"github.com/kzw200015/danfuse/backend/internal/blockword"
+	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/dandan/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/fulltext"
@@ -36,11 +36,11 @@ import (
 // 返回的是系统内部的结构，不是弹弹play 的 JSON：协议参数的转换与格式化归 handler。
 type Service struct {
 	q            *dao.Queries
-	bindings     *bindingsvc.Service // 一集各绑定的弹幕
-	blockedWords *blockword.Service  // 取弹幕时要去掉的屏蔽词
+	bindings     *bindingsvc.Service   // 一集各绑定的弹幕
+	blockedWords *blockwordsvc.Service // 取弹幕时要去掉的屏蔽词
 }
 
-func NewService(pool *pgxpool.Pool, bindings *bindingsvc.Service, blockedWords *blockword.Service) *Service {
+func NewService(pool *pgxpool.Pool, bindings *bindingsvc.Service, blockedWords *blockwordsvc.Service) *Service {
 	return &Service{q: dao.New(pool), bindings: bindings, blockedWords: blockedWords}
 }
 

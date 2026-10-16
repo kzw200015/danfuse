@@ -1,4 +1,5 @@
-package seasonbinding
+// Package handler 季绑定的管理 API：只绑定与校验参数（表单、上传的文件夹）、调用 service、输出响应。
+package handler
 
 import (
 	"strings"
@@ -8,17 +9,18 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 // Handler 季绑定的管理 API，路由注册在 server/router.go。两种季绑定共用的（详情、开关追更、立即补建、删除）在这里，
-// 合集的在 collection_handler.go，文件夹的在 folder_handler.go。
+// 合集的在 collection.go，文件夹的在 folder.go。
 type Handler struct {
-	svc    *Service
+	svc    *service.Service
 	upload config.DanmakuFile // 一次上传弹幕文件的上限，上传文件夹用其中按季的那组
 }
 
-func NewHandler(svc *Service, upload config.DanmakuFile) *Handler {
+func NewHandler(svc *service.Service, upload config.DanmakuFile) *Handler {
 	return &Handler{svc: svc, upload: upload}
 }
 
@@ -137,7 +139,7 @@ func (h *Handler) Backfill(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if detail.Kind == kindCollection {
+	if detail.Kind == service.KindCollection {
 		return response.Accepted(c, detail)
 	}
 	return response.OK(c, detail)

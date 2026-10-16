@@ -1,11 +1,11 @@
-package blockword_test
+package service_test
 
 import (
 	"net/http"
 	"slices"
 	"testing"
 
-	"github.com/kzw200015/danfuse/backend/internal/blockword"
+	"github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -14,7 +14,7 @@ import (
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // describe 把屏蔽词写成 "类型 内容"，便于整体比较。
-func describe(words []blockword.BlockedWord) []string {
+func describe(words []service.BlockedWord) []string {
 	got := make([]string, len(words))
 	for i, w := range words {
 		got[i] = string(w.Kind) + " " + w.Pattern
@@ -24,7 +24,7 @@ func describe(words []blockword.BlockedWord) []string {
 
 func TestCreateListDelete(t *testing.T) {
 	t.Parallel()
-	svc := blockword.NewService(dbtest.Pool(t))
+	svc := service.NewService(dbtest.Pool(t))
 	ctx := t.Context()
 
 	var ids []int64

@@ -11,13 +11,16 @@ import (
 
 	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
-	"github.com/kzw200015/danfuse/backend/internal/blockword"
+	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
+	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
-	"github.com/kzw200015/danfuse/backend/internal/health"
+	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
+	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
+	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/server"
 	"github.com/kzw200015/danfuse/backend/internal/settings"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -46,20 +49,20 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 
 	bindings := bindingsvc.NewService(pool, sources, logger)
 	scheduledFetch := bindingsvc.NewScheduledFetchService(pool, bindings, cfg.ScheduledFetch, logger)
-	seasonBindings := seasonbinding.NewService(pool, sources, bindings, cfg.Follow, logger)
+	seasonBindings := seasonbindingsvc.NewService(pool, sources, bindings, cfg.Follow, logger)
 	catalogs := catalog.NewService(pool, catalogSource, bindings, seasonBindings)
 	syncs := catalog.NewSyncService(pool, catalogSource, cfg.Sync, logger)
-	blockedWords := blockword.NewService(pool)
+	blockedWords := blockwordsvc.NewService(pool)
 	dandans := dandan.NewService(pool, bindings, blockedWords)
 
 	handlers := &server.Handlers{
-		Health:        health.NewHandler(health.NewService(pool)),
+		Health:        healthhandler.NewHandler(healthsvc.NewService(pool)),
 		Settings:      settings.NewHandler(cfg),
 		Catalog:       catalog.NewHandler(catalogs),
 		Sync:          catalog.NewSyncHandler(syncs),
 		Binding:       bindinghandler.NewHandler(bindings, cfg.DanmakuFile),
-		SeasonBinding: seasonbinding.NewHandler(seasonBindings, cfg.DanmakuFile),
-		BlockedWord:   blockword.NewHandler(blockedWords),
+		SeasonBinding: seasonbindinghandler.NewHandler(seasonBindings, cfg.DanmakuFile),
+		BlockedWord:   blockwordhandler.NewHandler(blockedWords),
 		Dandan:        dandan.NewHandler(dandans),
 	}
 	return &App{

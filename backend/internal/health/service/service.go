@@ -1,5 +1,5 @@
-// Package health 健康检查（GET /api/health）：服务能连上数据库即为健康。
-package health
+// Package service 健康检查（GET /api/health）：服务能连上数据库即为健康。
+package service
 
 import (
 	"context"

@@ -1,6 +1,6 @@
-// Package blockword 屏蔽词：全局规则，弹弹 API 输出一集的弹幕时去掉正文命中的，保存的弹幕不受影响。
+// Package service 屏蔽词的业务层。屏蔽词：全局规则，弹弹 API 输出一集的弹幕时去掉正文命中的，保存的弹幕不受影响。
 // 匹配规则在 danmaku 包（danmaku.BlockedWord、danmaku.Blocklist），这里只管保存与增删。
-package blockword
+package service
 
 import (
 	"context"

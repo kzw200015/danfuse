@@ -1,4 +1,4 @@
-package seasonbinding
+package service
 
 import (
 	"context"
