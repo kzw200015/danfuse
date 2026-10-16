@@ -6,10 +6,11 @@
 
 - 实现接口的类型（包括测试里的假实现）在类型定义旁边写编译期断言 `var _ catalog.Source = (*Source)(nil)`。只嵌入接口、不实现方法的假类型（如 `platformAdapter`）不写。
 - 业务代码只依赖领域包的接口，不对适配器做类型断言；绑定、合集的 ref 只交给适配器解析，原始 ref 不出现在 JSON 输出里。
-- 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`），领域内分 `handler/`、`service/`、`dao/` 三个子包：handler 只绑定与校验参数、调用本领域的 `Service`、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `dao`；service 不碰 HTTP（echo、`httpx/request`、`httpx/response`），出错返回 `apierr`。
-- 领域之间只调用对方 `Service` 的方法，不引用对方的 `dao`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateLinkSlotInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
+- 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`），领域内分 `handler/`、`service/`、`dao/` 三个子包：handler 只绑定与校验参数、调用本领域的 `Service`（depguard 的 `xxx-service` 规则守着）、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `dao`；service 不碰 HTTP（echo、`httpx/request`、`httpx/response`），出错返回 `apierr`。
+- 领域之间只调用对方 `Service` 的方法，不引用对方的 `dao`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。每张表只由一个领域写入，别的领域只读（删剧、删季时外键级联删掉的行除外）：catalog 写 `series`、`seasons`、`episodes`、`images`、`sync_runs`；seasonbinding 写 `season_bindings`、`season_binding_items`、`season_binding_entries`、`season_binding_entry_files`；binding 写 `bindings`、`danmaku`、`binding_files`；blockword 写 `blocked_words`；dandan 只读；`leases` 由 `infra/database` 写。新增表时写明归属。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateLinkSlotInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
 - 适配器（如 `catalog/jellyfin`、`source/bilibili`）、catalog 的根包（目录源接口与交换类型）和纯计算包（`source`、`danmaku`、`danmakufile`、`fulltext`、`naming`）只放接口、类型、纯计算与外部适配，不访问数据库。
-- 基础设施在 `internal/infra/`（config、database、logger、httpx、background），不依赖业务包。
+- 基础设施在 `internal/infra/`（config、database、logger、httpx、background，测试用的 testutil），不依赖业务包；`background` 不碰 HTTP，给用户的错误由调用它的 service 转换。
+- service 返回自己定义的视图类型，不把 sqlc 生成的行类型直接交给 handler 输出：JSON 的形状不随查询的列变化。字段与行一一对应时用结构体类型转换（`SyncRun(row)`），dao 的字段变了会编译失败。
 - `handler/routes.go` 是 handler 包的入口（包文档、`Handler`、构造、`Register`），`service/service.go` 只放骨架（包文档并列出各文件管什么、`Service`、构造、包内共用的错误与取/锁）；其余文件都是并列的功能，文件名就是领域里的概念（不分种类的操作也起一个与其他种类并列的名字，如 `season_binding.go`、`binding.go`），不拆到十几行一个文件；handler 与 service 里同一功能的文件同名，请求结构挨着用它的接口，测试为 `<功能>_test.go`。handler 只用 service 导出的 API，需要 service 里的常量时导出它（如季绑定的种类 `KindCollection`）。只被一个测试文件用的辅助函数放在那个测试文件里，多个测试文件共用的放 `helpers_test.go`。
 - `app.New` 和各构造函数只构造对象，不做 IO、不连外部系统。新增 service 在 `app.New` 构造，handler 还要加进 `server.Handlers`。
 - `dao/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.txt` 一起更新）。已推到 main 的迁移文件不再修改。
@@ -48,7 +49,7 @@
 
 ## 测试
 
-- 后端 service 的测试写在领域包里（`package xxx_test`），用真实数据库加假适配器，不替换数据库访问，共用的辅助函数和假适配器在 `internal/testenv`；涉及后台 goroutine、定时器的用 synctest 气泡和假时间，不靠 sleep。写法见 `docs/architecture/testing.md`。
+- 后端 service 的测试写在领域的 service 包里（`package service_test`），用真实数据库加假适配器，不替换数据库访问，组装各领域的 service 与假适配器在 `internal/testenv`，与业务无关的断言在 `internal/infra/testutil`；涉及后台 goroutine、定时器的用 synctest 气泡和假时间，不靠 sleep。写法见 `docs/architecture/testing.md`。
 - 外部系统适配器的测试只回放 `testdata/` 里的样本，不联网。
 
 ## 文档

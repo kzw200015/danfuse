@@ -8,17 +8,18 @@
 
 - 数据库测试用真实的 PostgreSQL，基座是 `internal/infra/database/dbtest`：测试包的 `TestMain` 里调用 `dbtest.Main(m)`（testcontainers 起一个 `postgres:18` 容器，跑一次迁移作为模板库），测试里 `pool := dbtest.Pool(t)` 拿到从模板复制出的独立库，测试之间互不干扰，可以 `t.Parallel()`。
 - `-short` 时 `dbtest.Pool` 跳过当前测试。要在别处创建连接池时（例如 synctest 的气泡里），先在外面用 `dbtest.Config(t)` 建好库、登记删库，拿到连接配置，再用 `dbtest.Open(t, cfg)` 新建连接池。
-- `internal/testenv` 是各领域的测试共用的环境：`testenv.New(pool, logger, adapters...)` 按 `app.New` 的依赖关系组装各领域的 service（后台循环不运行；目录源是一个空的 `FakeCatalog`，剧详情的链接是 `https://catalog.test/<目录源 ID>`），另有准备数据和断言的辅助函数（`SeedEpisodes`、`QueryInt`、`AssertAppError`、`AssertJSON` 等，弹幕文件的 `XMLFile`、两份快照 `Snapshot1`/`Snapshot2` 和 `FileNames`）、假目录源 `FakeCatalog`（连同 `StartSync`、`SyncOnce`）和有合集的假源适配器 `FakeCollector`。
+- `internal/testenv` 是各领域的测试共用的环境：`testenv.New(pool, logger, adapters...)` 按 `app.New` 的依赖关系组装各领域的 service（后台循环不运行；目录源是一个空的 `FakeCatalog`，剧详情的链接是 `https://catalog.test/<目录源 ID>`），另有准备数据的辅助函数（`SeedEpisodes`、`QueryInt` 等，弹幕文件的 `XMLFile`、两份快照 `Snapshot1`/`Snapshot2` 和 `FileNames`）、假目录源 `FakeCatalog`（连同 `StartSync`、`SyncOnce`）和有合集的假源适配器 `FakeCollector`。
+- 与业务无关的断言在 `internal/infra/testutil`（`AssertJSON` 按语义比较 JSON、`AssertStrings`、`AssertAppError`），infra 自己的测试也用它，不经过 testenv。
 
 ### HTTP
 
 - 在 `server` 包内用 `New(...)` 组装完整的 Echo，经 `httptest` 发请求；要换掉托管的前端文件时用 `newServer(..., fstest.MapFS{...})`。
-- 共用的辅助函数在 `server_test.go`：`call` 发请求并解出统一响应，`assertAPIErrors` 逐条检查失败请求的状态码和提示，`popTime` 取走取决于当前时间的字段，`decodeLogEntry` 解出 5xx 日志；handler 连的 service 用 `testenv.New` 组装，按语义比较 JSON 用 `testenv.AssertJSON`。
+- 共用的辅助函数在 `server_test.go`：`call` 发请求并解出统一响应，`assertAPIErrors` 逐条检查失败请求的状态码和提示，`popTime` 取走取决于当前时间的字段，`decodeLogEntry` 解出 5xx 日志；handler 连的 service 用 `testenv.New` 组装，按语义比较 JSON 用 `testutil.AssertJSON`；`complete` 把测试没用到的 handler 补成 service 为 nil 的（只为注册路由，不请求它们），所以每个测试只组装自己要请求的 handler。
 - HTTP 测试只管路由、参数绑定与校验、状态码、响应结构和错误映射；业务规则（级联删除、计数、状态变化、进度）由 service 的测试覆盖，不在这里重复。
 
 ### service
 
-- service 的测试写在领域包里，是外部测试包（`package binding_test`），只经导出的 API 测试；少数要碰内部的（扫描间隔、定时同步的入口）由同一个包里的 `export_test.go` 导出。
+- service 的测试写在领域包里，是外部测试包（`package service_test`），只经导出的 API 测试；少数要碰内部的（扫描间隔、定时同步的入口）由同一个包里的 `export_test.go` 导出。
 - 只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`、`source.Adapter`），不替换数据库访问。
 - 并发用例让假适配器停在 channel 上（例如 `binding/service/helpers_test.go` 的 `fakeAdapter` 在 `started` 上报到、等 `release` 放行），期间直接执行 SQL（删除集等），再放行。
 - `testenv.AssertInvariants` 检查约束表达不了的不变量，约束能守住的不在这里重复：
