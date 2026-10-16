@@ -74,3 +74,16 @@ func (h *Handler) Match(c *echo.Context) error {
 	logRequest(c, start, "dandanplay match", attrs...)
 	return c.JSON(http.StatusOK, resp)
 }
+
+// toMatchResult 一季里的一集转成 match 的候选：作品的名称、类型与搜索结果相同，集标题与 search/episodes 相同。
+func toMatchResult(s Season, e Episode) matchResult {
+	typ, description := typeOf(s)
+	return matchResult{
+		EpisodeID:       e.ID,
+		AnimeID:         s.ID,
+		AnimeTitle:      s.Name,
+		EpisodeTitle:    episodeTitle(e),
+		Type:            typ,
+		TypeDescription: description,
+	}
+}

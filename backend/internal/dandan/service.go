@@ -1,3 +1,17 @@
+// Package dandan 弹弹 API：播放器（例如 jellyfin-danmaku 插件）把 danfuse 当作弹弹play 服务器，按弹弹play 协议的语义调用。
+// 实现了从识别、搜索到取弹幕的接口：match 按文件名识别到集；search/episodes 一步搜到季和集，
+// search/anime 搜到季再用 bangumi 取集；comment 取弹幕。
+// Handler 只做协议参数的转换和响应的格式化（type、typeDescription、"第N话"、p、cid、平台前缀），
+// 识别、搜索、取季与取弹幕交给 Service（service.go）；名称里的季号、集号怎么认，见 naming.Parse。
+// 每个接口一个文件：请求与响应的结构、转换成协议结构的函数和 handler 都在 xxx_handler.go（search、bangumi、comment、match），
+// 各接口共用的（响应的公共字段、季的类型、日志、错误应答）和 related 在 handler.go。
+//
+// 它是统一响应约定的例外：响应按官方 Swagger 的结构输出，不用 response 包的统一响应。handler 自己把错误转成弹弹play 的
+// 结构返回 500，不交给全局 errorHandler，并用 response.LogServerError 按同样的字段记一条日志；
+// 前缀下路由不匹配的 404、405 仍走全局处理。
+// 官方的鉴权头（X-AppId、X-Signature 这类）一律忽略，访问控制只靠路径里的 token。
+//
+// 除 related 外，每次请求成功应答后记一条 info 日志（logRequest），用来评估识别、搜索的效果和取弹幕的情况。
 package dandan
 
 import (
