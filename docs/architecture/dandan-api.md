@@ -21,7 +21,7 @@
 
 ## 路由
 
-在 `internal/server/router.go` 的 `registerDandanRoutes` 里注册：
+在 `internal/dandan/handler/routes.go` 的 `Register` 里注册（token 经 `NewHandler` 传入）：
 
 - 配置了 `dandanplay.token` 时前缀注册为 `/dandanplay/:token/api/v2`，由组中间件常数时间比较 token，不对时 404（5xx 日志里记的路由模式因此不含 token）。
 - CORS（带 Origin 的请求回 `Access-Control-Allow-Origin: *`，允许 GET、POST（`match`），预检回显请求头）与 Gzip 只挂在这个路由组上，管理 API 不加。

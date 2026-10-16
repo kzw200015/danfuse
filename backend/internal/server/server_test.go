@@ -143,7 +143,7 @@ func TestHealth(t *testing.T) {
 			if tt.dbDown {
 				pool.Close()
 			}
-			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{Health: healthhandler.NewHandler(healthsvc.NewService(pool))})
+			srv := New(config.Server{}, slog.New(slog.DiscardHandler), &Handlers{Health: healthhandler.NewHandler(healthsvc.NewService(pool))})
 
 			rec := serve(t, srv, http.MethodGet, "/api/health", "")
 

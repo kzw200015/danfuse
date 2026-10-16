@@ -10,7 +10,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
-// Handler 屏蔽词的管理 API，路由注册在 server/router.go。
+// Handler 屏蔽词的管理 API，路由见同包的 routes.go。
 type Handler struct {
 	svc *service.Service
 }

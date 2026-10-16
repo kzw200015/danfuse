@@ -73,7 +73,7 @@ func TestSettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{
+			srv := New(config.Server{}, slog.New(slog.DiscardHandler), &Handlers{
 				Settings: settingshandler.NewHandler(&config.Config{
 					Dandanplay: tt.dandanplay, CatalogSource: tt.source, Sync: tt.sync, Follow: defaults.Follow, ScheduledFetch: defaults.ScheduledFetch, Bilibili: tt.bilibili,
 				}),

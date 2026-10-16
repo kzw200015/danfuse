@@ -80,7 +80,7 @@ func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.P
 	env := testenv.New(pool, logger, fakeAdapter{})
 	testenv.RunInBackground(t, env.SeasonBindings)
 
-	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
+	return New(config.Server{}, logger, &Handlers{
 		Catalog:       cataloghandler.NewHandler(env.Catalog),
 		Binding:       bindinghandler.NewHandler(env.Bindings, uploadLimits),
 		SeasonBinding: seasonbindinghandler.NewHandler(env.SeasonBindings, uploadLimits),

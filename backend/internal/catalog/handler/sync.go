@@ -8,7 +8,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
-// SyncHandler 同步的管理 API：触发同步、同步记录，路由注册在 server/router.go。
+// SyncHandler 同步的管理 API：触发同步、同步记录，路由见同包的 routes.go。
 type SyncHandler struct {
 	svc *service.SyncService
 }

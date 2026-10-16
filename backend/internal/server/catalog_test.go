@@ -24,7 +24,7 @@ var uploadLimits = config.DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 
 func catalogServer(pool *pgxpool.Pool) *Server {
 	logger := slog.New(slog.DiscardHandler)
 	env := testenv.New(pool, logger, fakeAdapter{})
-	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
+	return New(config.Server{}, logger, &Handlers{
 		Catalog:       cataloghandler.NewHandler(env.Catalog),
 		Binding:       bindinghandler.NewHandler(env.Bindings, uploadLimits),
 		SeasonBinding: seasonbindinghandler.NewHandler(env.SeasonBindings, uploadLimits),

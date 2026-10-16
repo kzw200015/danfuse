@@ -35,7 +35,7 @@
 
 ## handler 与配置
 
-- 请求结构体用 `param`/`query`/`json` tag，实现 `Validate() error`（可在其中 trim、填默认值，把参数解析、整理成 service 要的形状放进未导出字段，例如解析集号规则；只看请求本身就能判断的格式校验都放这里，要查库或属于业务规则的放 service），通过 `request.Bind[xxxRequest](c)` 绑定加校验；校验失败用 `request.InvalidParam("提示语")`。路由在 `internal/server/router.go` 的 `/api` 分组下注册。
+- 请求结构体用 `param`/`query`/`json` tag，实现 `Validate() error`（可在其中 trim、填默认值，把参数解析、整理成 service 要的形状放进未导出字段，例如解析集号规则；只看请求本身就能判断的格式校验都放这里，要查库或属于业务规则的放 service），通过 `request.Bind[xxxRequest](c)` 绑定加校验；校验失败用 `request.InvalidParam("提示语")`。路由在领域 handler 包的 `routes.go` 里注册：`func (h *Handler) Register(api *echo.Group)`，挂在 `/api` 分组下。
 - 新增配置项在 `internal/infra/config` 的 `setDefaults` 里登记默认值（否则环境变量覆盖不生效），同时更新 `config.example.yaml` 和 README 的配置项表，需要时还有 `compose.yaml`。
 
 ## 前端

@@ -66,10 +66,10 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Binding:       bindinghandler.NewHandler(bindings, cfg.DanmakuFile),
 		SeasonBinding: seasonbindinghandler.NewHandler(seasonBindings, cfg.DanmakuFile),
 		BlockedWord:   blockwordhandler.NewHandler(blockedWords),
-		Dandan:        dandanhandler.NewHandler(dandans),
+		Dandan:        dandanhandler.NewHandler(dandans, cfg.Dandanplay),
 	}
 	return &App{
-		server:     server.New(cfg.Server, cfg.Dandanplay, logger, handlers),
+		server:     server.New(cfg.Server, logger, handlers),
 		background: []backgroundRunner{syncs, seasonBindings, scheduledFetch},
 	}
 }

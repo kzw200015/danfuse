@@ -23,6 +23,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/dandan/service"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
@@ -34,10 +35,11 @@ const (
 
 type Handler struct {
 	svc *service.Service
+	cfg config.Dandanplay // 路径里的 token，见 Register
 }
 
-func NewHandler(svc *service.Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *service.Service, cfg config.Dandanplay) *Handler {
+	return &Handler{svc: svc, cfg: cfg}
 }
 
 // responseBase 弹弹play 除弹幕列表外各接口响应的公共字段（ResponseBase）。

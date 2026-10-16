@@ -13,7 +13,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// Handler 季绑定的管理 API，路由注册在 server/router.go。两种季绑定共用的（详情、开关追更、立即补建、删除）在这里，
+// Handler 季绑定的管理 API，路由见同包的 routes.go。两种季绑定共用的（详情、开关追更、立即补建、删除）在这里，
 // 合集的在 collection.go，文件夹的在 folder.go。
 type Handler struct {
 	svc    *service.Service
