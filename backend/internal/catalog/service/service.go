@@ -1,5 +1,5 @@
 // Package service 目录的业务层。
-//   - service.go：Service 与错误；browse.go：剧列表与剧详情；image.go：取海报；delete.go：删除剧、季、集；
+//   - service.go：Service 与错误；series.go：剧、季、集的浏览（剧列表、剧详情）、删除与海报；
 //   - search.go：季的搜索列；
 //   - sync.go：同步的调度（后台循环、手动触发、租约、同步记录）；sync_write.go：按剧把目录源给的数据写进目录。
 //

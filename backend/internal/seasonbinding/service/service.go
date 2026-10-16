@@ -37,9 +37,8 @@ const (
 // 各集的绑定一律按表单建出，放在季绑定在那一集的槽位里（binding.Service 的 XxxSlotInTx）。
 // 每个条目按集号对应落到哪一集、槽位要新建还是替换，都由派生函数 Derive 算出，输入的组装见 derive_input.go。
 //
-// 文件划分：service.go 是 Service、错误与共用的取、锁；两种共用的操作按功能分在 detail.go（详情、剧详情里的列表）、
-// follow.go（开关追更）、delete.go（删除），按种类分派的立即补建在 backfill.go；
-// collection.go、backfill.go 是合集（列出、创建、后台补建与追更），folder.go 是文件夹；派生在 derive.go（纯计算）与 derive_input.go（组装输入）；JSON 的形状在 view.go。
+// 文件划分：service.go 是 Service、错误与共用的取、锁；season_binding.go 是不分种类的操作（详情、剧详情里的列表、开关追更、
+// 按种类分派的立即补建、删除）；collection.go、backfill.go 是合集（列出、创建、后台补建与追更），folder.go 是文件夹；派生在 derive.go（纯计算）与 derive_input.go（组装输入）；JSON 的形状在 view.go。
 //
 // 后台补建的生命周期同同步（catalog.SyncService）：App.Run 运行 Run(ctx)（循环是 background.Loop），补建都用 Run 的 ctx，
 // 不用 HTTP 请求的 ctx；ctx 取消时进行中的扫描和补建停下，Run 等它们返回，之后 main 才关闭连接池。

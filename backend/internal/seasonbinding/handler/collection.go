@@ -136,3 +136,12 @@ func (h *Handler) CreateCollection(c *echo.Context) error {
 	}
 	return response.Created(c, detail)
 }
+
+// parseLink 去掉贴的链接前后的空白，为空时为 400。
+func parseLink(link string) (string, error) {
+	link = strings.TrimSpace(link)
+	if link == "" {
+		return "", request.InvalidParam("请粘贴合集的链接")
+	}
+	return link, nil
+}

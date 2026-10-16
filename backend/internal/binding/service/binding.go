@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
@@ -107,4 +110,33 @@ func (s *Service) platform(b dao.Binding) (danmaku.Platform, error) {
 		return "", err
 	}
 	return adapter.Platform(), nil
+}
+
+// UpdateOffset 改偏移（秒，正数表示弹幕延后），单条语句，content_version 不变。取值范围由调用方校验。
+func (s *Service) UpdateOffset(ctx context.Context, id int64, offset float64) (View, error) {
+	b, err := s.q.UpdateBindingOffset(ctx, dao.UpdateBindingOffsetParams{ID: id, Offset: offset})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return View{}, errBindingNotFound
+		}
+		return View{}, fmt.Errorf("update offset of binding %d: %w", id, err)
+	}
+	return s.view(ctx, b)
+}
+
+// Delete 删除绑定，它的弹幕随外键级联删除。单条语句；进行中的拉取写回时会发现绑定已被删除。
+// 季绑定建出的绑定不删，返回 409（见 checkNotBuilt）。
+func (s *Service) Delete(ctx context.Context, id int64) error {
+	n, err := s.q.DeleteBinding(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete binding %d: %w", id, err)
+	}
+	if n > 0 {
+		return nil
+	}
+	b, err := s.getBinding(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.checkNotBuilt(ctx, b)
 }

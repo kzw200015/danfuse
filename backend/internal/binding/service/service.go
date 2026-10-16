@@ -1,6 +1,6 @@
 // Package service 绑定的业务层。绑定：一集与一个弹幕源的对应关系。HTTP 在同级的 handler 包，查询在 dao 包（sqlc）。
-//   - service.go：Service、错误，以及包内共用的取、锁；view.go：绑定的 JSON 视图、剧详情里按集列出；
-//   - offset.go：改偏移；delete.go：删除；
+//   - service.go：Service、错误，以及包内共用的取、锁；
+//   - binding.go：不分种类的绑定操作：JSON 视图、剧详情里按集列出、改偏移、删除；
 //   - link.go：贴链接创建（拉取弹幕源的全部弹幕落库）、重新拉取、失效与恢复；
 //   - file.go：用弹幕文件建的绑定（创建、追加文件、重新解析）；
 //   - danmaku_write.go：把弹幕写进绑定，链接、文件、槽位共用；danmaku_read.go：查看保存的弹幕、读取一集各绑定的弹幕；

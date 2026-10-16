@@ -5,7 +5,7 @@
 ## 接口与分工
 
 - 实现从识别、搜索到取弹幕的接口：`match` 按文件名识别到集；`search/episodes` 一步搜到季和集；`search/anime` 搜到季，再用 `bangumi/{bangumiId}` 取集；`comment` 取弹幕；`related` 是给插件的空兼容接口。对外的作品（animeId、bangumiId）就是季，episodeId 就是集。
-- `dandan` 是一个领域，分三层：`handler/`（`handler.go` 放各接口共用的，每个接口一个文件：`search.go`、`bangumi.go`、`comment.go`、`match.go`，请求与响应的结构、转换成协议结构的函数都在里面）只做协议参数转换和响应格式化（type、typeDescription、"第N话"、p、cid、平台前缀）；识别、搜索、取季与取弹幕交给 `service/` 的 `dandan.Service`，它的查询（搜索季、取季和集）在 `dao/queries.sql`，读的是目录的表。
+- `dandan` 是一个领域，分三层：`handler/`（`routes.go` 是入口与路由，`protocol.go` 放各接口共用的协议部分，每个接口一个文件：`search.go`、`bangumi.go`、`comment.go`、`match.go`、`related.go`，请求与响应的结构、转换成协议结构的函数都在里面）只做协议参数转换和响应格式化（type、typeDescription、"第N话"、p、cid、平台前缀）；识别、搜索、取季与取弹幕交给 `service/` 的 `dandan.Service`，它的查询（搜索季、取季和集）在 `dao/queries.sql`，读的是目录的表。
 - `dandan.Service` 返回的类型（`dandan.Season`、`SearchResult`、`MatchResult` 等，季的类别用 `naming.KindOf`）是内部结构，不含任何协议格式。
 - `Match` 按名称识别一集：名称里要写明集号，其余交给同一个搜索，候选唯一且标题与剧名或原名 `fulltext.SameWords` 时才算确定（`isMatched`）。
 - 搜索关键词和 match 的文件名按 `naming.Parse`（`internal/naming`）认出季号、集号（规则见 [`catalog.md`](catalog.md)），集号以 `search/episodes` 的 `episode` 参数优先；按集号过滤时只返回有这一集的季，每季只带这一集（`Season.EpisodeCount` 仍是总集数）。

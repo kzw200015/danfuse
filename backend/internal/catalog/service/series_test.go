@@ -12,8 +12,28 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/service"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
+
+// TestSourceLinkWithoutCatalogSource 未配置目录源时，存着目录源 ID 的剧也没有链接。
+func TestSourceLinkWithoutCatalogSource(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.Pool(t)
+	if _, err := pool.Exec(t.Context(), `INSERT INTO series (type, title, catalog_source_id) VALUES ('tv', '星海旅人', 'jf-1')`); err != nil {
+		t.Fatal(err)
+	}
+	env := testenv.New(pool, slog.New(slog.DiscardHandler))
+	svc := service.NewService(pool, nil, env.Bindings, env.SeasonBindings)
+
+	detail, err := svc.GetSeries(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.SourceLink != nil {
+		t.Errorf("SourceLink = %+v, want nil", *detail.SourceLink)
+	}
+}
 
 // catalogItems 目录源里的两部剧。在新库里同步一次后，ID 按写入顺序分配：
 //   - 剧 1「星海旅人」，海报是图片 1；季 1 是第 1 季（集 1、集 2），季 2 是第 2 季（集 3）；

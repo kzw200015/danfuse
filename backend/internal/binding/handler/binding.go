@@ -9,6 +9,28 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
+type episodeRequest struct {
+	ID int64 `param:"id"`
+}
+
+func (r *episodeRequest) Validate() error {
+	if r.ID < 1 {
+		return request.InvalidParam("集 ID 不合法")
+	}
+	return nil
+}
+
+type bindingRequest struct {
+	ID int64 `param:"id"`
+}
+
+func (r *bindingRequest) Validate() error {
+	if r.ID < 1 {
+		return request.InvalidParam("绑定 ID 不合法")
+	}
+	return nil
+}
+
 // maxOffset 偏移绝对值的上限，秒（一天）。
 const maxOffset = 86400
 
@@ -40,4 +62,17 @@ func (h *Handler) Update(c *echo.Context) error {
 		return err
 	}
 	return response.OK(c, binding)
+}
+
+// Delete DELETE /api/bindings/:id
+// 它的弹幕一起删除。
+func (h *Handler) Delete(c *echo.Context) error {
+	req, err := request.Bind[bindingRequest](c)
+	if err != nil {
+		return err
+	}
+	if err := h.svc.Delete(c.Request().Context(), req.ID); err != nil {
+		return err
+	}
+	return response.OK(c, nil)
 }

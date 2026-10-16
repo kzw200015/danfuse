@@ -1,5 +1,3 @@
-// Package handler 只读的设置（GET /api/settings）：从运行中的配置里挑出管理界面要用的部分。
-// 没有业务逻辑，直接读配置，不设 service。
 package handler
 
 import (
@@ -8,15 +6,6 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
-
-// Handler 拿整份配置：多返回一项配置时只改 Get，不改构造函数；不该返回的（API key、SESSDATA 的值）由 Get 自己挑出去。
-type Handler struct {
-	cfg *config.Config
-}
-
-func NewHandler(cfg *config.Config) *Handler {
-	return &Handler{cfg: cfg}
-}
 
 type settingsResponse struct {
 	// DandanplayToken 弹弹 API 的 token，nil 表示没有设置。管理界面用它拼出插件地址；

@@ -3,19 +3,9 @@ package handler
 import (
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
-
-// SyncHandler 同步的管理 API：触发同步、同步记录，路由见同包的 routes.go。
-type SyncHandler struct {
-	svc *service.SyncService
-}
-
-func NewSyncHandler(svc *service.SyncService) *SyncHandler {
-	return &SyncHandler{svc: svc}
-}
 
 // Trigger POST /api/sync-runs
 // 同步开始后立即返回 202 和这次同步的 ID，同步在后台进行；已有同步在跑、未配置目录源时返回 409，服务正在关闭时返回 503。
