@@ -25,7 +25,7 @@ linters:
     # 业务按领域分包（internal/catalog、seasonbinding、binding、dandan、blockword，以及 health、settings），
     # 每个领域内分层：handler（HTTP）→ service（业务）→ dao（sqlc 生成），各在一个子包里。
     # 适配器和纯计算包不访问数据库；只有 app 装配适配器。
-    # depguard 只能按文件和包前缀匹配：新增领域时把它的 dao、handler 加进下面的 handler、service 规则，再照样加一条 xxx-dao。
+    # depguard 只能按文件和包前缀匹配：新增领域时把它的 dao、handler 加进下面的 handler、service 规则，再照样加一条 xxx-dao 和 xxx-service。
     depguard:
       rules:
         handler:
@@ -76,7 +76,6 @@ linters:
           files:
             - "$all"
             - "!**/internal/catalog/**"
-            - "!**/internal/testenv/**" # 测试的辅助函数可以直接读写表
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/catalog/dao
               desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
@@ -84,7 +83,6 @@ linters:
           files:
             - "$all"
             - "!**/internal/seasonbinding/**"
-            - "!**/internal/testenv/**" # 测试的辅助函数可以直接读写表
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao
               desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
@@ -92,7 +90,6 @@ linters:
           files:
             - "$all"
             - "!**/internal/binding/**"
-            - "!**/internal/testenv/**" # 测试的辅助函数可以直接读写表
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/binding/dao
               desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
@@ -100,7 +97,6 @@ linters:
           files:
             - "$all"
             - "!**/internal/dandan/**"
-            - "!**/internal/testenv/**" # 测试的辅助函数可以直接读写表
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/dandan/dao
               desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
@@ -108,10 +104,101 @@ linters:
           files:
             - "$all"
             - "!**/internal/blockword/**"
-            - "!**/internal/testenv/**" # 测试的辅助函数可以直接读写表
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/dao
               desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
+        catalog-service:
+          files:
+            - "$all"
+            - "!**/internal/catalog/**"
+            - "!**/internal/*/service/**"
+            - "!**/internal/app/**"
+            - "!**/internal/testenv/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/catalog/service
+              desc: handler 只调用本领域的 Service，server 不碰 service；领域之间只有 service 调用对方的 Service
+        seasonbinding-service:
+          files:
+            - "$all"
+            - "!**/internal/seasonbinding/**"
+            - "!**/internal/*/service/**"
+            - "!**/internal/app/**"
+            - "!**/internal/testenv/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/seasonbinding/service
+              desc: handler 只调用本领域的 Service，server 不碰 service；领域之间只有 service 调用对方的 Service
+        binding-service:
+          files:
+            - "$all"
+            - "!**/internal/binding/**"
+            - "!**/internal/*/service/**"
+            - "!**/internal/app/**"
+            - "!**/internal/testenv/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/binding/service
+              desc: handler 只调用本领域的 Service，server 不碰 service；领域之间只有 service 调用对方的 Service
+        dandan-service:
+          files:
+            - "$all"
+            - "!**/internal/dandan/**"
+            - "!**/internal/*/service/**"
+            - "!**/internal/app/**"
+            - "!**/internal/testenv/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/dandan/service
+              desc: handler 只调用本领域的 Service，server 不碰 service；领域之间只有 service 调用对方的 Service
+        blockword-service:
+          files:
+            - "$all"
+            - "!**/internal/blockword/**"
+            - "!**/internal/*/service/**"
+            - "!**/internal/app/**"
+            - "!**/internal/testenv/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/service
+              desc: handler 只调用本领域的 Service，server 不碰 service；领域之间只有 service 调用对方的 Service
+        health-service:
+          files:
+            - "$all"
+            - "!**/internal/health/**"
+            - "!**/internal/*/service/**"
+            - "!**/internal/app/**"
+            - "!**/internal/testenv/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/health/service
+              desc: handler 只调用本领域的 Service，server 不碰 service；领域之间只有 service 调用对方的 Service
+        server:
+          files:
+            - "**/internal/server/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/jackc/pgx
+              desc: server 只放 HTTP 管道（路由汇总、错误出口、前端托管），不访问数据库
+            - pkg: github.com/kzw200015/danfuse/backend/internal/infra/database
+              desc: server 只放 HTTP 管道（路由汇总、错误出口、前端托管），不访问数据库
+        pure-config:
+          files:
+            - "**/internal/catalog/*.go"
+            - "**/internal/naming/**"
+            - "**/internal/source/*.go"
+            - "**/internal/danmaku/**"
+            - "**/internal/danmakufile/**"
+            - "**/internal/fulltext/**"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/infra/config
+              desc: 纯计算包不读配置；要配置的是适配器（子包），由 app 传入
+        background:
+          files:
+            - "**/internal/infra/background/**"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/infra/httpx
+              desc: 后台循环与 HTTP 无关，给用户的错误由调用它的 service 转换
         pure:
           files:
             - "**/internal/catalog/*.go" # catalog 的根包：目录源接口与交换类型
@@ -131,7 +218,6 @@ linters:
         infra:
           files:
             - "**/internal/infra/**"
-            - "!$test" # 测试可以用 testenv 的断言
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/app
               desc: 基础设施（infra）不依赖业务包
