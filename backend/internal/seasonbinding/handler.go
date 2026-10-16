@@ -12,7 +12,7 @@ import (
 )
 
 // Handler 季绑定的管理 API，路由注册在 server/router.go。两种季绑定共用的（详情、开关追更、立即补建、删除）在这里，
-// 合集的在 handler_collection.go，文件夹的在 handler_folder.go。
+// 合集的在 collection_handler.go，文件夹的在 folder_handler.go。
 type Handler struct {
 	svc    *Service
 	upload config.DanmakuFile // 一次上传弹幕文件的上限，上传文件夹用其中按季的那组
