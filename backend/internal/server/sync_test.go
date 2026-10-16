@@ -12,8 +12,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
+	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
+	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -21,10 +25,10 @@ import (
 func syncServer(t *testing.T, cfg *pgxpool.Config, src catalog.Source) *Server {
 	t.Helper()
 	svc, pool := startSync(t, cfg, src)
-	return New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{
-		Health: NewHealthHandler(pool),
-		Sync:   catalog.NewSyncHandler(svc),
-	})
+	return New(config.Server{}, slog.New(slog.DiscardHandler), complete(&Handlers{
+		Health: healthhandler.NewHandler(healthsvc.NewService(pool)),
+		Sync:   cataloghandler.NewSyncHandler(svc),
+	}))
 }
 
 func TestSyncRunsAPI(t *testing.T) {
@@ -33,7 +37,7 @@ func TestSyncRunsAPI(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		src := &testenv.FakeCatalog{
 			Items: []catalog.Item{
-				{Name: "甲", Series: &catalog.Series{Type: catalog.TypeTV, Title: "甲", Seasons: []catalog.Season{
+				{Name: "甲", Series: &catalog.Series{Type: naming.TypeTV, Title: "甲", Seasons: []catalog.Season{
 					{Number: 1, Episodes: []catalog.Episode{{Number: 1}, {Number: 2}}},
 				}}},
 				{Name: "乙", Warnings: []string{"没有有效的集，整部跳过"}},

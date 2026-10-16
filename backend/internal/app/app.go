@@ -9,14 +9,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
-	"github.com/kzw200015/danfuse/backend/internal/blockword"
+	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
+	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
+	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/dandan"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
+	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
+	dandansvc "github.com/kzw200015/danfuse/backend/internal/dandan/service"
+	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
+	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
+	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/server"
+	settingshandler "github.com/kzw200015/danfuse/backend/internal/settings/handler"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/source/bilibili"
 )
@@ -41,26 +50,26 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	sources := source.NewRegistry(bilibili.New(cfg.Bilibili, logger))
 	catalogSource := newCatalogSource(cfg.CatalogSource)
 
-	bindings := binding.NewService(pool, sources, logger)
-	scheduledFetch := binding.NewScheduledFetchService(pool, bindings, cfg.ScheduledFetch, logger)
-	seasonBindings := seasonbinding.NewService(pool, sources, bindings, cfg.Follow, logger)
-	catalogs := catalog.NewService(pool, catalogSource, bindings, seasonBindings)
-	syncs := catalog.NewSyncService(pool, catalogSource, cfg.Sync, logger)
-	blockedWords := blockword.NewService(pool)
-	dandans := dandan.NewService(pool, bindings, blockedWords)
+	bindings := bindingsvc.NewService(pool, sources, logger)
+	scheduledFetch := bindingsvc.NewScheduledFetchService(pool, bindings, cfg.ScheduledFetch, logger)
+	seasonBindings := seasonbindingsvc.NewService(pool, sources, bindings, cfg.Follow, logger)
+	catalogs := catalogsvc.NewService(pool, catalogSource, bindings, seasonBindings)
+	syncs := catalogsvc.NewSyncService(pool, catalogSource, cfg.Sync, logger)
+	blockedWords := blockwordsvc.NewService(pool)
+	dandans := dandansvc.NewService(pool, bindings, blockedWords)
 
 	handlers := &server.Handlers{
-		Health:        server.NewHealthHandler(pool),
-		Settings:      server.NewSettingsHandler(cfg),
-		Catalog:       catalog.NewHandler(catalogs),
-		Sync:          catalog.NewSyncHandler(syncs),
-		Binding:       binding.NewHandler(bindings, cfg.DanmakuFile),
-		SeasonBinding: seasonbinding.NewHandler(seasonBindings, cfg.DanmakuFile),
-		BlockedWord:   blockword.NewHandler(blockedWords),
-		Dandan:        dandan.NewHandler(dandans),
+		Health:        healthhandler.NewHandler(healthsvc.NewService(pool)),
+		Settings:      settingshandler.NewHandler(cfg),
+		Catalog:       cataloghandler.NewHandler(catalogs),
+		Sync:          cataloghandler.NewSyncHandler(syncs),
+		Binding:       bindinghandler.NewHandler(bindings, cfg.DanmakuFile),
+		SeasonBinding: seasonbindinghandler.NewHandler(seasonBindings, cfg.DanmakuFile),
+		BlockedWord:   blockwordhandler.NewHandler(blockedWords),
+		Dandan:        dandanhandler.NewHandler(dandans, cfg.Dandanplay),
 	}
 	return &App{
-		server:     server.New(cfg.Server, cfg.Dandanplay, logger, handlers),
+		server:     server.New(cfg.Server, logger, handlers),
 		background: []backgroundRunner{syncs, seasonBindings, scheduledFetch},
 	}
 }

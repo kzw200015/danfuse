@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 )
 
 type Source struct {

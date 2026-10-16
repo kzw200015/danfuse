@@ -1,0 +1,140 @@
+// Package catalog 目录：剧/季/集的层级。根包只放目录源适配的接口（Source，同步取目录、剧详情取链接）、交换的类型，
+// 以及核心对它们的校验，jellyfin 与 service 共用；不访问数据库。
+// 其余按层放在子包：handler（HTTP）→ service（业务）→ dao（sqlc）；目录源的适配在 jellyfin，由 app 按配置的 kind 选择。
+// 划分原则：目录本身的规则放在核心；取决于目录源怎么表示数据的，放在适配。
+package catalog
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"iter"
+	"strings"
+
+	"github.com/kzw200015/danfuse/backend/internal/naming"
+)
+
+// Source 目录源适配。
+type Source interface {
+	// List 列出配置的所有媒体库里要同步的剧，只列清单，不取季和集。
+	// 配置的媒体库都不可用、或请求失败时返回 *Error，这次同步失败。
+	List(ctx context.Context) (Listing, error)
+	// Link 由目录源 ID（Series.SourceID）生成目录源里这部剧的页面，纯计算，不联网。
+	Link(sourceID string) Link
+}
+
+// Link 目录源里一部剧的页面，管理界面上的链接。
+type Link struct {
+	URL   string // 例如 http://192.168.1.10:8096/web/#/details?id=…
+	Label string // 目录源的名称，例如 Jellyfin
+}
+
+// Error 目录源适配返回的错误（List、Items 产出的错误和 Series.PosterErr）。Message 是同步页上显示的提示，
+// 由适配写，因为提示与目录源有关（例如"列出媒体库失败：无法连接 Jellyfin"），带上管理员能自己排查的信息
+// （HTTP 状态码、出错的媒体库或剧）；Err 是底层原因（请求的路径、系统错误等），只进日志。调用方用 errors.AsType 取出。
+type Error struct {
+	Message string
+	Err     error
+}
+
+func (e *Error) Error() string {
+	if e.Err != nil {
+		return e.Message + ": " + e.Err.Error()
+	}
+	return e.Message
+}
+
+func (e *Error) Unwrap() error { return e.Err }
+
+// Listing 一次 List 的结果。
+type Listing struct {
+	Total    int      // 剧（含电影）的总数，用于同步进度
+	Warnings []string // 列清单时跳过的媒体库（找不到、类型不对）
+	// Items 按固定顺序逐部取季和集，每部列出的剧恰好产出一项（被跳过的也算），所以进度一定能走满。
+	//   - 只在调用方要下一项时才发请求，所以每部剧的网络请求都在调用方的事务之外；ctx 沿用 List 的；
+	//   - 调用方 break 时适配器立即停止，不再请求；
+	//   - 请求失败时产出 (Item{}, *Error) 后结束，这次同步失败。
+	Items iter.Seq2[Item, error]
+}
+
+// Item 一部剧的取回结果。
+type Item struct {
+	Name     string   // 剧在目录源里的名称，核心用它给这部剧的警告加上剧名；Series 为 nil 时也有
+	Series   *Series  // nil 表示整部跳过（没有任何有效的集），原因在 Warnings 里
+	Warnings []string // 这部剧里跳过的项（无效的集、范围异常的多集文件）
+}
+
+// Series 适配交给核心的一部剧，与表结构一一对应。电影由适配合成为第 1 季第 1 集。
+// 剧的身份（见 docs/adr/0007）：有 TMDB ID 的以（类型，TMDB ID）为身份，标题和年份只是随目录源覆盖的属性；
+// 没有的以（类型，标题，年份）为身份。同一个身份可以出现多次（例如同一集的两个版本），核心按顺序 upsert，后写的覆盖先写的。
+//
+// 海报有三种状态，决定核心怎么处理，属于数据，不放进 Item.Warnings：
+//   - Poster 不为 nil：有图，与现有海报的 sha256 不同时换图；
+//   - Poster 与 PosterErr 都为 nil：目录源里没有图，清空这部剧的海报；
+//   - PosterErr 不为 nil：下载失败（*Error），保留现有海报并记警告。
+type Series struct {
+	Type          naming.SeriesType
+	Title         string
+	OriginalTitle string // 空串存为 null
+	Year          *int
+	TMDBID        *int64 // TMDB 上的编号（电视剧和电影各有一套），目录源没给或给的不合法时为 nil
+	SourceID      string // 目录源 ID，只用来生成 Link，不参与身份；空串存为 null
+	Poster        *Image
+	PosterErr     error
+	Seasons       []Season
+}
+
+type Season struct {
+	Number   int
+	Title    string // 目录源给的季标题，空串存为 null
+	Episodes []Episode
+}
+
+type Episode struct {
+	Number   int
+	Title    string // 空串存为 null
+	Duration *int   // 秒，取不到时为 nil
+}
+
+// Image 一张图片：原始字节，以及目录源给的 content-type。
+type Image struct {
+	ContentType string
+	Data        []byte
+}
+
+// Validate 核心的防御性校验：类型有效、标题非空、TMDB ID 为正数、至少一季、每季至少一集、编号 ≥ 0、
+// 电影恰好只有第 1 季第 1 集。不合格的整部剧跳过，返回的 error 文本作为警告记入同步记录。
+func (s Series) Validate() error {
+	if s.Type != naming.TypeTV && s.Type != naming.TypeMovie {
+		return fmt.Errorf("类型 %q 无效", s.Type)
+	}
+	if strings.TrimSpace(s.Title) == "" {
+		return errors.New("标题为空")
+	}
+	if s.TMDBID != nil && *s.TMDBID <= 0 {
+		return fmt.Errorf("TMDB ID %d 无效", *s.TMDBID)
+	}
+	if len(s.Seasons) == 0 {
+		return errors.New("没有任何季")
+	}
+	for _, season := range s.Seasons {
+		if season.Number < 0 {
+			return fmt.Errorf("季号 %d 为负数", season.Number)
+		}
+		if len(season.Episodes) == 0 {
+			return fmt.Errorf("第 %d 季没有任何集", season.Number)
+		}
+		for _, ep := range season.Episodes {
+			if ep.Number < 0 {
+				return fmt.Errorf("第 %d 季的集号 %d 为负数", season.Number, ep.Number)
+			}
+		}
+	}
+	if s.Type == naming.TypeMovie {
+		if len(s.Seasons) != 1 || s.Seasons[0].Number != 1 ||
+			len(s.Seasons[0].Episodes) != 1 || s.Seasons[0].Episodes[0].Number != 1 {
+			return errors.New("电影只能有第 1 季第 1 集")
+		}
+	}
+	return nil
+}

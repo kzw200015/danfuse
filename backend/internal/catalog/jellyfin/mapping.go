@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 // maxMultiEpisodeSpan 多集文件的范围超过这个数视为解析异常，只写起始那一集并记警告。
@@ -23,7 +24,7 @@ func mapMovie(movie item) catalog.Item {
 		Name:     displayName(movie),
 		Warnings: warnings,
 		Series: &catalog.Series{
-			Type:          catalog.TypeMovie,
+			Type:          naming.TypeMovie,
 			Title:         strings.TrimSpace(movie.Name),
 			OriginalTitle: strings.TrimSpace(movie.OriginalTitle),
 			Year:          movie.ProductionYear,
@@ -91,7 +92,7 @@ func mapSeries(series item, children []item) catalog.Item {
 	tmdbID, warnings := tmdbID(series)
 	result.Warnings = append(result.Warnings, warnings...)
 	s := &catalog.Series{
-		Type:          catalog.TypeTV,
+		Type:          naming.TypeTV,
 		Title:         strings.TrimSpace(series.Name),
 		OriginalTitle: strings.TrimSpace(series.OriginalTitle),
 		Year:          series.ProductionYear,

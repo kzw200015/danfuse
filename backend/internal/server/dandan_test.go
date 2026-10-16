@@ -20,10 +20,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/dandan"
+	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
+	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
@@ -54,22 +58,22 @@ func syncCatalog(t *testing.T, cfg *pgxpool.Config, items ...catalog.Item) {
 // 没有同名的剧：同名剧的自动匹配可能选错，是插件的已知限制。季都没有绑定。
 func pluginCatalog() []catalog.Item {
 	series := []*catalog.Series{
-		{Type: catalog.TypeTV, Title: "星海旅人", OriginalTitle: "ほしうみの旅人", Year: new(2019), Seasons: []catalog.Season{
+		{Type: naming.TypeTV, Title: "星海旅人", OriginalTitle: "ほしうみの旅人", Year: new(2019), Seasons: []catalog.Season{
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1, Title: "启程"}, {Number: 2, Title: "归航"}}}, // 季 1：集 1、2
 			{Number: 2, Episodes: []catalog.Episode{{Number: 13, Title: "新的航程"}, {Number: 14}}},          // 季 2：集 3、4，集号接着第 1 季往下数
 			{Number: 0, Title: "Specials", Episodes: []catalog.Episode{{Number: 1, Title: "番外"}}},        // 季 3：集 5
 		}},
-		{Type: catalog.TypeTV, Title: "Night Watch", Year: new(2010), Seasons: []catalog.Season{
+		{Type: naming.TypeTV, Title: "Night Watch", Year: new(2010), Seasons: []catalog.Season{
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1}, {Number: 2}}}, // 季 4：集 6、7
 			{Number: 2, Episodes: []catalog.Episode{{Number: 1}}},              // 季 5：集 8
 		}},
-		{Type: catalog.TypeMovie, Title: "长夜灯塔", OriginalTitle: "Night Lighthouse", Year: new(2020), Seasons: []catalog.Season{
+		{Type: naming.TypeMovie, Title: "长夜灯塔", OriginalTitle: "Night Lighthouse", Year: new(2020), Seasons: []catalog.Season{
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1}}}, // 季 6：集 9
 		}},
-		{Type: catalog.TypeTV, Title: "无名之旅", Seasons: []catalog.Season{ // 没有年份
+		{Type: naming.TypeTV, Title: "无名之旅", Seasons: []catalog.Season{ // 没有年份
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1}}}, // 季 7：集 10
 		}},
-		{Type: catalog.TypeTV, Title: "Steins;Gate", Year: new(2011), Seasons: []catalog.Season{
+		{Type: naming.TypeTV, Title: "Steins;Gate", Year: new(2011), Seasons: []catalog.Season{
 			{Number: 1, Episodes: []catalog.Episode{{Number: 1}}}, // 季 8：集 11
 		}},
 	}
@@ -93,8 +97,10 @@ func dandanServer(pool *pgxpool.Pool, token string, logs io.Writer) *Server {
 		logs = io.Discard
 	}
 	env := testenv.New(pool, slog.New(slog.DiscardHandler), biliAdapter{}, fakeAdapter{})
-	return New(config.Server{}, config.Dandanplay{Token: token}, slog.New(slog.NewJSONHandler(logs, nil)),
-		&Handlers{Health: NewHealthHandler(pool), Dandan: dandan.NewHandler(env.Dandan)})
+	return New(config.Server{}, slog.New(slog.NewJSONHandler(logs, nil)), complete(&Handlers{
+		Health: healthhandler.NewHandler(healthsvc.NewService(pool)),
+		Dandan: dandanhandler.NewHandler(env.Dandan, config.Dandanplay{Token: token}),
+	}))
 }
 
 // newDandanServer 新建一个库，用同步写入 items，再起弹弹 API。要在同步之外补写数据（例如绑定和弹幕）时，
@@ -328,14 +334,14 @@ func TestSearchEpisodesResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			testenv.AssertJSON(t, body, tt.want)
+			testutil.AssertJSON(t, body, tt.want)
 		})
 	}
 
 	// 没有 anime 参数时 episode、tmdbId 不起作用
 	for _, target := range []string{"/dandanplay/api/v2/search/episodes", "/dandanplay/api/v2/search/episodes?tmdbId=1&episode=1"} {
 		_, body := pluginGet(t, srv, target, nil)
-		testenv.AssertJSON(t, body, empty)
+		testutil.AssertJSON(t, body, empty)
 	}
 }
 
@@ -361,7 +367,7 @@ func TestSearchEpisodesEpisode(t *testing.T) {
 	} {
 		t.Run(tt.query, func(t *testing.T) {
 			_, body := pluginGet(t, srv, "/dandanplay/api/v2/search/episodes?"+tt.query, nil)
-			testenv.AssertJSON(t, body, tt.want)
+			testutil.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -372,7 +378,7 @@ func TestSearchEpisodesHasMore(t *testing.T) {
 	for i := range seasons {
 		seasons[i] = catalog.Season{Number: i + 1, Episodes: []catalog.Episode{{Number: 1}}}
 	}
-	srv := newDandanServer(t, "", catalog.Item{Name: "长篇连载", Series: &catalog.Series{Type: catalog.TypeTV, Title: "长篇连载", Seasons: seasons}})
+	srv := newDandanServer(t, "", catalog.Item{Name: "长篇连载", Series: &catalog.Series{Type: naming.TypeTV, Title: "长篇连载", Seasons: seasons}})
 
 	_, body := pluginGet(t, srv, "/dandanplay/api/v2/search/episodes?anime=长篇连载", nil)
 	var resp struct {
@@ -442,7 +448,7 @@ func TestSearchAnimeResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			testenv.AssertJSON(t, body, tt.want)
+			testutil.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -482,7 +488,7 @@ func TestBangumiResponse(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("bangumi/%s: status = %d, want 200", tt.id, rec.Code)
 		}
-		testenv.AssertJSON(t, body, tt.want)
+		testutil.AssertJSON(t, body, tt.want)
 	}
 
 	// 找不到作品：HTTP 200、success 为 false、bangumi 为 null。Echo 里路由末尾的参数匹配到路径末尾，
@@ -493,7 +499,7 @@ func TestBangumiResponse(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("bangumi/%s: status = %d, want 200", id, rec.Code)
 		}
-		testenv.AssertJSON(t, body, notFound)
+		testutil.AssertJSON(t, body, notFound)
 	}
 }
 
@@ -641,7 +647,7 @@ func TestCommentResponse(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			testenv.AssertJSON(t, body, tt.want)
+			testutil.AssertJSON(t, body, tt.want)
 		})
 	}
 }
@@ -753,7 +759,7 @@ func TestMatch(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rec.Code)
 			}
-			testenv.AssertJSON(t, got, tt.want)
+			testutil.AssertJSON(t, got, tt.want)
 		})
 	}
 }
@@ -768,7 +774,7 @@ func TestRelated(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s: status = %d, want 200", target, rec.Code)
 		}
-		testenv.AssertJSON(t, body, `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "relateds": []}`)
+		testutil.AssertJSON(t, body, `{"errorCode": 0, "success": true, "errorMessage": null, "errorDetail": null, "relateds": []}`)
 	}
 }
 
@@ -784,7 +790,7 @@ func TestDandanUnregisteredEndpoints(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s: status = %d, want 404", target, rec.Code)
 		}
-		testenv.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`) // 前缀下没命中的路由走全局处理
+		testutil.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`) // 前缀下没命中的路由走全局处理
 	}
 	if rec, body := dandanPost(t, srv, "/dandanplay/api/v2/match/batch", `{"requests": []}`); rec.Code != http.StatusNotFound {
 		t.Errorf("POST match/batch: status = %d, want 404, body %s", rec.Code, body)
@@ -900,7 +906,7 @@ func TestDandanToken(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s: status = %d, want 404", target, rec.Code)
 		}
-		testenv.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`)
+		testutil.AssertJSON(t, body, `{"code": 1, "message": "Not Found", "data": null}`)
 	}
 }
 
@@ -976,7 +982,7 @@ func TestDandanServerError(t *testing.T) {
 			if rec.Code != http.StatusInternalServerError {
 				t.Errorf("status = %d, want 500", rec.Code)
 			}
-			testenv.AssertJSON(t, body, tt.wantBody)
+			testutil.AssertJSON(t, body, tt.wantBody)
 			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 				t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
 			}

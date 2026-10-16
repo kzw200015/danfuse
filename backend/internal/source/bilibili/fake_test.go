@@ -21,7 +21,7 @@ import (
 	"golang.org/x/time/rate"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 )
 
 // discardLogger 测试里构造 Adapter 用的 logger，日志都丢掉。

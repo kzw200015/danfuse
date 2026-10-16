@@ -9,8 +9,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 // FakeCatalog 实现 catalog.Source 的假目录源：List 返回 Items 的清单，Items 依次产出 Items。
@@ -64,12 +65,12 @@ func (f *FakeCatalog) Link(sourceID string) catalog.Link {
 
 // TV 一部剧集。
 func TV(title string, year *int, seasons ...catalog.Season) *catalog.Series {
-	return &catalog.Series{Type: catalog.TypeTV, Title: title, Year: year, Seasons: seasons}
+	return &catalog.Series{Type: naming.TypeTV, Title: title, Year: year, Seasons: seasons}
 }
 
 // Movie 一部电影：只有一季一集，集的时长为 duration 秒。
 func Movie(title string, year *int, duration int) *catalog.Series {
-	return &catalog.Series{Type: catalog.TypeMovie, Title: title, Year: year, Seasons: []catalog.Season{
+	return &catalog.Series{Type: naming.TypeMovie, Title: title, Year: year, Seasons: []catalog.Season{
 		{Number: 1, Episodes: []catalog.Episode{{Number: 1, Duration: &duration}}},
 	}}
 }
@@ -89,21 +90,21 @@ func Item(s *catalog.Series, warnings ...string) catalog.Item {
 }
 
 // StartSync 构造不开定时同步的 SyncService 并在后台运行 Run（要在 synctest 的气泡里调用）。src 为 nil 表示未配置目录源。
-func StartSync(t *testing.T, pool *pgxpool.Pool, src catalog.Source) *catalog.SyncService {
+func StartSync(t *testing.T, pool *pgxpool.Pool, src catalog.Source) *catalogsvc.SyncService {
 	t.Helper()
-	svc := catalog.NewSyncService(pool, src, config.Defaults().Sync, Logger(t))
+	svc := catalogsvc.NewSyncService(pool, src, config.Defaults().Sync, Logger(t))
 	RunInBackground(t, svc)
 	return svc
 }
 
 // SyncOnce 手动触发一次同步，等它结束后返回同步记录。
-func SyncOnce(t *testing.T, svc *catalog.SyncService) catalogdb.SyncRun {
+func SyncOnce(t *testing.T, svc *catalogsvc.SyncService) catalogsvc.SyncRun {
 	t.Helper()
 	return GetRun(t, svc, TriggerSync(t, svc))
 }
 
 // TriggerSync 手动触发一次同步，等后台停下（同步结束，或停在假目录源的 Gate 上），返回这次同步的 ID。
-func TriggerSync(t *testing.T, svc *catalog.SyncService) int64 {
+func TriggerSync(t *testing.T, svc *catalogsvc.SyncService) int64 {
 	t.Helper()
 	id, err := svc.Trigger(t.Context())
 	if err != nil {
@@ -113,7 +114,7 @@ func TriggerSync(t *testing.T, svc *catalog.SyncService) int64 {
 	return id
 }
 
-func GetRun(t *testing.T, svc *catalog.SyncService, id int64) catalogdb.SyncRun {
+func GetRun(t *testing.T, svc *catalogsvc.SyncService, id int64) catalogsvc.SyncRun {
 	t.Helper()
 	run, err := svc.GetRun(t.Context(), id)
 	if err != nil {

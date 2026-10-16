@@ -9,8 +9,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 func TestFrontend(t *testing.T) {
@@ -50,7 +50,7 @@ func TestFrontend(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			srv := newServer(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{}, files)
+			srv := newServer(config.Server{}, slog.New(slog.DiscardHandler), complete(&Handlers{}), files)
 			srv.echo.GET("/api/items", func(c *echo.Context) error { return response.OK(c, nil) })
 
 			rec := serve(t, srv, http.MethodGet, tt.target, "")

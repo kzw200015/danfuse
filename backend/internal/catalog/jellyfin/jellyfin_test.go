@@ -18,7 +18,8 @@ import (
 	"time"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 // e2e 环境里媒体库与剧的 Jellyfin Id，两个版本相同。
@@ -119,7 +120,7 @@ func wantSamples(t *testing.T, version string) []catalog.Item {
 	}
 	// 测试媒体库里每部剧的 NFO 写了一个虚构的 TMDB id，见 e2e/gen-media.sh
 	tv := func(id, title string, year int, tmdbID int64, seasons ...catalog.Season) *catalog.Series {
-		return &catalog.Series{Type: catalog.TypeTV, Title: name(title, year), Year: &year, TMDBID: &tmdbID, SourceID: id, Seasons: seasons}
+		return &catalog.Series{Type: naming.TypeTV, Title: name(title, year), Year: &year, TMDBID: &tmdbID, SourceID: id, Seasons: seasons}
 	}
 
 	starSeaS1 := []catalog.Episode{
@@ -150,7 +151,7 @@ func wantSamples(t *testing.T, version string) []catalog.Item {
 		{
 			Name: "长夜灯塔 (2020)",
 			Series: &catalog.Series{
-				Type: catalog.TypeMovie, Title: "长夜灯塔 (2020)", Year: new(2020), TMDBID: new(int64(900101)), SourceID: movieLighthouse,
+				Type: naming.TypeMovie, Title: "长夜灯塔 (2020)", Year: new(2020), TMDBID: new(int64(900101)), SourceID: movieLighthouse,
 				Poster:  poster(movieLighthouse, "image/jpeg"),
 				Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{ep(1, "", 45)}}},
 			},
@@ -389,7 +390,7 @@ func TestMapping(t *testing.T) {
 	const folders = `[{"Name":"番剧","ItemId":"lib","CollectionType":"tvshows"}]`
 	const defaultSeries = `{"Id":"s1","Type":"Series","Name":" 测试剧 ","OriginalTitle":" テスト ","ProductionYear":2020,"ProviderIds":{"Tmdb":"1"}}`
 	tv := func(seasons ...catalog.Season) *catalog.Series {
-		return &catalog.Series{Type: catalog.TypeTV, Title: "测试剧", OriginalTitle: "テスト", Year: new(2020), TMDBID: new(int64(1)), SourceID: "s1", Seasons: seasons}
+		return &catalog.Series{Type: naming.TypeTV, Title: "测试剧", OriginalTitle: "テスト", Year: new(2020), TMDBID: new(int64(1)), SourceID: "s1", Seasons: seasons}
 	}
 	episode := func(id, extra string) string {
 		return fmt.Sprintf(`{"Id":%q,"Type":"Episode","SeriesId":"s1","Name":"集%s","RunTimeTicks":300000000,%s}`, id, id, extra)
@@ -412,7 +413,7 @@ func TestMapping(t *testing.T) {
 			series:   `{"Id":"s1","Type":"Series","Name":"  ","ProviderIds":{"Tmdb":"1"}}`,
 			children: []string{valid},
 			want: catalog.Item{Name: "Jellyfin 条目 s1", Series: &catalog.Series{
-				Type: catalog.TypeTV, TMDBID: new(int64(1)), SourceID: "s1", Seasons: []catalog.Season{validSeason},
+				Type: naming.TypeTV, TMDBID: new(int64(1)), SourceID: "s1", Seasons: []catalog.Season{validSeason},
 			}},
 		},
 		{
@@ -583,7 +584,7 @@ func TestScraped(t *testing.T) {
 		skipped("ProviderIds 为空"),
 		skipped("id 都是空白"),
 		{Name: "任意外部数据库", Series: &catalog.Series{
-			Type: catalog.TypeTV, Title: "任意外部数据库", SourceID: "s4",
+			Type: naming.TypeTV, Title: "任意外部数据库", SourceID: "s4",
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1, Title: "第1集"}}}},
 		}},
 	})
@@ -619,13 +620,13 @@ func TestTMDBID(t *testing.T) {
 
 	tv := func(id, name string, tmdbID *int64, warnings ...string) catalog.Item {
 		return catalog.Item{Name: name, Warnings: warnings, Series: &catalog.Series{
-			Type: catalog.TypeTV, Title: name, TMDBID: tmdbID, SourceID: id,
+			Type: naming.TypeTV, Title: name, TMDBID: tmdbID, SourceID: id,
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1, Title: "第1集"}}}},
 		}}
 	}
 	assertItems(t, collect(t, listing.Items), []catalog.Item{
 		{Name: "只有合集 id 的电影", Series: &catalog.Series{
-			Type: catalog.TypeMovie, Title: "只有合集 id 的电影", SourceID: "m1",
+			Type: naming.TypeMovie, Title: "只有合集 id 的电影", SourceID: "m1",
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1}}}},
 		}},
 		tv("s1", "带空白", new(int64(123))),
@@ -680,7 +681,7 @@ func TestMapMovie(t *testing.T) {
 
 	movie := func(id, title, original string, year *int, tmdbID int64, duration *int) catalog.Item {
 		return catalog.Item{Name: title, Series: &catalog.Series{
-			Type: catalog.TypeMovie, Title: title, OriginalTitle: original, Year: year, TMDBID: &tmdbID, SourceID: id,
+			Type: naming.TypeMovie, Title: title, OriginalTitle: original, Year: year, TMDBID: &tmdbID, SourceID: id,
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1, Duration: duration}}}},
 		}}
 	}

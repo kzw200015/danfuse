@@ -8,11 +8,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
+	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -24,11 +25,11 @@ var uploadLimits = config.DanmakuFile{MaxFiles: 50, MaxFileMB: 10, MaxUploadMB: 
 func catalogServer(pool *pgxpool.Pool) *Server {
 	logger := slog.New(slog.DiscardHandler)
 	env := testenv.New(pool, logger, fakeAdapter{})
-	return New(config.Server{}, config.Dandanplay{}, logger, &Handlers{
-		Catalog:       catalog.NewHandler(env.Catalog),
-		Binding:       binding.NewHandler(env.Bindings, uploadLimits),
-		SeasonBinding: seasonbinding.NewHandler(env.SeasonBindings, uploadLimits),
-	})
+	return New(config.Server{}, logger, complete(&Handlers{
+		Catalog:       cataloghandler.NewHandler(env.Catalog),
+		Binding:       bindinghandler.NewHandler(env.Bindings, uploadLimits),
+		SeasonBinding: seasonbindinghandler.NewHandler(env.SeasonBindings, uploadLimits),
+	}))
 }
 
 // posterPNG 种子目录里星海旅人的海报（图片 1）。
@@ -83,7 +84,7 @@ func TestListSeries(t *testing.T) {
 
 	seedCatalog(t, pool)
 	_, _, data := call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK)
-	testenv.AssertJSON(t, data, `[
+	testutil.AssertJSON(t, data, `[
 		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "tmdbId": 60735,
 		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3,
 		 "boundEpisodeCount": 2, "bindingCount": 3, "deadBindingCount": 2, "following": false},
@@ -149,7 +150,7 @@ func TestGetSeries(t *testing.T) {
 	}
 	for _, tt := range tests {
 		_, _, data := call(t, srv, http.MethodGet, tt.target, "", http.StatusOK)
-		testenv.AssertJSON(t, data, tt.want)
+		testutil.AssertJSON(t, data, tt.want)
 	}
 
 	assertAPIErrors(t, srv, []apiError{

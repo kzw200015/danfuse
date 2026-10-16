@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 )
 
 var update = flag.Bool("update", false,

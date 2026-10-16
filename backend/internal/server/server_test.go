@@ -12,13 +12,52 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v5"
 
+	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
+	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
+	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
+	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
+	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
+	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
+	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
+	settingshandler "github.com/kzw200015/danfuse/backend/internal/settings/handler"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
+
+// complete 补齐 h 里测试没用到的 handler，让 registerRoutes 照常注册全部路由。补上的 handler 的 service 为 nil，
+// 测试不请求这些路由；用到的 handler 由测试自己组装。
+func complete(h *Handlers) *Handlers {
+	if h.Health == nil {
+		h.Health = healthhandler.NewHandler(nil)
+	}
+	if h.Settings == nil {
+		h.Settings = settingshandler.NewHandler(&config.Config{})
+	}
+	if h.Catalog == nil {
+		h.Catalog = cataloghandler.NewHandler(nil)
+	}
+	if h.Sync == nil {
+		h.Sync = cataloghandler.NewSyncHandler(nil)
+	}
+	if h.Binding == nil {
+		h.Binding = bindinghandler.NewHandler(nil, config.DanmakuFile{})
+	}
+	if h.SeasonBinding == nil {
+		h.SeasonBinding = seasonbindinghandler.NewHandler(nil, config.DanmakuFile{})
+	}
+	if h.BlockedWord == nil {
+		h.BlockedWord = blockwordhandler.NewHandler(nil)
+	}
+	if h.Dandan == nil {
+		h.Dandan = dandanhandler.NewHandler(nil, config.Dandanplay{})
+	}
+	return h
+}
 
 // serve 用完整的 Echo（中间件、全局错误处理与路由）处理一个请求，返回记录下的响应。body 不为空时作为 JSON 请求体。
 func serve(t *testing.T, srv *Server, method, target, body string) *httptest.ResponseRecorder {
@@ -117,7 +156,7 @@ func jsonString(v any) string {
 
 // startSync 在 synctest 气泡里新建连接池和不开定时同步的 SyncService，在后台运行 Run，等它停下来再返回。
 // src 为 nil 表示未配置目录源。连接池在气泡里创建、在气泡里关闭：测试结束时先取消 Run 并等它返回，再关闭连接池。
-func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*catalog.SyncService, *pgxpool.Pool) {
+func startSync(t *testing.T, cfg *pgxpool.Config, src catalog.Source) (*catalogsvc.SyncService, *pgxpool.Pool) {
 	t.Helper()
 	pool := dbtest.Open(t, cfg)
 	return testenv.StartSync(t, pool, src), pool
@@ -140,7 +179,7 @@ func TestHealth(t *testing.T) {
 			if tt.dbDown {
 				pool.Close()
 			}
-			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{Health: NewHealthHandler(pool)})
+			srv := New(config.Server{}, slog.New(slog.DiscardHandler), complete(&Handlers{Health: healthhandler.NewHandler(healthsvc.NewService(pool))}))
 
 			rec := serve(t, srv, http.MethodGet, "/api/health", "")
 

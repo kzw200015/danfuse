@@ -10,12 +10,8 @@ package testenv
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
-	"reflect"
-	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -23,39 +19,38 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
-	"github.com/kzw200015/danfuse/backend/internal/blockword"
-	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/dandan"
-	"github.com/kzw200015/danfuse/backend/internal/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
+	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
+	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
+	dandansvc "github.com/kzw200015/danfuse/backend/internal/dandan/service"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 // Env 按 app.New 的依赖关系组装好的各领域 service。后台循环（同步、补建、定时拉取）都不运行，
 // 要它们时测试自己构造、用 RunInBackground 运行。
 type Env struct {
-	Bindings       *binding.Service
-	SeasonBindings *seasonbinding.Service // 追更的时间规则取配置项的默认值
-	Catalog        *catalog.Service
-	BlockedWords   *blockword.Service
-	Dandan         *dandan.Service
+	Bindings       *bindingsvc.Service
+	SeasonBindings *seasonbindingsvc.Service // 追更的时间规则取配置项的默认值
+	Catalog        *catalogsvc.Service
+	BlockedWords   *blockwordsvc.Service
+	Dandan         *dandansvc.Service
 }
 
 // New 在 pool 上组装各领域的 service，源适配器只注册 adapters；目录源是空的 FakeCatalog，只用来生成剧详情里的链接。
 func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *Env {
 	sources := source.NewRegistry(adapters...)
-	bindings := binding.NewService(pool, sources, logger)
-	seasonBindings := seasonbinding.NewService(pool, sources, bindings, config.Defaults().Follow, logger)
-	blockedWords := blockword.NewService(pool)
+	bindings := bindingsvc.NewService(pool, sources, logger)
+	seasonBindings := seasonbindingsvc.NewService(pool, sources, bindings, config.Defaults().Follow, logger)
+	blockedWords := blockwordsvc.NewService(pool)
 	return &Env{
 		Bindings:       bindings,
 		SeasonBindings: seasonBindings,
-		Catalog:        catalog.NewService(pool, &FakeCatalog{}, bindings, seasonBindings),
+		Catalog:        catalogsvc.NewService(pool, &FakeCatalog{}, bindings, seasonBindings),
 		BlockedWords:   blockedWords,
-		Dandan:         dandan.NewService(pool, bindings, blockedWords),
+		Dandan:         dandansvc.NewService(pool, bindings, blockedWords),
 	}
 }
 
@@ -238,54 +233,6 @@ func QueryInt(t testing.TB, pool *pgxpool.Pool, sql string, args ...any) int64 {
 		t.Fatalf("%s: %v", sql, err)
 	}
 	return n
-}
-
-// AssertAppError err 是给定状态码与提示的 *apierr.Error。
-func AssertAppError(t testing.TB, err error, status int, message string) {
-	t.Helper()
-	appErr, ok := errors.AsType[*apierr.Error](err)
-	if !ok || appErr.HTTPStatus != status || appErr.Message != message {
-		t.Errorf("err = %v, want %d %q", err, status, message)
-	}
-}
-
-// AssertStrings 逐项比较两组字符串，what 写进失败信息。
-func AssertStrings(t testing.TB, what string, got, want []string) {
-	t.Helper()
-	if !slices.Equal(got, want) {
-		t.Errorf("%s = %q\nwant %q", what, got, want)
-	}
-}
-
-// AssertJSON 把 got 编码成 JSON，与 want 按语义比较：字段名与值都要一致，不管字段顺序与空白。
-// got 是 []byte 或 json.RawMessage 时当作已经编码好的 JSON（例如响应体）。
-func AssertJSON(t testing.TB, got any, want string) {
-	t.Helper()
-	var b []byte
-	switch v := got.(type) {
-	case []byte:
-		b = v
-	case json.RawMessage:
-		b = v
-	default:
-		var err error
-		if b, err = json.Marshal(got); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var g, w any
-	if err := json.Unmarshal(b, &g); err != nil {
-		t.Fatalf("got 不是 JSON：%s", b)
-	}
-	if err := json.Unmarshal([]byte(want), &w); err != nil {
-		t.Fatalf("期望值不是 JSON：%v", err)
-	}
-	if !reflect.DeepEqual(g, w) {
-		// 两边都重新编码，字段按名称排序，方便对照
-		gb, _ := json.Marshal(g)
-		wb, _ := json.Marshal(w)
-		t.Errorf("got  %s\nwant %s", gb, wb)
-	}
 }
 
 // LockedBuffer 可以在多个 goroutine 里写的日志缓冲。

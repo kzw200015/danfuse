@@ -1,7 +1,6 @@
 package source
 
 import (
-	"context"
 	"fmt"
 )
 
@@ -41,9 +40,3 @@ func NotInteger(s string) string {
 
 // LabelSeparator 条目标签里两级标题之间的分隔，如"稿件标题 / 分 P 标题"。默认集号规则认紧跟它、在结尾的数字（下级标题只写了集号）。
 const LabelSeparator = " / "
-
-// ParseCollectionLink 依次交给各个适配器，返回第一个认识这个链接的适配器和它给出的候选。
-// 适配器返回 ErrUnrecognized 以外的错误时直接返回；都不认识时返回 Kind 为 InvalidLink 的 *Error（"无法识别的链接"）。
-func (r *Registry) ParseCollectionLink(ctx context.Context, link string) (Adapter, []CollectionCandidate, error) {
-	return firstRecognized(r.adapters, func(a Adapter) ([]CollectionCandidate, error) { return a.ParseCollectionLink(ctx, link) })
-}

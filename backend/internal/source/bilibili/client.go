@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 

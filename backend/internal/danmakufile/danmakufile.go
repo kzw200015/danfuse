@@ -11,6 +11,14 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/danmaku/bilifmt"
 )
 
+// File 上传的一份弹幕文件，单集上传（binding）和按季上传文件夹（seasonbinding）共用。
+type File struct {
+	// Name 上传的文件名，认不出时的提示用它；上传文件夹时是在所选文件夹里的相对路径（以文件夹名开头、用 / 分隔），
+	// 存下的文件名取它的 base name
+	Name string
+	Data []byte
+}
+
 // Error 一份弹幕文件解析不了。Message 是给用户看的提示，带着文件名；Err 是底层原因，只进日志。
 // 调用方用 errors.AsType 取出。
 type Error struct {
