@@ -24,10 +24,13 @@ type Handlers struct {
 	Dandan        *dandanhandler.Handler
 }
 
+// apiPrefix 管理 API 的路径前缀。
+const apiPrefix = "/api"
+
 // registerRoutes 管理 API 挂在 /api 下，各领域在自己 handler 包的 routes.go 里注册路由；
 // 弹弹 API 的前缀、CORS、Gzip 与 token 由 dandan 自己处理（见 dandan/handler 的 Register）。
 func registerRoutes(e *echo.Echo, h *Handlers) {
-	api := e.Group("/api")
+	api := e.Group(apiPrefix)
 	h.Health.Register(api)
 	h.Settings.Register(api)
 	h.Catalog.Register(api)

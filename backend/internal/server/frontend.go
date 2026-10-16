@@ -6,10 +6,13 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
+
+	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
 )
 
 // backendPrefixes 下的路径归后端：不托管前端文件，没命中的路由按原来的方式返回 404，不回退到 index.html。
-var backendPrefixes = []string{"/api", "/dandanplay"}
+// 前缀取自注册路由的地方，新增后端的路由前缀时加在这里。
+var backendPrefixes = []string{apiPrefix, dandanhandler.Prefix}
 
 func isBackendPath(c *echo.Context) bool {
 	p := c.Request().URL.Path

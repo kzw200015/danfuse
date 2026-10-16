@@ -17,6 +17,6 @@
 
 - `pnpm build` 直接输出到 `backend/web/static/dist`（不进 git），`backend/web/embed.go` 把它内嵌进二进制；没构建时内嵌的是提交进仓库的占位页 `static/placeholder/`，`go build`、`make run` 照常可用，管理界面只显示"前端未构建"。
 - `server/frontend.go` 用 Echo 的 `middleware.StaticWithConfig`（`HTML5: true`）：文件存在就返回，路由和文件都没命中时回退到 `index.html`，直接刷新前端路由也能打开。
-- `Skipper` 跳过 `/api/`、`/dandanplay/`，这两个前缀下没命中的路由仍按原来的方式返回 404。新增后端路由前缀时加进 `backendPrefixes`。
+- `Skipper` 跳过 `/api/`、`/dandanplay/`，这两个前缀下没命中的路由仍按原来的方式返回 404。前缀取自注册路由的地方（`server` 的 `apiPrefix`、`dandanhandler.Prefix`），新增后端路由前缀时加进 `server/frontend.go` 的 `backendPrefixes`。
 - 缓存头：`/assets/*` 长期缓存加 immutable，不存在的直接 404、不回退；其余 `no-cache`。
 - 开发时用 `pnpm dev`，Vite 把 `/api`、`/dandanplay` 代理到后端。

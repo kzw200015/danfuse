@@ -34,15 +34,18 @@ func NewHandler(svc *service.Service, cfg config.Dandanplay) *Handler {
 	return &Handler{svc: svc, cfg: cfg}
 }
 
+// Prefix 弹弹 API 的路径前缀，server 据此不把这个前缀下的路径交给前端托管。
+const Prefix = "/dandanplay"
+
 // Register 弹弹 API 挂在 /dandanplay[/<token>]/api/v2 下，客户端在填写的地址后面固定拼 /api/v2。
 // CORS（浏览器里的客户端跨域请求，例如插件从 Jellyfin 的源请求）与 Gzip 只作用于这个前缀，管理 API 不加。
 // 配置了 token 时前缀注册为 /dandanplay/:token/api/v2，由组中间件比较 token：5xx 日志记录的是注册时的路由模式，
 // token 因此不会出现在日志里。只注册从搜索到取弹幕的接口，其余（match/batch、extcomment、search/tmdb 等）返回 404。
 func (h *Handler) Register(e *echo.Echo) {
-	prefix := "/dandanplay/api/v2"
+	prefix := Prefix + "/api/v2"
 	var middlewares []echo.MiddlewareFunc
 	if h.cfg.Token != "" {
-		prefix = "/dandanplay/:token/api/v2"
+		prefix = Prefix + "/:token/api/v2"
 		middlewares = append(middlewares, checkToken(h.cfg.Token))
 	}
 	middlewares = append(middlewares,
