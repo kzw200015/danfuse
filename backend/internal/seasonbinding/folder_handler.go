@@ -9,7 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
@@ -218,10 +218,10 @@ func (h *Handler) folderLimits() request.FileLimits {
 }
 
 // uploadedFiles 上传的文件，文件名保留相对路径。
-func uploadedFiles(files []request.File) []binding.UploadedFile {
-	out := make([]binding.UploadedFile, len(files))
+func uploadedFiles(files []request.File) []bindingsvc.UploadedFile {
+	out := make([]bindingsvc.UploadedFile, len(files))
 	for i, f := range files {
-		out[i] = binding.UploadedFile(f)
+		out[i] = bindingsvc.UploadedFile(f)
 	}
 	return out
 }

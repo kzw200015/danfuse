@@ -1,4 +1,4 @@
-package binding_test
+package service_test
 
 import (
 	"errors"
@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -58,7 +58,7 @@ func TestCreateBinding(t *testing.T) {
 				t.Error("lastFetchedAt 为空，want 这次拉取的时间")
 			}
 			got.LastFetchedAt = nil
-			want := binding.View{
+			want := service.View{
 				ID:             1,
 				Kind:           "link",
 				Adapter:        new("fake"),
@@ -173,7 +173,7 @@ func TestCreateBindingTimeout(t *testing.T) {
 			t.Parallel()
 			testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 				testenv.SeedEpisodes(t, pool)
-				svc := binding.NewService(pool, source.NewRegistry(tt.adapter), testenv.Logger(t))
+				svc := service.NewService(pool, source.NewRegistry(tt.adapter), testenv.Logger(t))
 
 				start := time.Now()
 				_, err := svc.Create(t.Context(), 1, "fake/s1")
@@ -288,7 +288,7 @@ func TestRefetch(t *testing.T) {
 				t.Errorf("lastFetchedAt = %v, want 晚于上次拉取的 %v", got.LastFetchedAt, prev.LastFetchedAt)
 			}
 			got.LastFetchedAt = nil
-			want := binding.View{
+			want := service.View{
 				ID:             id,
 				Kind:           "link",
 				Adapter:        new("fake"),
@@ -436,7 +436,7 @@ func TestRefetchTimeout(t *testing.T) {
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		testenv.SeedEpisodes(t, pool)
 		adapter := &fakeAdapter{sources: map[string]source.Fetched{"s1": video}}
-		svc := binding.NewService(pool, source.NewRegistry(adapter), testenv.Logger(t))
+		svc := service.NewService(pool, source.NewRegistry(adapter), testenv.Logger(t))
 		id := createS1(t, svc)
 		before := getBinding(t, pool, id)
 		adapter.hang = true
@@ -564,7 +564,7 @@ func TestRefetchKeepsOffset(t *testing.T) {
 	id := createS1(t, svc)
 	adapter.gate()
 
-	var got binding.View
+	var got service.View
 	errc := make(chan error, 1)
 	go func() {
 		var err error

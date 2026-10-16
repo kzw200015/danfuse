@@ -9,7 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
@@ -43,8 +44,8 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	sources := source.NewRegistry(bilibili.New(cfg.Bilibili, logger))
 	catalogSource := newCatalogSource(cfg.CatalogSource)
 
-	bindings := binding.NewService(pool, sources, logger)
-	scheduledFetch := binding.NewScheduledFetchService(pool, bindings, cfg.ScheduledFetch, logger)
+	bindings := bindingsvc.NewService(pool, sources, logger)
+	scheduledFetch := bindingsvc.NewScheduledFetchService(pool, bindings, cfg.ScheduledFetch, logger)
 	seasonBindings := seasonbinding.NewService(pool, sources, bindings, cfg.Follow, logger)
 	catalogs := catalog.NewService(pool, catalogSource, bindings, seasonBindings)
 	syncs := catalog.NewSyncService(pool, catalogSource, cfg.Sync, logger)
@@ -56,7 +57,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Settings:      settings.NewHandler(cfg),
 		Catalog:       catalog.NewHandler(catalogs),
 		Sync:          catalog.NewSyncHandler(syncs),
-		Binding:       binding.NewHandler(bindings, cfg.DanmakuFile),
+		Binding:       bindinghandler.NewHandler(bindings, cfg.DanmakuFile),
 		SeasonBinding: seasonbinding.NewHandler(seasonBindings, cfg.DanmakuFile),
 		BlockedWord:   blockword.NewHandler(blockedWords),
 		Dandan:        dandan.NewHandler(dandans),

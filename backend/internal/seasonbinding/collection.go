@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
@@ -206,13 +206,13 @@ func (s *Service) listCandidates(ctx context.Context, link string) (source.Adapt
 	defer cancel()
 	adapter, candidates, err := s.sources.ParseCollectionLink(netCtx, link)
 	if err != nil {
-		return nil, nil, binding.SourceAPIError(err)
+		return nil, nil, bindingsvc.SourceAPIError(err)
 	}
 	listed := make([]listedCandidate, len(candidates))
 	for i, c := range candidates {
 		col, err := adapter.ListCollection(netCtx, c.Ref)
 		if err != nil {
-			return nil, nil, binding.SourceAPIError(err)
+			return nil, nil, bindingsvc.SourceAPIError(err)
 		}
 		listed[i] = listedCandidate{CollectionCandidate: c, col: col}
 	}
@@ -255,7 +255,7 @@ func (s *Service) resolve(ctx context.Context, seasonID int64, self *int64, link
 	defer cancel()
 	adapter, candidates, err := s.sources.ParseCollectionLink(netCtx, link)
 	if err != nil {
-		return resolved{}, binding.SourceAPIError(err)
+		return resolved{}, bindingsvc.SourceAPIError(err)
 	}
 	chosen, err := chooseCandidate(candidates, kind)
 	if err != nil {
@@ -271,7 +271,7 @@ func (s *Service) resolve(ctx context.Context, seasonID int64, self *int64, link
 	}
 	col, err := adapter.ListCollection(netCtx, chosen.Ref)
 	if err != nil {
-		return resolved{}, binding.SourceAPIError(err)
+		return resolved{}, bindingsvc.SourceAPIError(err)
 	}
 	return resolved{adapter: adapter, ref: chosen.Ref, col: col}, nil
 }

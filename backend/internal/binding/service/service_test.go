@@ -1,4 +1,4 @@
-package binding_test
+package service_test
 
 import (
 	"net/http"

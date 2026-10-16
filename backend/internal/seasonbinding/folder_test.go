@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -21,7 +21,7 @@ func folderForm() seasonbinding.FolderForm {
 }
 
 // createFolder 用上传的文件给第 1 季创建文件夹的季绑定，返回详情。
-func (e *seasonEnv) createFolder(files ...binding.UploadedFile) seasonbinding.Detail {
+func (e *seasonEnv) createFolder(files ...bindingsvc.UploadedFile) seasonbinding.Detail {
 	e.t.Helper()
 	d, err := e.svc.CreateFolder(e.t.Context(), 1, files, folderForm())
 	if err != nil {
@@ -57,7 +57,7 @@ func TestCreateFolder(t *testing.T) {
 }
 
 // saveFolder 保存文件夹的季绑定的表单：files 为空时不换文件夹。
-func (e *seasonEnv) saveFolder(id int64, f seasonbinding.FolderForm, files ...binding.UploadedFile) seasonbinding.Detail {
+func (e *seasonEnv) saveFolder(id int64, f seasonbinding.FolderForm, files ...bindingsvc.UploadedFile) seasonbinding.Detail {
 	e.t.Helper()
 	d, err := e.svc.SaveFolder(e.t.Context(), id, files, f)
 	if err != nil {
@@ -115,7 +115,7 @@ func TestSaveFolder(t *testing.T) {
 }
 
 // picked 预览时选的文件夹：各条目的名称和文件哈希取自要上传的文件，与 groupFolder 同样按路径分组。
-func picked(folder string, files ...binding.UploadedFile) *seasonbinding.PickedFolder {
+func picked(folder string, files ...bindingsvc.UploadedFile) *seasonbinding.PickedFolder {
 	p := &seasonbinding.PickedFolder{Folder: folder}
 	index := map[string]int{}
 	for _, f := range files {
@@ -141,7 +141,7 @@ func TestChangeFolder(t *testing.T) {
 			testenv.Snapshot1("星海旅人/01.xml"), testenv.Snapshot1("星海旅人/02.xml"), testenv.Snapshot1("星海旅人/03.xml"),
 		).ID
 		env.exec(`UPDATE bindings SET "offset" = 2.5`)
-		files := []binding.UploadedFile{
+		files := []bindingsvc.UploadedFile{
 			testenv.Snapshot1("星海旅人 BD/01.xml"), testenv.Snapshot2("星海旅人 BD/02.xml"), testenv.Snapshot1("星海旅人 BD/04.xml"),
 		}
 
@@ -203,14 +203,14 @@ func TestCreateFolderRejected(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		env := newSeasonEnv(t, pool, &testenv.FakeCollector{}, 1, 2)
-		_, err := env.svc.CreateFolder(t.Context(), 1, []binding.UploadedFile{
+		_, err := env.svc.CreateFolder(t.Context(), 1, []bindingsvc.UploadedFile{
 			testenv.Snapshot1("星海旅人/01.xml"),
 			{Name: "星海旅人/02/坏.xml", Data: []byte("<i><d")},
 		}, folderForm())
 		testenv.AssertAppError(t, err, http.StatusUnprocessableEntity,
 			"无法识别「星海旅人/02/坏.xml」：目前只支持 B 站的 XML 弹幕文件，且文件要完整")
 
-		_, err = env.svc.CreateFolder(t.Context(), 1, []binding.UploadedFile{
+		_, err = env.svc.CreateFolder(t.Context(), 1, []bindingsvc.UploadedFile{
 			testenv.Snapshot1("星海旅人/01.xml"), testenv.Snapshot1("星海旅人/01/a.xml"),
 		}, folderForm())
 		testenv.AssertAppError(t, err, http.StatusBadRequest, "条目名称重复：01")

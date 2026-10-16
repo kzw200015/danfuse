@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
@@ -41,7 +41,7 @@ type seasonEnv struct {
 	src  *testenv.FakeCollector
 	svc  *seasonbinding.Service
 	// bindingSvc 与 svc 共用的 binding.Service，查看建出的绑定、写入文件夹的槽位用
-	bindingSvc *binding.Service
+	bindingSvc *bindingsvc.Service
 	stop       func()               // 取消 Run 并等它返回
 	logs       testenv.LockedBuffer // 服务的日志，同时写进测试输出
 }
@@ -70,7 +70,7 @@ func newSeasonEnv(t *testing.T, pool *pgxpool.Pool, src *testenv.FakeCollector, 
 func (e *seasonEnv) start() {
 	sources := source.NewRegistry(e.src)
 	logger := testenv.SlogTo(io.MultiWriter(e.t.Output(), &e.logs))
-	e.bindingSvc = binding.NewService(e.pool, sources, logger)
+	e.bindingSvc = bindingsvc.NewService(e.pool, sources, logger)
 	e.svc = seasonbinding.NewService(e.pool, sources, e.bindingSvc, testFollow, logger)
 	e.stop = testenv.RunInBackground(e.t, e.svc)
 }
@@ -181,7 +181,7 @@ func (e *seasonEnv) folder(labels []string, slots map[int]int) int64 {
 	e.t.Helper()
 	entries := make([]testenv.FolderEntry, len(labels))
 	for i, label := range labels {
-		entries[i] = testenv.FolderEntry{Label: label, Files: []binding.UploadedFile{testenv.Snapshot1(label + ".xml")}}
+		entries[i] = testenv.FolderEntry{Label: label, Files: []bindingsvc.UploadedFile{testenv.Snapshot1(label + ".xml")}}
 	}
 	id, entryIDs := testenv.InsertFolderSeasonBinding(e.t, e.pool, 1, "星海旅人", 1, 1, entries...)
 	for i, number := range slots {
@@ -191,7 +191,7 @@ func (e *seasonEnv) folder(labels []string, slots map[int]int) int64 {
 		}
 		episodeID := testenv.QueryInt(e.t, e.pool, `SELECT id FROM episodes WHERE season_id = 1 AND number = $1`, number)
 		err = testenv.InTx(e.t, e.pool, func(tx pgx.Tx) error {
-			return e.bindingSvc.CreateFileSlotInTx(e.t.Context(), tx, binding.FileSlot{
+			return e.bindingSvc.CreateFileSlotInTx(e.t.Context(), tx, bindingsvc.FileSlot{
 				SeasonBindingID: id, EpisodeID: episodeID, EntryID: entryIDs[i], Title: labels[i], Danmaku: items,
 			})
 		})

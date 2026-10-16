@@ -1,4 +1,4 @@
-package binding_test
+package service_test
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
+	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -150,12 +150,12 @@ var video = source.Fetched{
 
 // newBindingService 新库里写入两集（testenv.SeedEpisodes），构造只注册了 adapter 的 binding.Service。
 // 测试结束时检查不变量（testenv.AssertInvariants）。
-func newBindingService(t *testing.T, adapter *fakeAdapter, logger *slog.Logger) (*binding.Service, *pgxpool.Pool) {
+func newBindingService(t *testing.T, adapter *fakeAdapter, logger *slog.Logger) (*service.Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := dbtest.Pool(t)
 	testenv.SeedEpisodes(t, pool)
 	t.Cleanup(func() { testenv.AssertInvariants(t, pool) }) // 在关闭连接池之前
-	return binding.NewService(pool, source.NewRegistry(adapter), logger), pool
+	return service.NewService(pool, source.NewRegistry(adapter), logger), pool
 }
 
 // readDanmaku 一个绑定落库的弹幕，按原始 ID 排序。
@@ -189,7 +189,7 @@ func assertNothingWritten(t *testing.T, pool *pgxpool.Pool) {
 
 // createS1 给集 1 绑定弹幕源 s1，返回绑定 ID。适配器这时返回 video 时，
 // 绑定有原始 ID 为 10、20、30 的三条弹幕，content_version 为 1。
-func createS1(t *testing.T, svc *binding.Service) int64 {
+func createS1(t *testing.T, svc *service.Service) int64 {
 	t.Helper()
 	b, err := svc.Create(t.Context(), 1, "fake/s1")
 	if err != nil {

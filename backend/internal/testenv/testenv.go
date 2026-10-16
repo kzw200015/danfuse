@@ -23,7 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
@@ -37,7 +37,7 @@ import (
 // Env 按 app.New 的依赖关系组装好的各领域 service。后台循环（同步、补建、定时拉取）都不运行，
 // 要它们时测试自己构造、用 RunInBackground 运行。
 type Env struct {
-	Bindings       *binding.Service
+	Bindings       *bindingsvc.Service
 	SeasonBindings *seasonbinding.Service // 追更的时间规则取配置项的默认值
 	Catalog        *catalog.Service
 	BlockedWords   *blockword.Service
@@ -47,7 +47,7 @@ type Env struct {
 // New 在 pool 上组装各领域的 service，源适配器只注册 adapters；目录源是空的 FakeCatalog，只用来生成剧详情里的链接。
 func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *Env {
 	sources := source.NewRegistry(adapters...)
-	bindings := binding.NewService(pool, sources, logger)
+	bindings := bindingsvc.NewService(pool, sources, logger)
 	seasonBindings := seasonbinding.NewService(pool, sources, bindings, config.Defaults().Follow, logger)
 	blockedWords := blockword.NewService(pool)
 	return &Env{

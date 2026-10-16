@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
@@ -46,7 +46,7 @@ type EntryHashes struct {
 // CreateFolder 用上传的文件夹创建文件夹的季绑定：标题为文件夹名，保存全部条目（对不上的也保存）和条目的文件，
 // 对到集的条目当场建出文件绑定，返回详情。files 的 Name 是以文件夹名开头的相对路径。
 // 季不存在为 404，保存前被删除为 404"这一季已被删除"；文件夹的结构不对为 400，有一份文件解析失败为 422。
-func (s *Service) CreateFolder(ctx context.Context, seasonID int64, files []binding.UploadedFile, f FolderForm) (Detail, error) {
+func (s *Service) CreateFolder(ctx context.Context, seasonID int64, files []bindingsvc.UploadedFile, f FolderForm) (Detail, error) {
 	if err := s.checkSeason(ctx, seasonID); err != nil {
 		return Detail{}, err
 	}
@@ -88,7 +88,7 @@ func (s *Service) CreateFolder(ctx context.Context, seasonID int64, files []bind
 // 不为空时换文件夹，标题改为新的文件夹名，名称和文件哈希都没变的条目沿用（建出的绑定和偏移不动），其余的删掉重建。
 // 派生之后删掉没有条目的槽位，替换、新建槽位。每次保存都走这一套，不比较表单改没改。
 // 不存在时 404（保存前季或季绑定被删除也是），合集的季绑定 400；文件夹的结构不对为 400，有一份文件解析失败为 422。
-func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.UploadedFile, f FolderForm) (Detail, error) {
+func (s *Service) SaveFolder(ctx context.Context, id int64, files []bindingsvc.UploadedFile, f FolderForm) (Detail, error) {
 	sb, err := s.getFolder(ctx, id)
 	if err != nil {
 		return Detail{}, err
@@ -281,11 +281,11 @@ func (s *Service) applyFolder(ctx context.Context, tx pgx.Tx, sb dao.SeasonBindi
 		if err != nil {
 			return folderResult{}, err
 		}
-		err = s.bindings.CreateFileSlotInTx(ctx, tx, binding.FileSlot{
+		err = s.bindings.CreateFileSlotInTx(ctx, tx, bindingsvc.FileSlot{
 			SeasonBindingID: sb.ID, EpisodeID: it.EpisodeID, EntryID: entries[i].id, Title: entries[i].label, Danmaku: items,
 		})
 		switch {
-		case errors.Is(err, binding.ErrEpisodeGone):
+		case errors.Is(err, bindingsvc.ErrEpisodeGone):
 			continue
 		case err != nil:
 			return folderResult{}, err
@@ -325,7 +325,7 @@ func (e formEntry) danmaku(stored []dao.ListSeasonBindingEntryFilesRow) ([]danma
 		return items, nil
 	}
 	for _, f := range stored {
-		parsed, err := binding.ParseFile(f.Name, f.Content)
+		parsed, err := bindingsvc.ParseFile(f.Name, f.Content)
 		if err != nil {
 			return nil, err
 		}
@@ -474,7 +474,7 @@ type uploadedFolder struct {
 // uploadedEntry 上传的文件夹里的一个条目，文件都已解析。
 type uploadedEntry struct {
 	label string
-	files []binding.ParsedFile
+	files []bindingsvc.ParsedFile
 }
 
 // hashes 各条目的名称和文件哈希，按名称和哈希对上保存的条目用。
@@ -490,14 +490,14 @@ func (u uploadedFolder) hashes() []EntryHashes {
 }
 
 // readFolder 把上传的文件按路径分成条目（结构不对时 400），再逐份解析（有一份失败就 422，提示带着它的相对路径）。
-func readFolder(files []binding.UploadedFile) (uploadedFolder, error) {
+func readFolder(files []bindingsvc.UploadedFile) (uploadedFolder, error) {
 	name, groups, err := groupFolder(files)
 	if err != nil {
 		return uploadedFolder{}, err
 	}
 	u := uploadedFolder{name: name, entries: make([]uploadedEntry, len(groups))}
 	for i, g := range groups {
-		parsed, err := binding.ParseFiles(g.files)
+		parsed, err := bindingsvc.ParseFiles(g.files)
 		if err != nil {
 			return uploadedFolder{}, err
 		}
@@ -510,13 +510,13 @@ func readFolder(files []binding.UploadedFile) (uploadedFolder, error) {
 type folderGroup struct {
 	label string // 子目录名，或去掉扩展名的文件名
 	dir   bool   // 子目录合成的条目
-	files []binding.UploadedFile
+	files []bindingsvc.UploadedFile
 }
 
 // groupFolder 按文件名（相对路径）把文件分成条目，前后端用同一套规则：每个路径是"文件夹/x.xml"或"文件夹/子目录/x.xml"
 // （最多两层），只认 .xml（不分大小写），文件夹名都相同；子目录里的文件合成一个条目，名称为子目录名，
 // 顶层的文件各自一个条目，名称为去掉扩展名的文件名；条目名称不能重复。不满足时 400。返回文件夹名和按第一次出现的顺序分好的条目。
-func groupFolder(files []binding.UploadedFile) (string, []folderGroup, error) {
+func groupFolder(files []bindingsvc.UploadedFile) (string, []folderGroup, error) {
 	var (
 		name   string
 		groups []folderGroup

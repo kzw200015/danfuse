@@ -1,4 +1,4 @@
-// Package binding 绑定：一集与一个弹幕源的对应关系。
+// Package service 绑定的业务层。绑定：一集与一个弹幕源的对应关系。HTTP 在同级的 handler 包，查询在 dao 包（sqlc）。
 //   - service.go：绑定的视图、改偏移与删除，以及包内共用的取、锁；
 //   - link.go：贴链接创建（拉取弹幕源的全部弹幕落库）、重新拉取、失效与恢复；
 //   - file.go：用弹幕文件建的绑定（创建、追加文件、重新解析）；
@@ -6,7 +6,7 @@
 //   - season_slot.go：季绑定在各集的槽位里建出的绑定（CreateLinkSlotInTx、CreateFileSlotInTx、DeleteSlotsInTx），
 //     事务由 seasonbinding 开；建出的绑定不能单独删除、追加文件；
 //   - scheduled_fetch.go：定时拉取。
-package binding
+package service
 
 import (
 	"context"

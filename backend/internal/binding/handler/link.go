@@ -1,10 +1,11 @@
-package binding
+package handler
 
 import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
@@ -52,8 +53,8 @@ func (r *refetchBindingRequest) Validate() error {
 }
 
 type refetchResponse struct {
-	Binding View  `json:"binding"`
-	Added   int64 `json:"added"` // 新增条数；清空后重新拉取时为这次的总条数
+	Binding service.View `json:"binding"`
+	Added   int64        `json:"added"` // 新增条数；清空后重新拉取时为这次的总条数
 }
 
 // Refetch POST /api/bindings/:id/refetch {clear}

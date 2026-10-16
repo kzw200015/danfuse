@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/background"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
@@ -339,7 +339,7 @@ func (s *Service) backfillItem(ctx context.Context, r *backfillRound, sb dao.Sea
 // 原来的绑定保留，计入 alreadyBound，再另外清掉条目的失败原因。
 func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb dao.SeasonBinding, it Item, ref source.Ref, fetched source.Fetched) error {
 	now := time.Now()
-	var saved binding.Saved
+	var saved bindingsvc.Saved
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		// 先锁季：删季的级联先锁集、后锁季绑定，与这里相反；两边都先锁季，在第一步就排队，不会死锁
@@ -358,7 +358,7 @@ func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb dao.SeasonB
 			}
 		}
 		var err error
-		saved, err = s.bindings.CreateLinkSlotInTx(ctx, tx, binding.LinkSlot{
+		saved, err = s.bindings.CreateLinkSlotInTx(ctx, tx, bindingsvc.LinkSlot{
 			SeasonBindingID: sb.ID, EpisodeID: it.EpisodeID, Adapter: *sb.Adapter, Ref: ref, Fetched: fetched, CreatedAt: now,
 		})
 		if err != nil {
@@ -367,9 +367,9 @@ func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb dao.SeasonB
 		return q.SetSeasonBindingItemError(ctx, dao.SetSeasonBindingItemErrorParams{SeasonBindingID: sb.ID, Ref: ref})
 	})
 	switch {
-	case errors.Is(err, binding.ErrEpisodeGone):
+	case errors.Is(err, bindingsvc.ErrEpisodeGone):
 		return nil
-	case errors.Is(err, binding.ErrSourceBound):
+	case errors.Is(err, bindingsvc.ErrSourceBound):
 		r.alreadyBound++
 		return s.setItemError(ctx, r.id, ref, nil) // 跳过不算失败，清掉上次失败的原因
 	case err != nil:

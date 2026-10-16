@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/background"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
@@ -48,13 +48,13 @@ type Service struct {
 	pool     *pgxpool.Pool // 开事务，拿按季绑定的租约
 	q        *dao.Queries
 	sources  *source.Registry
-	bindings *binding.Service // 槽位里的绑定由它写入
-	follow   config.Follow    // 追更的时间规则
+	bindings *bindingsvc.Service // 槽位里的绑定由它写入
+	follow   config.Follow       // 追更的时间规则
 	logger   *slog.Logger
 	loop     *background.Loop // Run 的循环：追更的扫描与手动触发，进行中的扫描和补建
 }
 
-func NewService(pool *pgxpool.Pool, sources *source.Registry, bindings *binding.Service, follow config.Follow, logger *slog.Logger) *Service {
+func NewService(pool *pgxpool.Pool, sources *source.Registry, bindings *bindingsvc.Service, follow config.Follow, logger *slog.Logger) *Service {
 	return &Service{
 		pool:     pool,
 		q:        dao.New(pool),

@@ -30,6 +30,7 @@ linters:
         handler:
           files:
             - "**/internal/*/*handler*.go"
+            - "**/internal/*/handler/**"
           deny:
             - pkg: github.com/jackc/pgx
               desc: handler 经 service 访问数据库

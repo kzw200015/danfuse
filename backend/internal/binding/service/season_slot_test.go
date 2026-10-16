@@ -1,4 +1,4 @@
-package binding_test
+package service_test
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -17,8 +17,8 @@ import (
 )
 
 // linkSlot 季绑定 sb 在集 episodeID 上建出弹幕源 name 的链接绑定，拉取结果为 video。
-func linkSlot(sb, episodeID int64, name string) binding.LinkSlot {
-	return binding.LinkSlot{
+func linkSlot(sb, episodeID int64, name string) service.LinkSlot {
+	return service.LinkSlot{
 		SeasonBindingID: sb, EpisodeID: episodeID, Adapter: "fake", Ref: source.Ref(`{"name": "` + name + `"}`),
 		Fetched: video, CreatedAt: time.Now(),
 	}
@@ -32,7 +32,7 @@ func TestLinkSlot(t *testing.T) {
 	sb := testenv.InsertCollectionSeasonBinding(t, pool, 1, "s", 1, 1)
 	other := testenv.InsertCollectionSeasonBinding(t, pool, 1, "t", 1, 1)
 
-	var saved binding.Saved
+	var saved service.Saved
 	err := testenv.InTx(t, pool, func(tx pgx.Tx) error {
 		var err error
 		saved, err = svc.CreateLinkSlotInTx(t.Context(), tx, linkSlot(sb, 1, "a"))
@@ -57,12 +57,12 @@ func TestLinkSlot(t *testing.T) {
 	}
 	for _, tt := range []struct {
 		name string
-		slot binding.LinkSlot
+		slot service.LinkSlot
 		want error
 	}{
-		{"别的季绑定建出的同源", linkSlot(other, 1, "a"), binding.ErrSourceBound},
-		{"手动绑定的同源", linkSlot(sb, 2, "m"), binding.ErrSourceBound},
-		{"集已被删除", linkSlot(sb, 9, "b"), binding.ErrEpisodeGone},
+		{"别的季绑定建出的同源", linkSlot(other, 1, "a"), service.ErrSourceBound},
+		{"手动绑定的同源", linkSlot(sb, 2, "m"), service.ErrSourceBound},
+		{"集已被删除", linkSlot(sb, 9, "b"), service.ErrEpisodeGone},
 	} {
 		err := testenv.InTx(t, pool, func(tx pgx.Tx) error {
 			_, err := svc.CreateLinkSlotInTx(t.Context(), tx, tt.slot)
@@ -106,16 +106,16 @@ func TestFileSlot(t *testing.T) {
 	t.Parallel()
 	svc, pool := newBindingService(t, &fakeAdapter{}, testenv.Logger(t))
 	sb, entries := testenv.InsertFolderSeasonBinding(t, pool, 1, "星海旅人", 1, 1,
-		testenv.FolderEntry{Label: "第1话", Files: []binding.UploadedFile{snapshot1, snapshot2}})
+		testenv.FolderEntry{Label: "第1话", Files: []service.UploadedFile{snapshot1, snapshot2}})
 	var items []danmaku.Danmaku
-	for _, f := range []binding.UploadedFile{snapshot1, snapshot2} {
+	for _, f := range []service.UploadedFile{snapshot1, snapshot2} {
 		parsed, err := danmakufile.Parse(f.Name, f.Data)
 		if err != nil {
 			t.Fatal(err)
 		}
 		items = append(items, parsed...)
 	}
-	slot := binding.FileSlot{SeasonBindingID: sb, EpisodeID: 1, EntryID: entries[0], Title: "第1话", Danmaku: items}
+	slot := service.FileSlot{SeasonBindingID: sb, EpisodeID: 1, EntryID: entries[0], Title: "第1话", Danmaku: items}
 
 	if err := testenv.InTx(t, pool, func(tx pgx.Tx) error { return svc.CreateFileSlotInTx(t.Context(), tx, slot) }); err != nil {
 		t.Fatalf("CreateFileSlotInTx: %v", err)
@@ -154,12 +154,12 @@ func TestFileSlot(t *testing.T) {
 
 	const message = "这个绑定由季绑定「星海旅人」建出，不能单独删除或追加文件；要改，去季面板编辑季绑定"
 	testenv.AssertAppError(t, svc.Delete(t.Context(), v.ID), http.StatusConflict, message)
-	_, err = svc.AppendFiles(t.Context(), v.ID, []binding.UploadedFile{snapshot1})
+	_, err = svc.AppendFiles(t.Context(), v.ID, []service.UploadedFile{snapshot1})
 	testenv.AssertAppError(t, err, http.StatusConflict, message)
 
 	slot.EpisodeID = 9
 	err = testenv.InTx(t, pool, func(tx pgx.Tx) error { return svc.CreateFileSlotInTx(t.Context(), tx, slot) })
-	if !errors.Is(err, binding.ErrEpisodeGone) {
+	if !errors.Is(err, service.ErrEpisodeGone) {
 		t.Errorf("集已被删除：err = %v, want ErrEpisodeGone", err)
 	}
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
@@ -38,11 +38,11 @@ type Service struct {
 	pool           *pgxpool.Pool
 	q              *dao.Queries
 	catalogSource  Source                 // 剧详情里跳回目录源的链接；未配置目录源时为 nil
-	bindings       *binding.Service       // 剧详情里各集的绑定
+	bindings       *bindingsvc.Service    // 剧详情里各集的绑定
 	seasonBindings *seasonbinding.Service // 剧详情里各季的季绑定
 }
 
-func NewService(pool *pgxpool.Pool, catalogSource Source, bindings *binding.Service, seasonBindings *seasonbinding.Service) *Service {
+func NewService(pool *pgxpool.Pool, catalogSource Source, bindings *bindingsvc.Service, seasonBindings *seasonbinding.Service) *Service {
 	return &Service{pool: pool, q: dao.New(pool), catalogSource: catalogSource, bindings: bindings, seasonBindings: seasonBindings}
 }
 
@@ -83,11 +83,11 @@ type SeasonDetail struct {
 }
 
 type EpisodeDetail struct {
-	ID       int64          `json:"id"`
-	Number   int32          `json:"number"`
-	Title    *string        `json:"title"`
-	Duration *int32         `json:"duration"` // 秒
-	Bindings []binding.View `json:"bindings"` // 按创建顺序
+	ID       int64             `json:"id"`
+	Number   int32             `json:"number"`
+	Title    *string           `json:"title"`
+	Duration *int32            `json:"duration"` // 秒
+	Bindings []bindingsvc.View `json:"bindings"` // 按创建顺序
 }
 
 // GetSeries 一部剧的完整子树：季 → 季绑定、集 → 绑定。剧、季、季绑定、集、绑定分开查询，在 Go 里组装；剧不存在时返回 404。
@@ -153,7 +153,7 @@ func (s *Service) GetSeries(ctx context.Context, id int64) (SeriesDetail, error)
 			Number:   e.Number,
 			Title:    e.Title,
 			Duration: e.Duration,
-			Bindings: append([]binding.View{}, bindings[e.ID]...), // 没有绑定时输出 []
+			Bindings: append([]bindingsvc.View{}, bindings[e.ID]...), // 没有绑定时输出 []
 		})
 	}
 	return detail, nil

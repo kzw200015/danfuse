@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	bindinghandler "github.com/kzw200015/danfuse/backend/internal/binding/handler"
 	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
@@ -23,7 +23,7 @@ type Handlers struct {
 	Settings      *settings.Handler
 	Catalog       *catalog.Handler
 	Sync          *catalog.SyncHandler
-	Binding       *binding.Handler
+	Binding       *bindinghandler.Handler
 	SeasonBinding *seasonbinding.Handler
 	BlockedWord   *blockword.Handler
 	Dandan        *dandan.Handler

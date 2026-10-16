@@ -1,4 +1,4 @@
-package binding_test
+package service_test
 
 import (
 	"io"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -22,7 +22,7 @@ var testScheduledFetch = config.Defaults().ScheduledFetch
 type fetchEnv struct {
 	t        *testing.T
 	pool     *pgxpool.Pool
-	bindings *binding.Service
+	bindings *service.Service
 	logs     testenv.LockedBuffer // 服务的日志，同时写进测试输出
 }
 
@@ -32,8 +32,8 @@ func newFetchEnv(t *testing.T, pool *pgxpool.Pool, src *testenv.FakeCollector) *
 	testenv.SeedEpisodes(t, pool)
 	e := &fetchEnv{t: t, pool: pool}
 	logger := testenv.SlogTo(io.MultiWriter(t.Output(), &e.logs))
-	e.bindings = binding.NewService(pool, source.NewRegistry(src), logger)
-	testenv.RunInBackground(t, binding.NewScheduledFetchService(pool, e.bindings, testScheduledFetch, logger))
+	e.bindings = service.NewService(pool, source.NewRegistry(src), logger)
+	testenv.RunInBackground(t, service.NewScheduledFetchService(pool, e.bindings, testScheduledFetch, logger))
 	return e
 }
 
@@ -106,7 +106,7 @@ func TestScheduledFetchWindow(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		time.Sleep(binding.ScheduledFetchScanInterval)
+		time.Sleep(service.ScheduledFetchScanInterval)
 		synctest.Wait()
 		testenv.AssertStrings(t, "拉取", src.FetchedNames(), []string{"b", "d"})
 		if b := getBinding(t, pool, d); b.Status != "dead" {
@@ -133,14 +133,14 @@ func TestScheduledFetchFailed(t *testing.T) {
 		env.bind("b", created, now.Add(-2*24*time.Hour))
 		env.bind("c", created, now.Add(-24*time.Hour))
 
-		time.Sleep(binding.ScheduledFetchScanInterval)
+		time.Sleep(service.ScheduledFetchScanInterval)
 		synctest.Wait()
 		testenv.AssertStrings(t, "第一轮", src.FetchedNames(), []string{"a", "b"})
 		if want := `level=WARN msg="scheduled fetch finished"`; !strings.Contains(env.logs.String(), want) {
 			t.Errorf("日志 = %s\nwant 含 %s", env.logs.String(), want)
 		}
 
-		time.Sleep(binding.ScheduledFetchScanInterval)
+		time.Sleep(service.ScheduledFetchScanInterval)
 		synctest.Wait()
 		testenv.AssertStrings(t, "第二轮", src.FetchedNames(), []string{"a", "b", "c"})
 

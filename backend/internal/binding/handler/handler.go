@@ -1,10 +1,12 @@
-package binding
+// Package handler 绑定的管理 API：只绑定与校验参数、调用 service、输出响应。
+package handler
 
 import (
 	"math"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
@@ -12,11 +14,11 @@ import (
 
 // Handler 绑定的管理 API，路由注册在 server/router.go。
 type Handler struct {
-	svc    *Service
+	svc    *service.Service
 	upload config.DanmakuFile // 一次上传弹幕文件的上限
 }
 
-func NewHandler(svc *Service, upload config.DanmakuFile) *Handler {
+func NewHandler(svc *service.Service, upload config.DanmakuFile) *Handler {
 	return &Handler{svc: svc, upload: upload}
 }
 

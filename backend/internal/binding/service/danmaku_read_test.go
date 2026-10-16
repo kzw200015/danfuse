@@ -1,4 +1,4 @@
-package binding_test
+package service_test
 
 import (
 	"cmp"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding"
+	"github.com/kzw200015/danfuse/backend/internal/binding/service"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -38,9 +38,9 @@ func TestListDanmaku(t *testing.T) {
 	slices.SortFunc(items, func(a, b danmaku.Danmaku) int {
 		return cmp.Or(cmp.Compare(a.TimeMs, b.TimeMs), cmp.Compare(a.SourceID, b.SourceID))
 	})
-	views := make([]binding.DanmakuView, n)
+	views := make([]service.DanmakuView, n)
 	for i, d := range items {
-		views[i] = binding.DanmakuView{TimeMs: d.TimeMs, Mode: int16(d.Mode), Color: int32(d.Color), Text: d.Text}
+		views[i] = service.DanmakuView{TimeMs: d.TimeMs, Mode: int16(d.Mode), Color: int32(d.Color), Text: d.Text}
 	}
 
 	got, sizes := listAllDanmaku(t, svc, b.ID, nil)
@@ -54,7 +54,7 @@ func TestListDanmaku(t *testing.T) {
 	// 跳到 100 秒：从这个时间的第一条开始，翻页时照传
 	from := int32(100_000)
 	got, sizes = listAllDanmaku(t, svc, b.ID, &from)
-	start := slices.IndexFunc(views, func(v binding.DanmakuView) bool { return v.TimeMs >= from })
+	start := slices.IndexFunc(views, func(v service.DanmakuView) bool { return v.TimeMs >= from })
 	if !slices.Equal(sizes, []int{200, 1}) {
 		t.Errorf("跳转后每页条数 = %v, want [200 1]", sizes)
 	}
@@ -64,9 +64,9 @@ func TestListDanmaku(t *testing.T) {
 }
 
 // listAllDanmaku 按游标翻完一个绑定的弹幕，返回全部弹幕和每页的条数。
-func listAllDanmaku(t *testing.T, svc *binding.Service, id int64, fromMs *int32) ([]binding.DanmakuView, []int) {
+func listAllDanmaku(t *testing.T, svc *service.Service, id int64, fromMs *int32) ([]service.DanmakuView, []int) {
 	t.Helper()
-	var got []binding.DanmakuView
+	var got []service.DanmakuView
 	var sizes []int
 	after := ""
 	for {
@@ -108,7 +108,7 @@ func (a platformAdapter) Platform() danmaku.Platform { return a.platform }
 
 // newDanmakuService 新库里写入两集（testenv.SeedEpisodes）和 sql 里的绑定与弹幕，构造 binding.Service。
 // 注册的适配器：bilibili 在 B 站平台，fake 没有平台。
-func newDanmakuService(t *testing.T, sql string) *binding.Service {
+func newDanmakuService(t *testing.T, sql string) *service.Service {
 	t.Helper()
 	pool := dbtest.Pool(t)
 	testenv.SeedEpisodes(t, pool)
@@ -119,7 +119,7 @@ func newDanmakuService(t *testing.T, sql string) *binding.Service {
 		platformAdapter{id: "bilibili", platform: danmaku.PlatformBilibili},
 		platformAdapter{id: "fake", platform: danmaku.PlatformNone},
 	)
-	return binding.NewService(pool, sources, testenv.Logger(t))
+	return service.NewService(pool, sources, testenv.Logger(t))
 }
 
 // TestEpisodeTracks 一集各绑定的弹幕，合并后就是弹弹 API 的 comment（屏蔽词由 danmaku 的测试覆盖）。
