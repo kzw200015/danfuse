@@ -44,7 +44,7 @@ var (
 // internalErrorMessage 同步遇到服务器内部错误时存在同步记录上给管理界面看的原因，完整的错误进日志。
 const internalErrorMessage = "服务器内部错误，详见日志"
 
-// SyncService 同步：触发、定时、互斥、同步核心（按剧写入目录，见 sync_core.go）、同步记录。
+// SyncService 同步：触发、定时、互斥、同步核心（按剧写入目录，见 sync_write.go）、同步记录。
 //
 // 生命周期：App.Run 运行 Run(ctx)；手动触发经 Trigger 交给 Run 的循环（background.Loop），同步开始后返回。每次同步在独立的 goroutine 里执行，
 // 用的是 Run 的 ctx（应用级），不是 HTTP 请求的 ctx。ctx 取消时这次同步记为 interrupted，Run 等它写完记录再返回，
