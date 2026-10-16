@@ -7,9 +7,9 @@
 //   - collection.go：source.Adapter 里合集的方法：合集 ref 的结构，季面板链接的识别，番剧的一季、投稿合集、多 P 投稿的列出；
 //   - link.go：链接解析（集面板与季面板共用，各自决定接受哪些）、短链跳转，BV 号与 aid 互转；
 //   - client.go：HTTP 层：UA、Referer 与 SESSDATA、全局令牌桶、重试与退避、错误归类与给用户的提示；
-//   - view.go：投稿的元数据，解析出 cid、标题、时长；带 redirect_url 的转给番剧；
+//   - ugc.go：投稿（view 接口）的元数据，解析出 cid、标题、时长；带 redirect_url 的转给番剧；
 //   - pgc.go：番剧单集的元数据，番剧一季的结构；
-//   - seg.go：protobuf 分段弹幕的拉取与 protowire 解码；
+//   - segment.go：protobuf 分段弹幕的拉取与 protowire 解码；
 //   - xml.go：XML 弹幕的拉取（解析在 danmaku/bilifmt），与 protobuf 的合并。
 //
 // 测试平时只回放 testdata/ 里脱敏后的样本，不联网；请求真实 B 站的 live 模式见 live_test.go。
