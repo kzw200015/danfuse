@@ -6,9 +6,11 @@
 
 - 实现接口的类型（包括测试里的假实现）在类型定义旁边写编译期断言 `var _ catalog.Source = (*Source)(nil)`。只嵌入接口、不实现方法的假类型（如 `platformAdapter`）不写。
 - 业务代码只依赖领域包的接口，不对适配器做类型断言；绑定、合集的 ref 只交给适配器解析，原始 ref 不出现在 JSON 输出里。
-- 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`）：`handler*.go` 只绑定与校验参数、调用本领域的 `Service`、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `xxxdb`。
+- 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`）：`*handler*.go` 只绑定与校验参数、调用本领域的 `Service`、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `xxxdb`。
 - 领域之间只调用对方 `Service` 的方法，不引用对方的 `xxxdb`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateLinkSlotInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
-- 适配器（领域的子包，如 `catalog/jellyfin`、`source/bilibili`）和纯计算包（`source`、`danmaku`、`danmakufile`、`fulltext`、`catalog/naming`）只放接口、类型、纯计算与外部适配，不访问数据库。
+- 适配器（领域的子包，如 `catalog/jellyfin`、`source/bilibili`）和纯计算包（`source`、`danmaku`、`danmakufile`、`fulltext`、`naming`）只放接口、类型、纯计算与外部适配，不访问数据库。
+- 基础设施在 `internal/infra/`（config、database、logger、httpx、background），不依赖业务包。
+- 一个文件一个功能，文件名功能在前：`<功能>.go`、`<功能>_handler.go`、`<功能>_test.go`，`ls` 时同一功能的几个文件挨在一起；`service.go` 放 `Service`、构造、包内公共的错误与取/锁，包文档也写在这里并列出各文件管什么；`handler.go` 放 `Handler` 和共用的请求结构。只被一个测试文件用的辅助函数放在那个测试文件里，多个测试文件共用的放 `helpers_test.go`。
 - `app.New` 和各构造函数只构造对象，不做 IO、不连外部系统。新增 service 在 `app.New` 构造，handler 还要加进 `server.Handlers`。
 - `xxxdb/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.txt` 一起更新）。已推到 main 的迁移文件不再修改。
 
@@ -27,14 +29,14 @@
 
 - 管理 API 统一返回 `{code, message, data}`，同时保留 REST 语义的 HTTP 状态码。例外只有图片接口和弹弹 API（见 `docs/architecture/catalog.md`、`dandan-api.md`）。
 - handler/service 出错直接 `return apierr.ErrXxx`，按需 `.WithMessage()` 改写提示、`.Wrap(err)` 附带底层原因；非业务错误用 `fmt.Errorf("...: %w", err)` 包装，由 errorHandler 当作 500。
-- 业务码只在前端需要分支处理时才定义，按模块分段（每个模块 1000 个号段），`internal/httpx/apierr/codes.go` 与前端 `src/api/errcode.ts` 同步新增。
+- 业务码只在前端需要分支处理时才定义，按模块分段（每个模块 1000 个号段），`internal/infra/httpx/apierr/codes.go` 与前端 `src/api/errcode.ts` 同步新增。
 - 外部系统的错误由领域包自己定义类型（`*source.Error`、`*catalog.Error`），Message 给用户看，Err 只进日志。后台任务存给管理界面看的原因遇到其他错误时一律为 `internalErrorMessage`，完整的错误进日志。
 - 自己写 5xx 响应、不经过 errorHandler 的 handler 调用 `response.LogServerError` 记日志；4xx 不记录。
 
 ## handler 与配置
 
 - 请求结构体用 `param`/`query`/`json` tag，实现 `Validate() error`（可在其中 trim、填默认值，把参数解析、整理成 service 要的形状放进未导出字段，例如解析集号规则；只看请求本身就能判断的格式校验都放这里，要查库或属于业务规则的放 service），通过 `request.Bind[xxxRequest](c)` 绑定加校验；校验失败用 `request.InvalidParam("提示语")`。路由在 `internal/server/router.go` 的 `/api` 分组下注册。
-- 新增配置项在 `internal/config` 的 `setDefaults` 里登记默认值（否则环境变量覆盖不生效），同时更新 `config.example.yaml` 和 README 的配置项表，需要时还有 `compose.yaml`。
+- 新增配置项在 `internal/infra/config` 的 `setDefaults` 里登记默认值（否则环境变量覆盖不生效），同时更新 `config.example.yaml` 和 README 的配置项表，需要时还有 `compose.yaml`。
 
 ## 前端
 

@@ -159,7 +159,7 @@ docker compose up -d --build danfuse                     # 构建并启动 danfu
 
 ## 文档
 
-- README 面向使用者，只写中文。新增或修改配置项时，同步更新 README 的配置项表、`backend/configs/config.example.yaml`，需要时还有 `compose.yaml`。新增配置项还要在 `backend/internal/config` 的 `setDefaults` 里登记默认值，否则环境变量覆盖不生效。
+- README 面向使用者，只写中文。新增或修改配置项时，同步更新 README 的配置项表、`backend/configs/config.example.yaml`，需要时还有 `compose.yaml`。新增配置项还要在 `backend/internal/infra/config` 的 `setDefaults` 里登记默认值，否则环境变量覆盖不生效。
 - README 和其他文档里不写 B 站的接口地址和参数，只说"贴 B 站链接"。
 
 ## 提交约定
