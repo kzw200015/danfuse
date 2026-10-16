@@ -1,6 +1,9 @@
 // Package source 源适配器的接口：与某个平台通信，把用户贴的链接认成弹幕源或合集，拉取弹幕、列出合集。
 // 适配器只负责请求、限速、重试、解析，不含匹配、缓存和存储决策，不访问数据库。
 // 各平台的适配器在子包里（bilibili），由 app 注册进 Registry；业务代码只依赖这里的接口。
+//   - adapter.go：适配器的接口与交换的类型（Ref、Fetched）；collection.go：合集的类型；
+//   - error.go：适配器的错误；registry.go：按链接选出适配器的注册表；
+//   - episode_rule.go：集号规则（从合集条目的标签认出集号）；episode_mapping.go：集号对应（条目的集号落到哪一集）。
 package source
 
 import (
@@ -8,10 +11,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
-	"slices"
 	"strings"
 	"time"
 
@@ -95,94 +96,4 @@ type Fetched struct {
 	Danmaku  []danmaku.Danmaku
 	// LogAttrs 适配器自己的统计（例如 B 站的 protobuf 条数、XML 条数和两者的交集），由调用方连同新增条数记一条 info 日志。
 	LogAttrs []slog.Attr
-}
-
-// Kind 适配器错误的类别，调用方据此决定绑定的状态和 HTTP 状态码。
-type Kind int
-
-const (
-	InvalidLink  Kind = iota + 1 // 链接无法识别，或能识别但不能绑定
-	NotFound                     // 弹幕源不存在、已删除或不可见；重新拉取时绑定标为失效
-	AuthRequired                 // 需要登录
-	RateLimited                  // 平台限流
-	Upstream                     // 平台故障、超时、响应无法解析
-)
-
-// String 日志里的名称。
-func (k Kind) String() string {
-	switch k {
-	case InvalidLink:
-		return "invalid_link"
-	case NotFound:
-		return "not_found"
-	case AuthRequired:
-		return "auth_required"
-	case RateLimited:
-		return "rate_limited"
-	case Upstream:
-		return "upstream"
-	}
-	return fmt.Sprintf("Kind(%d)", int(k))
-}
-
-// Error 适配器返回的错误。Message 是给用户看的提示，由适配器写，因为提示与平台有关
-// （例如"B 站限流，请稍后再试"）；Err 是底层原因（平台的错误码等），只进日志。
-// 调用方用 errors.AsType 取出。
-type Error struct {
-	Kind    Kind
-	Message string
-	Err     error
-}
-
-func (e *Error) Error() string {
-	if e.Err != nil {
-		return e.Message + ": " + e.Err.Error()
-	}
-	return e.Message
-}
-
-func (e *Error) Unwrap() error { return e.Err }
-
-// ErrUnrecognized 适配器不认识这个链接（ParseLink、ParseCollectionLink），Registry 会接着交给下一个适配器。
-var ErrUnrecognized = errors.New("source: unrecognized link")
-
-// Registry 已注册的源适配器。
-type Registry struct {
-	adapters []Adapter
-}
-
-// NewRegistry 按给定顺序注册，ParseLink 也按这个顺序询问。
-func NewRegistry(adapters ...Adapter) *Registry {
-	return &Registry{adapters: adapters}
-}
-
-// Get 按 bindings.adapter 取适配器；没有注册这个 ID 时返回错误，调用方按服务器内部错误处理。
-func (r *Registry) Get(id string) (Adapter, error) {
-	i := slices.IndexFunc(r.adapters, func(a Adapter) bool { return a.ID() == id })
-	if i < 0 {
-		return nil, fmt.Errorf("source: unknown adapter %q", id)
-	}
-	return r.adapters[i], nil
-}
-
-// ParseLink 依次交给各个适配器，返回第一个认识这个链接的适配器和规范化的 ref。
-// 适配器返回 ErrUnrecognized 以外的错误时直接返回；都不认识时返回 Kind 为 InvalidLink 的 *Error（"无法识别的链接"）。
-func (r *Registry) ParseLink(ctx context.Context, link string) (Adapter, Ref, error) {
-	return firstRecognized(r.adapters, func(a Adapter) (Ref, error) { return a.ParseLink(ctx, link) })
-}
-
-// firstRecognized 依次用 parse 询问各个适配器，返回第一个认识链接的适配器和它的结果，规则见 Registry.ParseLink。
-func firstRecognized[T any](adapters []Adapter, parse func(Adapter) (T, error)) (Adapter, T, error) {
-	var zero T
-	for _, a := range adapters {
-		v, err := parse(a)
-		switch {
-		case errors.Is(err, ErrUnrecognized):
-			continue
-		case err != nil:
-			return nil, zero, err
-		}
-		return a, v, nil
-	}
-	return nil, zero, &Error{Kind: InvalidLink, Message: "无法识别的链接"}
 }
