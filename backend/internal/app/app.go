@@ -23,7 +23,7 @@ import (
 	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
 	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 	"github.com/kzw200015/danfuse/backend/internal/server"
-	"github.com/kzw200015/danfuse/backend/internal/settings"
+	settingshandler "github.com/kzw200015/danfuse/backend/internal/settings/handler"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/source/bilibili"
 )
@@ -58,7 +58,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 
 	handlers := &server.Handlers{
 		Health:        healthhandler.NewHandler(healthsvc.NewService(pool)),
-		Settings:      settings.NewHandler(cfg),
+		Settings:      settingshandler.NewHandler(cfg),
 		Catalog:       catalog.NewHandler(catalogs),
 		Sync:          catalog.NewSyncHandler(syncs),
 		Binding:       bindinghandler.NewHandler(bindings, cfg.DanmakuFile),

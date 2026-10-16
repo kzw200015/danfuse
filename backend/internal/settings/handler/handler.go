@@ -1,6 +1,6 @@
-// Package settings 只读的设置（GET /api/settings）：从运行中的配置里挑出管理界面要用的部分。
+// Package handler 只读的设置（GET /api/settings）：从运行中的配置里挑出管理界面要用的部分。
 // 没有业务逻辑，直接读配置，不设 service。
-package settings
+package handler
 
 import (
 	"github.com/labstack/echo/v5"

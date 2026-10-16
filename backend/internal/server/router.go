@@ -14,13 +14,13 @@ import (
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
-	"github.com/kzw200015/danfuse/backend/internal/settings"
+	settingshandler "github.com/kzw200015/danfuse/backend/internal/settings/handler"
 )
 
 // Handlers 汇总各领域的 handler，供路由注册使用。
 type Handlers struct {
 	Health        *healthhandler.Handler
-	Settings      *settings.Handler
+	Settings      *settingshandler.Handler
 	Catalog       *catalog.Handler
 	Sync          *catalog.SyncHandler
 	Binding       *bindinghandler.Handler
