@@ -1,4 +1,4 @@
-package server
+package health
 
 import (
 	"github.com/labstack/echo/v5"
@@ -6,16 +6,16 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
-type HealthHandler struct {
-	svc *HealthService
+type Handler struct {
+	svc *Service
 }
 
-func NewHealthHandler(svc *HealthService) *HealthHandler {
-	return &HealthHandler{svc: svc}
+func NewHandler(svc *Service) *Handler {
+	return &Handler{svc: svc}
 }
 
 // Check GET /api/health
-func (h *HealthHandler) Check(c *echo.Context) error {
+func (h *Handler) Check(c *echo.Context) error {
 	if err := h.svc.Check(c.Request().Context()); err != nil {
 		return err
 	}

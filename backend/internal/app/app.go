@@ -14,9 +14,11 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/jellyfin"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
+	"github.com/kzw200015/danfuse/backend/internal/health"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 	"github.com/kzw200015/danfuse/backend/internal/server"
+	"github.com/kzw200015/danfuse/backend/internal/settings"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/source/bilibili"
 )
@@ -50,8 +52,8 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	dandans := dandan.NewService(pool, bindings, blockedWords)
 
 	handlers := &server.Handlers{
-		Health:        server.NewHealthHandler(server.NewHealthService(pool)),
-		Settings:      server.NewSettingsHandler(cfg),
+		Health:        health.NewHandler(health.NewService(pool)),
+		Settings:      settings.NewHandler(cfg),
 		Catalog:       catalog.NewHandler(catalogs),
 		Sync:          catalog.NewSyncHandler(syncs),
 		Binding:       binding.NewHandler(bindings, cfg.DanmakuFile),

@@ -1,4 +1,5 @@
-package server
+// Package health 健康检查（GET /api/health）：服务能连上数据库即为健康。
+package health
 
 import (
 	"context"
@@ -12,17 +13,16 @@ import (
 // pingTimeout 健康检查等数据库应答的上限。
 const pingTimeout = 2 * time.Second
 
-// HealthService 健康检查：服务能连上数据库即为健康。
-type HealthService struct {
+type Service struct {
 	pool *pgxpool.Pool
 }
 
-func NewHealthService(pool *pgxpool.Pool) *HealthService {
-	return &HealthService{pool: pool}
+func NewService(pool *pgxpool.Pool) *Service {
+	return &Service{pool: pool}
 }
 
 // Check ping 一次数据库，不通时返回 503。
-func (s *HealthService) Check(ctx context.Context) error {
+func (s *Service) Check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, pingTimeout)
 	defer cancel()
 

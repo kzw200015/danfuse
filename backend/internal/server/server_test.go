@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
+	"github.com/kzw200015/danfuse/backend/internal/health"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -140,7 +141,7 @@ func TestHealth(t *testing.T) {
 			if tt.dbDown {
 				pool.Close()
 			}
-			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{Health: NewHealthHandler(NewHealthService(pool))})
+			srv := New(config.Server{}, config.Dandanplay{}, slog.New(slog.DiscardHandler), &Handlers{Health: health.NewHandler(health.NewService(pool))})
 
 			rec := serve(t, srv, http.MethodGet, "/api/health", "")
 

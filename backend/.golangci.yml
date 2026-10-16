@@ -69,6 +69,10 @@ linters:
               desc: 基础设施（infra）不依赖业务包
             - pkg: github.com/kzw200015/danfuse/backend/internal/server
               desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/health
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/settings
+              desc: 基础设施（infra）不依赖业务包
             - pkg: github.com/kzw200015/danfuse/backend/internal/catalog
               desc: 基础设施（infra）不依赖业务包
             - pkg: github.com/kzw200015/danfuse/backend/internal/seasonbinding

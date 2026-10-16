@@ -11,14 +11,16 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/blockword"
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
+	"github.com/kzw200015/danfuse/backend/internal/health"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
+	"github.com/kzw200015/danfuse/backend/internal/settings"
 )
 
 // Handlers 汇总各领域的 handler，供路由注册使用。
 type Handlers struct {
-	Health        *HealthHandler
-	Settings      *SettingsHandler
+	Health        *health.Handler
+	Settings      *settings.Handler
 	Catalog       *catalog.Handler
 	Sync          *catalog.SyncHandler
 	Binding       *binding.Handler

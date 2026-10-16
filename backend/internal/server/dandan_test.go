@@ -22,6 +22,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/dandan"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/health"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/naming"
@@ -95,7 +96,7 @@ func dandanServer(pool *pgxpool.Pool, token string, logs io.Writer) *Server {
 	}
 	env := testenv.New(pool, slog.New(slog.DiscardHandler), biliAdapter{}, fakeAdapter{})
 	return New(config.Server{}, config.Dandanplay{Token: token}, slog.New(slog.NewJSONHandler(logs, nil)),
-		&Handlers{Health: NewHealthHandler(NewHealthService(pool)), Dandan: dandan.NewHandler(env.Dandan)})
+		&Handlers{Health: health.NewHandler(health.NewService(pool)), Dandan: dandan.NewHandler(env.Dandan)})
 }
 
 // newDandanServer 新建一个库，用同步写入 items，再起弹弹 API。要在同步之外补写数据（例如绑定和弹幕）时，

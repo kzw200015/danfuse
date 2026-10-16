@@ -1,4 +1,6 @@
-package server
+// Package settings 只读的设置（GET /api/settings）：从运行中的配置里挑出管理界面要用的部分。
+// 没有业务逻辑，直接读配置，不设 service。
+package settings
 
 import (
 	"github.com/labstack/echo/v5"
@@ -7,14 +9,13 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
-// SettingsHandler 只读的配置。没有业务逻辑，直接读配置，不设 service。
-// 拿整份配置：多返回一项配置时只改 Get，不改构造函数；不该返回的（API key、SESSDATA 的值）由 Get 自己挑出去。
-type SettingsHandler struct {
+// Handler 拿整份配置：多返回一项配置时只改 Get，不改构造函数；不该返回的（API key、SESSDATA 的值）由 Get 自己挑出去。
+type Handler struct {
 	cfg *config.Config
 }
 
-func NewSettingsHandler(cfg *config.Config) *SettingsHandler {
-	return &SettingsHandler{cfg: cfg}
+func NewHandler(cfg *config.Config) *Handler {
+	return &Handler{cfg: cfg}
 }
 
 type settingsResponse struct {
@@ -53,7 +54,7 @@ type catalogSourceSettings struct {
 }
 
 // Get GET /api/settings
-func (h *SettingsHandler) Get(c *echo.Context) error {
+func (h *Handler) Get(c *echo.Context) error {
 	cfg := h.cfg
 	resp := settingsResponse{
 		SyncInterval:               cfg.Sync.Interval.Seconds(),
