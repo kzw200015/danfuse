@@ -10,7 +10,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 )
 

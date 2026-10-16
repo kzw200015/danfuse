@@ -10,11 +10,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/background"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/background"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 )
 
 const (

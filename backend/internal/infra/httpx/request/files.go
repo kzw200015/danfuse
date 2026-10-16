@@ -11,7 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 )
 
 // maxFieldBytes 文件以外的字段合计的上限，也是请求体在文件之外的余量（multipart 的分隔符、每个 part 的头部和这些字段）。

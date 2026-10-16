@@ -8,7 +8,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 )
 
 // danmakuPageSize 查看绑定的弹幕时一页的条数。

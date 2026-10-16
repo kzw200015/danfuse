@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 )
 
 // ErrStopped 循环已经返回、服务正在关闭时，Call 返回它（503）。

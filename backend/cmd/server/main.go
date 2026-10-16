@@ -9,9 +9,9 @@ import (
 	"syscall"
 
 	"github.com/kzw200015/danfuse/backend/internal/app"
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/logger"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database"
+	"github.com/kzw200015/danfuse/backend/internal/infra/logger"
 )
 
 func main() {

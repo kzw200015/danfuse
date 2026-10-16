@@ -3,8 +3,8 @@ package server
 import (
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 // SettingsHandler 只读的配置。没有业务逻辑，直接读配置，不设 service。

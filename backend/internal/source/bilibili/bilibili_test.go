@@ -16,8 +16,8 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 

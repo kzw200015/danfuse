@@ -5,8 +5,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 // collectionForm 合集的表单（和预览）：贴的链接、选的候选，加上集号规则与集号对应。嵌进各自的请求结构体，在 Validate 里调用 parse。

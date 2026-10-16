@@ -5,9 +5,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 

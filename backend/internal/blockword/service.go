@@ -13,8 +13,8 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/blockword/blockworddb"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/database"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/database"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 )
 
 var (

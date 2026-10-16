@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 )
 
 // Connect 创建连接池并检查连通性，总时限 cfg.ConnectTimeout（0 表示不限），不执行迁移（见 Migrate）。用完由调用方关闭。

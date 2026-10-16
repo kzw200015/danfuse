@@ -33,7 +33,7 @@ linters:
           deny:
             - pkg: github.com/jackc/pgx
               desc: handler 经 service 访问数据库
-            - pkg: github.com/kzw200015/danfuse/backend/internal/database
+            - pkg: github.com/kzw200015/danfuse/backend/internal/infra/database
               desc: handler 经 service 访问数据库
             - pkg: github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb
               desc: handler 经 service 访问数据库
@@ -56,15 +56,44 @@ linters:
           deny:
             - pkg: github.com/jackc/pgx
               desc: 适配器和纯计算包不访问数据库，读写数据库的业务放在领域包的 service
-            - pkg: github.com/kzw200015/danfuse/backend/internal/database
+            - pkg: github.com/kzw200015/danfuse/backend/internal/infra/database
               desc: 适配器和纯计算包不访问数据库，读写数据库的业务放在领域包的 service
-            - pkg: github.com/kzw200015/danfuse/backend/internal/httpx
+            - pkg: github.com/kzw200015/danfuse/backend/internal/infra/httpx
               desc: apierr 只用于管理 API 的出口；适配器和纯计算包自己定义错误类型（如 source.Error、catalog.Error），由 service 转换
+        infra:
+          files:
+            - "**/internal/infra/**"
+            - "!$test" # 测试可以用 testenv 的断言
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/app
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/server
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/catalog
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/seasonbinding
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/binding
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/dandan
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/blockword
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/source
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/danmaku
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/naming
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/fulltext
+              desc: 基础设施（infra）不依赖业务包
+            - pkg: github.com/kzw200015/danfuse/backend/internal/testenv
+              desc: 基础设施（infra）不依赖业务包
         dandan:
           files:
             - "**/internal/dandan/**"
           deny:
-            - pkg: github.com/kzw200015/danfuse/backend/internal/httpx/apierr
+            - pkg: github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr
               desc: 弹弹 API 按官方 Swagger 的结构输出，自己返回弹弹play 结构的错误，不交给 errorHandler
         adapters:
           files:

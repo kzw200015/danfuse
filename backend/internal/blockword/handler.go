@@ -4,8 +4,8 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 // Handler 屏蔽词的管理 API，路由注册在 server/router.go。

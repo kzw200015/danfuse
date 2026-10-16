@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 type HealthHandler struct {

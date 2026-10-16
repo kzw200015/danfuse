@@ -6,8 +6,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 // errorHandler 全局错误处理：把任意 error 转换为统一响应结构，5xx 记 error 日志，4xx 不记录。

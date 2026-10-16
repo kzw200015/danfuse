@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 )
 
 func TestSettings(t *testing.T) {

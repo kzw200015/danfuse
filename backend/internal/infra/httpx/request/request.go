@@ -4,7 +4,7 @@ package request
 import (
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/httpx/apierr"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 )
 
 // validatable 约束请求类型：*T 必须实现 Validate，遇到第一个不合法的参数即返回错误。

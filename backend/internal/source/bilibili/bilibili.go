@@ -25,8 +25,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 

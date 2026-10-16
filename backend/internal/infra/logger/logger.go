@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kzw200015/danfuse/backend/internal/config"
+	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 )
 
 // New 根据配置创建 logger，并设置为 slog 默认 logger。

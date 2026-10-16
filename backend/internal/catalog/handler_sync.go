@@ -3,8 +3,8 @@ package catalog
 import (
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/httpx/request"
-	"github.com/kzw200015/danfuse/backend/internal/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
 )
 
 // SyncHandler 同步的管理 API：触发同步、同步记录，路由注册在 server/router.go。
