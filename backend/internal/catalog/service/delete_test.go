@@ -8,12 +8,10 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/service"
-	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -41,28 +39,6 @@ func seedBindings(t *testing.T, pool *pgxpool.Pool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-// readContents 目录里的每一集连同它的绑定数和弹幕条数，例如"星海旅人 S1E2 绑定 1 弹幕 2"，按剧的 ID、季号、集号排序。
-func readContents(t *testing.T, pool *pgxpool.Pool) []string {
-	t.Helper()
-	rows, err := pool.Query(t.Context(), `
-		SELECT format('%s S%sE%s 绑定 %s 弹幕 %s', s.title, se.number, e.number, count(DISTINCT b.id), count(d.source_id))
-		FROM series s
-		JOIN seasons se ON se.series_id = s.id
-		JOIN episodes e ON e.season_id = se.id
-		LEFT JOIN bindings b ON b.episode_id = e.id
-		LEFT JOIN danmaku d ON d.binding_id = b.id
-		GROUP BY s.id, se.id, e.id
-		ORDER BY s.id, se.number, e.number`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contents, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		t.Fatal(err)
-	}
-	return contents
 }
 
 // readImages images 表里每张图片的内容，按 ID 排序。
@@ -212,24 +188,5 @@ func TestDeleteDuringSync(t *testing.T) {
 				}
 			})
 		})
-	}
-}
-
-// TestSourceLinkWithoutCatalogSource 未配置目录源时，存着目录源 ID 的剧也没有链接。
-func TestSourceLinkWithoutCatalogSource(t *testing.T) {
-	t.Parallel()
-	pool := dbtest.Pool(t)
-	if _, err := pool.Exec(t.Context(), `INSERT INTO series (type, title, catalog_source_id) VALUES ('tv', '星海旅人', 'jf-1')`); err != nil {
-		t.Fatal(err)
-	}
-	env := testenv.New(pool, slog.New(slog.DiscardHandler))
-	svc := service.NewService(pool, nil, env.Bindings, env.SeasonBindings)
-
-	detail, err := svc.GetSeries(t.Context(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if detail.SourceLink != nil {
-		t.Errorf("SourceLink = %+v, want nil", *detail.SourceLink)
 	}
 }

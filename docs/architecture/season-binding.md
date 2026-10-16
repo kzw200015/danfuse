@@ -11,11 +11,14 @@
 | `derive.go` | 派生函数 `Derive` |
 | `derive_input.go` | 派生的输入从哪里来：`storedInput`（详情）、`collectionEntries`、`storedCollection`、`folderEntries`、`episodeSlots` |
 | `collection.go` | 合集的预览、创建、保存：`listCandidates`、`resolve`、`chooseCandidate`、`saveItems`、`saveListed` |
-| `backfill.go` | 合集的后台循环、租约、追更的扫描、一轮补建 |
+| `backfill.go` | 按种类分派的立即补建 `Backfill`；合集的后台循环、租约、追更的扫描、一轮补建 |
 | `folder.go` | 文件夹的分组、解析、对上条目、写条目，预览和四种写入（`applyFolder`） |
-| `service.go` | `Service`、详情 `Get`、`ListBySeries`、`SetFollow`、按种类分派的 `Backfill`、`Delete` |
+| `service.go` | `Service`、构造、错误与共用的取、锁 |
+| `detail.go` | 详情 `Get`、剧详情里的列表 `ListBySeries` |
+| `follow.go` | 开关追更 `SetFollow` |
+| `delete.go` | 删除 `Delete` |
 | `view.go` | JSON：`View`（公共字段加 `*CollectionView` / `*FolderView`）、`Detail`、`ItemView`、`SlotView`、`Preview`、`Candidate`、`Summary` |
-| `handler/handler.go`、`handler/collection.go`、`handler/folder.go` | HTTP：两种共用的（详情、开关追更、立即补建、删除、默认规则）、合集的、文件夹的 |
+| `handler/handler.go` | HTTP：`Handler`、两种共用的表单与请求结构；接口在同名的文件里，另有 `handler/episode_rule.go`（默认的集号规则） |
 
 ## 数据
 

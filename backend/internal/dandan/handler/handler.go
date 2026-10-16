@@ -57,18 +57,6 @@ var (
 	animeNotFound = responseBase{ErrorCode: 404, ErrorMessage: new("作品不存在")}
 )
 
-// relatedResponse related 的响应：ResponseBase 加 relateds。
-type relatedResponse struct {
-	responseBase
-	Relateds []struct{} `json:"relateds"`
-}
-
-// Related GET related/:episodeId
-// 官方已下线这个接口，插件仍会在每次取弹幕后调用。固定返回空的 relateds，插件也就不会再去调 extcomment。
-func (h *Handler) Related(c *echo.Context) error {
-	return c.JSON(http.StatusOK, relatedResponse{responseBase: succeeded, Relateds: []struct{}{}})
-}
-
 // logRequest 弹弹 API 一次成功应答的 info 日志：request_id（与 5xx 日志的字段相同）、处理耗时，加上各接口自己的字段。
 func logRequest(c *echo.Context, start time.Time, msg string, attrs ...slog.Attr) {
 	attrs = append([]slog.Attr{

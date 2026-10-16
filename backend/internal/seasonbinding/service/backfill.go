@@ -397,3 +397,24 @@ func (s *Service) setItemError(ctx context.Context, id int64, ref []byte, messag
 	}
 	return nil
 }
+
+// Backfill 立即补建，按种类分派：合集在后台补建（正在补建时 409"正在补建"，不排第二次），返回时补建刚开始；
+// 文件夹当场补建完（见 backfillFolder）。都返回详情。不存在时 404。
+func (s *Service) Backfill(ctx context.Context, id int64) (Detail, error) {
+	sb, err := s.getSeasonBinding(ctx, id, errSeasonBindingNotFound)
+	if err != nil {
+		return Detail{}, err
+	}
+	switch sb.Kind {
+	case KindCollection:
+		err = s.trigger(ctx, id)
+	case KindFolder:
+		err = s.backfillFolder(ctx, sb)
+	default:
+		err = fmt.Errorf("season binding %d: unknown kind %q", id, sb.Kind)
+	}
+	if err != nil {
+		return Detail{}, err
+	}
+	return s.Get(ctx, id)
+}
