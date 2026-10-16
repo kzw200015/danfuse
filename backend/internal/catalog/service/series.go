@@ -8,15 +8,35 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
-	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 )
 
+// SeriesSummary 剧列表里的一部剧：海报的图片 ID、季数、集数与绑定统计。
+type SeriesSummary struct {
+	ID                int64   `json:"id"`
+	Type              string  `json:"type"`
+	Title             string  `json:"title"`
+	OriginalTitle     *string `json:"originalTitle"`
+	Year              *int32  `json:"year"`
+	TmdbID            *int64  `json:"tmdbId"`
+	PosterImageID     *int64  `json:"posterImageId"`
+	SeasonCount       int32   `json:"seasonCount"`
+	EpisodeCount      int32   `json:"episodeCount"`
+	BoundEpisodeCount int32   `json:"boundEpisodeCount"`
+	BindingCount      int32   `json:"bindingCount"`
+	DeadBindingCount  int32   `json:"deadBindingCount"`
+	Following         bool    `json:"following"`
+}
+
 // ListSeries 全部剧连同海报的图片 ID、季数、集数与绑定统计，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
-func (s *Service) ListSeries(ctx context.Context) ([]dao.ListSeriesRow, error) {
-	series, err := s.q.ListSeries(ctx)
+func (s *Service) ListSeries(ctx context.Context) ([]SeriesSummary, error) {
+	rows, err := s.q.ListSeries(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list series: %w", err)
+	}
+	series := make([]SeriesSummary, len(rows))
+	for i, r := range rows {
+		series[i] = SeriesSummary(r)
 	}
 	return series, nil
 }
@@ -125,16 +145,22 @@ func (s *Service) GetSeries(ctx context.Context, id int64) (SeriesDetail, error)
 	return detail, nil
 }
 
+// Image 一张图片：原始字节与 content-type。
+type Image struct {
+	ContentType string
+	Data        []byte
+}
+
 // GetImage 一张图片的原始字节与 content-type；不存在时返回 404。
-func (s *Service) GetImage(ctx context.Context, id int64) (dao.GetImageRow, error) {
+func (s *Service) GetImage(ctx context.Context, id int64) (Image, error) {
 	img, err := s.q.GetImage(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return dao.GetImageRow{}, errImageNotFound
+			return Image{}, errImageNotFound
 		}
-		return dao.GetImageRow{}, fmt.Errorf("get image %d: %w", id, err)
+		return Image{}, fmt.Errorf("get image %d: %w", id, err)
 	}
-	return img, nil
+	return Image(img), nil
 }
 
 // DeleteSeries 删除一部剧，连同它的海报：同一个事务里先删剧、再删图。剧不存在时返回 404。

@@ -136,37 +136,75 @@ func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 	return runID, err
 }
 
+// SyncRunSummary 同步记录的列表项，不含警告正文。
+type SyncRunSummary struct {
+	ID              int64      `json:"id"`
+	Trigger         string     `json:"trigger"`
+	Status          string     `json:"status"`
+	StartedAt       time.Time  `json:"startedAt"`
+	FinishedAt      *time.Time `json:"finishedAt"`
+	Total           *int32     `json:"total"`
+	Done            int32      `json:"done"`
+	CreatedSeries   int32      `json:"createdSeries"`
+	CreatedSeasons  int32      `json:"createdSeasons"`
+	CreatedEpisodes int32      `json:"createdEpisodes"`
+	WarningCount    int32      `json:"warningCount"`
+	Error           *string    `json:"error"`
+}
+
+// SyncRun 一次同步的详情，含警告。
+type SyncRun struct {
+	ID              int64      `json:"id"`
+	Trigger         string     `json:"trigger"`
+	Status          string     `json:"status"`
+	StartedAt       time.Time  `json:"startedAt"`
+	FinishedAt      *time.Time `json:"finishedAt"`
+	Total           *int32     `json:"total"`
+	Done            int32      `json:"done"`
+	CreatedSeries   int32      `json:"createdSeries"`
+	CreatedSeasons  int32      `json:"createdSeasons"`
+	CreatedEpisodes int32      `json:"createdEpisodes"`
+	Warnings        []string   `json:"warnings"`
+	WarningCount    int32      `json:"warningCount"`
+	Error           *string    `json:"error"`
+}
+
 // ListRuns 最近 sync.keep_runs 次同步，新的在前，不含警告正文。
-func (s *SyncService) ListRuns(ctx context.Context) ([]dao.ListSyncRunsRow, error) {
-	runs, err := s.q.ListSyncRuns(ctx, s.keepRuns)
+func (s *SyncService) ListRuns(ctx context.Context) ([]SyncRunSummary, error) {
+	rows, err := s.q.ListSyncRuns(ctx, s.keepRuns)
 	if err != nil {
 		return nil, fmt.Errorf("list sync runs: %w", err)
+	}
+	runs := make([]SyncRunSummary, len(rows))
+	for i, r := range rows {
+		runs[i] = SyncRunSummary(r)
 	}
 	return runs, nil
 }
 
 // LatestRun 最近一次同步，不含警告正文；一次都没有同步过时为 nil。
-func (s *SyncService) LatestRun(ctx context.Context) (*dao.ListSyncRunsRow, error) {
-	runs, err := s.q.ListSyncRuns(ctx, 1)
+func (s *SyncService) LatestRun(ctx context.Context) (*SyncRunSummary, error) {
+	rows, err := s.q.ListSyncRuns(ctx, 1)
 	if err != nil {
 		return nil, fmt.Errorf("get latest sync run: %w", err)
 	}
-	if len(runs) == 0 {
+	if len(rows) == 0 {
 		return nil, nil
 	}
-	return &runs[0], nil
+	run := SyncRunSummary(rows[0])
+	return &run, nil
 }
 
 // GetRun 一次同步的详情，含警告。
-func (s *SyncService) GetRun(ctx context.Context, id int64) (dao.SyncRun, error) {
+func (s *SyncService) GetRun(ctx context.Context, id int64) (SyncRun, error) {
 	run, err := s.q.GetSyncRun(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return dao.SyncRun{}, errSyncRunNotFound
+			return SyncRun{}, errSyncRunNotFound
 		}
-		return dao.SyncRun{}, fmt.Errorf("get sync run %d: %w", id, err)
+		return SyncRun{}, fmt.Errorf("get sync run %d: %w", id, err)
 	}
-	return run, nil
+	return SyncRun(run), nil
 }
 
 // cleanupStale 启动时把残留的 running 改为 interrupted：拿得到同步的租约才清理（拿不到说明有同步正在跑），清理完释放。

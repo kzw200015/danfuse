@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	catalogdao "github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/naming"
@@ -99,7 +98,7 @@ func StartSync(t *testing.T, pool *pgxpool.Pool, src catalog.Source) *catalogsvc
 }
 
 // SyncOnce 手动触发一次同步，等它结束后返回同步记录。
-func SyncOnce(t *testing.T, svc *catalogsvc.SyncService) catalogdao.SyncRun {
+func SyncOnce(t *testing.T, svc *catalogsvc.SyncService) catalogsvc.SyncRun {
 	t.Helper()
 	return GetRun(t, svc, TriggerSync(t, svc))
 }
@@ -115,7 +114,7 @@ func TriggerSync(t *testing.T, svc *catalogsvc.SyncService) int64 {
 	return id
 }
 
-func GetRun(t *testing.T, svc *catalogsvc.SyncService, id int64) catalogdao.SyncRun {
+func GetRun(t *testing.T, svc *catalogsvc.SyncService, id int64) catalogsvc.SyncRun {
 	t.Helper()
 	run, err := svc.GetRun(t.Context(), id)
 	if err != nil {
