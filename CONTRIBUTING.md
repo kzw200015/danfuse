@@ -21,8 +21,8 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `fronten
 │   ├── configs/        # 配置模板
 │   ├── db/             # 数据库迁移（也是 sqlc 的 schema），以及由迁移生成的全部表结构 schema.txt
 │   ├── scripts/        # make 调用的脚本
-│   ├── internal/       # 应用代码：按领域分包（catalog、binding、seasonbinding、dandan、blockword，各带 handler、service 和 xxxdb/ 查询），
-│   │                   #   source、danmaku 等纯计算包，以及 server、app、httpx、testenv 等公共部分
+│   ├── internal/       # 应用代码：按领域分包（catalog、binding、seasonbinding、dandan、blockword，各分 handler/、service/、dao/ 三层），
+│   │                   #   source、danmaku 等纯计算包，infra/ 基础设施，以及 server、app、testenv
 │   └── web/            # 内嵌的前端构建产物与占位页
 ├── frontend/
 │   └── src/
@@ -80,7 +80,7 @@ pnpm dev
 | `make run` | 启动服务 |
 | `make build` | 编译到 `bin/server` |
 | `make generate` | 改了迁移之后：重新生成 sqlc 代码和 `db/schema.txt`（`make sqlc` + `make schema`，后者需要 Docker） |
-| `make sqlc` | 只改了 `xxxdb/queries.sql` 时重新生成 sqlc 代码 |
+| `make sqlc` | 只改了 `dao/queries.sql` 时重新生成 sqlc 代码 |
 | `make migration name=<name>` | 新建数据库迁移文件 |
 | `make lint` / `make fmt` | 代码检查 / 格式化（gofumpt + goimports） |
 | `go test ./...` | 运行全部测试，数据库测试需要 Docker |
@@ -155,7 +155,7 @@ docker compose up -d --build danfuse                     # 构建并启动 danfu
 - **迁移文件推到 main 之后就算已经发布，不再修改**（推送 main 会发布镜像，用户的数据库已经执行过它）。改表结构一律新增迁移。
 - 已有数据需要用 Go 重新计算时（例如分词规则改变后重算搜索列），在同一目录按序号新增 Go 迁移，写法见 [`docs/architecture/catalog.md`](docs/architecture/catalog.md) 的"搜索列"一节。
 
-查询写在各领域的 `xxxdb/queries.sql`（例如 `backend/internal/binding/bindingdb/queries.sql`），同目录下的 `.go` 由 sqlc 生成，不要手改；改了查询之后执行 `make sqlc`。`sqlc.yaml` 每个领域一组，新增领域时照样加一组。依赖在 `backend/internal/app/app.go` 的 `app.New` 里手写组装，新增或修改构造函数时直接改那里。
+查询写在各领域的 `dao/queries.sql`（例如 `backend/internal/binding/dao/queries.sql`），同目录下的 `.go` 由 sqlc 生成，不要手改；改了查询之后执行 `make sqlc`。`sqlc.yaml` 每个领域一组，新增领域时照样加一组。依赖在 `backend/internal/app/app.go` 的 `app.New` 里手写组装，新增或修改构造函数时直接改那里。
 
 ## 文档
 

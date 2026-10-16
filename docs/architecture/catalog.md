@@ -1,6 +1,6 @@
 # 目录：同步、海报与搜索
 
-从目录源（目前只有 Jellyfin，`catalog/jellyfin` 实现 `catalog.Source`；剧详情也用它生成跳回目录源的链接）同步出剧、季、集，同步在 `catalog.SyncService`（`internal/catalog/sync.go`，按剧写入目录的同步核心在 `sync_write.go`）。术语见 `GLOSSARY.md`。
+从目录源（目前只有 Jellyfin，`catalog/jellyfin` 实现 `catalog.Source`；剧详情也用它生成跳回目录源的链接）同步出剧、季、集，同步在 `catalog.SyncService`（`internal/catalog/service/sync.go`，按剧写入目录的同步核心在同目录的 `sync_write.go`）。术语见 `GLOSSARY.md`。
 
 ## 同步与海报
 

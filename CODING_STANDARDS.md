@@ -6,13 +6,13 @@
 
 - 实现接口的类型（包括测试里的假实现）在类型定义旁边写编译期断言 `var _ catalog.Source = (*Source)(nil)`。只嵌入接口、不实现方法的假类型（如 `platformAdapter`）不写。
 - 业务代码只依赖领域包的接口，不对适配器做类型断言；绑定、合集的 ref 只交给适配器解析，原始 ref 不出现在 JSON 输出里。
-- 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`）：`*handler*.go` 只绑定与校验参数、调用本领域的 `Service`、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `xxxdb`。
-- 领域之间只调用对方 `Service` 的方法，不引用对方的 `xxxdb`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateLinkSlotInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
-- 适配器（领域的子包，如 `catalog/jellyfin`、`source/bilibili`）和纯计算包（`source`、`danmaku`、`danmakufile`、`fulltext`、`naming`）只放接口、类型、纯计算与外部适配，不访问数据库。
+- 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`），领域内分 `handler/`、`service/`、`dao/` 三个子包：handler 只绑定与校验参数、调用本领域的 `Service`、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `dao`；service 不碰 HTTP（echo、`httpx/request`、`httpx/response`），出错返回 `apierr`。
+- 领域之间只调用对方 `Service` 的方法，不引用对方的 `dao`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `queries.sql` 里写查询。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateLinkSlotInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
+- 适配器（如 `catalog/jellyfin`、`source/bilibili`）、catalog 的根包（目录源接口与交换类型）和纯计算包（`source`、`danmaku`、`danmakufile`、`fulltext`、`naming`）只放接口、类型、纯计算与外部适配，不访问数据库。
 - 基础设施在 `internal/infra/`（config、database、logger、httpx、background），不依赖业务包。
-- 一个文件一个功能，文件名功能在前：`<功能>.go`、`<功能>_handler.go`、`<功能>_test.go`，`ls` 时同一功能的几个文件挨在一起；`service.go` 放 `Service`、构造、包内公共的错误与取/锁，包文档也写在这里并列出各文件管什么；`handler.go` 放 `Handler` 和共用的请求结构。只被一个测试文件用的辅助函数放在那个测试文件里，多个测试文件共用的放 `helpers_test.go`。
+- 一个文件一个功能，handler 与 service 里同一功能的文件同名，测试为 `<功能>_test.go`；`service/service.go` 放 `Service`、构造、包内公共的错误与取/锁，包文档也写在这里并列出各文件管什么；`handler/handler.go` 放 `Handler` 和共用的请求结构。handler 只用 service 导出的 API，需要 service 里的常量时导出它（如季绑定的种类 `KindCollection`）。只被一个测试文件用的辅助函数放在那个测试文件里，多个测试文件共用的放 `helpers_test.go`。
 - `app.New` 和各构造函数只构造对象，不做 IO、不连外部系统。新增 service 在 `app.New` 构造，handler 还要加进 `server.Handlers`。
-- `xxxdb/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.txt` 一起更新）。已推到 main 的迁移文件不再修改。
+- `dao/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.txt` 一起更新）。已推到 main 的迁移文件不再修改。
 
 ## 数据库与并发
 

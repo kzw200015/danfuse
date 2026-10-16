@@ -5,7 +5,7 @@
 ## 接口与分工
 
 - 实现从识别、搜索到取弹幕的接口：`match` 按文件名识别到集；`search/episodes` 一步搜到季和集；`search/anime` 搜到季，再用 `bangumi/{bangumiId}` 取集；`comment` 取弹幕；`related` 是给插件的空兼容接口。对外的作品（animeId、bangumiId）就是季，episodeId 就是集。
-- `dandan` 是一个领域包：handler（`handler.go` 放各接口共用的，每个接口一个 `xxx_handler.go`：`search`、`bangumi`、`comment`、`match`，请求与响应的结构、转换成协议结构的函数都在里面）只做协议参数转换和响应格式化（type、typeDescription、"第N话"、p、cid、平台前缀）；识别、搜索、取季与取弹幕交给 `service.go` 的 `dandan.Service`，它的查询（搜索季、取季和集）在 `dandandb/queries.sql`，读的是目录的表。
+- `dandan` 是一个领域，分三层：`handler/`（`handler.go` 放各接口共用的，每个接口一个文件：`search.go`、`bangumi.go`、`comment.go`、`match.go`，请求与响应的结构、转换成协议结构的函数都在里面）只做协议参数转换和响应格式化（type、typeDescription、"第N话"、p、cid、平台前缀）；识别、搜索、取季与取弹幕交给 `service/` 的 `dandan.Service`，它的查询（搜索季、取季和集）在 `dao/queries.sql`，读的是目录的表。
 - `dandan.Service` 返回的类型（`dandan.Season`、`SearchResult`、`MatchResult` 等，季的类别用 `naming.KindOf`）是内部结构，不含任何协议格式。
 - `Match` 按名称识别一集：名称里要写明集号，其余交给同一个搜索，候选唯一且标题与剧名或原名 `fulltext.SameWords` 时才算确定（`isMatched`）。
 - 搜索关键词和 match 的文件名按 `naming.Parse`（`internal/naming`）认出季号、集号（规则见 [`catalog.md`](catalog.md)），集号以 `search/episodes` 的 `episode` 参数优先；按集号过滤时只返回有这一集的季，每季只带这一集（`Season.EpisodeCount` 仍是总集数）。
@@ -28,7 +28,7 @@
 
 ## 测试
 
-HTTP 测试在 `internal/server/dandan_test.go`（搜索、识别、取季的规则由 `internal/dandan/service_test.go` 覆盖，合并弹幕由 `internal/binding/danmaku_read_test.go` 覆盖）：
+HTTP 测试在 `internal/server/dandan_test.go`（搜索、识别、取季的规则由 `internal/dandan/service/service_test.go` 覆盖，合并弹幕由 `internal/binding/service/danmaku_read_test.go` 覆盖）：
 
 - 插件不调用的 `search/anime`、`bangumi`、`match` 按官方 Swagger 的结构断言完整 JSON；`TestSearchAnimeBangumiComment` 检查三步的 ID 前后衔接、两条搜索路径列出的集相同（`dandanPost` 发 `match` 的 POST；名称的解析规则在 `naming` 包的 `TestParse` 单独测）。
 - 插件契约测试按 jellyfin-danmaku 插件实际的调用方式重放请求（`pluginGet` 跨域、带 `Accept-Encoding`，关键词不做 URL 编码、按浏览器的规则转义），按插件的读法断言（`pluginMatch` 取 `animes[0]`，按"集号 − 首集标题里第N话的 N"取集；`pluginComments` 把 `p` 按逗号拆成时间、模式、颜色、用户，按用户名前缀分来源）。

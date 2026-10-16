@@ -4,6 +4,8 @@
 
 ## 文件
 
+下表是 `service/` 里的文件；`handler/` 里的文件同名，一一对应。
+
 | 文件 | 内容 |
 | --- | --- |
 | `derive.go` | 派生函数 `Derive` |
@@ -13,7 +15,7 @@
 | `folder.go` | 文件夹的分组、解析、对上条目、写条目，预览和四种写入（`applyFolder`） |
 | `service.go` | `Service`、详情 `Get`、`ListBySeries`、`SetFollow`、按种类分派的 `Backfill`、`Delete` |
 | `view.go` | JSON：`View`（公共字段加 `*CollectionView` / `*FolderView`）、`Detail`、`ItemView`、`SlotView`、`Preview`、`Candidate`、`Summary` |
-| `handler.go`、`collection_handler.go`、`folder_handler.go` | 两种共用的（详情、开关追更、立即补建、删除、默认规则）、合集的、文件夹的 |
+| `handler/handler.go`、`handler/collection.go`、`handler/folder.go` | HTTP：两种共用的（详情、开关追更、立即补建、删除、默认规则）、合集的、文件夹的 |
 
 ## 数据
 
@@ -71,7 +73,7 @@
   - 删季（删剧）的第一步是锁住季那一行，与 `FOR KEY SHARE` 冲突，两边在季上排队，所以之后的顺序不必与删季的级联（季 → 集 → 季绑定 → 绑定）一致；
   - 只删一集时只锁这一集和它的绑定，写入同样先锁集、再写这一集的绑定；
   - 同一个季绑定的写入由 `FOR UPDATE` 锁季绑定（保存表单、删除、文件夹的写入，`lockSeasonBinding`）或补建租约（合集的补建）串行；不同季绑定的写入对集只加 `FOR KEY SHARE`，互不阻塞。所以锁多集时不必按固定顺序（文件夹建出槽位时逐集锁）。
-- `binding.Service` 给季绑定的方法在 `binding/season_slot.go`。调用方开事务，先锁好季和季绑定；这些方法先锁集，再写绑定：
+- `binding.Service` 给季绑定的方法在 `binding/service/season_slot.go`。调用方开事务，先锁好季和季绑定；这些方法先锁集，再写绑定：
   - `CreateLinkSlotInTx(ctx, tx, LinkSlot)`：集已被删除时返回 `ErrEpisodeGone`，集上已有同一个弹幕源时返回 `ErrSourceBound`、什么都不写。提交之后调用方调用 `LogFetched`。
   - `CreateFileSlotInTx(ctx, tx, FileSlot)`：弹幕是条目的各份文件经 `danmakufile.Parse` 解析、合并后的，按原始 ID 去重。集上已有别的绑定时照常建（文件没有"同源"）。
   - `DeleteSlotsInTx(ctx, tx, 季绑定 ID, 集 ID)`：先按 ID 顺序锁住这些集（`LockEpisodes`），再删绑定，弹幕随之级联删除。

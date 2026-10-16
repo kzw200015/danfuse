@@ -26,7 +26,7 @@ cp configs/config.example.yaml configs/config.yaml   # 首次使用；config.yam
 make run                         # 启动（-config configs/config.yaml），启动时自动执行未应用的迁移，默认 :8080
 make build                       # 编译到 bin/server
 make generate                    # 改了 db/migrations 之后：重新生成 sqlc 代码和 db/schema.txt（需要 Docker）
-make sqlc                        # 只改了 xxxdb/queries.sql 时重新生成
+make sqlc                        # 只改了 dao/queries.sql 时重新生成
 make migration name=create_xxx   # 用与 go.mod 同版本的 goose CLI 新建 db/migrations 下的迁移
 make lint / make fmt             # golangci-lint v2 检查 / 格式化（gofumpt + goimports）
 go test ./...                    # Makefile 没有 test 目标；数据库测试需要 Docker，没有 Docker 时直接失败
@@ -59,12 +59,12 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 
 ## 后端架构
 
-- **按领域分包**：`internal/catalog`（浏览、删除、海报、同步）、`binding`（绑定、弹幕文件、查看弹幕、定时拉取）、`seasonbinding`（合集与文件夹的季绑定、补建、追更）、`dandan`（弹弹 API）、`blockword`（屏蔽词），每个包里 `*handler*.go` → `service` → `xxxdb/`（`queries.sql` 和 sqlc 生成的代码）→ PostgreSQL；handler 不碰数据库由 depguard 守住（`backend/.golangci.yml`）。领域之间只调用对方的 `Service`（依赖 catalog → seasonbinding → binding，dandan → binding、blockword），不引用对方的 `xxxdb`；要查别的领域的表时在自己的 `queries.sql` 里写查询。不属于业务领域的接口各自成包：`health`（健康检查）、`settings`（只读的设置，直接读配置，不设 service）。`server` 只放路由、全局错误出口、前端托管与 HTTP 服务的生命周期，路由集中在 `server/router.go`（`server.Handlers` 汇总各包的 handler），所有组件在 `internal/app/app.go` 的 `app.New` 里手写组装（不用 DI 框架）。
-- **适配器与纯计算包**：外部系统的接口和交换类型放在领域包，适配器放在它的子包里（`catalog/jellyfin` 实现 `catalog.Source`，`source/bilibili` 实现 `source.Adapter`），由 `app` 装配（目录源按配置的 `kind` 选，未配置时为 nil；源适配器注册进 `source.Registry`）。`source`、`danmaku`、`danmakufile`、`fulltext`、`naming`（季的名称和类别、名称里的季号集号）只放接口、类型和纯计算，不访问数据库。
-- **数据库访问**：service 持有 `pool` 和本领域的 `q *xxxdb.Queries`（具体类型，没有 `Querier` 接口）。单条查询直接调用、自动提交；需要原子性时 `pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error { q := s.q.WithTx(tx); ... })`；跨领域的事务把 `tx` 传给对方的 `XxxInTx` 方法（如季绑定补建时的 `binding.Service.CreateLinkSlotInTx`）。列名 `offset` 是保留字，SQL 里要加引号。
-- **生成代码**：`xxxdb/` 下的 `.go` 由 sqlc 生成，不手改。`sqlc.yaml` 每个领域一组，都直接读 `db/migrations`（goose 迁移文件）作为 schema，只生成本组用到的模型；改表结构 = 新增迁移，再 `make generate`。配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`，个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型。全部表的最终结构看 `db/schema.txt`（`make schema` 由迁移生成，psql `\d` 格式，不手改，CI 检查它与迁移同步）。
+- **按领域分包，领域内分层**：`internal/catalog`（浏览、删除、海报、同步）、`binding`（绑定、弹幕文件、查看弹幕、定时拉取）、`seasonbinding`（合集与文件夹的季绑定、补建、追更）、`dandan`（弹弹 API）、`blockword`（屏蔽词），以及不属于业务的 `health`（健康检查）、`settings`（只读的设置，直接读配置，只有 handler）。每个领域下分三个子包：`handler/`（HTTP：绑定与校验参数、调用 service、输出响应）→ `service/`（业务规则、事务、后台循环）→ `dao/`（`queries.sql` 和 sqlc 生成的代码）→ PostgreSQL，依赖方向由 depguard 守住（`backend/.golangci.yml`）。领域之间只有 service 调用对方的 `Service`（依赖 catalog → seasonbinding → binding，dandan → binding、blockword），不引用对方的 `dao`；要查别的领域的表时在自己的 `queries.sql` 里写查询。各领域的子包都叫 `handler`、`service`、`dao`，在领域外引用时起别名 `<领域>svc`、`<领域>handler`（如 `bindingsvc`）；文档和注释里写 `binding.Service`，指 binding 领域 service 包里的 `Service`。`server` 只放路由、全局错误出口、前端托管与 HTTP 服务的生命周期，路由集中在 `server/router.go`（`server.Handlers` 汇总各包的 handler），所有组件在 `internal/app/app.go` 的 `app.New` 里手写组装（不用 DI 框架）。
+- **适配器与纯计算包**：外部系统的接口和交换类型放在不访问数据库的包里，适配器放在它的子包里（`catalog/jellyfin` 实现 `catalog.Source`，它在 catalog 的根包，根包只放这个接口和交换类型，`source/bilibili` 实现 `source.Adapter`），由 `app` 装配（目录源按配置的 `kind` 选，未配置时为 nil；源适配器注册进 `source.Registry`）。`source`、`danmaku`、`danmakufile`、`fulltext`、`naming`（季的名称和类别、名称里的季号集号）只放接口、类型和纯计算，不访问数据库。
+- **数据库访问**：service 持有 `pool` 和本领域的 `q *dao.Queries`（具体类型，没有 `Querier` 接口）。单条查询直接调用、自动提交；需要原子性时 `pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error { q := s.q.WithTx(tx); ... })`；跨领域的事务把 `tx` 传给对方的 `XxxInTx` 方法（如季绑定补建时的 `binding.Service.CreateLinkSlotInTx`）。列名 `offset` 是保留字，SQL 里要加引号。
+- **生成代码**：`dao/` 下的 `.go` 由 sqlc 生成，不手改。`sqlc.yaml` 每个领域一组，都直接读 `db/migrations`（goose 迁移文件）作为 schema，只生成本组用到的模型；改表结构 = 新增迁移，再 `make generate`。配置：JSON tag 为 camelCase、可空列生成指针、`timestamptz` 映射为 `time.Time`、空切片输出 `[]`，个别列在 `sqlc.yaml` 里覆盖为具体的 Go 类型。全部表的最终结构看 `db/schema.txt`（`make schema` 由迁移生成，psql `\d` 格式，不手改，CI 检查它与迁移同步）。
 - **基础设施**：都在 `internal/infra/` 下，不依赖任何业务包（depguard 守住）：`httpx`（`apierr` API 错误、`response` 统一响应与 5xx 日志、`request` 绑定与校验），`background`（同步与补建共用的后台循环），`config`，`logger`，`database`（连接池、迁移、租约；`dbtest` 是测试基座）。测试用的 `internal/testenv` 按 `app.New` 组装各领域的 service，放共用的辅助函数和假适配器。
-- **文件划分**：一个文件一个功能，功能名在前：`<功能>.go`（service 方法和这个功能的类型）、`<功能>_handler.go`、`<功能>_test.go`；`service.go` 放 `Service`、构造、包内公共的错误与取/锁，以及列出各文件的包文档，`handler.go` 放 `Handler` 和各功能共用的请求结构。
+- **文件划分**：一个文件一个功能，handler 与 service 里同一功能的文件同名（如 `binding/handler/link.go` 与 `binding/service/link.go`），测试为 `<功能>_test.go`；`service/service.go` 放 `Service`、构造、包内公共的错误与取/锁，以及列出各文件的包文档，`handler/handler.go` 放 `Handler` 和各功能共用的请求结构。
 - **错误出口**：`server/error_handler.go` 的全局 `errorHandler` 统一转换：`*apierr.Error` 按其状态码/业务码输出；Echo 框架错误（404/405 等）沿用状态码、`code=1`；其他未知错误一律 500，不暴露细节。`code` 为 `0` 成功、`1`（`CodeFail`）通用失败，目前没有业务码。
 - **日志**：没有请求日志中间件，5xx 由 errorHandler 经 `response.LogServerError` 记录（`request_id`、方法、路由模式、完整的错误链）；请求的 ctx 已取消时改记 info 级别的 `request canceled`。
 - **API 版本**：Echo v5 的 handler 签名是 `func(c *echo.Context) error`（指针）；代码使用 Go 1.26+ 的 `errors.AsType`。goimports 本地前缀为 `github.com/kzw200015/danfuse`。
@@ -72,8 +72,8 @@ docker compose up -d             # compose.yaml 是部署示例（danfuse + post
 ### 新增业务模块的步骤
 
 1. `make migration name=create_xxx`，编写建表 SQL（`-- +goose Up` / `-- +goose Down`）
-2. 新建领域包 `internal/xxx`，在 `internal/xxx/xxxdb/queries.sql` 写查询；在 `sqlc.yaml` 里照样加一组，把 `xxxdb` 加进 `.golangci.yml` depguard 的 handler 规则，然后 `make generate`
-3. 写 `service.go`（`NewService(pool, ...)`，持有 `xxxdb.New(pool)`）和 `handler.go`，功能多时按上面的文件划分拆开，handler 加进 `server.Handlers`；要对接外部系统时，接口与交换类型放在领域包，适配器放在它的子包
+2. 新建领域目录 `internal/xxx`，在 `internal/xxx/dao/queries.sql` 写查询；在 `sqlc.yaml` 里照样加一组；在 `.golangci.yml` 的 depguard 里把 `xxx/dao` 加进 handler 规则、`xxx/handler` 加进 service 规则，再照样加一条 `xxx-dao`；然后 `make generate`
+3. 写 `xxx/service/service.go`（`NewService(pool, ...)`，持有 `dao.New(pool)`）和 `xxx/handler/handler.go`，功能多时按上面的文件划分拆开，handler 加进 `server.Handlers`；要对接外部系统时，接口与交换类型放在领域的根包（如 `catalog.Source`），适配器放在领域的子包
 4. `internal/server/router.go` 注册路由
 5. 在 `internal/app/app.go` 的 `app.New` 里构造 service、handler（适配器也在这里装配）；有后台循环的 service 加进 `App.background`；别的领域的测试要用时也加进 `internal/testenv`
 

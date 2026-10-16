@@ -20,7 +20,7 @@
 
 - service 的测试写在领域包里，是外部测试包（`package binding_test`），只经导出的 API 测试；少数要碰内部的（扫描间隔、定时同步的入口）由同一个包里的 `export_test.go` 导出。
 - 只用真实数据库加假适配器（实现领域包的接口，如 `catalog.Source`、`source.Adapter`），不替换数据库访问。
-- 并发用例让假适配器停在 channel 上（例如 `binding/helpers_test.go` 的 `fakeAdapter` 在 `started` 上报到、等 `release` 放行），期间直接执行 SQL（删除集等），再放行。
+- 并发用例让假适配器停在 channel 上（例如 `binding/service/helpers_test.go` 的 `fakeAdapter` 在 `started` 上报到、等 `release` 放行），期间直接执行 SQL（删除集等），再放行。
 - `testenv.AssertInvariants` 检查约束表达不了的不变量，约束能守住的不在这里重复：
   - 每个绑定的 `danmaku_count` 等于它实际的弹幕条数，`max_time_ms` 等于它最晚一条弹幕的时间，`file_count` 等于它的 `binding_files` 份数；
   - images 表里没有孤儿图片；
