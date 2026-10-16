@@ -23,11 +23,11 @@ overrides:
 sql:
   - engine: postgresql
     schema: db/migrations
-    queries: internal/catalog/catalogdb
+    queries: internal/catalog/dao
     gen:
       go: &go
-        package: catalogdb
-        out: internal/catalog/catalogdb
+        package: dao
+        out: internal/catalog/dao
         sql_package: pgx/v5
         emit_json_tags: true
         json_tags_case_style: camel
@@ -36,33 +36,33 @@ sql:
         omit_unused_structs: true
   - engine: postgresql
     schema: db/migrations
-    queries: internal/binding/bindingdb
+    queries: internal/binding/dao
     gen:
       go:
         <<: *go
-        package: bindingdb
-        out: internal/binding/bindingdb
+        package: dao
+        out: internal/binding/dao
   - engine: postgresql
     schema: db/migrations
-    queries: internal/seasonbinding/seasonbindingdb
+    queries: internal/seasonbinding/dao
     gen:
       go:
         <<: *go
-        package: seasonbindingdb
-        out: internal/seasonbinding/seasonbindingdb
+        package: dao
+        out: internal/seasonbinding/dao
   - engine: postgresql
     schema: db/migrations
-    queries: internal/dandan/dandandb
+    queries: internal/dandan/dao
     gen:
       go:
         <<: *go
-        package: dandandb
-        out: internal/dandan/dandandb
+        package: dao
+        out: internal/dandan/dao
   - engine: postgresql
     schema: db/migrations
-    queries: internal/blockword/blockworddb
+    queries: internal/blockword/dao
     gen:
       go:
         <<: *go
-        package: blockworddb
-        out: internal/blockword/blockworddb
+        package: dao
+        out: internal/blockword/dao

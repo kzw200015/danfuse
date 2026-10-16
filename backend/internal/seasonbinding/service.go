@@ -14,7 +14,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -46,7 +46,7 @@ const (
 // 删季的第一步也是锁季，两边在这里排队，之后的顺序不必与删季的级联（季 → 集 → 季绑定 → 绑定）一致。
 type Service struct {
 	pool     *pgxpool.Pool // 开事务，拿按季绑定的租约
-	q        *seasonbindingdb.Queries
+	q        *dao.Queries
 	sources  *source.Registry
 	bindings *binding.Service // 槽位里的绑定由它写入
 	follow   config.Follow    // 追更的时间规则
@@ -57,7 +57,7 @@ type Service struct {
 func NewService(pool *pgxpool.Pool, sources *source.Registry, bindings *binding.Service, follow config.Follow, logger *slog.Logger) *Service {
 	return &Service{
 		pool:     pool,
-		q:        seasonbindingdb.New(pool),
+		q:        dao.New(pool),
 		sources:  sources,
 		bindings: bindings,
 		follow:   follow,
@@ -69,7 +69,7 @@ func NewService(pool *pgxpool.Pool, sources *source.Registry, bindings *binding.
 // Get 季绑定的详情：季绑定的 JSON，加上各条目按补建的语义派生的结果（不删除槽位），以及没有条目对到、绑定还留着的槽位。
 // 不请求平台：合集的条目是上次列出的结果，按季绑定现在的集号规则编号。不存在时返回 404。
 func (s *Service) Get(ctx context.Context, id int64) (Detail, error) {
-	row, err := s.q.GetSeasonBindingSummary(ctx, seasonbindingdb.GetSeasonBindingSummaryParams{
+	row, err := s.q.GetSeasonBindingSummary(ctx, dao.GetSeasonBindingSummaryParams{
 		ID: id, LeasePrefix: database.LeaseSeasonBackfillPrefix,
 	})
 	if err != nil {
@@ -96,7 +96,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Detail, error) {
 
 // ListBySeries 一部剧的全部季绑定（不含条目表，两种季绑定都在内），按季 ID 分组，组内按创建顺序。剧详情用。
 func (s *Service) ListBySeries(ctx context.Context, seriesID int64) (map[int64][]View, error) {
-	rows, err := s.q.ListSeasonBindingSummariesBySeries(ctx, seasonbindingdb.ListSeasonBindingSummariesBySeriesParams{
+	rows, err := s.q.ListSeasonBindingSummariesBySeries(ctx, dao.ListSeasonBindingSummariesBySeriesParams{
 		SeriesID: seriesID, LeasePrefix: database.LeaseSeasonBackfillPrefix,
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func (s *Service) SetFollow(ctx context.Context, id int64, follow bool) (Detail,
 	if _, err := s.getCollection(ctx, id); err != nil {
 		return Detail{}, err
 	}
-	n, err := s.q.SetSeasonBindingFollow(ctx, seasonbindingdb.SetSeasonBindingFollowParams{ID: id, Follow: follow})
+	n, err := s.q.SetSeasonBindingFollow(ctx, dao.SetSeasonBindingFollowParams{ID: id, Follow: follow})
 	if err != nil {
 		return Detail{}, fmt.Errorf("set follow of season binding %d: %w", id, err)
 	}
@@ -174,27 +174,27 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 }
 
 // getSeasonBinding 读季绑定，不存在时返回 gone（管理 API 为 404，补建时为 errSeasonBindingGone）。
-func (s *Service) getSeasonBinding(ctx context.Context, id int64, gone error) (seasonbindingdb.SeasonBinding, error) {
+func (s *Service) getSeasonBinding(ctx context.Context, id int64, gone error) (dao.SeasonBinding, error) {
 	sb, err := s.q.GetSeasonBinding(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return seasonbindingdb.SeasonBinding{}, gone
+		return dao.SeasonBinding{}, gone
 	}
 	if err != nil {
-		return seasonbindingdb.SeasonBinding{}, fmt.Errorf("get season binding %d: %w", id, err)
+		return dao.SeasonBinding{}, fmt.Errorf("get season binding %d: %w", id, err)
 	}
 	return sb, nil
 }
 
 // getCollection 读合集的季绑定：不存在时 404，文件夹的季绑定 400（种类不符）。种类建出后不变，在事务之外判断即可。
-func (s *Service) getCollection(ctx context.Context, id int64) (seasonbindingdb.SeasonBinding, error) {
+func (s *Service) getCollection(ctx context.Context, id int64) (dao.SeasonBinding, error) {
 	return s.getKind(ctx, id, kindCollection, errNotCollection)
 }
 
 // getKind 读种类为 kind 的季绑定：不存在时 404，种类不符时返回 mismatch（400）。
-func (s *Service) getKind(ctx context.Context, id int64, kind string, mismatch error) (seasonbindingdb.SeasonBinding, error) {
+func (s *Service) getKind(ctx context.Context, id int64, kind string, mismatch error) (dao.SeasonBinding, error) {
 	sb, err := s.getSeasonBinding(ctx, id, errSeasonBindingNotFound)
 	if err == nil && sb.Kind != kind {
-		return seasonbindingdb.SeasonBinding{}, mismatch
+		return dao.SeasonBinding{}, mismatch
 	}
 	return sb, err
 }
@@ -211,7 +211,7 @@ func (s *Service) checkSeason(ctx context.Context, seasonID int64) error {
 }
 
 // lockSeason 写入事务的第一句：锁住一季到提交（FOR KEY SHARE），期间删不掉它；这一季已被删除时返回 gone。
-func lockSeason(ctx context.Context, q *seasonbindingdb.Queries, id int64, gone error) error {
+func lockSeason(ctx context.Context, q *dao.Queries, id int64, gone error) error {
 	if _, err := q.LockSeason(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return gone
@@ -223,16 +223,16 @@ func lockSeason(ctx context.Context, q *seasonbindingdb.Queries, id int64, gone 
 
 // lockSeasonBinding 保存表单、删除和文件夹的写入事务的前两句：锁季（lockSeason），再 FOR UPDATE 锁季绑定，
 // 与进行中的补建写入、另一次写入排队；返回锁住时的季绑定。季或季绑定已被删除时 404"季绑定不存在"（季删除时季绑定随之删除）。
-func lockSeasonBinding(ctx context.Context, q *seasonbindingdb.Queries, seasonID, id int64) (seasonbindingdb.SeasonBinding, error) {
+func lockSeasonBinding(ctx context.Context, q *dao.Queries, seasonID, id int64) (dao.SeasonBinding, error) {
 	if err := lockSeason(ctx, q, seasonID, errSeasonBindingNotFound); err != nil {
-		return seasonbindingdb.SeasonBinding{}, err
+		return dao.SeasonBinding{}, err
 	}
 	sb, err := q.LockSeasonBindingForUpdate(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return seasonbindingdb.SeasonBinding{}, errSeasonBindingNotFound
+		return dao.SeasonBinding{}, errSeasonBindingNotFound
 	}
 	if err != nil {
-		return seasonbindingdb.SeasonBinding{}, fmt.Errorf("lock season binding %d: %w", id, err)
+		return dao.SeasonBinding{}, fmt.Errorf("lock season binding %d: %w", id, err)
 	}
 	return sb, nil
 }

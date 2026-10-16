@@ -15,7 +15,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -63,7 +63,7 @@ func (s *Service) CreateFolder(ctx context.Context, seasonID int64, files []bind
 		if err := lockSeason(ctx, q, seasonID, errSeasonDeleted); err != nil {
 			return err
 		}
-		sb, err := q.InsertFolderSeasonBinding(ctx, seasonbindingdb.InsertFolderSeasonBindingParams{
+		sb, err := q.InsertFolderSeasonBinding(ctx, dao.InsertFolderSeasonBindingParams{
 			SeasonID:        seasonID,
 			Title:           upload.name,
 			MappingFrom:     int32(f.Mapping.From),
@@ -112,7 +112,7 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.Uplo
 		if upload != nil {
 			title = upload.name
 		}
-		saved, err := q.UpdateFolderSeasonBinding(ctx, seasonbindingdb.UpdateFolderSeasonBindingParams{
+		saved, err := q.UpdateFolderSeasonBinding(ctx, dao.UpdateFolderSeasonBindingParams{
 			ID:              id,
 			Title:           title,
 			MappingFrom:     int32(f.Mapping.From),
@@ -133,7 +133,7 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []binding.Uplo
 }
 
 // backfillFolder 文件夹的立即补建：在一个事务里按保存的表单派生，替换、新建槽位，不删除没有条目的槽位（补建从不删除，见 docs/architecture/season-binding.md 的"写入"）。
-func (s *Service) backfillFolder(ctx context.Context, sb seasonbindingdb.SeasonBinding) error {
+func (s *Service) backfillFolder(ctx context.Context, sb dao.SeasonBinding) error {
 	var res folderResult
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		locked, err := lockSeasonBinding(ctx, s.q.WithTx(tx), sb.SeasonID, sb.ID)
@@ -199,7 +199,7 @@ func folderPreview(title string, r Result, current bool) Preview {
 }
 
 // getFolder 读文件夹的季绑定：不存在时 404，合集的季绑定 400（种类不符）。
-func (s *Service) getFolder(ctx context.Context, id int64) (seasonbindingdb.SeasonBinding, error) {
+func (s *Service) getFolder(ctx context.Context, id int64) (dao.SeasonBinding, error) {
 	return s.getKind(ctx, id, kindFolder, errNotFolder)
 }
 
@@ -220,7 +220,7 @@ func (s *Service) logFolder(ctx context.Context, msg string, id int64, r folderR
 //     所以随后删掉这些条目时没有绑定跟着级联删除。
 //  4. 写条目：删掉没对上的，沿用的改位置，新的连同文件插入。
 //  5. 替换、新建：从条目的文件解析，用 CreateFileSlotInTx 写入；集已被删除时跳过。
-func (s *Service) applyFolder(ctx context.Context, tx pgx.Tx, sb seasonbindingdb.SeasonBinding, upload *uploadedFolder, deleteEmpty bool) (folderResult, error) {
+func (s *Service) applyFolder(ctx context.Context, tx pgx.Tx, sb dao.SeasonBinding, upload *uploadedFolder, deleteEmpty bool) (folderResult, error) {
 	q := s.q.WithTx(tx)
 	rule, err := formRule(sb)
 	if err != nil {
@@ -316,7 +316,7 @@ func (e formEntry) source() string {
 
 // danmaku 条目的弹幕：各份文件经 binding.ParseFile 解析、合起来（重复的由写入时按原始 ID 去重）。
 // 这次上传的已经解析过；保存的解析 stored（storedEntryFiles 读出的这个条目的文件），解析不了时 422。
-func (e formEntry) danmaku(stored []seasonbindingdb.ListSeasonBindingEntryFilesRow) ([]danmaku.Danmaku, error) {
+func (e formEntry) danmaku(stored []dao.ListSeasonBindingEntryFilesRow) ([]danmaku.Danmaku, error) {
 	var items []danmaku.Danmaku
 	if e.upload != nil {
 		for _, f := range e.upload.files {
@@ -335,7 +335,7 @@ func (e formEntry) danmaku(stored []seasonbindingdb.ListSeasonBindingEntryFilesR
 }
 
 // storedEntryFiles 要新建、替换的槽位里，条目不是这次上传的（保存的条目），一条查询读出它们的文件，按条目 ID 分组、按加入的顺序。
-func storedEntryFiles(ctx context.Context, q *seasonbindingdb.Queries, entries []formEntry, r Result) (map[int64][]seasonbindingdb.ListSeasonBindingEntryFilesRow, error) {
+func storedEntryFiles(ctx context.Context, q *dao.Queries, entries []formEntry, r Result) (map[int64][]dao.ListSeasonBindingEntryFilesRow, error) {
 	var ids []int64
 	for i, it := range r.Items {
 		if (it.Status == StatusCreate || it.Status == StatusReplace) && entries[i].upload == nil {
@@ -349,7 +349,7 @@ func storedEntryFiles(ctx context.Context, q *seasonbindingdb.Queries, entries [
 	if err != nil {
 		return nil, fmt.Errorf("list files of entries %v: %w", ids, err)
 	}
-	files := make(map[int64][]seasonbindingdb.ListSeasonBindingEntryFilesRow, len(ids))
+	files := make(map[int64][]dao.ListSeasonBindingEntryFilesRow, len(ids))
 	for _, f := range rows {
 		files[f.EntryID] = append(files[f.EntryID], f)
 	}
@@ -357,7 +357,7 @@ func storedEntryFiles(ctx context.Context, q *seasonbindingdb.Queries, entries [
 }
 
 // savedEntries 季绑定保存的条目，按位置排列。
-func savedEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64) ([]formEntry, error) {
+func savedEntries(ctx context.Context, q *dao.Queries, id int64) ([]formEntry, error) {
 	rows, err := q.ListSeasonBindingEntries(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("list entries of season binding %d: %w", id, err)
@@ -371,7 +371,7 @@ func savedEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64) ([]
 
 // matchEntries 换文件夹时新的条目按"名称 + 文件哈希的集合"对上季绑定 id 保存的条目 saved（savedEntries 读出的）：
 // 对上的沿用条目 ID，没对上的 ID 为 0。文件夹名不参与，文件夹改名后照样对得上。
-func matchEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, saved []formEntry, picked []EntryHashes) ([]formEntry, error) {
+func matchEntries(ctx context.Context, q *dao.Queries, id int64, saved []formEntry, picked []EntryHashes) ([]formEntry, error) {
 	rows, err := q.ListSeasonBindingEntryHashes(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("list file hashes of season binding %d: %w", id, err)
@@ -407,7 +407,7 @@ func newEntryKey(label string, hashes []string) entryKey {
 
 // writeEntries 换文件夹（创建）时写条目：删掉 saved 里没对上的（它们建出的绑定已经删掉），沿用的改为新的位置，
 // 新的连同文件插入，ID 填回 entries；每一步一条语句写完。位置从 1 开始，按这次上传的顺序。
-func writeEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, saved, entries []formEntry) error {
+func writeEntries(ctx context.Context, q *dao.Queries, id int64, saved, entries []formEntry) error {
 	kept := make(map[int64]bool, len(entries))
 	for _, e := range entries {
 		kept[e.id] = true
@@ -421,8 +421,8 @@ func writeEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, sav
 	if err := q.DeleteSeasonBindingEntries(ctx, stale); err != nil {
 		return fmt.Errorf("delete entries of season binding %d: %w", id, err)
 	}
-	moved := seasonbindingdb.SetSeasonBindingEntryPositionsParams{Ids: []int64{}, Positions: []int32{}}
-	added := seasonbindingdb.InsertSeasonBindingEntriesParams{SeasonBindingID: id, Labels: []string{}, Positions: []int32{}}
+	moved := dao.SetSeasonBindingEntryPositionsParams{Ids: []int64{}, Positions: []int32{}}
+	added := dao.InsertSeasonBindingEntriesParams{SeasonBindingID: id, Labels: []string{}, Positions: []int32{}}
 	for i, e := range entries {
 		position := int32(i + 1)
 		if e.id != 0 {
@@ -444,7 +444,7 @@ func writeEntries(ctx context.Context, q *seasonbindingdb.Queries, id int64, sav
 	for _, r := range rows {
 		inserted[r.Label] = r.ID
 	}
-	files := seasonbindingdb.InsertSeasonBindingEntryFilesParams{}
+	files := dao.InsertSeasonBindingEntryFilesParams{}
 	for i := range entries {
 		e := &entries[i]
 		if e.id != 0 {

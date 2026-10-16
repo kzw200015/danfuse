@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
 )
 
 // View 季绑定的 JSON（剧详情里的 seasonBindings[]）：两种都有的字段，加上只属于合集的（*CollectionView）或只属于文件夹的
@@ -160,7 +160,7 @@ func slotView(episode int, s Slot) SlotView {
 
 // view 季绑定的 JSON。合集的季绑定的链接和标签交给它的适配器生成；文件夹的季绑定没有合集，不经过适配器。
 // entryCount 只用于文件夹，running 只用于合集。
-func (s *Service) view(sb seasonbindingdb.SeasonBinding, bindingCount, entryCount int32, running bool) (View, error) {
+func (s *Service) view(sb dao.SeasonBinding, bindingCount, entryCount int32, running bool) (View, error) {
 	v := View{
 		ID:              sb.ID,
 		SeasonID:        sb.SeasonID,

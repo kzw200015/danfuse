@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/blockword/blockworddb"
+	"github.com/kzw200015/danfuse/backend/internal/blockword/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
@@ -24,7 +24,7 @@ var (
 
 // Service 屏蔽词的增删与读取。
 type Service struct {
-	q        *blockworddb.Queries
+	q        *dao.Queries
 	compiled atomic.Pointer[compiledBlocklist] // 上次编译的结果，屏蔽词没变时直接复用
 }
 
@@ -35,7 +35,7 @@ type compiledBlocklist struct {
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{q: blockworddb.New(pool)}
+	return &Service{q: dao.New(pool)}
 }
 
 // BlockedWord 管理界面看到的一条屏蔽词。
@@ -61,7 +61,7 @@ func (s *Service) List(ctx context.Context) ([]BlockedWord, error) {
 
 // Create 新增一条屏蔽词，w 已经过 danmaku.ParseBlockedWord 校验。同类型、Key 相同的已经有了时 409。
 func (s *Service) Create(ctx context.Context, w danmaku.BlockedWord) (BlockedWord, error) {
-	r, err := s.q.CreateBlockedWord(ctx, blockworddb.CreateBlockedWordParams{Kind: string(w.Kind), Pattern: w.Pattern, DedupKey: w.Key()})
+	r, err := s.q.CreateBlockedWord(ctx, dao.CreateBlockedWordParams{Kind: string(w.Kind), Pattern: w.Pattern, DedupKey: w.Key()})
 	if database.IsUniqueViolation(err) {
 		return BlockedWord{}, errDuplicated
 	}

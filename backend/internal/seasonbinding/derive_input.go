@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -24,7 +24,7 @@ type derivedInput struct {
 }
 
 // storedInput 按季绑定保存的表单和上次列出的结果（合集）、保存的条目（文件夹）组装派生的输入，详情用。q 可以在事务里。
-func storedInput(ctx context.Context, q *seasonbindingdb.Queries, sb seasonbindingdb.SeasonBinding) (derivedInput, error) {
+func storedInput(ctx context.Context, q *dao.Queries, sb dao.SeasonBinding) (derivedInput, error) {
 	rule, err := formRule(sb)
 	if err != nil {
 		return derivedInput{}, err
@@ -55,7 +55,7 @@ func storedInput(ctx context.Context, q *seasonbindingdb.Queries, sb seasonbindi
 }
 
 // formRule 季绑定保存的集号规则。存进去之前校验过，解析失败是服务器内部错误。
-func formRule(sb seasonbindingdb.SeasonBinding) (source.EpisodeRule, error) {
+func formRule(sb dao.SeasonBinding) (source.EpisodeRule, error) {
 	rule, err := source.ParseEpisodeRule(sb.EpisodePatterns)
 	if err != nil {
 		return source.EpisodeRule{}, fmt.Errorf("parse episode patterns of season binding %d: %w", sb.ID, err)
@@ -64,7 +64,7 @@ func formRule(sb seasonbindingdb.SeasonBinding) (source.EpisodeRule, error) {
 }
 
 // formMapping 季绑定保存的集号对应。
-func formMapping(sb seasonbindingdb.SeasonBinding) source.Mapping {
+func formMapping(sb dao.SeasonBinding) source.Mapping {
 	return source.Mapping{From: int(sb.MappingFrom), To: int(sb.MappingTo)}
 }
 
@@ -83,7 +83,7 @@ const noPlatformNumber = "平台没有给出整数集号"
 
 // storedCollection 合集上次列出的结果（season_binding_items，按位置排列）拼回 source.Collection，再交给 source.NumberItems 编号：
 // 按规则编号的合集由集号规则从标签认出，其余用保存的平台集号（为空时对不上）。
-func storedCollection(sb seasonbindingdb.SeasonBinding, rows []seasonbindingdb.SeasonBindingItem) source.Collection {
+func storedCollection(sb dao.SeasonBinding, rows []dao.SeasonBindingItem) source.Collection {
 	col := source.Collection{NumberedByRule: sb.NumberedByRule != nil && *sb.NumberedByRule, Items: make([]source.CollectionItem, len(rows))}
 	for i, r := range rows {
 		it := source.CollectionItem{Ref: r.Ref, Label: r.Label}
@@ -123,8 +123,8 @@ func entrySource(entryID int64) string {
 // episodeSlots 派生的输入 episodes（键为集号）：一季的全部集，连同季绑定 seasonBindingID 在各集的槽位
 // （为 nil 时，例如新建的预览，没有槽位）；adapter 不为空（合集）时另查各集上别的绑定占用的、这个适配器的弹幕源。
 // 链接绑定的弹幕源为规范化的 ref，文件绑定的为条目 ID。
-func episodeSlots(ctx context.Context, q *seasonbindingdb.Queries, seasonID int64, seasonBindingID *int64, adapter string) (map[int]Episode, error) {
-	rows, err := q.ListSeasonEpisodeSlots(ctx, seasonbindingdb.ListSeasonEpisodeSlotsParams{SeasonID: seasonID, SeasonBindingID: seasonBindingID})
+func episodeSlots(ctx context.Context, q *dao.Queries, seasonID int64, seasonBindingID *int64, adapter string) (map[int]Episode, error) {
+	rows, err := q.ListSeasonEpisodeSlots(ctx, dao.ListSeasonEpisodeSlotsParams{SeasonID: seasonID, SeasonBindingID: seasonBindingID})
 	if err != nil {
 		return nil, fmt.Errorf("list episodes of season %d: %w", seasonID, err)
 	}
@@ -145,7 +145,7 @@ func episodeSlots(ctx context.Context, q *seasonbindingdb.Queries, seasonID int6
 	if adapter == "" {
 		return episodes, nil
 	}
-	occupied, err := q.ListSeasonOccupiedSources(ctx, seasonbindingdb.ListSeasonOccupiedSourcesParams{
+	occupied, err := q.ListSeasonOccupiedSources(ctx, dao.ListSeasonOccupiedSourcesParams{
 		SeasonID: seasonID, Adapter: adapter, SeasonBindingID: seasonBindingID,
 	})
 	if err != nil {

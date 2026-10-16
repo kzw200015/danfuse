@@ -35,15 +35,15 @@ linters:
               desc: handler 经 service 访问数据库
             - pkg: github.com/kzw200015/danfuse/backend/internal/infra/database
               desc: handler 经 service 访问数据库
-            - pkg: github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb
+            - pkg: github.com/kzw200015/danfuse/backend/internal/catalog/dao
               desc: handler 经 service 访问数据库
-            - pkg: github.com/kzw200015/danfuse/backend/internal/binding/bindingdb
+            - pkg: github.com/kzw200015/danfuse/backend/internal/binding/dao
               desc: handler 经 service 访问数据库
-            - pkg: github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb
+            - pkg: github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao
               desc: handler 经 service 访问数据库
-            - pkg: github.com/kzw200015/danfuse/backend/internal/dandan/dandandb
+            - pkg: github.com/kzw200015/danfuse/backend/internal/dandan/dao
               desc: handler 经 service 访问数据库
-            - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/blockworddb
+            - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/dao
               desc: handler 经 service 访问数据库
         pure:
           files:

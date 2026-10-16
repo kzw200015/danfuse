@@ -13,7 +13,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/infra/background"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -140,7 +140,7 @@ func (s *Service) scanOne(ctx context.Context, id int64) bool {
 }
 
 // dueReasons 追更到期的原因，按 ListDueSeasonBindings 的列名，只用于日志。
-func dueReasons(d seasonbindingdb.ListDueSeasonBindingsRow) []string {
+func dueReasons(d dao.ListDueSeasonBindingsRow) []string {
 	var reasons []string
 	for _, r := range []struct {
 		name string
@@ -159,8 +159,8 @@ func dueReasons(d seasonbindingdb.ListDueSeasonBindingsRow) []string {
 
 // dueParams 按现在的时间和追更的检查周期（follow.check_interval）判定追更是否到期的参数；
 // id 不为 nil 时只判定这一个季绑定。
-func (s *Service) dueParams(id *int64) seasonbindingdb.ListDueSeasonBindingsParams {
-	return seasonbindingdb.ListDueSeasonBindingsParams{ID: id, DueBefore: time.Now().Add(-s.follow.CheckInterval)}
+func (s *Service) dueParams(id *int64) dao.ListDueSeasonBindingsParams {
+	return dao.ListDueSeasonBindingsParams{ID: id, DueBefore: time.Now().Add(-s.follow.CheckInterval)}
 }
 
 // backfillRound 一轮补建的进度与结果。
@@ -207,7 +207,7 @@ func (s *Service) backfill(ctx context.Context, id int64, trigger string, due []
 		s.logger.Error("backfill failed", "season_binding_id", id, "error", err)
 		r.lastError = new(internalErrorMessage)
 	}
-	err = s.q.FinishSeasonBindingCheck(ctx, seasonbindingdb.FinishSeasonBindingCheckParams{
+	err = s.q.FinishSeasonBindingCheck(ctx, dao.FinishSeasonBindingCheckParams{
 		ID: id, CheckedAt: r.start, Error: r.lastError, Dead: r.dead,
 	})
 	if err != nil {
@@ -308,7 +308,7 @@ func (s *Service) runBackfill(ctx context.Context, r *backfillRound) error {
 
 // backfillItem 新建或替换一个槽位：在事务之外拉取，再写入（见 saveSlot）。
 // 拉取失败时：限流记下原因、结束这一轮（stop 为 true）；其他错误记在条目上，继续下一个。
-func (s *Service) backfillItem(ctx context.Context, r *backfillRound, sb seasonbindingdb.SeasonBinding, adapter source.Adapter, it Item) (stop bool, err error) {
+func (s *Service) backfillItem(ctx context.Context, r *backfillRound, sb dao.SeasonBinding, adapter source.Adapter, it Item) (stop bool, err error) {
 	ref := source.Ref(it.Entry.Source) // 规范化的 ref 是合法的 JSON，原样交给适配器
 	fetchCtx, cancel := context.WithTimeout(ctx, source.FetchTimeout)
 	fetched, err := adapter.Fetch(fetchCtx, ref)
@@ -337,7 +337,7 @@ func (s *Service) backfillItem(ctx context.Context, r *backfillRound, sb seasonb
 // 替换时先删掉槽位里原来的绑定，再由 binding.Service.CreateLinkSlotInTx 锁住集、建出绑定、写入弹幕，最后清掉条目的失败原因。
 // 拉取期间集被删除（ErrEpisodeGone）时跳过这个条目；有人在那一集绑定了同一个弹幕源（ErrSourceBound）时整个事务回滚，
 // 原来的绑定保留，计入 alreadyBound，再另外清掉条目的失败原因。
-func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb seasonbindingdb.SeasonBinding, it Item, ref source.Ref, fetched source.Fetched) error {
+func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb dao.SeasonBinding, it Item, ref source.Ref, fetched source.Fetched) error {
 	now := time.Now()
 	var saved binding.Saved
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -364,7 +364,7 @@ func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb seasonbindi
 		if err != nil {
 			return err
 		}
-		return q.SetSeasonBindingItemError(ctx, seasonbindingdb.SetSeasonBindingItemErrorParams{SeasonBindingID: sb.ID, Ref: ref})
+		return q.SetSeasonBindingItemError(ctx, dao.SetSeasonBindingItemErrorParams{SeasonBindingID: sb.ID, Ref: ref})
 	})
 	switch {
 	case errors.Is(err, binding.ErrEpisodeGone):
@@ -387,7 +387,7 @@ func (s *Service) saveSlot(ctx context.Context, r *backfillRound, sb seasonbindi
 
 // setItemError 记下条目补建失败的原因和时间，下次补建再试；message 为 nil 时清掉两者。
 func (s *Service) setItemError(ctx context.Context, id int64, ref []byte, message *string) error {
-	p := seasonbindingdb.SetSeasonBindingItemErrorParams{SeasonBindingID: id, Ref: ref, Error: message}
+	p := dao.SetSeasonBindingItemErrorParams{SeasonBindingID: id, Ref: ref, Error: message}
 	if message != nil {
 		p.ErrorAt = new(time.Now())
 	}

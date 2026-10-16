@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 )
@@ -34,7 +34,7 @@ type DanmakuPage struct {
 // fromMs 不为 nil 时只取弹幕源时间在它及以后的（跳转），翻页时也照传。
 // 绑定不存在时 404，游标不合法时 400。各页分别读取，翻页期间绑定的弹幕变了也不处理。
 func (s *Service) ListDanmaku(ctx context.Context, id int64, fromMs *int32, after string) (DanmakuPage, error) {
-	params := bindingdb.ListBindingDanmakuPageParams{BindingID: id, FromMs: fromMs, PageLimit: danmakuPageSize + 1}
+	params := dao.ListBindingDanmakuPageParams{BindingID: id, FromMs: fromMs, PageLimit: danmakuPageSize + 1}
 	if after != "" {
 		timeMs, sourceID, ok := parseDanmakuCursor(after)
 		if !ok {

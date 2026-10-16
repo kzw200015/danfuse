@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -50,13 +50,13 @@ const (
 // 不加应用层的锁，并发靠行锁、外键级联和唯一约束。
 type Service struct {
 	pool    *pgxpool.Pool
-	q       *bindingdb.Queries
+	q       *dao.Queries
 	sources *source.Registry
 	logger  *slog.Logger
 }
 
 func NewService(pool *pgxpool.Pool, sources *source.Registry, logger *slog.Logger) *Service {
-	return &Service{pool: pool, q: bindingdb.New(pool), sources: sources, logger: logger}
+	return &Service{pool: pool, q: dao.New(pool), sources: sources, logger: logger}
 }
 
 // View 绑定的 JSON。不对外暴露原始 ref。sourceUrl / sourceLabel：贴链接建的由适配器的
@@ -99,7 +99,7 @@ func (s *Service) ListBySeries(ctx context.Context, seriesID int64) (map[int64][
 }
 
 // lockEpisode 写入事务里锁住一集到提交（FOR KEY SHARE），期间删不掉它；这一集已被删除时返回 gone。
-func lockEpisode(ctx context.Context, q *bindingdb.Queries, id int64, gone error) error {
+func lockEpisode(ctx context.Context, q *dao.Queries, id int64, gone error) error {
 	if _, err := q.LockEpisode(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return gone
@@ -110,20 +110,20 @@ func lockEpisode(ctx context.Context, q *bindingdb.Queries, id int64, gone error
 }
 
 // getBinding 取出绑定，不存在时返回 404"绑定不存在"。
-func (s *Service) getBinding(ctx context.Context, id int64) (bindingdb.Binding, error) {
+func (s *Service) getBinding(ctx context.Context, id int64) (dao.Binding, error) {
 	b, err := s.q.GetBinding(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return bindingdb.Binding{}, errBindingNotFound
+			return dao.Binding{}, errBindingNotFound
 		}
-		return bindingdb.Binding{}, fmt.Errorf("get binding %d: %w", id, err)
+		return dao.Binding{}, fmt.Errorf("get binding %d: %w", id, err)
 	}
 	return b, nil
 }
 
 // lockBinding 重新拉取、追加文件、重新解析的写入事务的第一句：锁住这个绑定到提交，同一个绑定的写入排队执行。
 // 绑定已被删除时返回 404"绑定已被删除"。
-func lockBinding(ctx context.Context, q *bindingdb.Queries, id int64) error {
+func lockBinding(ctx context.Context, q *dao.Queries, id int64) error {
 	if _, err := q.LockBinding(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errBindingDeleted
@@ -135,7 +135,7 @@ func lockBinding(ctx context.Context, q *bindingdb.Queries, id int64) error {
 
 // UpdateOffset 改偏移（秒，正数表示弹幕延后），单条语句，content_version 不变。取值范围由调用方校验。
 func (s *Service) UpdateOffset(ctx context.Context, id int64, offset float64) (View, error) {
-	b, err := s.q.UpdateBindingOffset(ctx, bindingdb.UpdateBindingOffsetParams{ID: id, Offset: offset})
+	b, err := s.q.UpdateBindingOffset(ctx, dao.UpdateBindingOffsetParams{ID: id, Offset: offset})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return View{}, errBindingNotFound
@@ -163,7 +163,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 }
 
 // checkNotBuilt 季绑定建出的绑定（随季绑定的表单增删）不能单独删除、追加文件：返回 409，提示写明建出它的季绑定。
-func (s *Service) checkNotBuilt(ctx context.Context, b bindingdb.Binding) error {
+func (s *Service) checkNotBuilt(ctx context.Context, b dao.Binding) error {
 	if b.SeasonBindingID == nil {
 		return nil
 	}
@@ -178,7 +178,7 @@ func (s *Service) checkNotBuilt(ctx context.Context, b bindingdb.Binding) error 
 }
 
 // view 绑定的 JSON（见 describe）：季绑定建出的文件绑定另查条目的文件份数。
-func (s *Service) view(ctx context.Context, b bindingdb.Binding) (View, error) {
+func (s *Service) view(ctx context.Context, b dao.Binding) (View, error) {
 	var entryFiles int32
 	if b.EntryID != nil {
 		var err error
@@ -191,7 +191,7 @@ func (s *Service) view(ctx context.Context, b bindingdb.Binding) (View, error) {
 
 // describe 绑定的 JSON：贴链接建的，弹幕源的链接和标签交给它的适配器生成；用弹幕文件建的，标签写明文件的份数，
 // 季绑定建出的文件绑定的文件在条目上，份数为 entryFiles。
-func (s *Service) describe(b bindingdb.Binding, entryFiles int32) (View, error) {
+func (s *Service) describe(b dao.Binding, entryFiles int32) (View, error) {
 	v := View{
 		ID:              b.ID,
 		Kind:            b.Kind,
@@ -227,7 +227,7 @@ func (s *Service) describe(b bindingdb.Binding, entryFiles int32) (View, error) 
 }
 
 // platform 绑定的弹幕所在的平台：贴链接建的取自适配器；弹幕文件里的弹幕不属于任何平台（见 docs/adr/0004）。
-func (s *Service) platform(b bindingdb.Binding) (danmaku.Platform, error) {
+func (s *Service) platform(b dao.Binding) (danmaku.Platform, error) {
 	if b.Kind == kindFile {
 		return danmaku.PlatformNone, nil
 	}

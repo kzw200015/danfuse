@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
-	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
+	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
@@ -124,7 +124,7 @@ func readPoster(t *testing.T, pool *pgxpool.Pool, title string) poster {
 }
 
 // runCounts 同步记录的状态、进度与新增数，例如 "succeeded 2/2 新增剧 2 季 3 集 4"，便于整体比较。
-func runCounts(run catalogdb.SyncRun) string {
+func runCounts(run dao.SyncRun) string {
 	total := "-"
 	if run.Total != nil {
 		total = fmt.Sprint(*run.Total)

@@ -11,7 +11,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
-	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/seasonbindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
@@ -50,7 +50,7 @@ func (s *Service) CreateCollection(ctx context.Context, seasonID int64, f Collec
 			return err
 		}
 		var err error
-		id, err = q.InsertSeasonBinding(ctx, seasonbindingdb.InsertSeasonBindingParams{
+		id, err = q.InsertSeasonBinding(ctx, dao.InsertSeasonBindingParams{
 			SeasonID:        seasonID,
 			Adapter:         r.adapter.ID(),
 			Ref:             r.ref,
@@ -125,7 +125,7 @@ func (s *Service) saveCollectionTx(ctx context.Context, tx pgx.Tx, seasonID, id 
 	if _, err := lockSeasonBinding(ctx, q, seasonID, id); err != nil {
 		return 0, err
 	}
-	err := q.SaveCollectionForm(ctx, seasonbindingdb.SaveCollectionFormParams{
+	err := q.SaveCollectionForm(ctx, dao.SaveCollectionFormParams{
 		ID:              id,
 		Adapter:         r.adapter.ID(),
 		Ref:             r.ref,
@@ -262,7 +262,7 @@ func (s *Service) resolve(ctx context.Context, seasonID int64, self *int64, link
 		return resolved{}, err
 	}
 	// 只是省掉一次注定 409 的列出；并发时以写入事务里的唯一约束为准
-	key := seasonbindingdb.SeasonBindingExistsParams{SeasonID: seasonID, Adapter: adapter.ID(), Ref: chosen.Ref, ExcludeID: self}
+	key := dao.SeasonBindingExistsParams{SeasonID: seasonID, Adapter: adapter.ID(), Ref: chosen.Ref, ExcludeID: self}
 	switch exists, err := s.q.SeasonBindingExists(ctx, key); {
 	case err != nil:
 		return resolved{}, fmt.Errorf("check season binding of season %d: %w", seasonID, err)
@@ -294,8 +294,8 @@ func chooseCandidate(candidates []source.CollectionCandidate, kind string) (sour
 // saveItems 在写入事务里保存一次列出的结果（season_binding_items）：按规范化的 ref 去重（source.UniqueRefs），
 // 按弹幕源 upsert（位置从 1 开始），删掉合集里已经没有的。number 只存平台给的集号：按规则编号的合集、
 // 对不上的条目存为 null，读取时再按季绑定的集号规则编号（见 storedCollection）。
-func saveItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, col source.Collection) error {
-	p := seasonbindingdb.UpsertSeasonBindingItemsParams{
+func saveItems(ctx context.Context, q *dao.Queries, id int64, col source.Collection) error {
+	p := dao.UpsertSeasonBindingItemsParams{
 		SeasonBindingID: id, Refs: []string{}, Positions: []int32{}, Numbers: []int32{}, Labels: []string{},
 	}
 	for _, it := range source.UniqueRefs(col.Items) {
@@ -308,7 +308,7 @@ func saveItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, col so
 		p.Numbers = append(p.Numbers, number)
 		p.Labels = append(p.Labels, it.Label)
 	}
-	if err := q.DeleteStaleSeasonBindingItems(ctx, seasonbindingdb.DeleteStaleSeasonBindingItemsParams{SeasonBindingID: id, Refs: p.Refs}); err != nil {
+	if err := q.DeleteStaleSeasonBindingItems(ctx, dao.DeleteStaleSeasonBindingItemsParams{SeasonBindingID: id, Refs: p.Refs}); err != nil {
 		return fmt.Errorf("delete stale items of season binding %d: %w", id, err)
 	}
 	if err := q.UpsertSeasonBindingItems(ctx, p); err != nil {
@@ -319,15 +319,15 @@ func saveItems(ctx context.Context, q *seasonbindingdb.Queries, id int64, col so
 
 // saveListed 在写入事务里写入一次列出的结果：季绑定恢复为正常、更新合集的标题与是否按规则编号，保存条目，
 // 返回更新后的季绑定（同一个事务里随后派生用它的表单）。季绑定已被删除时返回 gone。
-func saveListed(ctx context.Context, q *seasonbindingdb.Queries, id int64, col source.Collection, gone error) (seasonbindingdb.SeasonBinding, error) {
-	sb, err := q.RecordSeasonBindingListed(ctx, seasonbindingdb.RecordSeasonBindingListedParams{
+func saveListed(ctx context.Context, q *dao.Queries, id int64, col source.Collection, gone error) (dao.SeasonBinding, error) {
+	sb, err := q.RecordSeasonBindingListed(ctx, dao.RecordSeasonBindingListedParams{
 		ID: id, Title: col.Title, NumberedByRule: col.NumberedByRule,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return seasonbindingdb.SeasonBinding{}, gone
+			return dao.SeasonBinding{}, gone
 		}
-		return seasonbindingdb.SeasonBinding{}, fmt.Errorf("record season binding %d listed: %w", id, err)
+		return dao.SeasonBinding{}, fmt.Errorf("record season binding %d listed: %w", id, err)
 	}
 	return sb, saveItems(ctx, q, id, col)
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
@@ -50,7 +50,7 @@ func (s *Service) Create(ctx context.Context, episodeID int64, link string) (Vie
 		return View{}, errEpisodeNotFound
 	}
 	// 只是省掉一次注定 409 的拉取；并发时以写入事务里的唯一约束为准
-	switch bound, err := s.q.BindingExists(ctx, bindingdb.BindingExistsParams{EpisodeID: episodeID, Adapter: adapter.ID(), Ref: ref}); {
+	switch bound, err := s.q.BindingExists(ctx, dao.BindingExistsParams{EpisodeID: episodeID, Adapter: adapter.ID(), Ref: ref}); {
 	case err != nil:
 		return View{}, fmt.Errorf("check binding of episode %d: %w", episodeID, err)
 	case bound:
@@ -64,12 +64,12 @@ func (s *Service) Create(ctx context.Context, episodeID int64, link string) (Vie
 	fetchedAt := time.Now()
 
 	var (
-		binding bindingdb.Binding
+		binding dao.Binding
 		added   int64
 	)
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
-		binding, added, err = insertLinkBinding(ctx, s.q.WithTx(tx), bindingdb.InsertLinkBindingParams{
+		binding, added, err = insertLinkBinding(ctx, s.q.WithTx(tx), dao.InsertLinkBindingParams{
 			EpisodeID: episodeID,
 			Adapter:   adapter.ID(),
 			Ref:       ref,
@@ -92,23 +92,23 @@ func (s *Service) Create(ctx context.Context, episodeID int64, link string) (Vie
 // Saved 写入一次拉取的结果，事务提交之后交给 LogFetched 记日志。
 type Saved struct {
 	Added   int64 // 新增的弹幕条数
-	binding bindingdb.Binding
+	binding dao.Binding
 	fetched source.Fetched
 }
 
 // insertLinkBinding 在写入事务里建出一个链接绑定：锁住集到提交（之后的删除要等这个事务提交，再连同绑定和弹幕一起删掉；
 // 集已被删除时返回 gone），插入绑定（集上已有同一个弹幕源时返回 ErrSourceBound），写入拉取的结果。
 // 返回写入后的绑定和新增条数。
-func insertLinkBinding(ctx context.Context, q *bindingdb.Queries, p bindingdb.InsertLinkBindingParams, fetched source.Fetched, gone error) (bindingdb.Binding, int64, error) {
+func insertLinkBinding(ctx context.Context, q *dao.Queries, p dao.InsertLinkBindingParams, fetched source.Fetched, gone error) (dao.Binding, int64, error) {
 	if err := lockEpisode(ctx, q, p.EpisodeID, gone); err != nil {
-		return bindingdb.Binding{}, 0, err
+		return dao.Binding{}, 0, err
 	}
 	id, err := q.InsertLinkBinding(ctx, p)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return bindingdb.Binding{}, 0, ErrSourceBound
+		return dao.Binding{}, 0, ErrSourceBound
 	}
 	if err != nil {
-		return bindingdb.Binding{}, 0, fmt.Errorf("insert binding of episode %d: %w", p.EpisodeID, err)
+		return dao.Binding{}, 0, fmt.Errorf("insert binding of episode %d: %w", p.EpisodeID, err)
 	}
 	return saveFetched(ctx, q, id, fetched, false, p.CreatedAt)
 }
@@ -185,13 +185,13 @@ func (s *Service) refetch(ctx context.Context, id int64, replace bool) (View, in
 
 // markDead 重新拉取时弹幕源已不存在：把绑定标为失效，已保存的弹幕保留。
 // 成功后记一条 info 日志，连同适配器给的原因：422 不经过 errorHandler 的日志，定时拉取时也能看出绑定失效了。
-func (s *Service) markDead(ctx context.Context, b bindingdb.Binding, reason error) error {
+func (s *Service) markDead(ctx context.Context, b dao.Binding, reason error) error {
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		if err := lockBinding(ctx, q, b.ID); err != nil {
 			return err
 		}
-		if err := q.MarkBindingDead(ctx, bindingdb.MarkBindingDeadParams{ID: b.ID, FetchedAt: time.Now()}); err != nil {
+		if err := q.MarkBindingDead(ctx, dao.MarkBindingDeadParams{ID: b.ID, FetchedAt: time.Now()}); err != nil {
 			return fmt.Errorf("mark binding %d dead: %w", b.ID, err)
 		}
 		return nil
@@ -206,7 +206,7 @@ func (s *Service) markDead(ctx context.Context, b bindingdb.Binding, reason erro
 
 // recordFetchAttempt 拉取失败（弹幕源不存在之外）时记下尝试拉取的时间，单条语句；绑定已被删除时什么都不做。
 func (s *Service) recordFetchAttempt(ctx context.Context, id int64) error {
-	if err := s.q.RecordFetchAttempt(ctx, bindingdb.RecordFetchAttemptParams{ID: id, AttemptedAt: time.Now()}); err != nil {
+	if err := s.q.RecordFetchAttempt(ctx, dao.RecordFetchAttemptParams{ID: id, AttemptedAt: time.Now()}); err != nil {
 		return fmt.Errorf("record fetch attempt of binding %d: %w", id, err)
 	}
 	return nil
@@ -214,7 +214,7 @@ func (s *Service) recordFetchAttempt(ctx context.Context, id int64) error {
 
 // logFetched 每次拉取结束记一条 info 日志：适配器自己的统计加上新增条数和拉取后的总条数；
 // 季绑定建出的绑定另记 season_binding_id，能和 "backfill finished" 对上。
-func (s *Service) logFetched(ctx context.Context, b bindingdb.Binding, f source.Fetched, added int64) {
+func (s *Service) logFetched(ctx context.Context, b dao.Binding, f source.Fetched, added int64) {
 	attrs := []slog.Attr{slog.Int64("binding_id", b.ID), slog.Int64("episode_id", b.EpisodeID), slog.String("adapter", emptyIfNull(b.Adapter))}
 	if b.SeasonBindingID != nil {
 		attrs = append(attrs, slog.Int64("season_binding_id", *b.SeasonBindingID))
@@ -226,7 +226,7 @@ func (s *Service) logFetched(ctx context.Context, b bindingdb.Binding, f source.
 
 // linkAdapter 贴链接建的绑定的适配器。用弹幕文件建的绑定没有适配器，调用方要先按 kind 分支；
 // 适配器没有注册时返回错误，调用方按服务器内部错误处理。
-func (s *Service) linkAdapter(b bindingdb.Binding) (source.Adapter, error) {
+func (s *Service) linkAdapter(b dao.Binding) (source.Adapter, error) {
 	if b.Adapter == nil {
 		return nil, fmt.Errorf("binding %d: %s binding has no adapter", b.ID, b.Kind)
 	}

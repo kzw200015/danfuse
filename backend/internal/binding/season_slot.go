@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
@@ -45,7 +45,7 @@ type FileSlot struct {
 // 插入带季绑定的绑定（集上已有同一个弹幕源时返回 ErrSourceBound，什么都不写），写入弹幕。
 // 这一集的槽位要先空出来（替换时先 DeleteSlotsInTx），撞上槽位约束是程序错误。提交之后调用 LogFetched。
 func (s *Service) CreateLinkSlotInTx(ctx context.Context, tx pgx.Tx, b LinkSlot) (Saved, error) {
-	binding, added, err := insertLinkBinding(ctx, s.q.WithTx(tx), bindingdb.InsertLinkBindingParams{
+	binding, added, err := insertLinkBinding(ctx, s.q.WithTx(tx), dao.InsertLinkBindingParams{
 		EpisodeID:       b.EpisodeID,
 		Adapter:         b.Adapter,
 		Ref:             b.Ref,
@@ -68,7 +68,7 @@ func (s *Service) CreateFileSlotInTx(ctx context.Context, tx pgx.Tx, b FileSlot)
 	if err := lockEpisode(ctx, q, b.EpisodeID, ErrEpisodeGone); err != nil {
 		return err
 	}
-	id, err := q.InsertEntryBinding(ctx, bindingdb.InsertEntryBindingParams{
+	id, err := q.InsertEntryBinding(ctx, dao.InsertEntryBindingParams{
 		EpisodeID: b.EpisodeID, Title: b.Title, SeasonBindingID: b.SeasonBindingID, EntryID: b.EntryID,
 	})
 	if err != nil {
@@ -86,7 +86,7 @@ func (s *Service) DeleteSlotsInTx(ctx context.Context, tx pgx.Tx, seasonBindingI
 	if _, err := q.LockEpisodes(ctx, episodeIDs); err != nil {
 		return fmt.Errorf("lock episodes of season binding %d: %w", seasonBindingID, err)
 	}
-	err := q.DeleteSlots(ctx, bindingdb.DeleteSlotsParams{SeasonBindingID: seasonBindingID, EpisodeIds: episodeIDs})
+	err := q.DeleteSlots(ctx, dao.DeleteSlotsParams{SeasonBindingID: seasonBindingID, EpisodeIds: episodeIDs})
 	if err != nil {
 		return fmt.Errorf("delete slots of season binding %d: %w", seasonBindingID, err)
 	}

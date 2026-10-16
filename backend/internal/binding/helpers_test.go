@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
-	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -24,9 +24,9 @@ import (
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // getBinding 读出库里的绑定。
-func getBinding(t *testing.T, pool *pgxpool.Pool, id int64) bindingdb.Binding {
+func getBinding(t *testing.T, pool *pgxpool.Pool, id int64) dao.Binding {
 	t.Helper()
-	b, err := bindingdb.New(pool).GetBinding(t.Context(), id)
+	b, err := dao.New(pool).GetBinding(t.Context(), id)
 	if err != nil {
 		t.Fatalf("GetBinding(%d): %v", id, err)
 	}

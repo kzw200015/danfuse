@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
@@ -82,7 +82,7 @@ func (s *Service) CreateFromFiles(ctx context.Context, episodeID int64, files []
 		return View{}, err
 	}
 	var (
-		binding  bindingdb.Binding
+		binding  dao.Binding
 		newFiles int
 		added    int64
 	)
@@ -91,7 +91,7 @@ func (s *Service) CreateFromFiles(ctx context.Context, episodeID int64, files []
 		if err := lockEpisode(ctx, q, episodeID, errEpisodeNotFound); err != nil {
 			return err
 		}
-		id, err := q.InsertFileBinding(ctx, bindingdb.InsertFileBindingParams{
+		id, err := q.InsertFileBinding(ctx, dao.InsertFileBindingParams{
 			EpisodeID: episodeID,
 			Title:     danmakufile.Title(files[0].Name),
 		})
@@ -149,13 +149,13 @@ func (s *Service) AppendFiles(ctx context.Context, id int64, files []UploadedFil
 
 // addFiles 在写入事务里把解析好的文件加入绑定：存下原文件，文件名取 base name（绑定里已有内容相同的跳过），
 // 写入新加入的文件的弹幕，再更新绑定的文件份数与弹幕计数。调用方已在同一个事务里锁住或刚插入这个绑定。
-func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files []ParsedFile) (bindingdb.Binding, int, int64, error) {
+func addFiles(ctx context.Context, q *dao.Queries, bindingID int64, files []ParsedFile) (dao.Binding, int, int64, error) {
 	var (
 		items    []danmaku.Danmaku
 		newFiles int
 	)
 	for _, f := range files {
-		n, err := q.InsertBindingFile(ctx, bindingdb.InsertBindingFileParams{
+		n, err := q.InsertBindingFile(ctx, dao.InsertBindingFileParams{
 			BindingID: bindingID,
 			Name:      path.Base(f.Name),
 			Sha256:    f.Sum[:],
@@ -163,15 +163,15 @@ func addFiles(ctx context.Context, q *bindingdb.Queries, bindingID int64, files 
 			Content:   f.Data,
 		})
 		if err != nil {
-			return bindingdb.Binding{}, 0, 0, fmt.Errorf("insert file %q of binding %d: %w", f.Name, bindingID, err)
+			return dao.Binding{}, 0, 0, fmt.Errorf("insert file %q of binding %d: %w", f.Name, bindingID, err)
 		}
 		if n > 0 {
 			newFiles++
 			items = append(items, f.Danmaku...)
 		}
 	}
-	if err := q.AddBindingFileCount(ctx, bindingdb.AddBindingFileCountParams{ID: bindingID, Files: int32(newFiles)}); err != nil {
-		return bindingdb.Binding{}, 0, 0, fmt.Errorf("count files of binding %d: %w", bindingID, err)
+	if err := q.AddBindingFileCount(ctx, dao.AddBindingFileCountParams{ID: bindingID, Files: int32(newFiles)}); err != nil {
+		return dao.Binding{}, 0, 0, fmt.Errorf("count files of binding %d: %w", bindingID, err)
 	}
 	b, added, err := writeDanmaku(ctx, q, bindingID, items, false)
 	return b, newFiles, added, err
@@ -236,7 +236,7 @@ type storedFile struct {
 }
 
 // content 逐份读出文件的内容。
-func (f storedFile) content(ctx context.Context, q *bindingdb.Queries) ([]byte, error) {
+func (f storedFile) content(ctx context.Context, q *dao.Queries) ([]byte, error) {
 	if f.inEntry {
 		return q.GetEntryFileContent(ctx, f.id)
 	}
@@ -244,7 +244,7 @@ func (f storedFile) content(ctx context.Context, q *bindingdb.Queries) ([]byte, 
 }
 
 // storedFiles 绑定保存的弹幕文件，按加入的顺序：季绑定建出的文件绑定读条目的文件。
-func storedFiles(ctx context.Context, q *bindingdb.Queries, b bindingdb.Binding) ([]storedFile, error) {
+func storedFiles(ctx context.Context, q *dao.Queries, b dao.Binding) ([]storedFile, error) {
 	if b.EntryID != nil {
 		rows, err := q.ListEntryFiles(ctx, b.ID)
 		if err != nil {
@@ -285,19 +285,19 @@ func (s *Service) ListFiles(ctx context.Context, id int64) ([]FileView, error) {
 }
 
 // getFileBinding 取出用弹幕文件建的绑定：不存在时 404，是贴链接建的时 400。kind 建出后不变，在事务之外确认即可。
-func (s *Service) getFileBinding(ctx context.Context, id int64) (bindingdb.Binding, error) {
+func (s *Service) getFileBinding(ctx context.Context, id int64) (dao.Binding, error) {
 	b, err := s.getBinding(ctx, id)
 	if err != nil {
-		return bindingdb.Binding{}, err
+		return dao.Binding{}, err
 	}
 	if b.Kind != kindFile {
-		return bindingdb.Binding{}, errNotFileBinding
+		return dao.Binding{}, errNotFileBinding
 	}
 	return b, nil
 }
 
 // logFiles 加入、重新解析弹幕文件之后记一条 info 日志。
-func (s *Service) logFiles(ctx context.Context, msg string, b bindingdb.Binding, files int, added int64) {
+func (s *Service) logFiles(ctx context.Context, msg string, b dao.Binding, files int, added int64) {
 	s.logger.LogAttrs(ctx, slog.LevelInfo, msg,
 		slog.Int64("binding_id", b.ID), slog.Int("files", files), slog.Int64("added", added))
 }

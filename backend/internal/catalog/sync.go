@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
+	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/background"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
@@ -54,7 +54,7 @@ const internalErrorMessage = "服务器内部错误，详见日志"
 // 租约丢失时这次同步同样记为 interrupted。已有同步在跑时，定时的触发被丢弃、只记日志，手动的触发返回 409。
 type SyncService struct {
 	pool          *pgxpool.Pool // 开事务，拿同步的租约
-	q             *catalogdb.Queries
+	q             *dao.Queries
 	catalogSource Source // nil 表示未配置目录源
 	interval      time.Duration
 	keepRuns      int32 // 同步记录保留最近几次
@@ -65,7 +65,7 @@ type SyncService struct {
 func NewSyncService(pool *pgxpool.Pool, catalogSource Source, cfg config.Sync, logger *slog.Logger) *SyncService {
 	return &SyncService{
 		pool:          pool,
-		q:             catalogdb.New(pool),
+		q:             dao.New(pool),
 		catalogSource: catalogSource,
 		interval:      cfg.Interval,
 		keepRuns:      cfg.KeepRuns,
@@ -136,7 +136,7 @@ func (s *SyncService) Trigger(ctx context.Context) (int64, error) {
 }
 
 // ListRuns 最近 sync.keep_runs 次同步，新的在前，不含警告正文。
-func (s *SyncService) ListRuns(ctx context.Context) ([]catalogdb.ListSyncRunsRow, error) {
+func (s *SyncService) ListRuns(ctx context.Context) ([]dao.ListSyncRunsRow, error) {
 	runs, err := s.q.ListSyncRuns(ctx, s.keepRuns)
 	if err != nil {
 		return nil, fmt.Errorf("list sync runs: %w", err)
@@ -145,7 +145,7 @@ func (s *SyncService) ListRuns(ctx context.Context) ([]catalogdb.ListSyncRunsRow
 }
 
 // LatestRun 最近一次同步，不含警告正文；一次都没有同步过时为 nil。
-func (s *SyncService) LatestRun(ctx context.Context) (*catalogdb.ListSyncRunsRow, error) {
+func (s *SyncService) LatestRun(ctx context.Context) (*dao.ListSyncRunsRow, error) {
 	runs, err := s.q.ListSyncRuns(ctx, 1)
 	if err != nil {
 		return nil, fmt.Errorf("get latest sync run: %w", err)
@@ -157,13 +157,13 @@ func (s *SyncService) LatestRun(ctx context.Context) (*catalogdb.ListSyncRunsRow
 }
 
 // GetRun 一次同步的详情，含警告。
-func (s *SyncService) GetRun(ctx context.Context, id int64) (catalogdb.SyncRun, error) {
+func (s *SyncService) GetRun(ctx context.Context, id int64) (dao.SyncRun, error) {
 	run, err := s.q.GetSyncRun(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return catalogdb.SyncRun{}, errSyncRunNotFound
+			return dao.SyncRun{}, errSyncRunNotFound
 		}
-		return catalogdb.SyncRun{}, fmt.Errorf("get sync run %d: %w", id, err)
+		return dao.SyncRun{}, fmt.Errorf("get sync run %d: %w", id, err)
 	}
 	return run, nil
 }
@@ -251,7 +251,7 @@ func (s *SyncService) createRun(ctx context.Context, trigger string) (int64, err
 	if err := s.q.DeleteOldSyncRuns(ctx, s.keepRuns-1); err != nil {
 		return 0, fmt.Errorf("delete old sync runs: %w", err)
 	}
-	runID, err := s.q.CreateSyncRun(ctx, catalogdb.CreateSyncRunParams{Trigger: trigger, StartedAt: time.Now()})
+	runID, err := s.q.CreateSyncRun(ctx, dao.CreateSyncRunParams{Trigger: trigger, StartedAt: time.Now()})
 	if err != nil {
 		return 0, fmt.Errorf("create sync run: %w", err)
 	}
@@ -331,8 +331,8 @@ func (r *syncRun) warn(msg string) {
 	}
 }
 
-func (r *syncRun) params(status string, reason *string) catalogdb.UpdateSyncRunParams {
-	return catalogdb.UpdateSyncRunParams{
+func (r *syncRun) params(status string, reason *string) dao.UpdateSyncRunParams {
+	return dao.UpdateSyncRunParams{
 		ID:              r.id,
 		Status:          status,
 		Total:           r.total,

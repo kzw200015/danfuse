@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
+	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 )
 
 // syncCatalog 列出目录源的清单，再一部剧一部剧地写入目录。每处理完一部剧（包括跳过的）写入一次进度。
@@ -102,7 +102,7 @@ func (s *SyncService) writeSeries(ctx context.Context, series Series) (createdCo
 		}
 
 		for _, season := range series.Seasons {
-			seasonRow, err := q.UpsertSeason(ctx, catalogdb.UpsertSeasonParams{
+			seasonRow, err := q.UpsertSeason(ctx, dao.UpsertSeasonParams{
 				SeriesID: seriesRow.ID,
 				Number:   int32(season.Number),
 				Title:    nullIfEmpty(season.Title),
@@ -138,8 +138,8 @@ func (s *SyncService) writeSeries(ctx context.Context, series Series) (createdCo
 }
 
 // upsertEpisodes 一条语句写入一季的集（见 UpsertEpisodes），返回新增的集数。集号相同的以后出现的为准。
-func upsertEpisodes(ctx context.Context, q *catalogdb.Queries, seasonID int64, episodes []Episode) (int32, error) {
-	p := catalogdb.UpsertEpisodesParams{SeasonID: seasonID}
+func upsertEpisodes(ctx context.Context, q *dao.Queries, seasonID int64, episodes []Episode) (int32, error) {
+	p := dao.UpsertEpisodesParams{SeasonID: seasonID}
 	index := make(map[int]int, len(episodes)) // 集号 → 在参数数组里的下标
 	for _, ep := range episodes {
 		duration := int32(-1) // 存为 null
@@ -165,9 +165,9 @@ func upsertEpisodes(ctx context.Context, q *catalogdb.Queries, seasonID int64, e
 //  3. 都没找到就新增。
 //
 // 分三步而不是一条 ON CONFLICT：同步持有租约，没有并发的写入者；同步进行中删除的剧，下一步按新行处理即可。
-func upsertSeries(ctx context.Context, q *catalogdb.Queries, series Series) (catalogdb.Series, bool, error) {
+func upsertSeries(ctx context.Context, q *dao.Queries, series Series) (dao.Series, bool, error) {
 	if series.TMDBID != nil {
-		row, err := q.UpdateSeriesByTMDBID(ctx, catalogdb.UpdateSeriesByTMDBIDParams{
+		row, err := q.UpdateSeriesByTMDBID(ctx, dao.UpdateSeriesByTMDBIDParams{
 			Type:            string(series.Type),
 			TmdbID:          *series.TMDBID,
 			Title:           series.Title,
@@ -179,11 +179,11 @@ func upsertSeries(ctx context.Context, q *catalogdb.Queries, series Series) (cat
 			return row, false, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return catalogdb.Series{}, false, fmt.Errorf("update series by tmdb id: %w", err)
+			return dao.Series{}, false, fmt.Errorf("update series by tmdb id: %w", err)
 		}
 	}
 
-	row, err := q.AdoptSeriesByNaturalKey(ctx, catalogdb.AdoptSeriesByNaturalKeyParams{
+	row, err := q.AdoptSeriesByNaturalKey(ctx, dao.AdoptSeriesByNaturalKeyParams{
 		Type:            string(series.Type),
 		Title:           series.Title,
 		Year:            int32Ptr(series.Year),
@@ -195,10 +195,10 @@ func upsertSeries(ctx context.Context, q *catalogdb.Queries, series Series) (cat
 		return row, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return catalogdb.Series{}, false, fmt.Errorf("update series by natural key: %w", err)
+		return dao.Series{}, false, fmt.Errorf("update series by natural key: %w", err)
 	}
 
-	row, err = q.InsertSeries(ctx, catalogdb.InsertSeriesParams{
+	row, err = q.InsertSeries(ctx, dao.InsertSeriesParams{
 		Type:            string(series.Type),
 		Title:           series.Title,
 		OriginalTitle:   nullIfEmpty(series.OriginalTitle),
@@ -207,19 +207,19 @@ func upsertSeries(ctx context.Context, q *catalogdb.Queries, series Series) (cat
 		CatalogSourceID: nullIfEmpty(series.SourceID),
 	})
 	if err != nil {
-		return catalogdb.Series{}, false, fmt.Errorf("insert series: %w", err)
+		return dao.Series{}, false, fmt.Errorf("insert series: %w", err)
 	}
 	return row, true, nil
 }
 
 // writeSearchVectors 重算一部剧所有季的搜索列，在这部剧的事务里调用。包括这次目录源没有给出的季：
 // 剧名、原名是每一季搜索列的一部分，原名变了每一季都要重算。
-func writeSearchVectors(ctx context.Context, q *catalogdb.Queries, seriesID int64, series Series) error {
+func writeSearchVectors(ctx context.Context, q *dao.Queries, seriesID int64, series Series) error {
 	seasons, err := q.ListSeasonsBySeries(ctx, seriesID)
 	if err != nil {
 		return fmt.Errorf("list seasons: %w", err)
 	}
-	p := catalogdb.SetSeasonSearchVectorsParams{Ids: make([]int64, len(seasons)), Vectors: make([]string, len(seasons))}
+	p := dao.SetSeasonSearchVectorsParams{Ids: make([]int64, len(seasons)), Vectors: make([]string, len(seasons))}
 	for i, se := range seasons {
 		p.Ids[i] = se.ID
 		p.Vectors[i] = SearchVector(series.Type, series.Title, series.OriginalTitle, int(se.Number), emptyIfNull(se.Title))
@@ -235,7 +235,7 @@ func writeSearchVectors(ctx context.Context, q *catalogdb.Queries, seriesID int6
 //   - 与旧图的 sha256 相同：不写；
 //   - 不同（或原来没有海报）：插入新图 → 剧指向新图 → 删除旧图；
 //   - 没有图：清空剧的海报 → 删除旧图。
-func writePoster(ctx context.Context, q *catalogdb.Queries, seriesID int64, oldID *int64, poster *Image) error {
+func writePoster(ctx context.Context, q *dao.Queries, seriesID int64, oldID *int64, poster *Image) error {
 	if poster == nil && oldID == nil {
 		return nil
 	}
@@ -251,7 +251,7 @@ func writePoster(ctx context.Context, q *catalogdb.Queries, seriesID int64, oldI
 				return nil
 			}
 		}
-		id, err := q.InsertImage(ctx, catalogdb.InsertImageParams{
+		id, err := q.InsertImage(ctx, dao.InsertImageParams{
 			ContentType: poster.ContentType,
 			Data:        poster.Data,
 			Sha256:      sum[:],
@@ -262,7 +262,7 @@ func writePoster(ctx context.Context, q *catalogdb.Queries, seriesID int64, oldI
 		newID = &id
 	}
 
-	if err := q.SetSeriesPoster(ctx, catalogdb.SetSeriesPosterParams{ID: seriesID, PosterImageID: newID}); err != nil {
+	if err := q.SetSeriesPoster(ctx, dao.SetSeriesPosterParams{ID: seriesID, PosterImageID: newID}); err != nil {
 		return fmt.Errorf("set poster: %w", err)
 	}
 	if oldID != nil {

@@ -3,7 +3,7 @@
 //   sqlc v1.31.1
 // source: queries.sql
 
-package dandandb
+package dao
 
 import (
 	"context"

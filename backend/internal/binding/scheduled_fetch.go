@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kzw200015/danfuse/backend/internal/binding/bindingdb"
+	"github.com/kzw200015/danfuse/backend/internal/binding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database"
 	"github.com/kzw200015/danfuse/backend/internal/source"
@@ -29,7 +29,7 @@ const scheduledFetchScanInterval = time.Minute
 // 一轮里一个接一个地拉取，对平台的请求不并发。写入靠 Service.refetch 的行锁，与手动重新拉取同时进行也不会出错。
 type ScheduledFetchService struct {
 	pool     *pgxpool.Pool // 拿定时拉取的租约
-	q        *bindingdb.Queries
+	q        *dao.Queries
 	bindings *Service // 复用它的 refetch
 	rule     config.ScheduledFetch
 	logger   *slog.Logger
@@ -38,7 +38,7 @@ type ScheduledFetchService struct {
 func NewScheduledFetchService(pool *pgxpool.Pool, bindings *Service, rule config.ScheduledFetch, logger *slog.Logger) *ScheduledFetchService {
 	return &ScheduledFetchService{
 		pool:     pool,
-		q:        bindingdb.New(pool),
+		q:        dao.New(pool),
 		bindings: bindings,
 		rule:     rule,
 		logger:   logger,
@@ -131,9 +131,9 @@ func (s *ScheduledFetchService) scan(ctx context.Context) {
 }
 
 // dueParams 按现在的时间和定时拉取的时间规则判定是否到期的参数；id 不为 nil 时只判定这一个绑定。
-func (s *ScheduledFetchService) dueParams(id *int64) bindingdb.ListDueScheduledFetchesParams {
+func (s *ScheduledFetchService) dueParams(id *int64) dao.ListDueScheduledFetchesParams {
 	now := time.Now()
-	return bindingdb.ListDueScheduledFetchesParams{
+	return dao.ListDueScheduledFetchesParams{
 		ID:           id,
 		CreatedAfter: now.Add(-s.rule.Window),
 		DueBefore:    now.Add(-s.rule.Interval),

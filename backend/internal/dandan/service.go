@@ -26,7 +26,7 @@ import (
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
 	"github.com/kzw200015/danfuse/backend/internal/blockword"
-	"github.com/kzw200015/danfuse/backend/internal/dandan/dandandb"
+	"github.com/kzw200015/danfuse/backend/internal/dandan/dao"
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/fulltext"
 	"github.com/kzw200015/danfuse/backend/internal/naming"
@@ -35,13 +35,13 @@ import (
 // Service 弹弹 API 背后的查询：在目录里搜索季、按名称识别一集、按 ID 取季，读取一集所有绑定的弹幕。
 // 返回的是系统内部的结构，不是弹弹play 的 JSON：协议参数的转换与格式化归 handler。
 type Service struct {
-	q            *dandandb.Queries
+	q            *dao.Queries
 	bindings     *binding.Service   // 一集各绑定的弹幕
 	blockedWords *blockword.Service // 取弹幕时要去掉的屏蔽词
 }
 
 func NewService(pool *pgxpool.Pool, bindings *binding.Service, blockedWords *blockword.Service) *Service {
-	return &Service{q: dandandb.New(pool), bindings: bindings, blockedWords: blockedWords}
+	return &Service{q: dao.New(pool), bindings: bindings, blockedWords: blockedWords}
 }
 
 // SearchQuery 搜索条件。
@@ -94,7 +94,7 @@ func (d *Service) search(ctx context.Context, name naming.Parsed, episode *int, 
 	if query == "" {
 		return SearchResult{}, nil
 	}
-	rows, err := d.q.SearchSeasons(ctx, dandandb.SearchSeasonsParams{
+	rows, err := d.q.SearchSeasons(ctx, dao.SearchSeasonsParams{
 		Query: query, Season: int32Ptr(name.Season), Episode: int32Ptr(episode), MaxRows: int32(maxSeasons + 1),
 	})
 	if err != nil {
@@ -166,7 +166,7 @@ func (d *Service) Season(ctx context.Context, id int64) (Season, bool, error) {
 		return Season{}, false, err
 	}
 	// GetSeason 的列与 SearchSeasons 相同，行可以直接转换；两边的列不一致时编译不通过
-	return seasonOf(dandandb.SearchSeasonsRow(row), episodes[id]), true, nil
+	return seasonOf(dao.SearchSeasonsRow(row), episodes[id]), true, nil
 }
 
 // seasonEpisodes 一季查出的集（按集号升序）与总集数。
@@ -177,7 +177,7 @@ type seasonEpisodes struct {
 
 // listEpisodes 各季的集，按季 ID 分组；number 不为 nil 时只要这个集号的集，总集数不变。
 func (d *Service) listEpisodes(ctx context.Context, seasonIDs []int64, number *int) (map[int64]seasonEpisodes, error) {
-	rows, err := d.q.ListEpisodesBySeasons(ctx, dandandb.ListEpisodesBySeasonsParams{SeasonIds: seasonIDs, Number: int32Ptr(number)})
+	rows, err := d.q.ListEpisodesBySeasons(ctx, dao.ListEpisodesBySeasonsParams{SeasonIds: seasonIDs, Number: int32Ptr(number)})
 	if err != nil {
 		return nil, fmt.Errorf("list episodes of seasons: %w", err)
 	}
@@ -192,7 +192,7 @@ func (d *Service) listEpisodes(ctx context.Context, seasonIDs []int64, number *i
 }
 
 // seasonOf 由查出的一季（季号与所属剧的类型、剧名、原名、年份）和它的集组装一季，名称和类别按目录的规则得出。
-func seasonOf(r dandandb.SearchSeasonsRow, episodes seasonEpisodes) Season {
+func seasonOf(r dao.SearchSeasonsRow, episodes seasonEpisodes) Season {
 	typ, n := naming.SeriesType(r.Type), int(r.Number)
 	titles := []string{r.Title}
 	if r.OriginalTitle != nil {

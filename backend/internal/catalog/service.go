@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kzw200015/danfuse/backend/internal/binding"
-	"github.com/kzw200015/danfuse/backend/internal/catalog/catalogdb"
+	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding"
 )
@@ -36,18 +36,18 @@ var (
 // 按身份找不到它，会用新 ID 重新建出来，绑定不会恢复。
 type Service struct {
 	pool           *pgxpool.Pool
-	q              *catalogdb.Queries
+	q              *dao.Queries
 	catalogSource  Source                 // 剧详情里跳回目录源的链接；未配置目录源时为 nil
 	bindings       *binding.Service       // 剧详情里各集的绑定
 	seasonBindings *seasonbinding.Service // 剧详情里各季的季绑定
 }
 
 func NewService(pool *pgxpool.Pool, catalogSource Source, bindings *binding.Service, seasonBindings *seasonbinding.Service) *Service {
-	return &Service{pool: pool, q: catalogdb.New(pool), catalogSource: catalogSource, bindings: bindings, seasonBindings: seasonBindings}
+	return &Service{pool: pool, q: dao.New(pool), catalogSource: catalogSource, bindings: bindings, seasonBindings: seasonBindings}
 }
 
 // ListSeries 全部剧连同海报的图片 ID、季数、集数与绑定统计，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
-func (s *Service) ListSeries(ctx context.Context) ([]catalogdb.ListSeriesRow, error) {
+func (s *Service) ListSeries(ctx context.Context) ([]dao.ListSeriesRow, error) {
 	series, err := s.q.ListSeries(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list series: %w", err)
@@ -160,13 +160,13 @@ func (s *Service) GetSeries(ctx context.Context, id int64) (SeriesDetail, error)
 }
 
 // GetImage 一张图片的原始字节与 content-type；不存在时返回 404。
-func (s *Service) GetImage(ctx context.Context, id int64) (catalogdb.GetImageRow, error) {
+func (s *Service) GetImage(ctx context.Context, id int64) (dao.GetImageRow, error) {
 	img, err := s.q.GetImage(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return catalogdb.GetImageRow{}, errImageNotFound
+			return dao.GetImageRow{}, errImageNotFound
 		}
-		return catalogdb.GetImageRow{}, fmt.Errorf("get image %d: %w", id, err)
+		return dao.GetImageRow{}, fmt.Errorf("get image %d: %w", id, err)
 	}
 	return img, nil
 }
