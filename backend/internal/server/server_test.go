@@ -18,6 +18,7 @@ import (
 	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
+	exporthandler "github.com/kzw200015/danfuse/backend/internal/export/handler"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
@@ -52,6 +53,9 @@ func complete(h *Handlers) *Handlers {
 	}
 	if h.BlockedWord == nil {
 		h.BlockedWord = blockwordhandler.NewHandler(nil)
+	}
+	if h.Export == nil {
+		h.Export = exporthandler.NewHandler(nil)
 	}
 	if h.Dandan == nil {
 		h.Dandan = dandanhandler.NewHandler(nil, config.Dandanplay{})

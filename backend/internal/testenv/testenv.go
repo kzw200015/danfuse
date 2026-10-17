@@ -23,6 +23,7 @@ import (
 	blockwordsvc "github.com/kzw200015/danfuse/backend/internal/blockword/service"
 	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	dandansvc "github.com/kzw200015/danfuse/backend/internal/dandan/service"
+	exportsvc "github.com/kzw200015/danfuse/backend/internal/export/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
 	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
@@ -37,6 +38,7 @@ type Env struct {
 	Catalog        *catalogsvc.Service
 	BlockedWords   *blockwordsvc.Service
 	Dandan         *dandansvc.Service
+	Export         *exportsvc.Service
 }
 
 // New 在 pool 上组装各领域的 service，源适配器只注册 adapters；目录源是空的 FakeCatalog，只用来生成剧详情里的链接。
@@ -51,6 +53,7 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, adapters ...source.Adapter) *E
 		Catalog:        catalogsvc.NewService(pool, &FakeCatalog{}, bindings, seasonBindings),
 		BlockedWords:   blockedWords,
 		Dandan:         dandansvc.NewService(pool, bindings, blockedWords),
+		Export:         exportsvc.NewService(pool),
 	}
 }
 
