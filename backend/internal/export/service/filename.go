@@ -1,9 +1,12 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
 
 // maxNameBytes 文件名、目录名在扩展名（和重名后缀）之前那部分的字节上限。常见的文件系统一个名称最多 255 字节，
@@ -39,4 +42,34 @@ func safeName(s string) string {
 		n--
 	}
 	return s[:n]
+}
+
+// fileNames 同一目录下已经用了的文件名。
+type fileNames map[string]bool
+
+// add 绑定标题为 title 的 XML 在这个目录下的文件名，记为已用：bindingFileName，已经用了时依次加 " (2)"、" (3)"，
+// 直到没用过（标题本身就是"OP (2)"的绑定，名称被前面的第二个"OP"占了时用"OP (2) (2)"）。按绑定的创建顺序调用，编号就是稳定的。
+func (n fileNames) add(title string) string {
+	name := bindingFileName(title)
+	base := strings.TrimSuffix(name, ".xml")
+	for i := 2; n[name]; i++ {
+		name = fmt.Sprintf("%s (%d).xml", base, i)
+	}
+	n[name] = true
+	return name
+}
+
+// episodeZipName 一集导出的 zip 的文件名：<剧名> S01E03.zip（episodeCode）；电影为 <片名>.zip，
+// 和界面上电影不显示季号集号一致。
+func episodeZipName(seriesTitle string, seriesType naming.SeriesType, season, episode int32) string {
+	if seriesType == naming.TypeMovie {
+		return safeName(seriesTitle) + ".zip"
+	}
+	return safeName(seriesTitle) + " " + episodeCode(season, episode) + ".zip"
+}
+
+// episodeCode 一集的季号集号：S01E03，补到两位（特别篇为 S00），超过两位照常写（E100）。
+// 默认集号规则认得出这个写法，季导出的子目录名也用它。
+func episodeCode(season, episode int32) string {
+	return fmt.Sprintf("S%02dE%02d", season, episode)
 }

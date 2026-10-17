@@ -2,6 +2,8 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	exporthandler "github.com/kzw200015/danfuse/backend/internal/export/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
+	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -78,5 +81,47 @@ func TestExportBindingErrors(t *testing.T) {
 		{http.MethodGet, "/api/bindings/0/export", "", http.StatusBadRequest, "绑定 ID 不合法"},
 		{http.MethodGet, "/api/bindings/abc/export", "", http.StatusBadRequest, "请求参数错误"},
 		{http.MethodGet, "/api/bindings/99/export", "", http.StatusNotFound, "绑定不存在"},
+	})
+}
+
+// TestExportEpisode GET /api/episodes/:id/export：直接下载 zip，Content-Disposition 同单绑定的导出；
+// zip 里是有弹幕的绑定（集 1 的绑定 2 没有弹幕，跳过）。
+func TestExportEpisode(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.Pool(t)
+	seedCatalog(t, pool)
+
+	rec := serve(t, exportServer(pool), http.MethodGet, "/api/episodes/1/export", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body %s", rec.Code, rec.Body)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/zip" {
+		t.Errorf("Content-Type = %q, want application/zip", ct)
+	}
+	wantDisposition := `attachment; filename="____ S01E02.zip"; filename*=UTF-8''%E6%98%9F%E6%B5%B7%E6%97%85%E4%BA%BA%20S01E02.zip`
+	if disposition := rec.Header().Get("Content-Disposition"); disposition != wantDisposition {
+		t.Errorf("Content-Disposition = %s\nwant %s", disposition, wantDisposition)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	if err != nil {
+		t.Fatalf("zip 解不开：%v", err)
+	}
+	var names []string
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	testutil.AssertStrings(t, "zip 里的文件", names, []string{"弹幕源 a.xml"})
+}
+
+func TestExportEpisodeErrors(t *testing.T) {
+	t.Parallel()
+	pool := dbtest.Pool(t)
+	seedCatalog(t, pool)
+	assertAPIErrors(t, exportServer(pool), []apiError{
+		{http.MethodGet, "/api/episodes/0/export", "", http.StatusBadRequest, "集 ID 不合法"},
+		{http.MethodGet, "/api/episodes/abc/export", "", http.StatusBadRequest, "请求参数错误"},
+		{http.MethodGet, "/api/episodes/99/export", "", http.StatusNotFound, "集不存在"},
+		{http.MethodGet, "/api/episodes/2/export", "", http.StatusNotFound, "这一集没有可导出的弹幕"},
 	})
 }

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/danmaku/bilifmt"
 	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/export/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
@@ -18,7 +17,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// exportBinding 导出绑定 id，返回给出的文件名和读回的弹幕（"时间 模式 颜色 ID 正文"，按 XML 里的顺序）。
+// exportBinding 导出绑定 id，返回给出的文件名和读回的弹幕（decodeXML）。
 // 检查文件名恰好给出一次、内容写在给出文件名之后。
 func exportBinding(t *testing.T, svc *service.Service, id int64) (string, []string) {
 	t.Helper()
@@ -37,15 +36,7 @@ func exportBinding(t *testing.T, svc *service.Service, id int64) (string, []stri
 	if len(names) != 1 {
 		t.Fatalf("文件名给出了 %d 次：%q", len(names), names)
 	}
-	items, err := bilifmt.Decode(buf.Bytes())
-	if err != nil {
-		t.Fatalf("导出的 XML 解不开：%v\n%s", err, buf.String())
-	}
-	got := make([]string, len(items))
-	for i, d := range items {
-		got[i] = fmt.Sprintf("%d %d %06x %d %s", d.TimeMs, d.Mode, d.Color, d.SourceID, d.Text)
-	}
-	return names[0], got
+	return names[0], decodeXML(t, buf.Bytes())
 }
 
 // TestExportBinding 一个绑定保存的全部弹幕，按偏移校正（t + offset，四舍五入到毫秒）后按校正后的时间升序、同一时间按原始 ID，
