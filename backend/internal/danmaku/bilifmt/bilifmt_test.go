@@ -72,9 +72,22 @@ func TestDecode(t *testing.T) {
 			want: slices.Concat(want("😀🎉"), want(`&<>"'`), want(`"'&`), want("第一行\n第二行"), want("第一行\n第二行")),
 		},
 		{
-			name: "XML 不允许的字符也能解析：非法 UTF-8 字节被清洗，控制字符原样保留，NUL 被去掉",
-			ds:   []string{text("a\xffb"), text("a\x08b"), text("a&#8;b"), text("a&#0;b\x00c")},
-			want: slices.Concat(want("ab"), want("a\x08b"), want("a\x08b"), want("a�bc")),
+			name: "XML 不允许的字符也能解析并被去掉：非法 UTF-8 字节、NUL、控制字符、U+FFFE 与 U+FFFF；制表、换行、回车保留",
+			ds: []string{
+				text("a\xffb"), text("a&#0;b\x00c"),
+				text("a\x01b\x08c\x0Bd\x0Ce\x0Ef\x1Fg"), text("a&#8;b&#x1F;c"), text("a￾b￿c&#xFFFE;d&#xFFFF;e"),
+				text("a\tb\nc\rd&#9;e&#xA;f&#xD;g"),
+			},
+			want: slices.Concat(
+				want("ab"), want("a�bc"),
+				want("abcdefg"), want("abc"), want("abcde"),
+				want("a\tb\nc\rd\te\nf\rg"),
+			),
+		},
+		{
+			name: "去掉 XML 不允许的字符后正文为空、或只剩空白的丢弃",
+			ds:   []string{text("\x01\x08"), text("&#x1F;&#xFFFF;"), text(" \x0B\t\x0C\n"), text("留下")},
+			want: want("留下"),
 		},
 		{
 			name: "格式不对的单条丢弃，不影响其他弹幕",
