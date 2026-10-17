@@ -30,13 +30,12 @@ import { defaultRules, savedRules } from './season-binding'
 import { groupFolderFiles, hashEntries, type UploadEntry } from './season-upload'
 import {
   AddFormFrame,
-  FormFrame,
   PreviewSection,
   RuleFields,
   useRuleDraft,
   useShownPreview,
 } from './SeasonBindingFormParts'
-import { takeFiles } from './shared'
+import { FormFrame, takeFiles } from './shared'
 
 /** 添加与编辑文件夹的季绑定的不同之处，由 AddFolderForm、EditFolderForm 给出；表单只经由它区分两种模式 */
 export interface FolderFormMode {

@@ -91,6 +91,16 @@ export function StatusBadge({ dead, deadTitle }: { dead: boolean; deadTitle: str
   )
 }
 
+/** 集面板、季面板里展开的添加、编辑表单的外框与标题（标题也是它的无障碍名称） */
+export function FormFrame({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section aria-label={label} className="grid min-w-0 gap-3 rounded-lg border bg-muted/30 p-3">
+      <div className="text-sm font-medium">{label}</div>
+      {children}
+    </section>
+  )
+}
+
 /** 取出文件选择框里选中的文件，并清空选择框：同样的文件可以再选一次（否则不触发 change） */
 export function takeFiles(input: HTMLInputElement) {
   const files = Array.from(input.files ?? [])

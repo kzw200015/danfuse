@@ -406,7 +406,28 @@ describe('绑定', () => {
     })
   })
 
-  it('贴链接：进行中显示已用秒数，成功后用 toast 提示并显示新的绑定', async () => {
+  it('右上角两个添加按钮：表单在卡片列表上方展开，同一时间只展开一个；取消后收起', async () => {
+    renderRoutes('/catalog/1/11/110')
+    expect(await screen.findByRole('heading', { name: '绑定（2）' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '绑定链接' }))
+
+    const form = await screen.findByRole('region', { name: '绑定链接' })
+    expect(screen.getByRole('button', { name: '绑定链接' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '上传弹幕文件' })).toBeDisabled()
+    // 在卡片列表上方
+    expect(form.compareDocumentPosition(screen.getByRole('article', { name: '弹幕源 1' }))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+
+    fireEvent.click(within(form).getByRole('button', { name: '取消' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: '绑定链接' })).not.toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: '上传弹幕文件' })).toBeEnabled()
+  })
+
+  it('贴链接：进行中显示已用秒数、不能取消，成功后收起，用 toast 提示并显示新的绑定', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     let finish!: () => void
     vi.mocked(createBinding).mockImplementation(
@@ -419,15 +440,14 @@ describe('绑定', () => {
           }
         }),
     )
-    renderRoutes('/catalog/1/11/111')
-
-    const input = await screen.findByRole('textbox', { name: '弹幕源链接' })
+    const input = await openLinkForm()
     fireEvent.change(input, { target: { value: ' BV1xx411c7XX ' } })
     fireEvent.click(screen.getByRole('button', { name: '绑定' }))
 
     expect(await screen.findByText('正在解析链接并拉取全部弹幕，最长约 25 秒…')).toBeInTheDocument()
     expect(createBinding).toHaveBeenCalledWith(111, 'BV1xx411c7XX')
     expect(input).toBeDisabled()
+    expect(screen.getByRole('button', { name: '取消' })).toBeDisabled()
     await act(() => vi.advanceTimersByTimeAsync(3000))
     expect(screen.getByRole('button', { name: /^拉取中/ })).toHaveTextContent('拉取中 3s')
 
@@ -435,16 +455,13 @@ describe('绑定', () => {
 
     expect(await screen.findByText('已绑定，拉取到 2,345 条弹幕')).toBeInTheDocument()
     expect(await screen.findByRole('article', { name: '新的弹幕源' })).toBeInTheDocument()
-    expect(input).toHaveValue('')
-    expect(screen.queryByText(/最长约 25 秒/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '绑定链接' })).not.toBeInTheDocument()
   })
 
   it('贴链接失败：提示显示在输入框下方，保留到下次提交或手动关闭', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.mocked(createBinding).mockRejectedValue(new ApiError('视频不存在、已删除或不可见', 1, 422))
-    renderRoutes('/catalog/1/11/111')
-
-    const input = await screen.findByRole('textbox', { name: '弹幕源链接' })
+    const input = await openLinkForm()
     fireEvent.change(input, { target: { value: 'BV1xx411c7XX' } })
     fireEvent.click(screen.getByRole('button', { name: '绑定' }))
 
@@ -472,13 +489,9 @@ describe('绑定', () => {
     expect(screen.getByRole('button', { name: /^拉取中/ })).toBeInTheDocument()
   })
 
-  it('换一集时不带着上一集的失败提示', async () => {
+  it('换一集时收起表单，不带着上一集的输入和失败提示', async () => {
     vi.mocked(createBinding).mockRejectedValue(new ApiError('无法识别的链接', 1, 400))
-    renderRoutes('/catalog/1/11/111')
-
-    fireEvent.change(await screen.findByRole('textbox', { name: '弹幕源链接' }), {
-      target: { value: 'abc' },
-    })
+    fireEvent.change(await openLinkForm(), { target: { value: 'abc' } })
     fireEvent.click(screen.getByRole('button', { name: '绑定' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('无法识别的链接')
 
@@ -486,9 +499,25 @@ describe('绑定', () => {
 
     expect(await screen.findByRole('heading', { name: '第 1 集启程' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: '弹幕源链接' })).toHaveValue('')
+    expect(screen.queryByRole('region', { name: '绑定链接' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '绑定链接' }))
+    expect(await screen.findByRole('textbox', { name: '弹幕源链接' })).toHaveValue('')
   })
 })
+
+/** 打开第 2 集的集面板，展开"绑定链接"，返回链接输入框 */
+async function openLinkForm() {
+  renderRoutes('/catalog/1/11/111')
+  fireEvent.click(await screen.findByRole('button', { name: '绑定链接' }))
+  return screen.findByRole('textbox', { name: '弹幕源链接' })
+}
+
+/** 打开第 2 集的集面板，展开"上传弹幕文件"，返回文件选择框 */
+async function openFileForm() {
+  renderRoutes('/catalog/1/11/111')
+  fireEvent.click(await screen.findByRole('button', { name: '上传弹幕文件' }))
+  return screen.findByLabelText('选择弹幕文件')
+}
 
 describe('维护绑定', () => {
   /** 服务端「启程」这一集的绑定，用例改它来模拟后端的修改 */
@@ -658,19 +687,19 @@ describe('弹幕文件', () => {
   /** 服务端「启程」这一集的绑定 */
   const bindingsOf110 = () => all[0]!.seasons[1]!.episodes[0]!.bindings
 
-  it('上传：选好文件就上传，成功后用 toast 提示并显示新的绑定', async () => {
+  it('上传：选好文件就上传，成功后收起，用 toast 提示并显示新的绑定', async () => {
     vi.mocked(createFileBinding).mockImplementation(async () => {
       const created = fileBinding(9, { danmakuCount: 4321 })
       all[0]!.seasons[1]!.episodes[1]!.bindings.push(created)
       return created
     })
-    renderRoutes('/catalog/1/11/111')
     const files = [xml('20130709.xml'), xml('20130711.xml')]
 
-    fireEvent.change(await screen.findByLabelText('上传弹幕文件'), { target: { files } })
+    fireEvent.change(await openFileForm(), { target: { files } })
 
     await waitFor(() => expect(createFileBinding).toHaveBeenCalledWith(111, files))
     expect(await screen.findByText('已绑定，解析出 4,321 条弹幕')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '上传弹幕文件' })).not.toBeInTheDocument()
     const created = await card('20130709')
     // 没有链接、时长和拉取时间；标签点开是文件列表
     expect(created.queryByRole('link')).not.toBeInTheDocument()
@@ -683,11 +712,7 @@ describe('弹幕文件', () => {
     vi.mocked(createFileBinding).mockRejectedValue(
       new ApiError('无法识别「README.html」：目前只支持 B 站的 XML 弹幕文件，且文件要完整', 1, 422),
     )
-    renderRoutes('/catalog/1/11/111')
-
-    fireEvent.change(await screen.findByLabelText('上传弹幕文件'), {
-      target: { files: [xml('README.html')] },
-    })
+    fireEvent.change(await openFileForm(), { target: { files: [xml('README.html')] } })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('无法识别「README.html」')
     fireEvent.click(screen.getByRole('link', { name: /启程/ }))

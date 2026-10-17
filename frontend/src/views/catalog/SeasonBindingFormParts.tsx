@@ -13,16 +13,7 @@ import EpisodeRuleInput from './EpisodeRuleInput'
 import MappingInputs from './MappingInputs'
 import PreviewTable from './PreviewTable'
 import { cleanPatterns, episodeText, parseMappingNumber, summaryTags } from './season-binding'
-
-/** 添加、编辑季绑定的表单的外框与标题（标题也是它的无障碍名称） */
-export function FormFrame({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <section aria-label={label} className="grid min-w-0 gap-3 rounded-lg border bg-muted/30 p-3">
-      <div className="text-sm font-medium">{label}</div>
-      {children}
-    </section>
-  )
-}
+import { FormFrame } from './shared'
 
 /**
  * 添加季绑定的表单的外框：先取默认的集号规则（集号规则的起点），取到后用它渲染 children。
