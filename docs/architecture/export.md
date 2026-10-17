@@ -15,7 +15,7 @@
 
 ## 内容规则
 
-- 每份 XML 是一个绑定落库的全部弹幕（`bindingDanmaku`）：按绑定的偏移校正，用 `danmaku.Correct`（与弹弹 API 的 `danmaku.Merge` 共用的同一条规则：`t + offset` 四舍五入到毫秒，为负的丢弃，超出本集时长的保留），按校正后的时间升序、同一时间按原始 ID 排序。不做跨源去重，不屏蔽。
+- 每份 XML 是一个绑定落库的全部弹幕（`bindingDanmaku`）：按绑定的偏移校正，用 `danmaku.Correct`（与弹弹 API 的 `danmaku.Merge` 共用的同一条规则：`t + offset` 四舍五入到毫秒，为负的丢弃，超出本集时长的保留），按校正后的时间升序、同一时间按原始 ID 排序。排序由查询的 `ORDER BY time_ms, source_id` 完成（`ListDanmakuByBinding`）：同一个绑定的弹幕校正时平移同一个偏移再四舍五入到毫秒，不改变先后，所以校正前后的顺序相同，Go 里不再排序。不做跨源去重，不屏蔽。
 - 范围与弹弹 API 读取一集的相同：失效的绑定、季绑定建出的绑定都导出。
 - 集、季的 zip 跳过没有弹幕的绑定，按校正之后的条数判断：校正后全部丢弃的也跳过；季的 zip 里没有可导出绑定的集不出现。zip 里不写目录项，目录只出现在文件的路径里。
 - 集按集号排序（`ListEpisodesBySeason`），一集里的绑定按 ID 即创建顺序（`ListBindingsByEpisode`），重名后缀按这个顺序编号，所以是稳定的。
@@ -31,12 +31,14 @@
 - 同一目录下重名时按创建顺序依次加 ` (2)`、` (3)`，直到没用过（标题本身就是 `OP (2)` 的绑定，名称被占了时用 `OP (2) (2)`）。
 - 季号、集号补到两位（`S01E03`，特别篇 `S00`），超过两位照常写（`E100`）。季 zip 的子目录只写 `S01E03`，不带集标题（集标题可能为空，也可能带数字干扰集号规则），所以解压出的根目录可以直接用于按季上传，子目录名能被默认集号规则认出；但按季上传会把一集的几份 XML 合成一个绑定。
 - 电影（剧的类型为 movie）的集导出不写季号集号；电影在界面上没有季面板、没有季导出的入口，接口本身不区分剧的类型。
+- 剧名为空（或只有空白）时 zip 名和根目录名只写季号集号（`S01E03.zip`、`S01.zip`、`S01/`），不以空格开头；电影的片名为空时用 `弹幕.zip`，同绑定标题为空时的做法。
 
 ## 快照与流式输出
 
 - 一次导出的全部读取在一个只读的 REPEATABLE READ 事务里（`service.go` 的 `snapshot`，`pgx.BeginTxFunc`）：导出途中正好有绑定在重新拉取或被删除时，zip 里仍是同一时刻的内容。这是隔离级别默认用 READ COMMITTED 的例外，只读、不加锁，不与写入事务冲突。PostgreSQL 在事务的第一条语句取快照，所以查找与校验也在事务里做。
-- 集、季的 zip 边读边写（`archive.go`）：`archive` 第一次加文件时才调用 `open`，所以没有可导出的弹幕时一个字节都不写出、service 返回 404；`archive/zip` 的 `Create` 用 Deflate，按绑定逐个读取弹幕、逐个写出，内存只占一个绑定的量。`open` 因此是在事务里调用的。
-- 单绑定的导出先在事务里读完全部弹幕（排序要全部读出来），事务结束后才调用 `open` 写出：读取出错时还能照常返回错误响应。
+- 集、季的 zip 边读边写（`archive.go`）：`archive` 第一次加文件时才调用 `open`，所以没有可导出的弹幕时一个字节都不写出、service 返回 404；每份文件用 `CreateHeader` 加入，Deflate 压缩，修改时间是导出的时刻（`newArchive` 时取 `time.Now()`，一次导出里的文件都相同；`Create` 不设修改时间，解压出来是 1980 年）；按绑定逐个读取弹幕、逐个写出，内存只占一个绑定的量。`open` 因此是在事务里调用的。
+- 边读边写的代价：整个下载期间这次导出占着一条数据库连接和一个只读事务，直到最后一个字节写进响应，客户端读得慢时占得久。这是一致快照加流式输出换来的，不另做限制。
+- 单绑定的导出先在事务里读完全部弹幕，事务结束后才调用 `open` 写出：读取出错时还能照常返回错误响应，不会写出一半的 XML；一个绑定的量放得进内存。
 - 响应头输出之后出错时（只有集、季的 zip 会遇到），响应已改不成错误（errorHandler 遇到已提交的响应什么也不做）：`download.finish` 不写 zip 的中央目录，经 `response.LogServerError` 记 5xx 日志（请求的 ctx 已取消时按约定记 info 级别的 `request canceled`），再 `panic(http.ErrAbortHandler)`，Recover 中间件把它原样抛给 net/http 中止连接，浏览器把下载标为失败，而不是存下一份看着正常、实际缺了几集的文件。
 
 ## 前端
@@ -46,7 +48,7 @@
 
 ## 测试
 
-- service 的测试（`internal/export/service/*_test.go`）是主切入点：真实数据库加 `testenv`，绑定与弹幕用 SQL 写入（`helpers_test.go` 的 `insertEpisodeBinding`、`insertLargeBinding`），把产出的 zip、XML 读回来（`archive/zip` 加 `bilifmt.Decode`，`exportZip`、`readZip`、`decodeXML`）再比较，不断言内部的函数；`exportZip` 同时检查文件名恰好给出一次、内容写在给出文件名之后。命名、校正等规则都在这一层测，不另写纯函数的测试，`danmaku.Correct` 也由这里和 `Merge` 的测试覆盖。
+- service 的测试（`internal/export/service/*_test.go`）是主切入点：真实数据库加 `testenv`，绑定与弹幕用 SQL 写入（`helpers_test.go` 的 `insertBinding`，弹幕多到超过 zip 写缓冲的用 `season_test.go` 的 `insertLargeBinding`），季绑定建出的绑定经 `seasonbinding.Service.CreateFolder` 建（`createFolderSeasonBinding`），把产出的 zip、XML 读回来（`archive/zip` 加 `bilifmt.Decode`，`exportZip`、`readZip`、`decodeXML`）再比较，不断言内部的函数；`exportZip` 同时检查文件名恰好给出一次、内容写在给出文件名之后，以及 zip 里每份文件的修改时间都相同、在导出期间。命名、校正等规则都在这一层测，不另写纯函数的测试，`danmaku.Correct` 也由这里和 `Merge` 的测试覆盖。
 - 快照的并发用例 `TestExportSeasonSnapshot`：第一集的弹幕多到超过 zip 的写缓冲，写这一集时就开始写出，`gatedWriter` 在第一次 `Write` 时停住，期间另一个事务删掉第二集的绑定，放行后断言 zip 里仍是删除前的内容（同 `binding/service/helpers_test.go` 让假适配器停在 channel 上的写法）。
 - HTTP 测试在 `internal/server/danmaku_export_test.go`（不叫 `export_test.go`：那个名字约定给测试导出内部符号用）：`Content-Type`、带 `filename*` 的 `Content-Disposition`（用 `mime.ParseMediaType` 解回文件名）、400、404 的统一错误。`TestExportSeasonAbort` 用 `httptest.NewServer` 起真实的服务，连接池上挂 `breakingTracer`（第 n 次执行某条 sqlc 查询前关掉数据库连接），断言拿到 200 和一部分 zip、读响应体时 `io.ErrUnexpectedEOF`、zip 解不开，且记了一条 5xx 日志。
 - `bilifmt_test.go` 的 `TestEncode` 覆盖 `Encode` → `Decode` 的往返（转义的正文、各模式、颜色、毫秒时间），`TestDecode` 覆盖入库时去掉 XML 不允许的字符、去掉后为空的丢弃。
