@@ -41,9 +41,9 @@
 
 ## 前端
 
-- 请求都经 `src/api/request.ts` 的 `request<T>()`；每个后端模块对应 `src/api/<module>.ts`，只放请求函数和手写的类型（与后端 camelCase JSON 对齐）。服务端要等较久的请求在 API 模块里用 `slowRequestTimeout` 放宽超时，界面上用 `useElapsed` 显示已用秒数；上传文件用 `uploadRequestTimeout`（不设超时）。例外是导出：文件由 `src/api/export.ts` 给出的地址交给 `<a href download>`，浏览器直接下载，不经过 `request()`（见 `docs/architecture/export.md`）。
+- 请求都经 `src/api/request.ts` 的 `request<T>()`；每个后端模块对应 `src/api/<module>.ts`，只放请求函数和手写的类型（与后端 camelCase JSON 对齐）。服务端要等较久的请求在 API 模块里用 `slowRequestTimeout` 放宽超时，界面上用 `useElapsed` 显示已用秒数；上传文件用 `uploadRequestTimeout`（不设超时）。交给浏览器直接加载或下载的地址（`<img>` 的 `src/api/images.ts`、`<a href download>` 的 `src/api/export.ts`）不经过 `request()`，模块里只放给出地址的函数。
 - 服务端数据一律用 TanStack Query：查询键与查询 hook 放在 `src/hooks/use-<资源>.ts`；键为列表 `['<资源>']`、详情 `['<资源>', id]`；`useMutation` 成功后 `invalidateQueries` 刷新。跨组件共享的客户端状态用 Zustand（`src/stores/`），局部状态用 `useState`。
-- 操作反馈：成功用 toast；失败用 `components/ErrorNote` 显示在出错的位置，保留到下次操作或手动关闭（例外：立即补建被拒绝的 409 用 toast；导出不经过 axios，失败交给浏览器显示为下载失败，页面上不提示，见 `docs/architecture/export.md`）。
+- 操作反馈：成功用 toast；失败用 `components/ErrorNote` 显示在出错的位置，保留到下次操作或手动关闭（例外：立即补建被拒绝的 409 用 toast；交给浏览器直接下载的导出失败时由浏览器显示为下载失败，页面上不提示，见 `docs/architecture/export.md`）。
 - 删除这类不可恢复的操作先用 `components/ConfirmButton` 确认，确认框写明后果；确认后确认框随即关闭，进行中的状态和失败提示显示在页面上，不留在确认框里。
 - UI 组件用 shadcn/ui（Base UI），经 `pnpm dlx shadcn@latest add` 添加到 `src/components/ui/`。
 
