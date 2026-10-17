@@ -89,6 +89,8 @@ beforeEach(() => {
 })
 
 const seasonNav = () => within(screen.getByRole('navigation', { name: '季' }))
+/** 集面板右上角"导出 XML"的提示，用它和绑定卡片上的"导出 XML"区分 */
+const episodeExportTitle = '下载这一集各绑定的弹幕（zip，每个绑定一份 XML，按偏移校正）'
 /** 点删除剧、季或集的按钮，在确认框里确认 */
 async function confirmDelete(button: string) {
   fireEvent.click(await screen.findByRole('button', { name: button }))
@@ -342,6 +344,39 @@ describe('绑定', () => {
       expect(link).toHaveAttribute('href', `/api/bindings/${id}/export`)
       expect(link).toHaveAttribute('download')
     }
+  })
+
+  it('集面板右上角"导出 XML"：这一集有弹幕时链接到导出接口由浏览器直接下载，没有时禁用', async () => {
+    const episodes = all[0]!.seasons[1]!.episodes
+    episodes[1]!.bindings = [binding(3, { danmakuCount: 0 }), binding(4, { danmakuCount: 0 })]
+    const { router } = renderRoutes('/catalog/1/11/110')
+
+    // 绑定 2 没有弹幕，绑定 1 有，就能导出
+    const link = await screen.findByTitle(episodeExportTitle)
+    expect(link).toHaveRole('link')
+    expect(link).toHaveTextContent('导出 XML')
+    expect(link).toHaveAttribute('href', '/api/episodes/110/export')
+    expect(link).toHaveAttribute('download')
+
+    // 绑定都没有弹幕
+    await act(() => router.navigate('/catalog/1/11/111'))
+    expect(await screen.findByRole('heading', { name: '绑定（2）' })).toBeInTheDocument()
+    expect(screen.getByTitle(episodeExportTitle)).toBeDisabled()
+
+    // 没有绑定
+    await act(() => router.navigate('/catalog/1/10/100'))
+    expect(await screen.findByRole('heading', { name: '绑定（0）' })).toBeInTheDocument()
+    expect(screen.getByTitle(episodeExportTitle)).toBeDisabled()
+  })
+
+  it('电影的集面板也有"导出 XML"', async () => {
+    all[1]!.seasons[0]!.episodes[0]!.bindings = [binding(5)]
+    renderRoutes('/catalog/2')
+
+    expect(await screen.findByTitle(episodeExportTitle)).toHaveAttribute(
+      'href',
+      '/api/episodes/200/export',
+    )
   })
 
   describe('季绑定建出的绑定', () => {

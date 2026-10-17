@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useIsMutating, useMutation } from '@tanstack/react-query'
-import { DownloadIcon, Loader2Icon, LockIcon } from 'lucide-react'
+import { Loader2Icon, LockIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 
@@ -21,6 +21,7 @@ import BindingDanmakuDialog from './BindingDanmakuDialog'
 import BindingFilesPopover from './BindingFilesPopover'
 import { FileBindingActions, LinkBindingActions } from './BindingSourceActions'
 import { durationMismatch, MAX_OFFSET, parseOffset } from './catalog'
+import ExportButton from './ExportButton'
 import { seasonBindingTag } from './season-binding'
 import { SourceLink, StatusBadge, useCatalogPath } from './shared'
 
@@ -151,15 +152,10 @@ export default function BindingCard({
           ) : (
             <LinkBindingActions {...actions} />
           )}
-          <a
+          <ExportButton
             href={bindingExportUrl(binding.id)}
-            download
-            className={buttonVariants({ variant: 'outline', size: 'sm' })}
             title="下载这个绑定保存的弹幕（按偏移校正）"
-          >
-            <DownloadIcon />
-            导出 XML
-          </a>
+          />
           {tag ? (
             <Link
               to={tag.to}

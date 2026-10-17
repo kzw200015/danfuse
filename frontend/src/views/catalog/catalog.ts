@@ -143,6 +143,11 @@ export function bindingStats(episodes: Episode[]) {
   }
 }
 
+/** 这一集有没有可导出的弹幕：至少一个绑定保存了弹幕。导出集、季时没有就禁用按钮，不另发请求 */
+export function hasDanmaku(episode: Episode) {
+  return episode.bindings.some((b) => b.danmakuCount > 0)
+}
+
 /**
  * 删除剧、季或集的确认框里的一句：随之删除的下级有多少，由已加载的剧详情算出。
  * 剧写季数和集数（电影在界面上没有季和集，不写），季写集数，都写绑定数和弹幕条数。

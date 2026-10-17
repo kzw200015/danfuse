@@ -5,3 +5,8 @@
 export function bindingExportUrl(id: number) {
   return `/api/bindings/${id}/export`
 }
+
+/** 一集的导出：zip，每个有弹幕的绑定一份 XML */
+export function episodeExportUrl(id: number) {
+  return `/api/episodes/${id}/export`
+}
