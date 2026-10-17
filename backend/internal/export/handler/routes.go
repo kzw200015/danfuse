@@ -8,7 +8,7 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/export/service"
 )
 
-// Handler 导出的管理 API，接口在 binding.go、episode.go，下载的响应头与出错的处理在 download.go。
+// Handler 导出的管理 API，接口在 binding.go、episode.go、season.go，下载的响应头与出错的处理在 download.go。
 type Handler struct {
 	svc *service.Service
 }
@@ -21,4 +21,5 @@ func NewHandler(svc *service.Service) *Handler {
 func (h *Handler) Register(api *echo.Group) {
 	api.GET("/bindings/:id/export", h.ExportBinding)
 	api.GET("/episodes/:id/export", h.ExportEpisode)
+	api.GET("/seasons/:id/export", h.ExportSeason)
 }

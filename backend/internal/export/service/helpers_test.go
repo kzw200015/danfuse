@@ -58,6 +58,23 @@ func insertEpisodeBinding(t *testing.T, pool *pgxpool.Pool, episodeID int64, tit
 	return id
 }
 
+// insertLargeBinding 给集 episodeID 写入一个有 n 条弹幕的链接绑定，返回绑定 ID。弹幕的时间为 1..n 毫秒、ID 为 1..n，
+// 正文是各不相同的 32 位十六进制串，压缩后仍有 n × 十几字节，导出时超过 zip 的写缓冲。
+func insertLargeBinding(t *testing.T, pool *pgxpool.Pool, episodeID int64, title string, n int) int64 {
+	t.Helper()
+	id := insertEpisodeBinding(t, pool, episodeID, title, 0)
+	_, err := pool.Exec(t.Context(), `
+		WITH d AS (
+			INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text)
+			SELECT $1, g, g, 1, 0, md5(g::text) FROM generate_series(1, $2::int) g
+		)
+		UPDATE bindings SET danmaku_count = $2, max_time_ms = $2 WHERE id = $1`, id, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 // decodeXML 读回导出的一份 XML：每条弹幕一行"时间 模式 颜色 ID 正文"，按 XML 里的顺序。
 func decodeXML(t *testing.T, data []byte) []string {
 	t.Helper()
@@ -79,8 +96,8 @@ type exportedZip struct {
 	Danmaku map[string][]string
 }
 
-// exportZip 调用 export（集、季的导出）并读回 zip。
-// 检查文件名恰好给出一次、内容写在给出文件名之后、每份文件都用 Deflate 压缩。
+// exportZip 调用 export（集、季的导出）并读回 zip（readZip）。
+// 检查文件名恰好给出一次、内容写在给出文件名之后。
 func exportZip(t *testing.T, export func(open service.Open) error) exportedZip {
 	t.Helper()
 	var names []string
@@ -98,11 +115,17 @@ func exportZip(t *testing.T, export func(open service.Open) error) exportedZip {
 	if len(names) != 1 {
 		t.Fatalf("文件名给出了 %d 次：%q", len(names), names)
 	}
-	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	return readZip(t, names[0], buf.Bytes())
+}
+
+// readZip 读回导出的名为 name 的 zip，检查每份文件都用 Deflate 压缩。
+func readZip(t *testing.T, name string, data []byte) exportedZip {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatalf("导出的 zip 解不开：%v", err)
 	}
-	got := exportedZip{Name: names[0], Paths: []string{}, Danmaku: map[string][]string{}}
+	got := exportedZip{Name: name, Paths: []string{}, Danmaku: map[string][]string{}}
 	for _, f := range zr.File {
 		if f.Method != zip.Deflate {
 			t.Errorf("%s：压缩方式 = %d, want Deflate", f.Name, f.Method)

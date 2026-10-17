@@ -68,8 +68,18 @@ func episodeZipName(seriesTitle string, seriesType naming.SeriesType, season, ep
 	return safeName(seriesTitle) + " " + episodeCode(season, episode) + ".zip"
 }
 
+// seasonDirName 一季导出的 zip 的文件名（加 .zip）与里面的根目录名：<剧名> S01（seasonCode）。
+func seasonDirName(seriesTitle string, season int32) string {
+	return safeName(seriesTitle) + " " + seasonCode(season)
+}
+
 // episodeCode 一集的季号集号：S01E03，补到两位（特别篇为 S00），超过两位照常写（E100）。
 // 默认集号规则认得出这个写法，季导出的子目录名也用它。
 func episodeCode(season, episode int32) string {
-	return fmt.Sprintf("S%02dE%02d", season, episode)
+	return fmt.Sprintf("%sE%02d", seasonCode(season), episode)
+}
+
+// seasonCode 季号：S01，补到两位（特别篇为 S00），超过两位照常写。
+func seasonCode(season int32) string {
+	return fmt.Sprintf("S%02d", season)
 }

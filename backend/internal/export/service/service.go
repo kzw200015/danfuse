@@ -1,6 +1,7 @@
 // Package service 导出的业务层：把绑定保存的弹幕按偏移校正后写成 B 站格式的 XML（bilifmt.Encode），不做跨源去重、不屏蔽。
 // 剧、季、集、绑定与弹幕都由本领域 dao 里的查询读取，不调用别的领域的 Service；导出对所有表只读。
-// 文件：binding.go 导出一个绑定，episode.go 导出一集，archive.go 集、季导出的 zip 与往里加一集的绑定，filename.go 文件名的规则。
+// 文件：binding.go 导出一个绑定，episode.go 导出一集，season.go 导出一季，archive.go 集、季导出的 zip 与往里加一集的绑定，
+// filename.go 文件名的规则。
 package service
 
 import (
@@ -17,8 +18,10 @@ import (
 var (
 	errBindingNotFound = apierr.ErrNotFound.WithMessage("绑定不存在")
 	errEpisodeNotFound = apierr.ErrNotFound.WithMessage("集不存在")
-	// 前端在这一集没有弹幕时禁用导出按钮，竞态下（剧详情加载之后绑定被删、被重新拉取）仍可能请求到这里。
-	errEpisodeEmpty = apierr.ErrNotFound.WithMessage("这一集没有可导出的弹幕")
+	// 前端在这一集、这一季没有弹幕时禁用导出按钮，竞态下（剧详情加载之后绑定被删、被重新拉取）仍可能请求到这里。
+	errEpisodeEmpty   = apierr.ErrNotFound.WithMessage("这一集没有可导出的弹幕")
+	errSeasonNotFound = apierr.ErrNotFound.WithMessage("季不存在")
+	errSeasonEmpty    = apierr.ErrNotFound.WithMessage("这一季没有可导出的弹幕")
 )
 
 // Open 导出确定能进行（查找与校验都已通过）、写出任何内容之前，service 调用它恰好一次，给出文件名，拿到写内容的 io.Writer。
@@ -28,7 +31,7 @@ var (
 // 而事务由 service 用 pgx.BeginTxFunc 开、关，不交给调用方管理；文件名与写出位置之间正好隔着调用方输出响应头这一步。
 type Open func(filename string) io.Writer
 
-// Service 导出一个绑定、一集的弹幕。
+// Service 导出一个绑定、一集、一季的弹幕。
 type Service struct {
 	pool *pgxpool.Pool
 	q    *dao.Queries
