@@ -1,11 +1,13 @@
-// Package bilifmt B 站弹幕格式到内部格式的映射：XML 弹幕的解码，以及一条弹幕字段的映射（XML 与 protobuf 共用）。
-// B 站源适配器拉取的 XML、protobuf，与用户上传的弹幕文件（danmakufile）都用它。纯计算，不访问网络。
+// Package bilifmt B 站弹幕格式与内部格式的映射：XML 弹幕的解码与编码，以及一条弹幕字段的映射（XML 与 protobuf 共用）。
+// B 站源适配器拉取的 XML、protobuf，与用户上传的弹幕文件（danmakufile）都用它解码，导出用它编码。纯计算，不访问网络。
 package bilifmt
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"html"
+	"io"
 	"math"
 	"regexp"
 	"strconv"
@@ -38,6 +40,41 @@ func Decode(b []byte) ([]danmaku.Danmaku, error) {
 		}
 	}
 	return items, nil
+}
+
+// textEscaper 编码时正文的转义：只转义 & < > "，其余原样写出。
+var textEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
+
+// Encode 把弹幕按 items 的顺序写成 B 站的 XML 弹幕，是 Decode 的逆过程：编码再解码得到同样的弹幕。
+// 每条为 <d p="时间,模式,25,颜色,0,0,,原始 ID,0">：时间为秒、精确到毫秒，模式、颜色（十进制 RGB）与原始 ID 用保存的值，
+// 字号、发送时间、弹幕池、发送者哈希、屏蔽等级是固定的默认值。
+// 正文不做清洗：XML 不允许的字符原样写出。
+func Encode(w io.Writer, items []danmaku.Danmaku) error {
+	bw := bufio.NewWriter(w)
+	if _, err := bw.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n<i>\n"); err != nil {
+		return err
+	}
+	var line []byte
+	for _, d := range items {
+		line = append(line[:0], `<d p="`...)
+		line = strconv.AppendFloat(line, float64(d.TimeMs)/1000, 'f', 3, 64)
+		line = append(line, ',')
+		line = strconv.AppendUint(line, uint64(d.Mode), 10)
+		line = append(line, ",25,"...)
+		line = strconv.AppendUint(line, uint64(d.Color), 10)
+		line = append(line, ",0,0,,"...)
+		line = strconv.AppendInt(line, d.SourceID, 10)
+		line = append(line, `,0">`...)
+		line = append(line, textEscaper.Replace(d.Text)...)
+		line = append(line, "</d>\n"...)
+		if _, err := bw.Write(line); err != nil {
+			return err
+		}
+	}
+	if _, err := bw.WriteString("</i>\n"); err != nil {
+		return err
+	}
+	return bw.Flush()
 }
 
 // trimTrailingComments 去掉文档末尾的空白和 XML 注释。有些流传的弹幕文件在 </i> 之后附了注释

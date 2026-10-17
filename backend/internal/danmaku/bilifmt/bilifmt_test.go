@@ -140,3 +140,45 @@ func TestDecodeErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestEncode 编码再解码得到同样的弹幕：各模式、颜色、毫秒时间、原始 ID，正文里要转义的字符。
+func TestEncode(t *testing.T) {
+	tests := []struct {
+		name  string
+		items []danmaku.Danmaku
+	}{
+		{"没有弹幕", nil},
+		{
+			"各模式、颜色、毫秒时间、超过 2^53 的原始 ID",
+			[]danmaku.Danmaku{
+				{SourceID: 1, TimeMs: 0, Mode: danmaku.ModeScroll, Color: 0xFFFFFF, Text: "开头"},
+				{SourceID: 2, TimeMs: 1, Mode: danmaku.ModeBottom, Color: 0, Text: "底部"},
+				{SourceID: 3, TimeMs: 95234, Mode: danmaku.ModeTop, Color: 0x00FF00, Text: "顶部"},
+				{SourceID: 2213969828606745088, TimeMs: 1500999, Mode: danmaku.ModeReverse, Color: 0x123456, Text: "逆向"},
+			},
+		},
+		{
+			"正文里要转义的字符、emoji、换行",
+			[]danmaku.Danmaku{
+				{SourceID: 7, TimeMs: 1500, Mode: danmaku.ModeScroll, Text: `&amp; <d p="1"> '单引号' & < > "`},
+				{SourceID: 8, TimeMs: 1500, Mode: danmaku.ModeScroll, Text: "😀🎉"},
+				{SourceID: 9, TimeMs: 1500, Mode: danmaku.ModeScroll, Text: "第一行\n第二行"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var b strings.Builder
+			if err := Encode(&b, tt.items); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Decode([]byte(b.String()))
+			if err != nil {
+				t.Fatalf("Decode(%s): %v", b.String(), err)
+			}
+			if !reflect.DeepEqual(got, tt.items) {
+				t.Errorf("Decode(Encode()) = %+v\nwant %+v\nXML: %s", got, tt.items, b.String())
+			}
+		})
+	}
+}
