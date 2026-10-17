@@ -1,11 +1,9 @@
 package service
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -16,7 +14,8 @@ import (
 
 // ExportBinding 导出一个绑定：一份 <绑定标题>.xml，内容是 bindingDanmaku。失效的、季绑定建出的绑定照常导出，
 // 没有弹幕时是一份空的 XML。绑定不存在时 404，不调用 open。
-// 一个绑定的弹幕要先全部读出来才能排序，所以读完、事务结束之后才调用 open 写出：读取出错时还能照常返回错误响应。
+// 读完全部弹幕、事务结束之后才调用 open 写出：读取出错时还能照常返回错误响应，不会写出一半的 XML。
+// 一个绑定的量放得进内存，用不着集、季那样边读边写。
 func (s *Service) ExportBinding(ctx context.Context, id int64, open Open) error {
 	var title string
 	var items []danmaku.Danmaku
@@ -35,14 +34,14 @@ func (s *Service) ExportBinding(ctx context.Context, id int64, open Open) error 
 	if err != nil {
 		return err
 	}
-	if err := bilifmt.Encode(open(bindingFileName(title)), items); err != nil {
+	if err := bilifmt.Encode(open(bindingName(title)+".xml"), items); err != nil {
 		return fmt.Errorf("write binding %d: %w", id, err)
 	}
 	return nil
 }
 
 // bindingDanmaku 一个绑定保存的全部弹幕，按偏移校正到本地视频的时间轴（danmaku.Correct，校正后为负的丢弃），
-// 按校正后的时间升序、同一时间按原始 ID 排序。
+// 按校正后的时间升序、同一时间按原始 ID（ListDanmakuByBinding 的顺序，校正不改变先后）。
 func bindingDanmaku(ctx context.Context, q *dao.Queries, bindingID int64, offset float64) ([]danmaku.Danmaku, error) {
 	rows, err := q.ListDanmakuByBinding(ctx, bindingID)
 	if err != nil {
@@ -55,8 +54,5 @@ func bindingDanmaku(ctx context.Context, q *dao.Queries, bindingID int64, offset
 			items = append(items, d)
 		}
 	}
-	slices.SortFunc(items, func(a, b danmaku.Danmaku) int {
-		return cmp.Or(cmp.Compare(a.TimeMs, b.TimeMs), cmp.Compare(a.SourceID, b.SourceID))
-	})
 	return items, nil
 }

@@ -22,7 +22,6 @@ import (
 	exporthandler "github.com/kzw200015/danfuse/backend/internal/export/handler"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
 	"github.com/kzw200015/danfuse/backend/internal/infra/database/dbtest"
-	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -95,8 +94,8 @@ func TestExportBindingErrors(t *testing.T) {
 	})
 }
 
-// TestExportEpisode GET /api/episodes/:id/export：直接下载 zip，Content-Disposition 同单绑定的导出；
-// zip 里是有弹幕的绑定（集 1 的绑定 2 没有弹幕，跳过）。
+// TestExportEpisode GET /api/episodes/:id/export：直接下载 zip，Content-Disposition 同单绑定的导出。
+// zip 里有哪些文件是 service 的规则，由 service 的测试覆盖。
 func TestExportEpisode(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
@@ -114,15 +113,9 @@ func TestExportEpisode(t *testing.T) {
 	if disposition := rec.Header().Get("Content-Disposition"); disposition != wantDisposition {
 		t.Errorf("Content-Disposition = %s\nwant %s", disposition, wantDisposition)
 	}
-	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
-	if err != nil {
-		t.Fatalf("zip 解不开：%v", err)
+	if _, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len())); err != nil {
+		t.Errorf("zip 解不开：%v", err)
 	}
-	var names []string
-	for _, f := range zr.File {
-		names = append(names, f.Name)
-	}
-	testutil.AssertStrings(t, "zip 里的文件", names, []string{"弹幕源 a.xml"})
 }
 
 func TestExportEpisodeErrors(t *testing.T) {
@@ -137,8 +130,8 @@ func TestExportEpisodeErrors(t *testing.T) {
 	})
 }
 
-// TestExportSeason GET /api/seasons/:id/export：直接下载 zip，Content-Disposition 同单绑定的导出；
-// zip 里一层根目录 <剧名> S01/，每集一个 S01E02/ 子目录（集 2 没有绑定，不建子目录）。
+// TestExportSeason GET /api/seasons/:id/export：直接下载 zip，Content-Disposition 同单绑定的导出。
+// zip 里的目录结构是 service 的规则，由 service 的测试覆盖。
 func TestExportSeason(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
@@ -156,15 +149,9 @@ func TestExportSeason(t *testing.T) {
 	if disposition := rec.Header().Get("Content-Disposition"); disposition != wantDisposition {
 		t.Errorf("Content-Disposition = %s\nwant %s", disposition, wantDisposition)
 	}
-	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
-	if err != nil {
-		t.Fatalf("zip 解不开：%v", err)
+	if _, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len())); err != nil {
+		t.Errorf("zip 解不开：%v", err)
 	}
-	var names []string
-	for _, f := range zr.File {
-		names = append(names, f.Name)
-	}
-	testutil.AssertStrings(t, "zip 里的文件", names, []string{"星海旅人 S01/S01E02/弹幕源 a.xml"})
 }
 
 // breakingTracer 第 n 次执行名为 query 的 sqlc 查询时，在发出之前关掉这条数据库连接，让它因网络错误失败。
@@ -173,6 +160,8 @@ type breakingTracer struct {
 	n     int32
 	count atomic.Int32
 }
+
+var _ pgx.QueryTracer = (*breakingTracer)(nil)
 
 func (b *breakingTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	if strings.HasPrefix(data.SQL, "-- name: "+b.query+" ") && b.count.Add(1) == b.n {

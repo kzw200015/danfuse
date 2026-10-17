@@ -16,13 +16,16 @@ const maxNameBytes = 200
 // unsafeNameChars 各操作系统里不能出现在文件名、目录名里的字符（Windows 最严），连同控制字符一起换成 _。
 const unsafeNameChars = `/\:*?"<>|`
 
-// bindingFileName 一个绑定导出的 XML 的文件名：绑定标题加 .xml，标题为空（或只有空白）时用"弹幕"。
+// fallbackName 绑定标题、电影的片名为空（或只有空白）时用的名称。
+const fallbackName = "弹幕"
+
+// bindingName 一个绑定导出的 XML 的文件名（不带扩展名，由调用方加 .xml）：绑定标题，标题为空（或只有空白）时用"弹幕"。
 // 文件名就是标题，所以这份文件在集面板上传回去时绑定标题不变。
-func bindingFileName(title string) string {
+func bindingName(title string) string {
 	if strings.TrimSpace(title) == "" {
-		title = "弹幕"
+		return fallbackName
 	}
-	return safeName(title) + ".xml"
+	return safeName(title)
 }
 
 // safeName 把 s 整理成能用作文件名、目录名的名称：unsafeNameChars 与控制字符换成 _，
@@ -47,11 +50,11 @@ func safeName(s string) string {
 // fileNames 同一目录下已经用了的文件名。
 type fileNames map[string]bool
 
-// add 绑定标题为 title 的 XML 在这个目录下的文件名，记为已用：bindingFileName，已经用了时依次加 " (2)"、" (3)"，
+// add 绑定标题为 title 的 XML 在这个目录下的文件名，记为已用：bindingName 加 .xml，已经用了时依次加 " (2)"、" (3)"，
 // 直到没用过（标题本身就是"OP (2)"的绑定，名称被前面的第二个"OP"占了时用"OP (2) (2)"）。按绑定的创建顺序调用，编号就是稳定的。
 func (n fileNames) add(title string) string {
-	name := bindingFileName(title)
-	base := strings.TrimSuffix(name, ".xml")
+	base := bindingName(title)
+	name := base + ".xml"
 	for i := 2; n[name]; i++ {
 		name = fmt.Sprintf("%s (%d).xml", base, i)
 	}
@@ -59,18 +62,29 @@ func (n fileNames) add(title string) string {
 	return name
 }
 
-// episodeZipName 一集导出的 zip 的文件名：<剧名> S01E03.zip（episodeCode）；电影为 <片名>.zip，
-// 和界面上电影不显示季号集号一致。
+// episodeZipName 一集导出的 zip 的文件名：<剧名> S01E03.zip（withSeriesTitle、episodeCode）；电影为 <片名>.zip，
+// 和界面上电影不显示季号集号一致，片名为空（或只有空白）时用"弹幕"。
 func episodeZipName(seriesTitle string, seriesType naming.SeriesType, season, episode int32) string {
-	if seriesType == naming.TypeMovie {
-		return safeName(seriesTitle) + ".zip"
+	if seriesType != naming.TypeMovie {
+		return withSeriesTitle(seriesTitle, episodeCode(season, episode)) + ".zip"
 	}
-	return safeName(seriesTitle) + " " + episodeCode(season, episode) + ".zip"
+	if strings.TrimSpace(seriesTitle) == "" {
+		return fallbackName + ".zip"
+	}
+	return safeName(seriesTitle) + ".zip"
 }
 
-// seasonDirName 一季导出的 zip 的文件名（加 .zip）与里面的根目录名：<剧名> S01（seasonCode）。
+// seasonDirName 一季导出的 zip 的文件名（加 .zip）与里面的根目录名：<剧名> S01（withSeriesTitle、seasonCode）。
 func seasonDirName(seriesTitle string, season int32) string {
-	return safeName(seriesTitle) + " " + seasonCode(season)
+	return withSeriesTitle(seriesTitle, seasonCode(season))
+}
+
+// withSeriesTitle 剧名加季号集号：<剧名> S01E03；剧名为空（或只有空白）时只有季号集号，不以空格开头。
+func withSeriesTitle(seriesTitle, code string) string {
+	if strings.TrimSpace(seriesTitle) == "" {
+		return code
+	}
+	return safeName(seriesTitle) + " " + code
 }
 
 // episodeCode 一集的季号集号：S01E03，补到两位（特别篇为 S00），超过两位照常写（E100）。

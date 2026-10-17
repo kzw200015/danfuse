@@ -18,7 +18,7 @@ func (r *seasonRequest) Validate() error {
 }
 
 // ExportSeason GET /api/seasons/:id/export
-// 下载一季的弹幕：application/zip，文件名为 <剧名> S01.zip，里面是 <剧名> S01/S01E03/<绑定标题>.xml。
+// 导出一季的弹幕：application/zip，文件名为 <剧名> S01.zip，里面是 <剧名> S01/S01E03/<绑定标题>.xml。
 // 季不存在、这一季没有可导出的弹幕时 404。zip 边读边写，写出响应头之后出错时中止连接（见 download.finish）。
 func (h *Handler) ExportSeason(c *echo.Context) error {
 	req, err := request.Bind[seasonRequest](c)

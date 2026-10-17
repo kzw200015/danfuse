@@ -18,7 +18,7 @@ func (r *bindingRequest) Validate() error {
 }
 
 // ExportBinding GET /api/bindings/:id/export
-// 下载一个绑定的弹幕：application/xml，文件名为 <绑定标题>.xml。绑定不存在时 404。
+// 导出一个绑定的弹幕：application/xml，文件名为 <绑定标题>.xml。绑定不存在时 404。
 func (h *Handler) ExportBinding(c *echo.Context) error {
 	req, err := request.Bind[bindingRequest](c)
 	if err != nil {

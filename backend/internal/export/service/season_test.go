@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
 	"github.com/kzw200015/danfuse/backend/internal/export/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
+	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
 // exportSeason 导出季 id 并读回 zip。
@@ -36,11 +39,11 @@ func TestExportSeason(t *testing.T) {
 	d := func(id int64, ms int32, text string) danmaku.Danmaku {
 		return danmaku.Danmaku{SourceID: id, TimeMs: ms, Mode: danmaku.ModeScroll, Text: text}
 	}
-	insertEpisodeBinding(t, pool, 3, "OP", 0, d(1, 100, "第一百集"))
-	insertBinding(t, pool, "弹幕源 b", 0, d(2, 200, "b"))
-	insertBinding(t, pool, "弹幕源 a", 1, d(3, 300, "a"))
-	insertEpisodeBinding(t, pool, 4, "空的", 0)
-	insertEpisodeBinding(t, pool, 5, "别的季", 0, d(4, 400, "不在这季"))
+	insertBinding(t, pool, 3, "OP", 0, d(1, 100, "第一百集"))
+	insertBinding(t, pool, 1, "弹幕源 b", 0, d(2, 200, "b"))
+	insertBinding(t, pool, 1, "弹幕源 a", 1, d(3, 300, "a"))
+	insertBinding(t, pool, 4, "空的", 0)
+	insertBinding(t, pool, 5, "别的季", 0, d(4, 400, "不在这季"))
 
 	got := exportSeason(t, svc, 1)
 
@@ -67,7 +70,7 @@ func TestExportSeasonSpecials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertEpisodeBinding(t, pool, 3, "OVA", 0, danmaku.Danmaku{SourceID: 1, TimeMs: 100, Mode: danmaku.ModeScroll, Text: "有"})
+	insertBinding(t, pool, 3, "OVA", 0, danmaku.Danmaku{SourceID: 1, TimeMs: 100, Mode: danmaku.ModeScroll, Text: "有"})
 
 	got := exportSeason(t, svc, 2)
 
@@ -77,6 +80,57 @@ func TestExportSeasonSpecials(t *testing.T) {
 	testutil.AssertStrings(t, "zip 里的文件", got.Paths, []string{"A_B_ 前传 S00/S00E01/OVA.xml"})
 }
 
+// TestExportSeasonFromSeasonBinding 季绑定建出的绑定和手动建的一样出现在各集的子目录里。
+func TestExportSeasonFromSeasonBinding(t *testing.T) {
+	t.Parallel()
+	svc, pool := newService(t)
+	insertBinding(t, pool, 1, "手动", 0, danmaku.Danmaku{SourceID: 9, TimeMs: 100, Mode: danmaku.ModeScroll, Text: "手动的"})
+	createFolderSeasonBinding(t, pool, testenv.Snapshot1("星海旅人/01.xml"), testenv.Snapshot2("星海旅人/02.xml"))
+
+	got := exportSeason(t, svc, 1)
+
+	testutil.AssertStrings(t, "zip 里的文件", got.Paths, []string{
+		"星海旅人 S01/S01E01/手动.xml",
+		"星海旅人 S01/S01E01/01.xml",
+		"星海旅人 S01/S01E02/02.xml",
+	})
+	testutil.AssertStrings(t, "02.xml", got.Danmaku["星海旅人 S01/S01E02/02.xml"], []string{"61250 1 ffffff 2 好看", "120000 5 ff0000 3 顶部"})
+}
+
+// TestExportSeasonEmptyTitle 剧名为空（或只有空白）时 zip 名与根目录只写季号：S01.zip、S01/。
+func TestExportSeasonEmptyTitle(t *testing.T) {
+	t.Parallel()
+	svc, pool := newService(t)
+	if _, err := pool.Exec(t.Context(), `UPDATE series SET title = ' ' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	insertBinding(t, pool, 1, "OP", 0, danmaku.Danmaku{SourceID: 1, TimeMs: 100, Mode: danmaku.ModeScroll, Text: "有"})
+
+	got := exportSeason(t, svc, 1)
+
+	if got.Name != "S01.zip" {
+		t.Errorf("zip 文件名 = %q, want S01.zip", got.Name)
+	}
+	testutil.AssertStrings(t, "zip 里的文件", got.Paths, []string{"S01/S01E01/OP.xml"})
+}
+
+// insertLargeBinding 给集 episodeID 写入一个有 n 条弹幕的链接绑定，返回绑定 ID。弹幕的时间为 1..n 毫秒、ID 为 1..n，
+// 正文是各不相同的 32 位十六进制串，压缩后仍有 n × 十几字节，导出时超过 zip 的写缓冲。
+func insertLargeBinding(t *testing.T, pool *pgxpool.Pool, episodeID int64, title string, n int) int64 {
+	t.Helper()
+	id := insertBinding(t, pool, episodeID, title, 0)
+	_, err := pool.Exec(t.Context(), `
+		WITH d AS (
+			INSERT INTO danmaku (binding_id, source_id, time_ms, mode, color, text)
+			SELECT $1, g, g, 1, 0, md5(g::text) FROM generate_series(1, $2::int) g
+		)
+		UPDATE bindings SET danmaku_count = $2, max_time_ms = $2 WHERE id = $1`, id, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 // gatedWriter 第一次 Write 时在 started 上报到，等 release 关闭再写进 Buffer：用来在导出途中插入别的操作。
 type gatedWriter struct {
 	bytes.Buffer
@@ -84,6 +138,8 @@ type gatedWriter struct {
 	started, release chan struct{}
 	waited           bool
 }
+
+var _ io.Writer = (*gatedWriter)(nil)
 
 func newGatedWriter(ctx context.Context) *gatedWriter {
 	return &gatedWriter{ctx: ctx, started: make(chan struct{}), release: make(chan struct{})}
@@ -108,7 +164,7 @@ func TestExportSeasonSnapshot(t *testing.T) {
 	t.Parallel()
 	svc, pool := newService(t)
 	insertLargeBinding(t, pool, 1, "第一集", 3000)
-	second := insertEpisodeBinding(t, pool, 2, "第二集", 0, danmaku.Danmaku{SourceID: 1, TimeMs: 100, Mode: danmaku.ModeScroll, Text: "删除前"})
+	second := insertBinding(t, pool, 2, "第二集", 0, danmaku.Danmaku{SourceID: 1, TimeMs: 100, Mode: danmaku.ModeScroll, Text: "删除前"})
 
 	w := newGatedWriter(t.Context())
 	var name string
@@ -148,8 +204,8 @@ func TestExportSeasonNothingToExport(t *testing.T) {
 	if _, err := pool.Exec(t.Context(), `INSERT INTO seasons (series_id, number) VALUES (1, 2)`); err != nil { // 季 2：没有集
 		t.Fatal(err)
 	}
-	insertBinding(t, pool, "空的", 0)
-	insertEpisodeBinding(t, pool, 2, "太早", -5, danmaku.Danmaku{SourceID: 1, TimeMs: 4999, Mode: danmaku.ModeScroll, Text: "丢弃"})
+	insertBinding(t, pool, 1, "空的", 0)
+	insertBinding(t, pool, 2, "太早", -5, danmaku.Danmaku{SourceID: 1, TimeMs: 4999, Mode: danmaku.ModeScroll, Text: "丢弃"})
 
 	tests := []struct {
 		id      int64

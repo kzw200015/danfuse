@@ -9,11 +9,8 @@ import (
 	"testing"
 
 	"github.com/kzw200015/danfuse/backend/internal/danmaku"
-	"github.com/kzw200015/danfuse/backend/internal/danmakufile"
 	"github.com/kzw200015/danfuse/backend/internal/export/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/testutil"
-	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
-	"github.com/kzw200015/danfuse/backend/internal/source"
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
@@ -44,7 +41,7 @@ func exportBinding(t *testing.T, svc *service.Service, id int64) (string, []stri
 func TestExportBinding(t *testing.T) {
 	t.Parallel()
 	svc, pool := newService(t)
-	id := insertBinding(t, pool, "第 1 话", 1.2346,
+	id := insertBinding(t, pool, 1, "第 1 话", 1.2346,
 		danmaku.Danmaku{SourceID: 9, TimeMs: 3000, Mode: danmaku.ModeTop, Color: 0xFF0000, Text: "顶部"},
 		danmaku.Danmaku{SourceID: 5, TimeMs: 0, Mode: danmaku.ModeScroll, Color: 0xFFFFFF, Text: "前排"},
 		danmaku.Danmaku{SourceID: 3, TimeMs: 0, Mode: danmaku.ModeBottom, Color: 0, Text: "<&>"},
@@ -66,7 +63,7 @@ func TestExportBinding(t *testing.T) {
 func TestExportBindingNegativeOffset(t *testing.T) {
 	t.Parallel()
 	svc, pool := newService(t)
-	id := insertBinding(t, pool, "提前", -2,
+	id := insertBinding(t, pool, 1, "提前", -2,
 		danmaku.Danmaku{SourceID: 1, TimeMs: 1999, Mode: danmaku.ModeScroll, Text: "太早"},
 		danmaku.Danmaku{SourceID: 2, TimeMs: 2000, Mode: danmaku.ModeScroll, Text: "开头"},
 		danmaku.Danmaku{SourceID: 3, TimeMs: 62500, Mode: danmaku.ModeScroll, Text: "一分钟"},
@@ -81,7 +78,7 @@ func TestExportBindingNegativeOffset(t *testing.T) {
 func TestExportBindingDead(t *testing.T) {
 	t.Parallel()
 	svc, pool := newService(t)
-	id := insertBinding(t, pool, "已下架", 0, danmaku.Danmaku{SourceID: 1, TimeMs: 500, Mode: danmaku.ModeScroll, Text: "还在"})
+	id := insertBinding(t, pool, 1, "已下架", 0, danmaku.Danmaku{SourceID: 1, TimeMs: 500, Mode: danmaku.ModeScroll, Text: "还在"})
 	if _, err := pool.Exec(t.Context(), `UPDATE bindings SET status = 'dead' WHERE id = $1`, id); err != nil {
 		t.Fatal(err)
 	}
@@ -95,11 +92,7 @@ func TestExportBindingDead(t *testing.T) {
 func TestExportBindingFromSeasonBinding(t *testing.T) {
 	t.Parallel()
 	svc, pool := newService(t)
-	form := seasonbindingsvc.FolderForm{Mapping: source.Mapping{From: 1, To: 1}, Rule: source.DefaultEpisodeRule()}
-	_, err := testenv.New(pool, testenv.Logger(t)).SeasonBindings.CreateFolder(t.Context(), 1, []danmakufile.File{testenv.Snapshot1("星海旅人/01.xml")}, form)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createFolderSeasonBinding(t, pool, testenv.Snapshot1("星海旅人/01.xml"))
 	id := testenv.QueryInt(t, pool, `SELECT id FROM bindings WHERE season_binding_id IS NOT NULL`)
 
 	name, got := exportBinding(t, svc, id)
@@ -140,7 +133,7 @@ func TestExportBindingFileName(t *testing.T) {
 		{"截断不切开字符", "a" + strings.Repeat("弹", 100), "a" + strings.Repeat("弹", 66) + ".xml"},
 	}
 	for i, tt := range tests {
-		id := insertBinding(t, pool, fmt.Sprint(i), 0)
+		id := insertBinding(t, pool, 1, fmt.Sprint(i), 0)
 		if _, err := pool.Exec(t.Context(), `UPDATE bindings SET title = $2 WHERE id = $1`, id, tt.title); err != nil {
 			t.Fatal(err)
 		}
@@ -154,7 +147,7 @@ func TestExportBindingFileName(t *testing.T) {
 func TestExportBindingEmpty(t *testing.T) {
 	t.Parallel()
 	svc, pool := newService(t)
-	id := insertBinding(t, pool, "空的", 0)
+	id := insertBinding(t, pool, 1, "空的", 0)
 
 	name, got := exportBinding(t, svc, id)
 

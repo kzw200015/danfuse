@@ -18,7 +18,7 @@ func (r *episodeRequest) Validate() error {
 }
 
 // ExportEpisode GET /api/episodes/:id/export
-// 下载一集的弹幕：application/zip，文件名为 <剧名> S01E03.zip（电影为 <片名>.zip），里面平铺各绑定的 <绑定标题>.xml。
+// 导出一集的弹幕：application/zip，文件名为 <剧名> S01E03.zip（电影为 <片名>.zip），里面平铺各绑定的 <绑定标题>.xml。
 // 集不存在、这一集没有可导出的弹幕时 404。
 func (h *Handler) ExportEpisode(c *echo.Context) error {
 	req, err := request.Bind[episodeRequest](c)
