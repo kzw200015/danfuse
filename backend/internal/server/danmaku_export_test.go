@@ -25,13 +25,12 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// exportServer 起完整的 Echo，导出接口连到 pool，不记日志。
-func exportServer(pool *pgxpool.Pool) *Server {
-	return exportServerLogging(pool, slog.New(slog.DiscardHandler))
-}
-
-// exportServerLogging 同 exportServer，日志记到 logger。
-func exportServerLogging(pool *pgxpool.Pool, logger *slog.Logger) *Server {
+// exportServer 起完整的 Echo，导出接口连到 pool，日志以 JSON 记到 logs（nil 时不记）。
+func exportServer(pool *pgxpool.Pool, logs io.Writer) *Server {
+	if logs == nil {
+		logs = io.Discard
+	}
+	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	env := testenv.New(pool, logger)
 	return New(config.Server{}, logger, complete(&Handlers{Export: exporthandler.NewHandler(env.Export)}))
 }
@@ -45,7 +44,7 @@ func TestExportBinding(t *testing.T) {
 	if _, err := pool.Exec(t.Context(), `UPDATE bindings SET title = 'Tom''s (v2)' WHERE id = 4`); err != nil {
 		t.Fatal(err)
 	}
-	srv := exportServer(pool)
+	srv := exportServer(pool, nil)
 
 	tests := []struct {
 		target, wantDisposition, wantFilename string
@@ -87,34 +86,46 @@ func TestExportBindingErrors(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
 	seedCatalog(t, pool)
-	assertAPIErrors(t, exportServer(pool), []apiError{
+	assertAPIErrors(t, exportServer(pool, nil), []apiError{
 		{http.MethodGet, "/api/bindings/0/export", "", http.StatusBadRequest, "绑定 ID 不合法"},
 		{http.MethodGet, "/api/bindings/abc/export", "", http.StatusBadRequest, "请求参数错误"},
 		{http.MethodGet, "/api/bindings/99/export", "", http.StatusNotFound, "绑定不存在"},
 	})
 }
 
-// TestExportEpisode GET /api/episodes/:id/export：直接下载 zip，Content-Disposition 同单绑定的导出。
-// zip 里有哪些文件是 service 的规则，由 service 的测试覆盖。
-func TestExportEpisode(t *testing.T) {
+// TestExportZip GET /api/episodes/:id/export、/api/seasons/:id/export：直接下载 zip，Content-Disposition 同单绑定的导出。
+// zip 里有哪些文件、目录结构是 service 的规则，由 service 的测试覆盖。
+func TestExportZip(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
 	seedCatalog(t, pool)
+	srv := exportServer(pool, nil)
 
-	rec := serve(t, exportServer(pool), http.MethodGet, "/api/episodes/1/export", "")
+	tests := []struct{ target, wantDisposition string }{
+		{
+			"/api/episodes/1/export",
+			`attachment; filename="____ S01E02.zip"; filename*=UTF-8''%E6%98%9F%E6%B5%B7%E6%97%85%E4%BA%BA%20S01E02.zip`,
+		},
+		{
+			"/api/seasons/1/export",
+			`attachment; filename="____ S01.zip"; filename*=UTF-8''%E6%98%9F%E6%B5%B7%E6%97%85%E4%BA%BA%20S01.zip`,
+		},
+	}
+	for _, tt := range tests {
+		rec := serve(t, srv, http.MethodGet, tt.target, "")
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200, body %s", rec.Code, rec.Body)
-	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/zip" {
-		t.Errorf("Content-Type = %q, want application/zip", ct)
-	}
-	wantDisposition := `attachment; filename="____ S01E02.zip"; filename*=UTF-8''%E6%98%9F%E6%B5%B7%E6%97%85%E4%BA%BA%20S01E02.zip`
-	if disposition := rec.Header().Get("Content-Disposition"); disposition != wantDisposition {
-		t.Errorf("Content-Disposition = %s\nwant %s", disposition, wantDisposition)
-	}
-	if _, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len())); err != nil {
-		t.Errorf("zip 解不开：%v", err)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200, body %s", tt.target, rec.Code, rec.Body)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/zip" {
+			t.Errorf("%s: Content-Type = %q, want application/zip", tt.target, ct)
+		}
+		if disposition := rec.Header().Get("Content-Disposition"); disposition != tt.wantDisposition {
+			t.Errorf("%s: Content-Disposition = %s\nwant %s", tt.target, disposition, tt.wantDisposition)
+		}
+		if _, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len())); err != nil {
+			t.Errorf("%s: zip 解不开：%v", tt.target, err)
+		}
 	}
 }
 
@@ -122,36 +133,12 @@ func TestExportEpisodeErrors(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
 	seedCatalog(t, pool)
-	assertAPIErrors(t, exportServer(pool), []apiError{
+	assertAPIErrors(t, exportServer(pool, nil), []apiError{
 		{http.MethodGet, "/api/episodes/0/export", "", http.StatusBadRequest, "集 ID 不合法"},
 		{http.MethodGet, "/api/episodes/abc/export", "", http.StatusBadRequest, "请求参数错误"},
 		{http.MethodGet, "/api/episodes/99/export", "", http.StatusNotFound, "集不存在"},
 		{http.MethodGet, "/api/episodes/2/export", "", http.StatusNotFound, "这一集没有可导出的弹幕"},
 	})
-}
-
-// TestExportSeason GET /api/seasons/:id/export：直接下载 zip，Content-Disposition 同单绑定的导出。
-// zip 里的目录结构是 service 的规则，由 service 的测试覆盖。
-func TestExportSeason(t *testing.T) {
-	t.Parallel()
-	pool := dbtest.Pool(t)
-	seedCatalog(t, pool)
-
-	rec := serve(t, exportServer(pool), http.MethodGet, "/api/seasons/1/export", "")
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200, body %s", rec.Code, rec.Body)
-	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/zip" {
-		t.Errorf("Content-Type = %q, want application/zip", ct)
-	}
-	wantDisposition := `attachment; filename="____ S01.zip"; filename*=UTF-8''%E6%98%9F%E6%B5%B7%E6%97%85%E4%BA%BA%20S01.zip`
-	if disposition := rec.Header().Get("Content-Disposition"); disposition != wantDisposition {
-		t.Errorf("Content-Disposition = %s\nwant %s", disposition, wantDisposition)
-	}
-	if _, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len())); err != nil {
-		t.Errorf("zip 解不开：%v", err)
-	}
 }
 
 // breakingTracer 第 n 次执行名为 query 的 sqlc 查询时，在发出之前关掉这条数据库连接，让它因网络错误失败。
@@ -191,7 +178,7 @@ func TestExportSeasonAbort(t *testing.T) {
 		t.Fatal(err)
 	}
 	var logs testenv.LockedBuffer
-	ts := httptest.NewServer(exportServerLogging(pool, slog.New(slog.NewJSONHandler(&logs, nil))).echo)
+	ts := httptest.NewServer(exportServer(pool, &logs).echo)
 	t.Cleanup(ts.Close)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/api/seasons/1/export", http.NoBody)
@@ -228,7 +215,7 @@ func TestExportSeasonErrors(t *testing.T) {
 	t.Parallel()
 	pool := dbtest.Pool(t)
 	seedCatalog(t, pool)
-	assertAPIErrors(t, exportServer(pool), []apiError{
+	assertAPIErrors(t, exportServer(pool, nil), []apiError{
 		{http.MethodGet, "/api/seasons/0/export", "", http.StatusBadRequest, "季 ID 不合法"},
 		{http.MethodGet, "/api/seasons/abc/export", "", http.StatusBadRequest, "请求参数错误"},
 		{http.MethodGet, "/api/seasons/99/export", "", http.StatusNotFound, "季不存在"},

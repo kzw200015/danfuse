@@ -12,7 +12,7 @@ import (
 )
 
 // archive 集、季导出的 zip（Deflate），边加文件边写出，不在内存里拼出整个文件。
-// 第一次加文件时才调用 open：没有可导出的弹幕时一个字节都不写出，调用方据此返回 404，不输出空的 zip。
+// 第一次加文件时才调用 open：没有可导出的弹幕时一个字节都不写出，close 返回 404，不输出空的 zip。
 // 中途出错时不调用 close，zip 没有中央目录，是不完整的。
 type archive struct {
 	name     string // zip 的文件名，交给 open
@@ -41,13 +41,11 @@ func (a *archive) add(path string, items []danmaku.Danmaku) error {
 	return nil
 }
 
-// empty 还没加过文件（也就还没调用 open）。
-func (a *archive) empty() bool {
-	return a.zw == nil
-}
-
-// close 写出中央目录，zip 完整。
-func (a *archive) close() error {
+// close 写出中央目录，zip 完整；一份文件都没加过（也就还没调用 open）时返回 errEmpty。
+func (a *archive) close(errEmpty error) error {
+	if a.zw == nil {
+		return errEmpty
+	}
 	if err := a.zw.Close(); err != nil {
 		return fmt.Errorf("close zip: %w", err)
 	}

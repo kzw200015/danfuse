@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"html"
 	"io"
 	"math"
@@ -50,30 +51,13 @@ var textEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"
 // 字号、发送时间、弹幕池、发送者哈希、屏蔽等级是固定的默认值。
 // 正文不做清洗：XML 不允许的字符原样写出。
 func Encode(w io.Writer, items []danmaku.Danmaku) error {
+	// bufio.Writer 出错后不再写出、Flush 返回第一个错误，中间不必逐次检查
 	bw := bufio.NewWriter(w)
-	if _, err := bw.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n<i>\n"); err != nil {
-		return err
-	}
-	var line []byte
+	fmt.Fprint(bw, `<?xml version="1.0" encoding="UTF-8"?>`+"\n<i>\n")
 	for _, d := range items {
-		line = append(line[:0], `<d p="`...)
-		line = strconv.AppendFloat(line, float64(d.TimeMs)/1000, 'f', 3, 64)
-		line = append(line, ',')
-		line = strconv.AppendUint(line, uint64(d.Mode), 10)
-		line = append(line, ",25,"...)
-		line = strconv.AppendUint(line, uint64(d.Color), 10)
-		line = append(line, ",0,0,,"...)
-		line = strconv.AppendInt(line, d.SourceID, 10)
-		line = append(line, `,0">`...)
-		line = append(line, textEscaper.Replace(d.Text)...)
-		line = append(line, "</d>\n"...)
-		if _, err := bw.Write(line); err != nil {
-			return err
-		}
+		fmt.Fprintf(bw, `<d p="%.3f,%d,25,%d,0,0,,%d,0">%s</d>`+"\n", float64(d.TimeMs)/1000, d.Mode, d.Color, d.SourceID, textEscaper.Replace(d.Text))
 	}
-	if _, err := bw.WriteString("</i>\n"); err != nil {
-		return err
-	}
+	fmt.Fprint(bw, "</i>\n")
 	return bw.Flush()
 }
 

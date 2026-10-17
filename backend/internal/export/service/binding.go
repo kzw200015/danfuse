@@ -34,7 +34,7 @@ func (s *Service) ExportBinding(ctx context.Context, id int64, open Open) error 
 	if err != nil {
 		return err
 	}
-	if err := bilifmt.Encode(open(bindingName(title)+".xml"), items); err != nil {
+	if err := bilifmt.Encode(open(titleName(title)+".xml"), items); err != nil {
 		return fmt.Errorf("write binding %d: %w", id, err)
 	}
 	return nil

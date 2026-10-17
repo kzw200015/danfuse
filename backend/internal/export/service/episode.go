@@ -27,9 +27,6 @@ func (s *Service) ExportEpisode(ctx context.Context, id int64, open Open) error 
 		if err := addEpisode(ctx, q, a, "", id); err != nil {
 			return fmt.Errorf("export episode %d: %w", id, err)
 		}
-		if a.empty() {
-			return errEpisodeEmpty
-		}
-		return a.close()
+		return a.close(errEpisodeEmpty)
 	})
 }

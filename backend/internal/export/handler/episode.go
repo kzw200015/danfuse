@@ -25,6 +25,5 @@ func (h *Handler) ExportEpisode(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	d := &download{c: c, contentType: "application/zip"}
-	return d.finish(h.svc.ExportEpisode(c.Request().Context(), req.ID, d.open))
+	return h.svc.ExportEpisode(c.Request().Context(), req.ID, open(c, "application/zip"))
 }

@@ -19,9 +19,9 @@ const unsafeNameChars = `/\:*?"<>|`
 // fallbackName 绑定标题、电影的片名为空（或只有空白）时用的名称。
 const fallbackName = "弹幕"
 
-// bindingName 一个绑定导出的 XML 的文件名（不带扩展名，由调用方加 .xml）：绑定标题，标题为空（或只有空白）时用"弹幕"。
-// 文件名就是标题，所以这份文件在集面板上传回去时绑定标题不变。
-func bindingName(title string) string {
+// titleName 用标题作文件名（不带扩展名，由调用方加上）：绑定标题、电影的片名，为空（或只有空白）时用"弹幕"。
+// XML 的文件名就是绑定标题，所以这份文件在集面板上传回去时绑定标题不变。
+func titleName(title string) string {
 	if strings.TrimSpace(title) == "" {
 		return fallbackName
 	}
@@ -50,10 +50,10 @@ func safeName(s string) string {
 // fileNames 同一目录下已经用了的文件名。
 type fileNames map[string]bool
 
-// add 绑定标题为 title 的 XML 在这个目录下的文件名，记为已用：bindingName 加 .xml，已经用了时依次加 " (2)"、" (3)"，
+// add 绑定标题为 title 的 XML 在这个目录下的文件名，记为已用：titleName 加 .xml，已经用了时依次加 " (2)"、" (3)"，
 // 直到没用过（标题本身就是"OP (2)"的绑定，名称被前面的第二个"OP"占了时用"OP (2) (2)"）。按绑定的创建顺序调用，编号就是稳定的。
 func (n fileNames) add(title string) string {
-	base := bindingName(title)
+	base := titleName(title)
 	name := base + ".xml"
 	for i := 2; n[name]; i++ {
 		name = fmt.Sprintf("%s (%d).xml", base, i)
@@ -68,10 +68,7 @@ func episodeZipName(seriesTitle string, seriesType naming.SeriesType, season, ep
 	if seriesType != naming.TypeMovie {
 		return withSeriesTitle(seriesTitle, episodeCode(season, episode)) + ".zip"
 	}
-	if strings.TrimSpace(seriesTitle) == "" {
-		return fallbackName + ".zip"
-	}
-	return safeName(seriesTitle) + ".zip"
+	return titleName(seriesTitle) + ".zip"
 }
 
 // seasonDirName 一季导出的 zip 的文件名（加 .zip）与里面的根目录名：<剧名> S01（withSeriesTitle、seasonCode）。

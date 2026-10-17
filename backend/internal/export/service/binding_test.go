@@ -1,7 +1,6 @@
 package service_test
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,26 +13,11 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/testenv"
 )
 
-// exportBinding 导出绑定 id，返回给出的文件名和读回的弹幕（decodeXML）。
-// 检查文件名恰好给出一次、内容写在给出文件名之后。
+// exportBinding 导出绑定 id（capture），返回给出的文件名和读回的弹幕（decodeXML）。
 func exportBinding(t *testing.T, svc *service.Service, id int64) (string, []string) {
 	t.Helper()
-	var names []string
-	var buf bytes.Buffer
-	err := svc.ExportBinding(t.Context(), id, func(name string) io.Writer {
-		if buf.Len() > 0 {
-			t.Error("给出文件名之前已经写了内容")
-		}
-		names = append(names, name)
-		return &buf
-	})
-	if err != nil {
-		t.Fatalf("ExportBinding(%d): %v", id, err)
-	}
-	if len(names) != 1 {
-		t.Fatalf("文件名给出了 %d 次：%q", len(names), names)
-	}
-	return names[0], decodeXML(t, buf.Bytes())
+	name, data := capture(t, func(open service.Open) error { return svc.ExportBinding(t.Context(), id, open) })
+	return name, decodeXML(t, data)
 }
 
 // TestExportBinding 一个绑定保存的全部弹幕，按偏移校正（t + offset，四舍五入到毫秒）后按校正后的时间升序、同一时间按原始 ID，

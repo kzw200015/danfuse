@@ -88,13 +88,12 @@ type exportedZip struct {
 	Modified map[string]time.Time
 }
 
-// exportZip 调用 export（集、季的导出）并读回 zip（readZip）。
-// 检查文件名恰好给出一次、内容写在给出文件名之后，zip 里每份文件的修改时间都是同一个、在导出期间（zip 里精确到秒）。
-func exportZip(t *testing.T, export func(open service.Open) error) exportedZip {
+// capture 调用 export（三种导出之一），返回给出的文件名和写出的内容。
+// 检查文件名恰好给出一次、内容写在给出文件名之后。
+func capture(t *testing.T, export func(open service.Open) error) (string, []byte) {
 	t.Helper()
 	var names []string
 	var buf bytes.Buffer
-	before := time.Now().Truncate(time.Second)
 	err := export(func(name string) io.Writer {
 		if buf.Len() > 0 {
 			t.Error("给出文件名之前已经写了内容")
@@ -108,8 +107,17 @@ func exportZip(t *testing.T, export func(open service.Open) error) exportedZip {
 	if len(names) != 1 {
 		t.Fatalf("文件名给出了 %d 次：%q", len(names), names)
 	}
+	return names[0], buf.Bytes()
+}
+
+// exportZip 调用 export（集、季的导出，capture）并读回 zip（readZip）。
+// 检查 zip 里每份文件的修改时间都是同一个、在导出期间（zip 里精确到秒）。
+func exportZip(t *testing.T, export func(open service.Open) error) exportedZip {
+	t.Helper()
+	before := time.Now().Truncate(time.Second)
+	name, data := capture(t, export)
 	after := time.Now()
-	got := readZip(t, names[0], buf.Bytes())
+	got := readZip(t, name, data)
 	var first time.Time
 	for _, path := range got.Paths {
 		m := got.Modified[path]

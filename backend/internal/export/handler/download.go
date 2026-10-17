@@ -8,37 +8,20 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/response"
+	"github.com/kzw200015/danfuse/backend/internal/export/service"
 )
 
-// download 一次导出的下载。open 交给 service（service.Open），在导出确定能进行时输出响应头；
-// finish 处理 service 返回的错误，按响应头输出了没有分两种。
-type download struct {
-	c           *echo.Context
-	contentType string
-	started     bool // 响应头已经输出
-}
-
-// open 输出 200 与响应头（Content-Type、Content-Disposition），返回写响应体的 io.Writer。
-// 显式提交响应头：内容可能先进了编码器的缓冲区，不等第一次写出，之后出的错一律按"已经输出"处理。
-func (d *download) open(filename string) io.Writer {
-	resp := d.c.Response()
-	resp.Header().Set(echo.HeaderContentType, d.contentType)
-	resp.Header().Set(echo.HeaderContentDisposition, contentDisposition(filename))
-	resp.WriteHeader(http.StatusOK)
-	d.started = true
-	return resp
-}
-
-// finish 响应头还没输出时原样返回 err，由全局 errorHandler 输出统一的错误响应。
-// 已经输出时响应改不成错误了（errorHandler 遇到已提交的响应什么也不做）：记 5xx 日志，再中止连接（http.ErrAbortHandler，
-// Recover 中间件会把它原样抛给 net/http），让浏览器把下载标为失败，而不是存下一份看着正常、实际不完整的文件。
-func (d *download) finish(err error) error {
-	if err == nil || !d.started {
-		return err
+// open 一次导出的 service.Open：输出 200 与响应头（Content-Type、Content-Disposition），返回写响应体的 io.Writer。
+// 显式提交响应头：内容可能先进了编码器的缓冲区，不等第一次写出，之后出的错一律按"已经输出"处理——
+// 全局 errorHandler 遇到已提交的响应时记 5xx 日志、中止连接，浏览器把下载标为失败。
+func open(c *echo.Context, contentType string) service.Open {
+	return func(filename string) io.Writer {
+		resp := c.Response()
+		resp.Header().Set(echo.HeaderContentType, contentType)
+		resp.Header().Set(echo.HeaderContentDisposition, contentDisposition(filename))
+		resp.WriteHeader(http.StatusOK)
+		return resp
 	}
-	response.LogServerError(d.c, err)
-	panic(http.ErrAbortHandler)
 }
 
 // contentDisposition 下载的 Content-Disposition：attachment，同时给出 ASCII 的 filename 兜底（只认 filename 的客户端用）

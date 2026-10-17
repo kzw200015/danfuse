@@ -24,6 +24,5 @@ func (h *Handler) ExportBinding(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	d := &download{c: c, contentType: "application/xml"}
-	return d.finish(h.svc.ExportBinding(c.Request().Context(), req.ID, d.open))
+	return h.svc.ExportBinding(c.Request().Context(), req.ID, open(c, "application/xml"))
 }

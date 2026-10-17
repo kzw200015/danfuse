@@ -40,7 +40,7 @@ func (q *Queries) GetEpisode(ctx context.Context, id int64) (GetEpisodeRow, erro
 const listBindingsByEpisode = `-- name: ListBindingsByEpisode :many
 SELECT id, title, "offset"
 FROM bindings
-WHERE episode_id = $1
+WHERE episode_id = $1 AND danmaku_count > 0
 ORDER BY id
 `
 
@@ -50,7 +50,8 @@ type ListBindingsByEpisodeRow struct {
 	Offset float64 `json:"offset"`
 }
 
-// 一集的全部绑定（失效的、季绑定建出的都在），按创建顺序：重名后缀按这个顺序编号。
+// 一集有弹幕的绑定（失效的、季绑定建出的都在），按创建顺序：重名后缀按这个顺序编号。
+// 没有弹幕的绑定（danmaku_count 与弹幕在同一个事务里维护）不读，省掉读它弹幕的那次查询。
 func (q *Queries) ListBindingsByEpisode(ctx context.Context, episodeID int64) ([]ListBindingsByEpisodeRow, error) {
 	rows, err := q.db.Query(ctx, listBindingsByEpisode, episodeID)
 	if err != nil {

@@ -37,9 +37,6 @@ func (s *Service) ExportSeason(ctx context.Context, id int64, open Open) error {
 				return fmt.Errorf("export season %d: %w", id, err)
 			}
 		}
-		if a.empty() {
-			return errSeasonEmpty
-		}
-		return a.close()
+		return a.close(errSeasonEmpty)
 	})
 }
