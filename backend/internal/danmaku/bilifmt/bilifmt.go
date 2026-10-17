@@ -74,7 +74,8 @@ func decodeElem(p, text string) (danmaku.Danmaku, bool) {
 // NewDanmaku 把 B 站一条弹幕的字段映射成内部格式，protobuf 与 XML 共用；不是普通的文字弹幕、没有 ID 或正文为空时 ok 为 false。
 //   - 模式：1、2、3 合并为滚动，4、5、6 原样保留，7、8、9（高级、代码、BAS）和其他取值丢弃；
 //   - 颜色：只取低 24 位，大会员渐变色忽略；
-//   - 正文：只清洗非法的 UTF-8 字节和 NUL（PostgreSQL 的 text 存不了），其余原样保留；去掉空白后为空的丢弃。
+//   - 正文：去掉非法的 UTF-8 字节和 NUL（PostgreSQL 的 text 存不了），以及 XML 1.0 不允许的字符（导出的 XML 要能被
+//     严格的解析器打开），其余原样保留；去掉空白后为空的丢弃。
 func NewDanmaku(id int64, timeMs int32, mode int64, color uint64, text string) (danmaku.Danmaku, bool) {
 	d := danmaku.Danmaku{SourceID: id, TimeMs: timeMs, Color: uint32(color & 0xFFFFFF)}
 	switch mode {
@@ -85,9 +86,18 @@ func NewDanmaku(id int64, timeMs int32, mode int64, color uint64, text string) (
 	default:
 		return danmaku.Danmaku{}, false
 	}
-	d.Text = strings.ReplaceAll(strings.ToValidUTF8(text, ""), "\x00", "")
+	d.Text = strings.Map(dropXMLInvalid, strings.ToValidUTF8(text, ""))
 	if d.SourceID == 0 || strings.TrimSpace(d.Text) == "" {
 		return danmaku.Danmaku{}, false
 	}
 	return d, true
+}
+
+// dropXMLInvalid 供 strings.Map 用：XML 1.0 不允许的字符（含 NUL）返回 -1 去掉。
+// 合法的 UTF-8 里不会出现代理项，超出 U+10FFFF 的码点也不会出现，所以只需排除 C0 控制字符（制表、换行、回车除外）与 U+FFFE、U+FFFF。
+func dropXMLInvalid(r rune) rune {
+	if (r < 0x20 && r != '\t' && r != '\n' && r != '\r') || r == 0xFFFE || r == 0xFFFF {
+		return -1
+	}
+	return r
 }
