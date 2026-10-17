@@ -10,3 +10,8 @@ export function bindingExportUrl(id: number) {
 export function episodeExportUrl(id: number) {
   return `/api/episodes/${id}/export`
 }
+
+/** 一季的导出：zip，每集一个子目录，每个有弹幕的绑定一份 XML */
+export function seasonExportUrl(id: number) {
+  return `/api/seasons/${id}/export`
+}

@@ -182,6 +182,10 @@ async function openCollectionForm(link: string) {
   return form
 }
 
+/** 季面板右上角"导出 XML"的提示 */
+const seasonExportTitle =
+  '下载这一季各集的弹幕（zip，每集一个子目录、每个绑定一份 XML，按偏移校正）'
+
 describe('季面板', () => {
   it('右上角两个添加按钮：表单在卡片列表上方展开，同一时间只展开一个；取消后收起', async () => {
     renderRoutes('/catalog/1/11')
@@ -202,6 +206,56 @@ describe('季面板', () => {
       expect(screen.queryByRole('region', { name: '上传弹幕文件夹' })).not.toBeInTheDocument(),
     )
     expect(screen.getByRole('button', { name: '绑定合集' })).toBeEnabled()
+  })
+
+  it('右上角"导出 XML"：这一季有弹幕时链接到导出接口由浏览器直接下载，整季都没有时禁用', async () => {
+    all[0]!.seasons.push(
+      {
+        id: 12,
+        number: 2,
+        title: null,
+        seasonBindings: [],
+        episodes: [
+          {
+            id: 120,
+            number: 1,
+            title: null,
+            duration: 1420,
+            bindings: [binding(2, { danmakuCount: 0 })],
+          },
+          { id: 121, number: 2, title: null, duration: 1420, bindings: [] },
+        ],
+      },
+      { id: 13, number: 3, title: null, seasonBindings: [], episodes: [] },
+    )
+    const { router } = renderRoutes('/catalog/1/11')
+
+    // 第 1 集的绑定有弹幕，第 2 集没有绑定
+    const link = await screen.findByTitle(seasonExportTitle)
+    expect(link).toHaveRole('link')
+    expect(link).toHaveTextContent('导出 XML')
+    expect(link).toHaveAttribute('href', '/api/seasons/11/export')
+    expect(link).toHaveAttribute('download')
+
+    // 绑定都没有弹幕
+    await act(() => router.navigate('/catalog/1/12'))
+    expect(await screen.findByRole('heading', { name: '第 2 季' })).toBeInTheDocument()
+    expect(screen.getByTitle(seasonExportTitle)).toBeDisabled()
+
+    // 没有集
+    await act(() => router.navigate('/catalog/1/13'))
+    expect(await screen.findByRole('heading', { name: '第 3 季' })).toBeInTheDocument()
+    expect(screen.getByTitle(seasonExportTitle)).toBeDisabled()
+  })
+
+  it('电影没有季面板，也就没有季的"导出 XML"，只有集面板的', async () => {
+    all[1]!.seasons[0]!.episodes[0]!.bindings = [binding(5)]
+    renderRoutes('/catalog/2')
+
+    expect(
+      await screen.findByRole('link', { name: '导出 XML', description: /这一集/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTitle(seasonExportTitle)).not.toBeInTheDocument()
   })
 })
 
