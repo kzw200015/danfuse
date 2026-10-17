@@ -78,35 +78,35 @@ linters:
             - "!**/internal/catalog/**"
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/catalog/dao
-              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
+              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 dao 里写查询
         seasonbinding-dao:
           files:
             - "$all"
             - "!**/internal/seasonbinding/**"
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao
-              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
+              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 dao 里写查询
         binding-dao:
           files:
             - "$all"
             - "!**/internal/binding/**"
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/binding/dao
-              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
+              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 dao 里写查询
         dandan-dao:
           files:
             - "$all"
             - "!**/internal/dandan/**"
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/dandan/dao
-              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
+              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 dao 里写查询
         blockword-dao:
           files:
             - "$all"
             - "!**/internal/blockword/**"
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/dao
-              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 queries.sql 里写查询
+              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 dao 里写查询
         catalog-service:
           files:
             - "$all"
