@@ -417,6 +417,16 @@ func TestMapping(t *testing.T) {
 			}},
 		},
 		{
+			name:     "首播日期取开头的年月日：毫秒不为 0、没标时区时末尾没有 Z",
+			series:   `{"Id":"s1","Type":"Series","Name":"测试剧","OriginalTitle":"テスト","ProductionYear":2020,"PremiereDate":"2019-12-31T23:30:00.123","ProviderIds":{"Tmdb":"1"}}`,
+			children: []string{valid},
+			want: catalog.Item{Name: "测试剧", Series: func() *catalog.Series {
+				s := tv(validSeason)
+				s.PremiereDate = new(time.Date(2019, 12, 31, 0, 0, 0, 0, time.UTC))
+				return s
+			}()},
+		},
+		{
 			name:     "多集文件范围恰好 10 集：全部展开",
 			children: []string{episode("e1", `"ParentIndexNumber":1,"IndexNumber":1,"IndexNumberEnd":10`)},
 			want: catalog.Item{Name: "测试剧", Series: tv(catalog.Season{Number: 1, Episodes: func() []catalog.Episode {
@@ -671,7 +681,7 @@ func TestMapMovie(t *testing.T) {
 		"virtual-folders.json": `[{"Name":"电影","ItemId":"lib","CollectionType":"movies"}]`,
 		"items-lib.json": `{"Items":[
 			{"Id":"m2","Type":"Movie","Name":"无时长","OriginalTitle":"No Runtime","ProviderIds":{"Tmdb":"2"}},
-			{"Id":"m1","Type":"Movie","Name":"有时长","ProductionYear":1999,"RunTimeTicks":71234567890,"ProviderIds":{"Tmdb":"1"}}
+			{"Id":"m1","Type":"Movie","Name":"有时长","ProductionYear":1999,"PremiereDate":"1999-03-31T00:00:00.0000000Z","RunTimeTicks":71234567890,"ProviderIds":{"Tmdb":"1"}}
 		]}`,
 	})
 	listing, err := fake.source("电影").List(t.Context())
@@ -679,15 +689,15 @@ func TestMapMovie(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	movie := func(id, title, original string, year *int, tmdbID int64, duration *int) catalog.Item {
+	movie := func(id, title, original string, year *int, premiere *time.Time, tmdbID int64, duration *int) catalog.Item {
 		return catalog.Item{Name: title, Series: &catalog.Series{
-			Type: naming.TypeMovie, Title: title, OriginalTitle: original, Year: year, TMDBID: &tmdbID, SourceID: id,
+			Type: naming.TypeMovie, Title: title, OriginalTitle: original, Year: year, PremiereDate: premiere, TMDBID: &tmdbID, SourceID: id,
 			Seasons: []catalog.Season{{Number: 1, Episodes: []catalog.Episode{{Number: 1, Duration: duration}}}},
 		}}
 	}
 	assertItems(t, collect(t, listing.Items), []catalog.Item{
-		movie("m1", "有时长", "", new(1999), 1, new(7123)),
-		movie("m2", "无时长", "No Runtime", nil, 2, nil),
+		movie("m1", "有时长", "", new(1999), new(time.Date(1999, 3, 31, 0, 0, 0, 0, time.UTC)), 1, new(7123)),
+		movie("m2", "无时长", "No Runtime", nil, nil, 2, nil),
 	})
 	if n := len(fake.requested()); n != 2 {
 		t.Errorf("电影不用取季和集，共请求 %d 次，want 2", n)

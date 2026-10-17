@@ -11,7 +11,7 @@ import {
   bilibiliSearchUrl,
   seasonLabel,
   seasonName,
-  seriesMeta,
+  seriesDetailMeta,
   tmdbUrl,
   type Selection,
 } from './catalog'
@@ -46,7 +46,7 @@ export default function SeriesColumn({
           {series.originalTitle && (
             <div className="truncate text-xs text-muted-foreground">{series.originalTitle}</div>
           )}
-          <div className="text-xs text-muted-foreground">{seriesMeta(series)}</div>
+          <div className="text-xs text-muted-foreground">{seriesDetailMeta(series)}</div>
           {/* 外链单独一行；中栏窄，放不下时整个外链换到下一行，不在单词中间断开 */}
           <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
             {links.map(({ href, label }, i) => (

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/naming"
@@ -28,6 +29,7 @@ func mapMovie(movie item) catalog.Item {
 			Title:         strings.TrimSpace(movie.Name),
 			OriginalTitle: strings.TrimSpace(movie.OriginalTitle),
 			Year:          movie.ProductionYear,
+			PremiereDate:  premiereDate(movie),
 			TMDBID:        tmdbID,
 			SourceID:      movie.ID,
 			Seasons: []catalog.Season{{
@@ -50,6 +52,20 @@ func tmdbID(it item) (id *int64, warnings []string) {
 		return nil, []string{fmt.Sprintf("TMDB ID「%s」无效，按标题和年份对应", raw)}
 	}
 	return &n, nil
+}
+
+// premiereDate 剧或电影的首播日期：PremiereDate 开头的年月日，按 UTC 零点表示。
+// 不按 time.Time 解析整个值：Jellyfin 的毫秒为 0 时写成 2019-04-06T00:00:00.0000000Z，否则按 .NET 的默认格式，DateTime 没标时区时末尾没有 Z。
+// 没有，或开头不是日期时为 nil（Jellyfin 输出的是解析好的 DateTime，不会出现）。
+func premiereDate(it item) *time.Time {
+	if len(it.PremiereDate) < len(time.DateOnly) {
+		return nil
+	}
+	d, err := time.Parse(time.DateOnly, it.PremiereDate[:len(time.DateOnly)])
+	if err != nil {
+		return nil
+	}
+	return &d
 }
 
 // mapSeries 把一部剧和按剧递归查到的季、集条目翻译成 catalog.Item：跳过的项写进 Warnings，
@@ -96,6 +112,7 @@ func mapSeries(series item, children []item) catalog.Item {
 		Title:         strings.TrimSpace(series.Name),
 		OriginalTitle: strings.TrimSpace(series.OriginalTitle),
 		Year:          series.ProductionYear,
+		PremiereDate:  premiereDate(series),
 		TMDBID:        tmdbID,
 		SourceID:      series.ID,
 	}

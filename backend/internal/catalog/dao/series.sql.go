@@ -7,6 +7,8 @@ package dao
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteEpisode = `-- name: DeleteEpisode :execrows
@@ -54,7 +56,7 @@ func (q *Queries) DeleteSeries(ctx context.Context, id int64) (*int64, error) {
 }
 
 const getSeries = `-- name: GetSeries :one
-SELECT id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id, catalog_source_id
+SELECT id, type, title, original_title, year, created_at, updated_at, poster_image_id, tmdb_id, catalog_source_id, premiere_date
 FROM series
 WHERE id = $1
 `
@@ -73,6 +75,7 @@ func (q *Queries) GetSeries(ctx context.Context, id int64) (Series, error) {
 		&i.PosterImageID,
 		&i.TmdbID,
 		&i.CatalogSourceID,
+		&i.PremiereDate,
 	)
 	return i, err
 }
@@ -149,7 +152,7 @@ func (q *Queries) ListSeasonsBySeries(ctx context.Context, seriesID int64) ([]Li
 }
 
 const listSeries = `-- name: ListSeries :many
-SELECT s.id, s.type, s.title, s.original_title, s.year, s.tmdb_id, s.poster_image_id,
+SELECT s.id, s.type, s.title, s.original_title, s.year, s.premiere_date, s.tmdb_id, s.poster_image_id,
        count(DISTINCT se.id)::int                         AS season_count,
        count(DISTINCT e.id)::int                          AS episode_count,
        count(DISTINCT b.episode_id)::int                  AS bound_episode_count,
@@ -169,19 +172,20 @@ ORDER BY s.id
 `
 
 type ListSeriesRow struct {
-	ID                int64   `json:"id"`
-	Type              string  `json:"type"`
-	Title             string  `json:"title"`
-	OriginalTitle     *string `json:"originalTitle"`
-	Year              *int32  `json:"year"`
-	TmdbID            *int64  `json:"tmdbId"`
-	PosterImageID     *int64  `json:"posterImageId"`
-	SeasonCount       int32   `json:"seasonCount"`
-	EpisodeCount      int32   `json:"episodeCount"`
-	BoundEpisodeCount int32   `json:"boundEpisodeCount"`
-	BindingCount      int32   `json:"bindingCount"`
-	DeadBindingCount  int32   `json:"deadBindingCount"`
-	Following         bool    `json:"following"`
+	ID                int64       `json:"id"`
+	Type              string      `json:"type"`
+	Title             string      `json:"title"`
+	OriginalTitle     *string     `json:"originalTitle"`
+	Year              *int32      `json:"year"`
+	PremiereDate      pgtype.Date `json:"premiereDate"`
+	TmdbID            *int64      `json:"tmdbId"`
+	PosterImageID     *int64      `json:"posterImageId"`
+	SeasonCount       int32       `json:"seasonCount"`
+	EpisodeCount      int32       `json:"episodeCount"`
+	BoundEpisodeCount int32       `json:"boundEpisodeCount"`
+	BindingCount      int32       `json:"bindingCount"`
+	DeadBindingCount  int32       `json:"deadBindingCount"`
+	Following         bool        `json:"following"`
 }
 
 // 剧列表：全部剧连同季数、集数和绑定统计，一条 SQL 聚合。没有季、集、绑定的计为 0。
@@ -202,6 +206,7 @@ func (q *Queries) ListSeries(ctx context.Context) ([]ListSeriesRow, error) {
 			&i.Title,
 			&i.OriginalTitle,
 			&i.Year,
+			&i.PremiereDate,
 			&i.TmdbID,
 			&i.PosterImageID,
 			&i.SeasonCount,

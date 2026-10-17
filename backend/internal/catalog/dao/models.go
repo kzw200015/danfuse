@@ -6,6 +6,8 @@ package dao
 
 import (
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Episode struct {
@@ -19,16 +21,17 @@ type Episode struct {
 }
 
 type Series struct {
-	ID              int64     `json:"id"`
-	Type            string    `json:"type"`
-	Title           string    `json:"title"`
-	OriginalTitle   *string   `json:"originalTitle"`
-	Year            *int32    `json:"year"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
-	PosterImageID   *int64    `json:"posterImageId"`
-	TmdbID          *int64    `json:"tmdbId"`
-	CatalogSourceID *string   `json:"catalogSourceId"`
+	ID              int64       `json:"id"`
+	Type            string      `json:"type"`
+	Title           string      `json:"title"`
+	OriginalTitle   *string     `json:"originalTitle"`
+	Year            *int32      `json:"year"`
+	CreatedAt       time.Time   `json:"createdAt"`
+	UpdatedAt       time.Time   `json:"updatedAt"`
+	PosterImageID   *int64      `json:"posterImageId"`
+	TmdbID          *int64      `json:"tmdbId"`
+	CatalogSourceID *string     `json:"catalogSourceId"`
+	PremiereDate    pgtype.Date `json:"premiereDate"`
 }
 
 type SyncRun struct {

@@ -3,6 +3,7 @@ package service_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -84,12 +85,22 @@ func withSourceID(s *catalog.Series, id string) *catalog.Series {
 	return s
 }
 
-// readSeries 目录里的全部剧，按 id 排序："id|类型|标题|年份|TMDB ID|目录源 ID"，空值写作 -。
+// withPremiereDate 给目录源交出的剧设上首播日期，date 形如 2019-04-06。
+func withPremiereDate(s *catalog.Series, date string) *catalog.Series {
+	d, err := time.Parse(time.DateOnly, date)
+	if err != nil {
+		panic(err)
+	}
+	s.PremiereDate = &d
+	return s
+}
+
+// readSeries 目录里的全部剧，按 id 排序："id|类型|标题|年份|首播日期|TMDB ID|目录源 ID"，空值写作 -。
 func readSeries(t *testing.T, pool *pgxpool.Pool) []string {
 	t.Helper()
 	rows, err := pool.Query(t.Context(), `
-		SELECT format('%s|%s|%s|%s|%s|%s', id, type, title, coalesce(year::text, '-'), coalesce(tmdb_id::text, '-'),
-		              coalesce(catalog_source_id, '-'))
+		SELECT format('%s|%s|%s|%s|%s|%s|%s', id, type, title, coalesce(year::text, '-'), coalesce(premiere_date::text, '-'),
+		              coalesce(tmdb_id::text, '-'), coalesce(catalog_source_id, '-'))
 		FROM series
 		ORDER BY id`)
 	if err != nil {

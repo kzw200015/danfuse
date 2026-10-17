@@ -41,6 +41,7 @@ type item struct {
 	Name              string            `json:"Name"`
 	OriginalTitle     string            `json:"OriginalTitle"`
 	ProductionYear    *int              `json:"ProductionYear"`
+	PremiereDate      string            `json:"PremiereDate"`      // 剧和电影的首播日期，带时间；末尾不一定有 Z，按字符串取日期部分
 	IndexNumber       *int              `json:"IndexNumber"`       // 季条目为季号，集条目为集号
 	IndexNumberEnd    *int              `json:"IndexNumberEnd"`    // 只在多集文件上出现
 	ParentIndexNumber *int              `json:"ParentIndexNumber"` // 集所在的季号

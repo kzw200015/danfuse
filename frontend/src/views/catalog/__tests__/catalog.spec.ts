@@ -32,6 +32,7 @@ function summary(
     title,
     originalTitle,
     year,
+    premiereDate: null,
     tmdbId: null,
     posterImageId: null,
     seasonCount: 1,
@@ -139,6 +140,29 @@ describe('filterSeries', () => {
     ])
   })
 
+  it('按首播日期倒序：没有日期的按年份排在那一年有日期的后面，有日期时不看年份', () => {
+    const dated = (id: number, title: string, year: number | null, premiereDate: string) => ({
+      ...summary(id, title, null, year),
+      premiereDate,
+    })
+    const mixed = [
+      summary(1, '只有年份 2021', null, 2021),
+      dated(2, '2021 年初', 2021, '2021-01-08'),
+      dated(3, '2021 年末', 2021, '2021-12-30'),
+      summary(4, '什么都没有', null, null),
+      dated(5, '制作年份 2020、上映 2022', 2020, '2022-03-01'),
+      summary(6, '只有年份 2022', null, 2022),
+    ]
+    expect(filterSeries(mixed).map((s) => s.title)).toEqual([
+      '制作年份 2020、上映 2022',
+      '只有年份 2022',
+      '2021 年末',
+      '2021 年初',
+      '只有年份 2021',
+      '什么都没有',
+    ])
+  })
+
   it('同一年的按标题排，标题里的数字按数值排序', () => {
     const numbered = [summary(1, '物语 10', null, 2020), summary(2, '物语 2', null, 2020)]
     expect(filterSeries(numbered).map((s) => s.title)).toEqual(['物语 2', '物语 10'])
@@ -174,6 +198,7 @@ describe('resolveSelection', () => {
     title: '星海旅人',
     originalTitle: null,
     year: 2019,
+    premiereDate: null,
     tmdbId: null,
     posterImageId: null,
     sourceLink: null,
@@ -247,6 +272,7 @@ describe('deletionImpact', () => {
     title: '星海旅人',
     originalTitle: null,
     year: 2019,
+    premiereDate: null,
     tmdbId: null,
     posterImageId: null,
     sourceLink: null,

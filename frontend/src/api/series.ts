@@ -11,6 +11,8 @@ export interface SeriesSummary {
   title: string
   originalTitle: string | null
   year: number | null
+  /** 首播日期，形如 2019-04-06；没有时为 null。列表按它倒序 */
+  premiereDate: string | null
   /** TMDB 上的编号，没有时为 null，列表上标出警告 */
   tmdbId: number | null
   /** 海报的图片 ID，没有海报时为 null；图片地址见 ./images.ts 的 imageUrl */
@@ -53,6 +55,8 @@ export interface SeriesDetail {
   title: string
   originalTitle: string | null
   year: number | null
+  /** 首播日期，形如 2019-04-06；没有时为 null */
+  premiereDate: string | null
   /** TMDB 上的编号，没有时为 null；有它的剧同步时以它为身份 */
   tmdbId: number | null
   /** 海报的图片 ID，没有海报时为 null */

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"time"
 
 	"github.com/kzw200015/danfuse/backend/internal/naming"
 )
@@ -77,8 +78,9 @@ type Series struct {
 	Title         string
 	OriginalTitle string // 空串存为 null
 	Year          *int
-	TMDBID        *int64 // TMDB 上的编号（电视剧和电影各有一套），目录源没给或给的不合法时为 nil
-	SourceID      string // 目录源 ID，只用来生成 Link，不参与身份；空串存为 null
+	PremiereDate  *time.Time // 首播日期，只用年月日（UTC 零点），目录源没给时为 nil；不参与身份
+	TMDBID        *int64     // TMDB 上的编号（电视剧和电影各有一套），目录源没给或给的不合法时为 nil
+	SourceID      string     // 目录源 ID，只用来生成 Link，不参与身份；空串存为 null
 	Poster        *Image
 	PosterErr     error
 	Seasons       []Season
