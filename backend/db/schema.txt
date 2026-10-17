@@ -246,6 +246,7 @@ Referenced by:
  poster_image_id   | bigint                   |           |          |
  tmdb_id           | bigint                   |           |          |
  catalog_source_id | text                     |           |          |
+ premiere_date     | date                     |           |          |
 Indexes:
     "series_pkey" PRIMARY KEY, btree (id)
     "series_natural_key_idx" UNIQUE, btree (type, title, year) NULLS NOT DISTINCT WHERE tmdb_id IS NULL

@@ -34,7 +34,8 @@ export function categorySearch(search: URLSearchParams, category: SeriesCategory
 /**
  * 按分类、剧名或原名筛选（不区分大小写），followingOnly 时只留追更中的剧（有开着追更的季绑定），
  * noTmdbIdOnly 时只留没有 TMDB ID 的剧；条件同时生效。
- * 按年份倒序，年份未知的排在最后，同一年的按标题排
+ * 按首播日期倒序：没有首播日期的按年份排在那一年有日期的剧后面，年份也没有的排在最后；位置相同的按标题排。
+ * 有首播日期时不看年份（电影的年份是制作年份，可能和上映不是同一年）
  */
 export function filterSeries(
   list: SeriesSummary[],
@@ -61,8 +62,15 @@ export function filterSeries(
     )
     .toSorted(
       (a, b) =>
-        (b.year ?? -Infinity) - (a.year ?? -Infinity) || naturalOrder.compare(a.title, b.title),
+        sortYear(b) - sortYear(a) ||
+        (b.premiereDate ?? '').localeCompare(a.premiereDate ?? '') ||
+        naturalOrder.compare(a.title, b.title),
     )
+}
+
+/** 排序用的年份：首播日期的年份，没有首播日期时取年份，都没有时排在最后 */
+function sortYear(s: SeriesSummary) {
+  return s.premiereDate ? Number(s.premiereDate.slice(0, 4)) : (s.year ?? -Infinity)
 }
 
 /** 默认选中的季：第 1 季，没有就第一个季 */
@@ -108,6 +116,12 @@ export function seasonName(season: Season) {
 /** 年份与类型，例如"2019 · 剧集" */
 export function seriesMeta(series: Pick<SeriesSummary, 'type' | 'year'>) {
   return `${series.year ?? '年份未知'} · ${series.type === 'movie' ? '电影' : '剧集'}`
+}
+
+/** 剧详情的年份、类型与首播日期，例如"2019 · 剧集 · 首播 2019-04-06"；没有首播日期时不写这一项 */
+export function seriesDetailMeta(series: Pick<SeriesDetail, 'type' | 'year' | 'premiereDate'>) {
+  const meta = seriesMeta(series)
+  return series.premiereDate ? `${meta} · 首播 ${series.premiereDate}` : meta
 }
 
 /** 剧在 TMDB 上的页面；电视剧和电影各有一套编号，按类型分路径。没有 TMDB ID 时为 null */

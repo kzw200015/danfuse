@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/kzw200015/danfuse/backend/internal/catalog"
 	"github.com/kzw200015/danfuse/backend/internal/catalog/dao"
@@ -160,8 +162,8 @@ func upsertEpisodes(ctx context.Context, q *dao.Queries, seasonID int64, episode
 }
 
 // upsertSeries 按身份写入一部剧（见 docs/adr/0007），返回写入后的行和是否新增：
-//  1. 有 TMDB ID 时先按（类型，TMDB ID）找，找到就覆盖标题、年份、原名和目录源 ID；
-//  2. 没找到（或没有 TMDB ID）再按（类型，标题，年份）在没有 TMDB ID 的剧里找，找到就覆盖原名和目录源 ID、补上 TMDB ID。
+//  1. 有 TMDB ID 时先按（类型，TMDB ID）找，找到就覆盖标题、年份、原名、首播日期和目录源 ID；
+//  2. 没找到（或没有 TMDB ID）再按（类型，标题，年份）在没有 TMDB ID 的剧里找，找到就覆盖原名、首播日期和目录源 ID、补上 TMDB ID。
 //     只在没有 TMDB ID 的剧里找：已有 TMDB ID 的剧标题年份相同也是另一部，在 Jellyfin 里重新识别成另一个条目按新剧处理；
 //  3. 都没找到就新增。
 //
@@ -174,6 +176,7 @@ func upsertSeries(ctx context.Context, q *dao.Queries, series catalog.Series) (d
 			Title:           series.Title,
 			OriginalTitle:   nullIfEmpty(series.OriginalTitle),
 			Year:            int32Ptr(series.Year),
+			PremiereDate:    date(series.PremiereDate),
 			CatalogSourceID: nullIfEmpty(series.SourceID),
 		})
 		if err == nil {
@@ -189,6 +192,7 @@ func upsertSeries(ctx context.Context, q *dao.Queries, series catalog.Series) (d
 		Title:           series.Title,
 		Year:            int32Ptr(series.Year),
 		OriginalTitle:   nullIfEmpty(series.OriginalTitle),
+		PremiereDate:    date(series.PremiereDate),
 		TmdbID:          series.TMDBID,
 		CatalogSourceID: nullIfEmpty(series.SourceID),
 	})
@@ -204,6 +208,7 @@ func upsertSeries(ctx context.Context, q *dao.Queries, series catalog.Series) (d
 		Title:           series.Title,
 		OriginalTitle:   nullIfEmpty(series.OriginalTitle),
 		Year:            int32Ptr(series.Year),
+		PremiereDate:    date(series.PremiereDate),
 		TmdbID:          series.TMDBID,
 		CatalogSourceID: nullIfEmpty(series.SourceID),
 	})
@@ -295,4 +300,12 @@ func int32Ptr(v *int) *int32 {
 		return nil
 	}
 	return new(int32(*v))
+}
+
+// date nil 存为 null。
+func date(t *time.Time) pgtype.Date {
+	if t == nil {
+		return pgtype.Date{}
+	}
+	return pgtype.Date{Time: *t, Valid: true}
 }

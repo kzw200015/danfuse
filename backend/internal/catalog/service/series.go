@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	bindingsvc "github.com/kzw200015/danfuse/backend/internal/binding/service"
 	seasonbindingsvc "github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
@@ -13,22 +14,23 @@ import (
 
 // SeriesSummary 剧列表里的一部剧：海报的图片 ID、季数、集数与绑定统计。
 type SeriesSummary struct {
-	ID                int64   `json:"id"`
-	Type              string  `json:"type"`
-	Title             string  `json:"title"`
-	OriginalTitle     *string `json:"originalTitle"`
-	Year              *int32  `json:"year"`
-	TmdbID            *int64  `json:"tmdbId"`
-	PosterImageID     *int64  `json:"posterImageId"`
-	SeasonCount       int32   `json:"seasonCount"`
-	EpisodeCount      int32   `json:"episodeCount"`
-	BoundEpisodeCount int32   `json:"boundEpisodeCount"`
-	BindingCount      int32   `json:"bindingCount"`
-	DeadBindingCount  int32   `json:"deadBindingCount"`
-	Following         bool    `json:"following"`
+	ID                int64       `json:"id"`
+	Type              string      `json:"type"`
+	Title             string      `json:"title"`
+	OriginalTitle     *string     `json:"originalTitle"`
+	Year              *int32      `json:"year"`
+	PremiereDate      pgtype.Date `json:"premiereDate"` // 2019-04-06 这样只到日，没有时为 null
+	TmdbID            *int64      `json:"tmdbId"`
+	PosterImageID     *int64      `json:"posterImageId"`
+	SeasonCount       int32       `json:"seasonCount"`
+	EpisodeCount      int32       `json:"episodeCount"`
+	BoundEpisodeCount int32       `json:"boundEpisodeCount"`
+	BindingCount      int32       `json:"bindingCount"`
+	DeadBindingCount  int32       `json:"deadBindingCount"`
+	Following         bool        `json:"following"`
 }
 
-// ListSeries 全部剧连同海报的图片 ID、季数、集数与绑定统计，不分页：自用规模在几百到一两千部。筛选和排序由前端做。
+// ListSeries 全部剧连同海报的图片 ID、季数、集数与绑定统计，不分页：自用规模在几百到一两千部。筛选和排序（按首播日期倒序）由前端做。
 func (s *Service) ListSeries(ctx context.Context) ([]SeriesSummary, error) {
 	rows, err := s.q.ListSeries(ctx)
 	if err != nil {
@@ -48,6 +50,7 @@ type SeriesDetail struct {
 	Title         string         `json:"title"`
 	OriginalTitle *string        `json:"originalTitle"`
 	Year          *int32         `json:"year"`
+	PremiereDate  pgtype.Date    `json:"premiereDate"`  // 2019-04-06 这样只到日，没有时为 null
 	TMDBID        *int64         `json:"tmdbId"`        // 没有 TMDB ID 时为 null
 	PosterImageID *int64         `json:"posterImageId"` // 没有海报时为 null
 	SourceLink    *SourceLink    `json:"sourceLink"`    // 没有目录源 ID 或未配置目录源时为 null
@@ -110,6 +113,7 @@ func (s *Service) GetSeries(ctx context.Context, id int64) (SeriesDetail, error)
 		Title:         series.Title,
 		OriginalTitle: series.OriginalTitle,
 		Year:          series.Year,
+		PremiereDate:  series.PremiereDate,
 		TMDBID:        series.TmdbID,
 		PosterImageID: series.PosterImageID,
 		Seasons:       make([]SeasonDetail, len(seasons)),

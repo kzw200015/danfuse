@@ -74,7 +74,7 @@ type searchAnimeResponse struct {
 }
 
 // searchAnime 官方的 SearchAnimeDetails：一个作品（一季），不带集。目录里没有的信息按 Swagger 的类型输出：
-// 海报不经弹弹 API 提供、目录只有年份不编造上映日期，所以 imageUrl、startDate 为 null；没有评分和用户，rating 为 0、isFavorited 为 false。
+// 海报不经弹弹 API 提供，imageUrl 为 null；作品是一季，目录只有剧的首播日期（第 2 季起不是这一天），startDate 为 null；没有评分和用户，rating 为 0、isFavorited 为 false。
 type searchAnime struct {
 	AnimeID         int64      `json:"animeId"`
 	BangumiID       string     `json:"bangumiId"`

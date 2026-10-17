@@ -45,6 +45,7 @@ const tv: SeriesDetail = {
   title: '星海旅人',
   originalTitle: 'Star Voyager',
   year: 2019,
+  premiereDate: '2019-04-06',
   tmdbId: 60735,
   posterImageId: 5,
   sourceLink: { url: 'http://jellyfin.test/web/#/details?id=jf1', label: 'Jellyfin' },
@@ -102,6 +103,7 @@ describe('CatalogView', () => {
 
     expect(await screen.findByRole('heading', { name: '星海旅人' })).toBeInTheDocument()
     expect(screen.getByText('Star Voyager')).toBeInTheDocument()
+    expect(screen.getByText('2019 · 剧集 · 首播 2019-04-06')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'TMDB' })).toHaveAttribute(
       'href',
       'https://www.themoviedb.org/tv/60735',
@@ -161,6 +163,7 @@ describe('CatalogView', () => {
     expect(screen.queryByTitle('查看整季')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'TMDB' })).not.toBeInTheDocument() // 没有 TMDB ID
     expect(screen.queryByRole('link', { name: 'Jellyfin' })).not.toBeInTheDocument() // 没有目录源链接
+    expect(screen.queryByText(/首播/)).not.toBeInTheDocument() // 没有首播日期
     expect(screen.getByRole('link', { name: 'B 站' })).toHaveAttribute(
       'href',
       'https://search.bilibili.com/all?keyword=%E9%95%BF%E5%A4%9C%E7%81%AF%E5%A1%94',

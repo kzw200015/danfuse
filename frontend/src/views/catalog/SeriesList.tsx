@@ -25,7 +25,7 @@ import {
 import { Hint, Poster, scrollIntoView, useCatalogPath } from './shared'
 
 /**
- * 左栏：剧列表，按分类（地址栏的 ?type=）、剧名或原名筛选，筛选条件弹出层里可以只看追更中的、没有 TMDB ID 的，按年份倒序。
+ * 左栏：剧列表，按分类（地址栏的 ?type=）、剧名或原名筛选，筛选条件弹出层里可以只看追更中的、没有 TMDB ID 的，按首播日期倒序。
  * 切换分类时选中的剧不变。没有 TMDB ID 的剧标出警告：同步时按标题和年份对应，Jellyfin 里改了标题或年份会多出一部剧
  */
 export default function SeriesList({ selectedId }: { selectedId?: number }) {

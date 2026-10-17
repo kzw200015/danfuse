@@ -44,10 +44,10 @@ func seedCatalog(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatal(err)
 	}
 	_, err = pool.Exec(t.Context(), `
-		INSERT INTO series (type, title, original_title, year, tmdb_id, poster_image_id, catalog_source_id) VALUES
-			('tv', '星海旅人', 'Star Voyager', 2019, 60735, 1, 'jf-1'), -- 剧 1：有 TMDB ID，海报是图片 1，有目录源 ID
-			('movie', '长夜灯塔', NULL, 2020, NULL, NULL, NULL),        -- 剧 2：没有 TMDB ID、没有海报、没有目录源 ID
-			('tv', '空无一季', NULL, NULL, NULL, NULL, NULL);           -- 剧 3：没有季
+		INSERT INTO series (type, title, original_title, year, premiere_date, tmdb_id, poster_image_id, catalog_source_id) VALUES
+			('tv', '星海旅人', 'Star Voyager', 2019, '2019-04-06', 60735, 1, 'jf-1'), -- 剧 1：有首播日期、TMDB ID，海报是图片 1，有目录源 ID
+			('movie', '长夜灯塔', NULL, 2020, NULL, NULL, NULL, NULL),              -- 剧 2：没有首播日期、TMDB ID、海报、目录源 ID
+			('tv', '空无一季', NULL, NULL, NULL, NULL, NULL, NULL);                 -- 剧 3：没有季
 		INSERT INTO seasons (series_id, number, title) VALUES
 			(1, 1, '第 1 季'), -- 季 1
 			(1, 0, NULL),      -- 季 2：特别篇
@@ -85,13 +85,13 @@ func TestListSeries(t *testing.T) {
 	seedCatalog(t, pool)
 	_, _, data := call(t, srv, http.MethodGet, "/api/series", "", http.StatusOK)
 	testutil.AssertJSON(t, data, `[
-		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "tmdbId": 60735,
+		{"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "premiereDate": "2019-04-06", "tmdbId": 60735,
 		 "posterImageId": 1, "seasonCount": 3, "episodeCount": 3,
 		 "boundEpisodeCount": 2, "bindingCount": 3, "deadBindingCount": 2, "following": false},
-		{"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020, "tmdbId": null,
+		{"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020, "premiereDate": null, "tmdbId": null,
 		 "posterImageId": null, "seasonCount": 1, "episodeCount": 1,
 		 "boundEpisodeCount": 1, "bindingCount": 1, "deadBindingCount": 0, "following": false},
-		{"id": 3, "type": "tv", "title": "空无一季", "originalTitle": null, "year": null, "tmdbId": null,
+		{"id": 3, "type": "tv", "title": "空无一季", "originalTitle": null, "year": null, "premiereDate": null, "tmdbId": null,
 		 "posterImageId": null, "seasonCount": 0, "episodeCount": 0,
 		 "boundEpisodeCount": 0, "bindingCount": 0, "deadBindingCount": 0, "following": false}
 	]`)
@@ -110,7 +110,7 @@ func TestGetSeries(t *testing.T) {
 		// 季按季号、集按集号、绑定按创建顺序排序；没有集的季、没有季的剧、没有绑定的集输出空数组。
 		// 绑定的弹幕源链接和标签由适配器生成，不输出 ref 和 contentVersion；剧的链接由目录源按目录源 ID 生成，没有目录源 ID 时为 null
 		{"/api/series/1", `{
-			"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "tmdbId": 60735, "posterImageId": 1,
+			"id": 1, "type": "tv", "title": "星海旅人", "originalTitle": "Star Voyager", "year": 2019, "premiereDate": "2019-04-06", "tmdbId": 60735, "posterImageId": 1,
 			"sourceLink": {"url": "https://catalog.test/jf-1", "label": "假目录源"},
 			"seasons": [
 				{"id": 2, "number": 0, "title": null, "seasonBindings": [], "episodes": [
@@ -132,7 +132,7 @@ func TestGetSeries(t *testing.T) {
 			]
 		}`},
 		{"/api/series/2", `{
-			"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020, "tmdbId": null, "posterImageId": null,
+			"id": 2, "type": "movie", "title": "长夜灯塔", "originalTitle": null, "year": 2020, "premiereDate": null, "tmdbId": null, "posterImageId": null,
 			"sourceLink": null,
 			"seasons": [
 				{"id": 4, "number": 1, "title": null, "seasonBindings": [], "episodes": [
@@ -144,7 +144,7 @@ func TestGetSeries(t *testing.T) {
 			]
 		}`},
 		{"/api/series/3", `{
-			"id": 3, "type": "tv", "title": "空无一季", "originalTitle": null, "year": null, "tmdbId": null, "posterImageId": null,
+			"id": 3, "type": "tv", "title": "空无一季", "originalTitle": null, "year": null, "premiereDate": null, "tmdbId": null, "posterImageId": null,
 			"sourceLink": null, "seasons": []
 		}`},
 	}
