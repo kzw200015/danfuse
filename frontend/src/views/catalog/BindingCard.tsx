@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useIsMutating, useMutation } from '@tanstack/react-query'
-import { Loader2Icon, LockIcon } from 'lucide-react'
+import { DownloadIcon, Loader2Icon, LockIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { deleteBinding, updateBindingOffset, type Binding } from '@/api/bindings'
+import { bindingExportUrl } from '@/api/export'
 import type { Season } from '@/api/series'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
@@ -29,7 +30,8 @@ const derivedHint =
 const invalidOffset = `偏移必须是 -${MAX_OFFSET} 到 ${MAX_OFFSET} 之间的秒数，小数最多三位`
 
 /**
- * 一个绑定的卡片：状态、弹幕源标题、来源标签、弹幕条数（点开是保存的弹幕）、上次拉取时间、与本集时长的对比；偏移输入框、删除。
+ * 一个绑定的卡片：状态、弹幕源标题、来源标签、弹幕条数（点开是保存的弹幕）、上次拉取时间、与本集时长的对比；偏移输入框、
+ * 导出 XML（浏览器直接下载，没有弹幕时是一份空的 XML，所以不禁用）、删除。
  * 按弹幕源的形态：贴链接建的，标题链接到原页面，可以重新拉取、清空后重新拉取；
  * 用弹幕文件建的，标签点开是文件列表，可以追加文件、重新解析，没有时长与拉取时间。
  * 季绑定建出的绑定和手动的排在一起，带一个锁形的季绑定名称标签；不能单独删除，删除的位置换成"在季绑定里改 →"，
@@ -149,6 +151,15 @@ export default function BindingCard({
           ) : (
             <LinkBindingActions {...actions} />
           )}
+          <a
+            href={bindingExportUrl(binding.id)}
+            download
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            title="下载这个绑定保存的弹幕（按偏移校正）"
+          >
+            <DownloadIcon />
+            导出 XML
+          </a>
           {tag ? (
             <Link
               to={tag.to}

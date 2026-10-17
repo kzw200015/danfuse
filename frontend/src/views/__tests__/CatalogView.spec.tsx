@@ -331,6 +331,19 @@ describe('绑定', () => {
     expect(second.getByText(/^弹幕源 23:38/)).toHaveTextContent('弹幕源 23:38 / 本集 23:40')
   })
 
+  it('每张卡片有"导出 XML"：链接到导出接口由浏览器直接下载，失效、没有弹幕的也照常可点', async () => {
+    renderRoutes('/catalog/1/11/110')
+
+    for (const [title, id] of [
+      ['弹幕源 1', 1],
+      ['弹幕源 2', 2],
+    ] as const) {
+      const link = (await card(title)).getByRole('link', { name: '导出 XML' })
+      expect(link).toHaveAttribute('href', `/api/bindings/${id}/export`)
+      expect(link).toHaveAttribute('download')
+    }
+  })
+
   describe('季绑定建出的绑定', () => {
     beforeEach(() => {
       const season = all[0]!.seasons[1]!
@@ -701,8 +714,8 @@ describe('弹幕文件', () => {
     expect(await screen.findByText('已绑定，解析出 4,321 条弹幕')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '上传弹幕文件' })).not.toBeInTheDocument()
     const created = await card('20130709')
-    // 没有链接、时长和拉取时间；标签点开是文件列表
-    expect(created.queryByRole('link')).not.toBeInTheDocument()
+    // 没有弹幕源的链接（只有导出）、时长和拉取时间；标签点开是文件列表
+    expect(created.getAllByRole('link').map((l) => l.textContent)).toEqual(['导出 XML'])
     expect(created.queryByText(/^弹幕源 /)).not.toBeInTheDocument()
     expect(created.queryByText(/上次拉取/)).not.toBeInTheDocument()
     expect(created.getByRole('button', { name: '弹幕文件 · 2 份' })).toBeInTheDocument()
