@@ -23,7 +23,7 @@ type Track struct {
 
 // Merge 读取一集弹幕时的全部处理，与弹幕是否落库无关：
 //  0. 屏蔽：去掉正文命中 blocklist 的。被屏蔽的弹幕就像不存在，不参与之后的去重。
-//  1. 校正：t + Offset，四舍五入到毫秒。为负的丢弃，超出本集时长的保留。
+//  1. 校正（Correct）：t + Offset，四舍五入到毫秒。为负的丢弃，超出本集时长的保留。
 //  2. 按 ID 去重：不同绑定之间平台与原始 ID 都相同的，保留 BindingID 小的那条。
 //     兜底同一集的两个绑定实际指向同一个弹幕源，例如番剧的 ep 与同一稿件的 av。
 //  3. 按文本去重：按校正后时间排序，归一化后正文相同、相差不超过 5 秒、来自不同绑定的，保留时间早的，
@@ -48,8 +48,8 @@ func Merge(tracks []Track, blocklist Blocklist) []Item {
 			if blocklist.blocks(d.Text, text) {
 				continue
 			}
-			t := math.Round(float64(d.TimeMs) + tr.Offset*1000)
-			if t < 0 || t > math.MaxInt32 { // 超出 int32 的只会来自异常的 offset
+			d, ok := Correct(d, tr.Offset)
+			if !ok {
 				continue
 			}
 			key := idKey{tr.Platform, d.SourceID}
@@ -57,7 +57,6 @@ func Merge(tracks []Track, blocklist Blocklist) []Item {
 				continue
 			}
 			owners[key] = tr.BindingID
-			d.TimeMs = int32(t)
 			entries = append(entries, entry{Item{Danmaku: d, Platform: tr.Platform}, tr.BindingID, text})
 		}
 	}
@@ -75,6 +74,17 @@ func Merge(tracks []Track, blocklist Blocklist) []Item {
 		result = append(result, e.Item)
 	}
 	return result
+}
+
+// Correct 把一条弹幕的时间按绑定的偏移校正到本地视频的时间轴：t + offset（秒，正数表示弹幕延后），四舍五入到毫秒。
+// 校正后为负的丢弃（ok 为 false），超出本集时长的保留。Merge 与导出共用这一条规则。
+func Correct(d Danmaku, offset float64) (Danmaku, bool) {
+	t := math.Round(float64(d.TimeMs) + offset*1000)
+	if t < 0 || t > math.MaxInt32 { // 超出 int32 的只会来自异常的 offset
+		return Danmaku{}, false
+	}
+	d.TimeMs = int32(t)
+	return d, true
 }
 
 // entry 合并过程中的一条弹幕，记着它来自哪个绑定。
