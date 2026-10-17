@@ -13,7 +13,7 @@
 - service 返回自己定义的视图类型，不把 sqlc 生成的行类型直接交给 handler 输出：JSON 的形状不随查询的列变化。字段与行一一对应时用结构体类型转换（`SyncRun(row)`），dao 的字段变了会编译失败。
 - `handler/routes.go` 是 handler 包的入口（包文档、`Handler`、构造、`Register`），`service/service.go` 只放骨架（包文档并列出各文件管什么、`Service`、构造、包内共用的错误与取/锁）；其余文件都是并列的功能，文件名就是领域里的概念（不分种类的操作也起一个与其他种类并列的名字，如 `season_binding.go`、`binding.go`），不拆到十几行一个文件；handler 与 service 里同一功能的文件同名，请求结构挨着用它的接口，测试为 `<功能>_test.go`。handler 只用 service 导出的 API，需要 service 里的常量时导出它（如季绑定的种类 `KindCollection`）。只被一个测试文件用的辅助函数放在那个测试文件里，多个测试文件共用的放 `helpers_test.go`。
 - `app.New` 和各构造函数只构造对象，不做 IO、不连外部系统。新增 service 在 `app.New` 构造，handler 还要加进 `server.Handlers`。
-- `dao/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.txt` 一起更新）。已推到 main 的迁移文件不再修改。
+- `dao/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.sql` 一起更新）。已推到 main 的迁移文件不再修改。
 
 ## 数据库与并发
 
