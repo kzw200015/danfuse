@@ -66,3 +66,11 @@ sql:
         <<: *go
         package: dao
         out: internal/blockword/dao
+  - engine: postgresql
+    schema: db/migrations
+    queries: internal/export/dao
+    gen:
+      go:
+        <<: *go
+        package: dao
+        out: internal/export/dao

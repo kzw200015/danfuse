@@ -1,6 +1,6 @@
 # 测试的写法
 
-各功能自己的测试环境写在对应的架构文档里（季绑定见 [`season-binding.md`](season-binding.md)，弹弹 API 见 [`dandan-api.md`](dandan-api.md)，外部系统的样本见 [`sources.md`](sources.md)、[`catalog.md`](catalog.md)）。
+各功能自己的测试环境写在对应的架构文档里（季绑定见 [`season-binding.md`](season-binding.md)，弹弹 API 见 [`dandan-api.md`](dandan-api.md)，导出见 [`export.md`](export.md)，外部系统的样本见 [`sources.md`](sources.md)、[`catalog.md`](catalog.md)）。
 
 ## 后端
 

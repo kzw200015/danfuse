@@ -21,7 +21,7 @@ linters:
     - unparam
     - whitespace
   settings:
-    # 业务按领域分包（internal/catalog、seasonbinding、binding、dandan、blockword，以及 health、settings），
+    # 业务按领域分包（internal/catalog、seasonbinding、binding、dandan、blockword、export，以及 health、settings），
     # 每个领域内分层：handler（HTTP）→ service（业务）→ dao（sqlc 生成），各在一个子包里。
     # 适配器和纯计算包不访问数据库；只有 app 装配适配器。
     # depguard 只能按文件和包前缀匹配：新增领域时把它的 dao、handler 加进下面的 handler、service 规则，再照样加一条 xxx-dao 和 xxx-service。
@@ -45,6 +45,8 @@ linters:
               desc: handler 经 service 访问数据库
             - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/dao
               desc: handler 经 service 访问数据库
+            - pkg: github.com/kzw200015/danfuse/backend/internal/export/dao
+              desc: handler 经 service 访问数据库
         service:
           files:
             - "**/internal/*/service/**"
@@ -66,6 +68,8 @@ linters:
             - pkg: github.com/kzw200015/danfuse/backend/internal/dandan/handler
               desc: service 不依赖 HTTP 层
             - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/handler
+              desc: service 不依赖 HTTP 层
+            - pkg: github.com/kzw200015/danfuse/backend/internal/export/handler
               desc: service 不依赖 HTTP 层
             - pkg: github.com/kzw200015/danfuse/backend/internal/health/handler
               desc: service 不依赖 HTTP 层
@@ -105,6 +109,13 @@ linters:
             - "!**/internal/blockword/**"
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/dao
+              desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 dao 里写查询
+        export-dao:
+          files:
+            - "$all"
+            - "!**/internal/export/**"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/export/dao
               desc: 领域之间只调用对方的 Service，要查别的领域的表时在自己的 dao 里写查询
         catalog-service:
           files:
@@ -160,6 +171,17 @@ linters:
             - "!$test"
           deny:
             - pkg: github.com/kzw200015/danfuse/backend/internal/blockword/service
+              desc: handler 只调用本领域的 Service，server 不碰 service；领域之间只有 service 调用对方的 Service
+        export-service:
+          files:
+            - "$all"
+            - "!**/internal/export/**"
+            - "!**/internal/*/service/**"
+            - "!**/internal/app/**"
+            - "!**/internal/testenv/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/kzw200015/danfuse/backend/internal/export/service
               desc: handler 只调用本领域的 Service，server 不碰 service；领域之间只有 service 调用对方的 Service
         health-service:
           files:

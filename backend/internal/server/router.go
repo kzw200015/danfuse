@@ -7,6 +7,7 @@ import (
 	blockwordhandler "github.com/kzw200015/danfuse/backend/internal/blockword/handler"
 	cataloghandler "github.com/kzw200015/danfuse/backend/internal/catalog/handler"
 	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
+	exporthandler "github.com/kzw200015/danfuse/backend/internal/export/handler"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	seasonbindinghandler "github.com/kzw200015/danfuse/backend/internal/seasonbinding/handler"
 	settingshandler "github.com/kzw200015/danfuse/backend/internal/settings/handler"
@@ -21,6 +22,7 @@ type Handlers struct {
 	Binding       *bindinghandler.Handler
 	SeasonBinding *seasonbindinghandler.Handler
 	BlockedWord   *blockwordhandler.Handler
+	Export        *exporthandler.Handler
 	Dandan        *dandanhandler.Handler
 }
 
@@ -38,6 +40,7 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	h.Binding.Register(api)
 	h.SeasonBinding.Register(api)
 	h.BlockedWord.Register(api)
+	h.Export.Register(api)
 
 	h.Dandan.Register(e)
 }

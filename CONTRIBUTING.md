@@ -19,9 +19,9 @@ danfuse 由 `backend/`（Go · Echo v5 · pgx/v5 · sqlc · goose）与 `fronten
 ├── backend/
 │   ├── cmd/server/     # 程序入口
 │   ├── configs/        # 配置模板
-│   ├── db/             # 数据库迁移（也是 sqlc 的 schema），以及由迁移生成的全部表结构 schema.txt
+│   ├── db/             # 数据库迁移（也是 sqlc 的 schema），以及由迁移生成的全部表结构 schema.sql
 │   ├── scripts/        # make 调用的脚本
-│   ├── internal/       # 应用代码：按领域分包（catalog、binding、seasonbinding、dandan、blockword，各分 handler/、service/、dao/ 三层），
+│   ├── internal/       # 应用代码：按领域分包（catalog、binding、seasonbinding、dandan、export、blockword，各分 handler/、service/、dao/ 三层），
 │   │                   #   source、danmaku 等纯计算包，infra/ 基础设施，以及 server、app、testenv
 │   └── web/            # 内嵌的前端构建产物与占位页
 ├── frontend/
@@ -79,7 +79,7 @@ pnpm dev
 | --- | --- |
 | `make run` | 启动服务 |
 | `make build` | 编译到 `bin/server` |
-| `make generate` | 改了迁移之后：重新生成 sqlc 代码和 `db/schema.txt`（`make sqlc` + `make schema`，后者需要 Docker） |
+| `make generate` | 改了迁移之后：重新生成 sqlc 代码和 `db/schema.sql`（`make sqlc` + `make schema`，后者需要 Docker） |
 | `make sqlc` | 只改了 `dao/*.sql` 时重新生成 sqlc 代码 |
 | `make migration name=<name>` | 新建数据库迁移文件 |
 | `make lint` / `make fmt` | 代码检查 / 格式化（gofumpt + goimports） |
@@ -101,7 +101,7 @@ pnpm dev
 
 提交前请跑一遍：后端 `make lint` 和 `go test ./...`，前端 `pnpm lint`、`pnpm format:check`、`pnpm build` 和 `pnpm test:unit --run`。
 
-CI（`.github/workflows/ci.yml`）在 PR 和推送 main 时跑同样的检查（前端的类型检查用 `tsc -b`，不打包），后端另外检查 `db/schema.txt` 与迁移同步；推送 main 时检查全部通过后，用同一份 Dockerfile 构建 linux/amd64、linux/arm64 镜像，推到 `ghcr.io/kzw200015/danfuse`，标签为 `latest` 和 `sha-<短哈希>`。
+CI（`.github/workflows/ci.yml`）在 PR 和推送 main 时跑同样的检查（前端的类型检查用 `tsc -b`，不打包），后端另外检查 `db/schema.sql` 与迁移同步；推送 main 时检查全部通过后，用同一份 Dockerfile 构建 linux/amd64、linux/arm64 镜像，推到 `ghcr.io/kzw200015/danfuse`，标签为 `latest` 和 `sha-<短哈希>`。
 
 ## 测试
 
@@ -151,7 +151,7 @@ docker compose up -d --build danfuse                     # 构建并启动 danfu
 ## 数据库迁移
 
 - 迁移文件在 `backend/db/migrations`，用 `make migration name=<name>` 新建，写好 `-- +goose Up` 与 `-- +goose Down`。迁移内嵌进二进制，服务启动时自动执行，升级只靠它。
-- sqlc 直接把迁移文件当作 schema 读取：改表结构就是新增一个迁移，再 `make generate`。全部表的最终结构看 `backend/db/schema.txt`：由 `make schema` 把迁移执行到临时的 postgres 容器、用 psql 的 `\d` 导出，不手改，CI 检查它与迁移同步。
+- sqlc 直接把迁移文件当作 schema 读取：改表结构就是新增一个迁移，再 `make generate`。全部表的最终结构看 `backend/db/schema.sql`：由 `make schema` 把迁移执行到临时的 postgres 容器、按表导出 CREATE 语句（约束写在表内、索引紧跟在表后，被引用的表在前），再把它执行到另一个空库、与迁移建出的库比对 `pg_dump`，有遗漏就报错；不手改，CI 检查它与迁移同步。
 - **迁移文件推到 main 之后就算已经发布，不再修改**（推送 main 会发布镜像，用户的数据库已经执行过它）。改表结构一律新增迁移。
 - 已有数据需要用 Go 重新计算时（例如分词规则改变后重算搜索列），在同一目录按序号新增 Go 迁移，写法见 [`docs/architecture/catalog.md`](docs/architecture/catalog.md) 的"搜索列"一节。
 

@@ -14,14 +14,17 @@ import (
 //   - *apierr.Error：按其 HTTP 状态码与业务码返回
 //   - echo 框架错误（路由 404、405 等）：沿用框架给出的 HTTP 状态码，业务码为 CodeFail
 //   - 其他错误：500 + CodeFail，不向客户端暴露细节（细节只进日志）
+//
+// 响应头已经输出（例如边读边写的导出中途出错）时响应改不成错误了：5xx 照常记日志，再中止连接（http.ErrAbortHandler，
+// net/http 不记录它），客户端把这次请求标为失败，而不是收下一份看着正常、实际不完整的响应体。
+// errorHandler 在 Recover 中间件之外调用，panic 直接到 net/http。
 func errorHandler(c *echo.Context, err error) {
-	if resp, _ := echo.UnwrapResponse(c.Response()); resp != nil && resp.Committed {
-		return
-	}
-
 	appErr := toAppError(err)
 	if appErr.HTTPStatus >= http.StatusInternalServerError {
 		response.LogServerError(c, err)
+	}
+	if resp, _ := echo.UnwrapResponse(c.Response()); resp != nil && resp.Committed {
+		panic(http.ErrAbortHandler)
 	}
 
 	var writeErr error

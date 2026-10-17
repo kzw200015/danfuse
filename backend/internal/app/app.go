@@ -19,6 +19,8 @@ import (
 	catalogsvc "github.com/kzw200015/danfuse/backend/internal/catalog/service"
 	dandanhandler "github.com/kzw200015/danfuse/backend/internal/dandan/handler"
 	dandansvc "github.com/kzw200015/danfuse/backend/internal/dandan/service"
+	exporthandler "github.com/kzw200015/danfuse/backend/internal/export/handler"
+	exportsvc "github.com/kzw200015/danfuse/backend/internal/export/service"
 	healthhandler "github.com/kzw200015/danfuse/backend/internal/health/handler"
 	healthsvc "github.com/kzw200015/danfuse/backend/internal/health/service"
 	"github.com/kzw200015/danfuse/backend/internal/infra/config"
@@ -43,7 +45,7 @@ type App struct {
 }
 
 // New 组装各领域的 service 和 handler。pool 已连通、已迁移，由调用方在 Run 返回之后关闭。
-// 领域之间的依赖：catalog → seasonbinding → binding，dandan → binding、blockword；同步（catalog.SyncService）独立。
+// 领域之间的依赖：catalog → seasonbinding → binding，dandan → binding、blockword；同步（catalog.SyncService）与导出独立。
 func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 	// 适配器子包只由 app 引用，业务代码只依赖领域包的接口。
 	// B 站适配器里有全局令牌桶，整个进程只构造这一个。
@@ -66,6 +68,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *App {
 		Binding:       bindinghandler.NewHandler(bindings, cfg.DanmakuFile),
 		SeasonBinding: seasonbindinghandler.NewHandler(seasonBindings, cfg.DanmakuFile),
 		BlockedWord:   blockwordhandler.NewHandler(blockedWords),
+		Export:        exporthandler.NewHandler(exportsvc.NewService(pool)),
 		Dandan:        dandanhandler.NewHandler(dandans, cfg.Dandanplay),
 	}
 	return &App{

@@ -6,18 +6,18 @@
 
 - 实现接口的类型（包括测试里的假实现）在类型定义旁边写编译期断言 `var _ catalog.Source = (*Source)(nil)`。只嵌入接口、不实现方法的假类型（如 `platformAdapter`）不写。
 - 业务代码只依赖领域包的接口，不对适配器做类型断言；绑定、合集的 ref 只交给适配器解析，原始 ref 不出现在 JSON 输出里。
-- 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`），领域内分 `handler/`、`service/`、`dao/` 三个子包：handler 只绑定与校验参数、调用本领域的 `Service`（depguard 的 `xxx-service` 规则守着）、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `dao`；service 不碰 HTTP（echo、`httpx/request`、`httpx/response`），出错返回 `apierr`。
-- 领域之间只调用对方 `Service` 的方法，不引用对方的 `dao`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword）；要查别的领域的表时在自己的 `dao` 里写查询。每张表只由一个领域写入，别的领域只读（删剧、删季时外键级联删掉的行除外）：catalog 写 `series`、`seasons`、`episodes`、`images`、`sync_runs`；seasonbinding 写 `season_bindings`、`season_binding_items`、`season_binding_entries`、`season_binding_entry_files`；binding 写 `bindings`、`danmaku`、`binding_files`；blockword 写 `blocked_words`；dandan 只读；`leases` 由 `infra/database` 写。新增表时写明归属。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateLinkSlotInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
+- 业务按领域分包（`catalog`、`binding`、`seasonbinding`、`dandan`、`blockword`、`export`），领域内分 `handler/`、`service/`、`dao/` 三个子包：handler 只绑定与校验参数、调用本领域的 `Service`（depguard 的 `xxx-service` 规则守着）、输出响应；业务规则和读写数据库都在 service，读写数据库经本领域的 `dao`；service 不碰 HTTP（echo、`httpx/request`、`httpx/response`），出错返回 `apierr`。
+- 领域之间只调用对方 `Service` 的方法，不引用对方的 `dao`，依赖不成环（catalog → seasonbinding → binding，dandan → binding、blockword；export 不调用其他领域）；要查别的领域的表时在自己的 `dao` 里写查询。每张表只由一个领域写入，别的领域只读（删剧、删季时外键级联删掉的行除外）：catalog 写 `series`、`seasons`、`episodes`、`images`、`sync_runs`；seasonbinding 写 `season_bindings`、`season_binding_items`、`season_binding_entries`、`season_binding_entry_files`；binding 写 `bindings`、`danmaku`、`binding_files`；blockword 写 `blocked_words`；dandan、export 只读；`leases` 由 `infra/database` 写。新增表时写明归属。需要同一个事务时，调用方开事务，把 `pgx.Tx` 传给对方的 `XxxInTx` 方法（如 `binding.Service.CreateLinkSlotInTx`），提交之后的收尾（如 `LogFetched`）由调用方做。
 - 适配器（如 `catalog/jellyfin`、`source/bilibili`）、catalog 的根包（目录源接口与交换类型）和纯计算包（`source`、`danmaku`、`danmakufile`、`fulltext`、`naming`）只放接口、类型、纯计算与外部适配，不访问数据库。
 - 基础设施在 `internal/infra/`（config、database、logger、httpx、background，测试用的 testutil），不依赖业务包；`background` 不碰 HTTP，给用户的错误由调用它的 service 转换。
 - service 返回自己定义的视图类型，不把 sqlc 生成的行类型直接交给 handler 输出：JSON 的形状不随查询的列变化。字段与行一一对应时用结构体类型转换（`SyncRun(row)`），dao 的字段变了会编译失败。
 - `handler/routes.go` 是 handler 包的入口（包文档、`Handler`、构造、`Register`），`service/service.go` 只放骨架（包文档并列出各文件管什么、`Service`、构造、包内共用的错误与取/锁）；其余文件都是并列的功能，文件名就是领域里的概念（不分种类的操作也起一个与其他种类并列的名字，如 `season_binding.go`、`binding.go`），不拆到十几行一个文件；handler 与 service 里同一功能的文件同名，请求结构挨着用它的接口，测试为 `<功能>_test.go`。handler 只用 service 导出的 API，需要 service 里的常量时导出它（如季绑定的种类 `KindCollection`）。只被一个测试文件用的辅助函数放在那个测试文件里，多个测试文件共用的放 `helpers_test.go`。
 - `app.New` 和各构造函数只构造对象，不做 IO、不连外部系统。新增 service 在 `app.New` 构造，handler 还要加进 `server.Handlers`。
-- `dao/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.txt` 一起更新）。已推到 main 的迁移文件不再修改。
+- `dao/` 下 sqlc 生成的 `.go` 不手改；改表结构是新增迁移再 `make generate`（sqlc 代码和 `db/schema.sql` 一起更新）。已推到 main 的迁移文件不再修改。
 
 ## 数据库与并发
 
-- 隔离级别保持默认的 READ COMMITTED，不在应用里加内存锁。
+- 隔离级别保持默认的 READ COMMITTED，不在应用里加内存锁。例外只有导出：一次导出的全部读取在一个只读的 REPEATABLE READ 事务里，压缩包是同一时刻的快照（见 `docs/architecture/export.md`）；只读、不加锁，不与写入事务冲突。
 - 网络请求（取目录源、拉取弹幕）在事务之外，拿到结果才开写入事务；事务用 `pgx.BeginFunc(ctx, s.pool, ...)`，回调里只用 `s.q.WithTx(tx)` 得到的 `q`（以及把 `tx` 传给别的领域）。
 - 写入事务的第一句锁住要写的行（`LockEpisode` 以 `FOR KEY SHARE` 锁集，查不到返回"这一集已被删除"的 404；`LockBinding` 以 `FOR UPDATE` 锁绑定，查不到返回"绑定已被删除"的 404），不靠捕获外键错误。
 - 一个事务要锁一个层级以下的多行时，第一句先锁它们共同的上层行（目前是季，`FOR KEY SHARE`）。删季的第一步也是锁季，两边在季上排队，所以之后的加锁顺序不必与删季的级联（季 → 集 → 季绑定 → 绑定、条目表、条目、条目文件）一致，季绑定的写入就是季 → 季绑定 → 集 → 绑定；只删一集时先锁集、再删它的绑定，写入也要先锁集、再写这一集的绑定。
@@ -28,7 +28,7 @@
 
 ## 错误与日志
 
-- 管理 API 统一返回 `{code, message, data}`，同时保留 REST 语义的 HTTP 状态码。例外只有图片接口和弹弹 API（见 `docs/architecture/catalog.md`、`dandan-api.md`）。
+- 管理 API 统一返回 `{code, message, data}`，同时保留 REST 语义的 HTTP 状态码。例外只有图片接口、导出和弹弹 API（见 `docs/architecture/catalog.md`、`export.md`、`dandan-api.md`）。
 - handler/service 出错直接 `return apierr.ErrXxx`，按需 `.WithMessage()` 改写提示、`.Wrap(err)` 附带底层原因；非业务错误用 `fmt.Errorf("...: %w", err)` 包装，由 errorHandler 当作 500。
 - 业务码只在前端需要分支处理时才定义，按模块分段（每个模块 1000 个号段），`internal/infra/httpx/apierr/codes.go` 与前端 `src/api/errcode.ts` 同步新增。
 - 外部系统的错误由领域包自己定义类型（`*source.Error`、`*catalog.Error`），Message 给用户看，Err 只进日志。后台任务存给管理界面看的原因遇到其他错误时一律为 `internalErrorMessage`，完整的错误进日志。
@@ -41,9 +41,9 @@
 
 ## 前端
 
-- 请求都经 `src/api/request.ts` 的 `request<T>()`；每个后端模块对应 `src/api/<module>.ts`，只放请求函数和手写的类型（与后端 camelCase JSON 对齐）。服务端要等较久的请求在 API 模块里用 `slowRequestTimeout` 放宽超时，界面上用 `useElapsed` 显示已用秒数；上传文件用 `uploadRequestTimeout`（不设超时）。
+- 请求都经 `src/api/request.ts` 的 `request<T>()`；每个后端模块对应 `src/api/<module>.ts`，只放请求函数和手写的类型（与后端 camelCase JSON 对齐）。服务端要等较久的请求在 API 模块里用 `slowRequestTimeout` 放宽超时，界面上用 `useElapsed` 显示已用秒数；上传文件用 `uploadRequestTimeout`（不设超时）。交给浏览器直接加载或下载的地址（`<img>` 的 `src/api/images.ts`、`<a href download>` 的 `src/api/export.ts`）不经过 `request()`，模块里只放给出地址的函数。
 - 服务端数据一律用 TanStack Query：查询键与查询 hook 放在 `src/hooks/use-<资源>.ts`；键为列表 `['<资源>']`、详情 `['<资源>', id]`；`useMutation` 成功后 `invalidateQueries` 刷新。跨组件共享的客户端状态用 Zustand（`src/stores/`），局部状态用 `useState`。
-- 操作反馈：成功用 toast；失败用 `components/ErrorNote` 显示在出错的位置，保留到下次操作或手动关闭（例外：立即补建被拒绝的 409 用 toast）。
+- 操作反馈：成功用 toast；失败用 `components/ErrorNote` 显示在出错的位置，保留到下次操作或手动关闭（例外：立即补建被拒绝的 409 用 toast；交给浏览器直接下载的导出失败时由浏览器显示为下载失败，页面上不提示，见 `docs/architecture/export.md`）。
 - 删除这类不可恢复的操作先用 `components/ConfirmButton` 确认，确认框写明后果；确认后确认框随即关闭，进行中的状态和失败提示显示在页面上，不留在确认框里。
 - UI 组件用 shadcn/ui（Base UI），经 `pnpm dlx shadcn@latest add` 添加到 `src/components/ui/`。
 

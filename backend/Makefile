@@ -11,14 +11,14 @@ run:
 build:
 	go build -o bin/server ./cmd/server
 
-## 改了迁移之后：重新生成 sqlc 代码和 db/schema.txt
+## 改了迁移之后：重新生成 sqlc 代码和 db/schema.sql
 generate: sqlc schema
 
 ## 重新生成 sqlc 代码
 sqlc:
 	sqlc generate
 
-## 把迁移执行到临时的 postgres 容器，导出最终的表结构到 db/schema.txt（需要 Docker）
+## 把迁移执行到临时的 postgres 容器，按表导出最终结构的 CREATE 语句到 db/schema.sql（需要 Docker）
 schema:
 	scripts/schema.sh $(GOOSE_VERSION)
 

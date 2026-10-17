@@ -72,9 +72,22 @@ func TestDecode(t *testing.T) {
 			want: slices.Concat(want("😀🎉"), want(`&<>"'`), want(`"'&`), want("第一行\n第二行"), want("第一行\n第二行")),
 		},
 		{
-			name: "XML 不允许的字符也能解析：非法 UTF-8 字节被清洗，控制字符原样保留，NUL 被去掉",
-			ds:   []string{text("a\xffb"), text("a\x08b"), text("a&#8;b"), text("a&#0;b\x00c")},
-			want: slices.Concat(want("ab"), want("a\x08b"), want("a\x08b"), want("a�bc")),
+			name: "XML 不允许的字符也能解析并被去掉：非法 UTF-8 字节、NUL、控制字符、U+FFFE 与 U+FFFF；制表、换行、回车保留",
+			ds: []string{
+				text("a\xffb"), text("a&#0;b\x00c"),
+				text("a\x01b\x08c\x0Bd\x0Ce\x0Ef\x1Fg"), text("a&#8;b&#x1F;c"), text("a￾b￿c&#xFFFE;d&#xFFFF;e"),
+				text("a\tb\nc\rd&#9;e&#xA;f&#xD;g"),
+			},
+			want: slices.Concat(
+				want("ab"), want("a�bc"),
+				want("abcdefg"), want("abc"), want("abcde"),
+				want("a\tb\nc\rd\te\nf\rg"),
+			),
+		},
+		{
+			name: "去掉 XML 不允许的字符后正文为空、或只剩空白的丢弃",
+			ds:   []string{text("\x01\x08"), text("&#x1F;&#xFFFF;"), text(" \x0B\t\x0C\n"), text("留下")},
+			want: want("留下"),
 		},
 		{
 			name: "格式不对的单条丢弃，不影响其他弹幕",
@@ -136,6 +149,48 @@ func TestDecodeErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := Decode(tt.doc); (err != nil) != tt.wantErr {
 				t.Errorf("Decode() err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestEncode 编码再解码得到同样的弹幕：各模式、颜色、毫秒时间、原始 ID，正文里要转义的字符。
+func TestEncode(t *testing.T) {
+	tests := []struct {
+		name  string
+		items []danmaku.Danmaku
+	}{
+		{"没有弹幕", nil},
+		{
+			"各模式、颜色、毫秒时间、超过 2^53 的原始 ID",
+			[]danmaku.Danmaku{
+				{SourceID: 1, TimeMs: 0, Mode: danmaku.ModeScroll, Color: 0xFFFFFF, Text: "开头"},
+				{SourceID: 2, TimeMs: 1, Mode: danmaku.ModeBottom, Color: 0, Text: "底部"},
+				{SourceID: 3, TimeMs: 95234, Mode: danmaku.ModeTop, Color: 0x00FF00, Text: "顶部"},
+				{SourceID: 2213969828606745088, TimeMs: 1500999, Mode: danmaku.ModeReverse, Color: 0x123456, Text: "逆向"},
+			},
+		},
+		{
+			"正文里要转义的字符、emoji、换行",
+			[]danmaku.Danmaku{
+				{SourceID: 7, TimeMs: 1500, Mode: danmaku.ModeScroll, Text: `&amp; <d p="1"> '单引号' & < > "`},
+				{SourceID: 8, TimeMs: 1500, Mode: danmaku.ModeScroll, Text: "😀🎉"},
+				{SourceID: 9, TimeMs: 1500, Mode: danmaku.ModeScroll, Text: "第一行\n第二行"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var b strings.Builder
+			if err := Encode(&b, tt.items); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Decode([]byte(b.String()))
+			if err != nil {
+				t.Fatalf("Decode(%s): %v", b.String(), err)
+			}
+			if !reflect.DeepEqual(got, tt.items) {
+				t.Errorf("Decode(Encode()) = %+v\nwant %+v\nXML: %s", got, tt.items, b.String())
 			}
 		})
 	}

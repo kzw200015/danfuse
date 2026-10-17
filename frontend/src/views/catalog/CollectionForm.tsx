@@ -31,13 +31,12 @@ import { cn } from '@/lib/utils'
 import { candidateText, defaultRules, savedRules } from './season-binding'
 import {
   AddFormFrame,
-  FormFrame,
   PreviewSection,
   RuleFields,
   useRuleDraft,
   useShownPreview,
 } from './SeasonBindingFormParts'
-import { SourceLink } from './shared'
+import { FormFrame, SourceLink } from './shared'
 
 /** 添加与编辑合集的季绑定的不同之处，由 AddCollectionForm、EditCollectionForm 给出；表单只经由它区分两种模式 */
 export interface CollectionFormMode {
