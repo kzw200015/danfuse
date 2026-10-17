@@ -17,7 +17,7 @@ import { useCatalogPath } from './shared'
 
 /**
  * 右栏：选中一集时的集面板。电影的唯一一集标题为"正片"，路径里不写季；电影只能整部删除，没有"删除这一集"。
- * 右上角"导出 XML"下载这一集各绑定的弹幕（没有绑定保存了弹幕时禁用）；
+ * 右上角"导出 XML"：导出这一集各绑定的弹幕（没有绑定保存了弹幕时禁用）；
  * "绑定链接""上传弹幕文件"在卡片列表上方展开添加的表单，同一时间只展开一个，和季面板一样
  */
 export default function EpisodePanel({
@@ -57,7 +57,7 @@ export default function EpisodePanel({
           <div className="flex gap-1">
             <ExportButton
               href={episodeExportUrl(episode.id)}
-              title="下载这一集各绑定的弹幕（zip，每个绑定一份 XML，按偏移校正）"
+              title="导出这一集各绑定的弹幕（zip，每个绑定一份 XML，按偏移校正）"
               disabled={!hasDanmaku(episode)}
             />
             <Button

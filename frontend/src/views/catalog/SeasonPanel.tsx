@@ -17,7 +17,7 @@ import { useCatalogPath } from './shared'
 
 /**
  * 右栏：选中整季、没选集时的季面板：这一季的信息、季绑定，以及"删除这一季"。
- * 右上角"导出 XML"下载整季各集的弹幕（整季都没有绑定保存了弹幕时禁用；电影没有季面板，也就没有季导出）；
+ * 右上角"导出 XML"：导出整季各集的弹幕（整季都没有绑定保存了弹幕时禁用；电影没有季面板，也就没有季导出）；
  * "绑定合集""上传弹幕文件夹"在卡片列表上方展开添加的表单，同一时间只展开一个
  */
 export default function SeasonPanel({ series, season }: { series: SeriesDetail; season: Season }) {
@@ -50,7 +50,7 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
           <div className="flex gap-1">
             <ExportButton
               href={seasonExportUrl(season.id)}
-              title="下载这一季各集的弹幕（zip，每集一个子目录、每个绑定一份 XML，按偏移校正）"
+              title="导出这一季各集的弹幕（zip，每集一个子目录、每个绑定一份 XML，按偏移校正）"
               disabled={!season.episodes.some(hasDanmaku)}
             />
             <Button

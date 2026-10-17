@@ -154,7 +154,7 @@ export default function BindingCard({
           )}
           <ExportButton
             href={bindingExportUrl(binding.id)}
-            title="下载这个绑定保存的弹幕（按偏移校正）"
+            title="导出这个绑定保存的弹幕（按偏移校正）"
           />
           {tag ? (
             <Link

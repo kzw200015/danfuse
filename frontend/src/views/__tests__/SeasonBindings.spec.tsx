@@ -184,7 +184,7 @@ async function openCollectionForm(link: string) {
 
 /** 季面板右上角"导出 XML"的提示 */
 const seasonExportTitle =
-  '下载这一季各集的弹幕（zip，每集一个子目录、每个绑定一份 XML，按偏移校正）'
+  '导出这一季各集的弹幕（zip，每集一个子目录、每个绑定一份 XML，按偏移校正）'
 
 describe('季面板', () => {
   it('右上角两个添加按钮：表单在卡片列表上方展开，同一时间只展开一个；取消后收起', async () => {

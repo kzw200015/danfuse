@@ -90,7 +90,7 @@ beforeEach(() => {
 
 const seasonNav = () => within(screen.getByRole('navigation', { name: '季' }))
 /** 集面板右上角"导出 XML"的提示，用它和绑定卡片上的"导出 XML"区分 */
-const episodeExportTitle = '下载这一集各绑定的弹幕（zip，每个绑定一份 XML，按偏移校正）'
+const episodeExportTitle = '导出这一集各绑定的弹幕（zip，每个绑定一份 XML，按偏移校正）'
 /** 点删除剧、季或集的按钮，在确认框里确认 */
 async function confirmDelete(button: string) {
   fireEvent.click(await screen.findByRole('button', { name: button }))
