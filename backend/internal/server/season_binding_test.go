@@ -70,15 +70,34 @@ func (fakeAdapter) DescribeCollection(ref source.CollectionRef) (source.Display,
 	return source.Display{URL: "https://fake.test/list/" + r.List, Label: "假合集 " + r.List}, err
 }
 
+// gatedAdapter 能让后台补建停住的 fakeAdapter：gate 不为 nil 时，ListCollection 先从 gate 收到一次放行才继续，
+// ctx 结束时与真实的适配器一样按 Upstream 失败。测试在后台补建停下来（synctest.Wait）之后才设置 gate。
+type gatedAdapter struct {
+	fakeAdapter
+	gate chan struct{}
+}
+
+func (a *gatedAdapter) ListCollection(ctx context.Context, ref source.CollectionRef) (source.Collection, error) {
+	if a.gate != nil {
+		select {
+		case <-a.gate:
+		case <-ctx.Done():
+			return source.Collection{}, testenv.UpstreamErr(ctx)
+		}
+	}
+	return a.fakeAdapter.ListCollection(ctx, ref)
+}
+
 // seasonBindingServer 在 synctest 气泡里新建连接池，写入 seedCatalog 的目录，在后台运行 SeasonBindingService，
-// 起完整的 Echo（目录、绑定、季绑定接口），源适配器只注册了 fakeAdapter。测试结束时先停下后台循环，再关闭连接池。
-func seasonBindingServer(t *testing.T, cfg *pgxpool.Config) (*Server, *pgxpool.Pool) {
+// 起完整的 Echo（目录、绑定、季绑定接口），源适配器只注册了 adapter（fakeAdapter 或包着它的 gatedAdapter）。
+// 测试结束时先停下后台循环，再关闭连接池。
+func seasonBindingServer(t *testing.T, cfg *pgxpool.Config, adapter source.Adapter) (*Server, *pgxpool.Pool) {
 	t.Helper()
 	pool := dbtest.Open(t, cfg)
 	seedCatalog(t, pool)
 
 	logger := slog.New(slog.DiscardHandler)
-	env := testenv.New(pool, logger, fakeAdapter{})
+	env := testenv.New(pool, logger, adapter)
 	testenv.RunInBackground(t, env.SeasonBindings)
 
 	return New(config.Server{}, logger, complete(&Handlers{
@@ -94,7 +113,8 @@ func TestSeasonBindingAPI(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		srv, pool := seasonBindingServer(t, cfg)
+		adapter := &gatedAdapter{}
+		srv, _ := seasonBindingServer(t, cfg, adapter)
 		defaultPatterns := jsonString(source.DefaultEpisodeRule().Patterns())
 
 		// 默认的集号规则
@@ -187,18 +207,15 @@ func TestSeasonBindingAPI(t *testing.T) {
 			t.Errorf("关掉追更后的追更标记 = %s", got)
 		}
 
-		// 立即补建：202 和详情（补建刚开始）；正在补建时 409
+		// 立即补建：202 和详情（补建刚开始，停在列出合集上）；正在补建时 409
+		adapter.gate = make(chan struct{})
 		_, _, data = call(t, srv, http.MethodPost, "/api/season-bindings/1/backfill", "", http.StatusAccepted)
 		if got := decodeObject(t, data); string(got["running"]) != "true" || string(got["id"]) != "1" {
 			t.Errorf("立即补建返回 running = %s、id = %s", got["running"], got["id"])
 		}
-		synctest.Wait()
-		lease, ok, err := database.TryLease(t.Context(), pool, slog.New(slog.DiscardHandler), database.LeaseSeasonBackfill(1))
-		if err != nil || !ok {
-			t.Fatalf("TryLease = %v, %v", ok, err)
-		}
 		assertAPIErrors(t, srv, []apiError{{http.MethodPost, "/api/season-bindings/1/backfill", "", http.StatusConflict, "正在补建"}})
-		lease.Release()
+		adapter.gate <- struct{}{}
+		synctest.Wait()
 
 		// 删除：它建出的绑定一起删掉，见 service 的 TestDeleteSeasonBinding
 		if code, _, data := call(t, srv, http.MethodDelete, "/api/season-bindings/1", "", http.StatusOK); code != 0 || string(data) != "null" {
@@ -260,7 +277,7 @@ func TestCollectionPreviewAndSaveAPI(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		srv, pool := seasonBindingServer(t, cfg)
+		srv, pool := seasonBindingServer(t, cfg, fakeAdapter{})
 		patterns := jsonString(source.DefaultEpisodeRule().Patterns())
 
 		// 新建的预览：每个候选一组，条目里没有失败原因的字段
@@ -348,7 +365,7 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		srv, _ := seasonBindingServer(t, cfg)
+		srv, _ := seasonBindingServer(t, cfg, fakeAdapter{})
 		files := []uploadFile{
 			danmakuXML("来自新世界/01.xml", "1", "2"),
 			danmakuXML("来自新世界/02/a.xml", "3"),
@@ -467,7 +484,7 @@ func TestFolderSeasonBindingAPIErrors(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		srv, pool := seasonBindingServer(t, cfg)
+		srv, pool := seasonBindingServer(t, cfg, fakeAdapter{})
 		const create = "/api/seasons/1/season-bindings/folder"
 		form := map[string]string{"form": `{` + folderRules(1) + `}`}
 		one := []uploadFile{danmakuXML("星海旅人/1.xml", "1")}
@@ -569,7 +586,7 @@ func TestSeasonBindingAPIErrors(t *testing.T) {
 	t.Parallel()
 	cfg := dbtest.Config(t)
 	synctest.Test(t, func(t *testing.T) {
-		srv, _ := seasonBindingServer(t, cfg)
+		srv, _ := seasonBindingServer(t, cfg, fakeAdapter{})
 		const create = "/api/seasons/1/season-bindings/collection"
 		call(t, srv, http.MethodPost, create, `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusCreated)
 		synctest.Wait()
