@@ -43,7 +43,7 @@ func FakeVideos(names ...string) map[string]source.Fetched {
 }
 
 // FakeCollector 有合集的假适配器，不联网，ID 为 fake；集面板的链接都不认识。
-//   - 合集链接 "list/<名字>" 与 "alias-list/<名字>" 是同一个合集的两种写法，识别为一个种类为 list 的候选 {"list":"<名字>"}；
+//   - 合集链接 "list/<名字>" 识别为一个种类为 list 的候选 {"list":"<名字>"}；
 //     "both/<名字>" 识别为两个候选：种类 pages 的 {"pages":"<名字>"} 在前，种类 list 的 {"list":"<名字>"} 在后；
 //     "series/<名字>" 为 InvalidLink"暂不支持系列"；其他链接认不出。
 //   - ListCollection 按名字返回 Collections 里的合集（两种候选都按名字找），没有时为 NotFound；ListErr 不为 nil 时一律返回它。
@@ -119,10 +119,8 @@ func (f *FakeCollector) ParseCollectionLink(_ context.Context, link string) ([]s
 		b, _ := json.Marshal(r)
 		return source.CollectionCandidate{Kind: kind, Ref: b}
 	}
-	for _, prefix := range []string{"list/", "alias-list/"} {
-		if name, ok := strings.CutPrefix(link, prefix); ok {
-			return []source.CollectionCandidate{candidate("list", fakeCollectionRef{List: name})}, nil
-		}
+	if name, ok := strings.CutPrefix(link, "list/"); ok {
+		return []source.CollectionCandidate{candidate("list", fakeCollectionRef{List: name})}, nil
 	}
 	if name, ok := strings.CutPrefix(link, "both/"); ok {
 		return []source.CollectionCandidate{candidate("pages", fakeCollectionRef{Pages: name}), candidate("list", fakeCollectionRef{List: name})}, nil

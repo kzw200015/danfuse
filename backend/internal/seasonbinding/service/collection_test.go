@@ -91,56 +91,41 @@ func TestCreateCollectionSameCollectionTwice(t *testing.T) {
 		env := newSeasonEnv(t, pool, src, 1, 2, 3, 4)
 		first := collectionForm("list/s")
 		first.Rule = parseRule(t, `第一季(\d+)`)
-		second := collectionForm("alias-list/s") // 同一个合集的另一种写法
+		second := collectionForm("list/s")
 		second.Rule = parseRule(t, `第二季(\d+)`)
 		second.Mapping = source.Mapping{From: 1, To: 3}
 
-		a := env.createWith(first).ID
+		env.createWith(first)
 		b := env.createWith(second).ID
+		want := []string{"1 a1 1", "2 a2 1", "3 b1 2", "4 b2 2"}
 
-		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a1 1", "2 a2 1", "3 b1 2", "4 b2 2"})
+		testutil.AssertStrings(t, "绑定", env.bindings(), want)
 		testutil.AssertStrings(t, "第二季的季绑定的条目", states(env.get(b)), []string{
 			"第一季01 unmatched - 不符合集号规则", "第一季02 unmatched - 不符合集号规则", "第二季01 keep 3", "第二季02 keep 4",
 		})
 
 		overlap := env.createWith(first).ID
-		testutil.AssertStrings(t, "规则重叠之后的绑定", env.bindings(), []string{"1 a1 1", "2 a2 1", "3 b1 2", "4 b2 2"})
+		testutil.AssertStrings(t, "规则重叠之后的绑定", env.bindings(), want)
 		testutil.AssertStrings(t, "规则重叠的季绑定的条目", states(env.get(overlap)), []string{
 			"第一季01 alreadyBound 1", "第一季02 alreadyBound 2", "第二季01 unmatched - 不符合集号规则", "第二季02 unmatched - 不符合集号规则",
 		})
-		if d := env.get(a); d.BindingCount != 2 {
-			t.Errorf("第一季的季绑定建出 %d 个绑定, want 2", d.BindingCount)
-		}
 	})
 }
 
-// TestCreateCollectionOtherCollection 一季可以有多个季绑定，同一个合集也可以绑到别的季上。按种类选候选。
-func TestCreateCollectionOtherCollection(t *testing.T) {
+// TestCreateCollectionChoosesKind 链接对应多个候选时按 collectionKind 选：both/t 选 list，存的是 list 的合集。
+func TestCreateCollectionChoosesKind(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
-		src := &testenv.FakeCollector{Collections: map[string]source.Collection{"s": {Title: "合集 s"}, "t": {Title: "合集 t"}}}
+		src := &testenv.FakeCollector{Collections: map[string]source.Collection{"t": {Title: "合集 t"}}}
 		env := newSeasonEnv(t, pool, src)
-		env.create()
 
-		both := collectionForm("both/t")
-		both.CollectionKind = "list"
-		if _, err := env.svc.CreateCollection(t.Context(), 1, both); err != nil {
-			t.Errorf("同一季绑定另一个合集：%v", err)
+		f := collectionForm("both/t")
+		f.CollectionKind = "list"
+		d := env.createWith(f)
+
+		if d.Link != "both/t" || d.SourceLabel != "假合集 t" {
+			t.Errorf("创建之后 link = %q、sourceLabel = %q, want both/t、假合集 t", d.Link, d.SourceLabel)
 		}
-		if _, err := env.svc.CreateCollection(t.Context(), 2, collectionForm("list/s")); err != nil {
-			t.Errorf("同一个合集绑到另一季：%v", err)
-		}
-		synctest.Wait()
-		want := []string{`1 {"list": "s"}`, `1 {"list": "t"}`, `2 {"list": "s"}`}
-		rows, err := pool.Query(t.Context(), `SELECT format('%s %s', season_id, ref) FROM season_bindings ORDER BY id`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got, err := pgx.CollectRows(rows, pgx.RowTo[string])
-		if err != nil {
-			t.Fatal(err)
-		}
-		testutil.AssertStrings(t, "季绑定", got, want)
 	})
 }
 

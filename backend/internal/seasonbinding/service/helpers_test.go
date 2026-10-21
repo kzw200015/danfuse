@@ -124,10 +124,7 @@ func (e *seasonEnv) create() service.Detail {
 // createWith 用表单 f 给第 1 季创建合集的季绑定，等后台的补建结束，返回创建时的详情。
 func (e *seasonEnv) createWith(f service.CollectionForm) service.Detail {
 	e.t.Helper()
-	d, err := e.svc.CreateCollection(e.t.Context(), 1, f)
-	if err != nil {
-		e.t.Fatalf("CreateCollection: %v", err)
-	}
+	d := e.createAsyncWith(f)
 	synctest.Wait()
 	return d
 }
@@ -135,7 +132,13 @@ func (e *seasonEnv) createWith(f service.CollectionForm) service.Detail {
 // createAsync 用链接 link 给第 1 季创建合集的季绑定（合集第 1 集为第 1 集），不等后台的补建，返回创建时的详情。
 func (e *seasonEnv) createAsync(link string) service.Detail {
 	e.t.Helper()
-	d, err := e.svc.CreateCollection(e.t.Context(), 1, collectionForm(link))
+	return e.createAsyncWith(collectionForm(link))
+}
+
+// createAsyncWith 用表单 f 给第 1 季创建合集的季绑定，不等后台的补建，返回创建时的详情。
+func (e *seasonEnv) createAsyncWith(f service.CollectionForm) service.Detail {
+	e.t.Helper()
+	d, err := e.svc.CreateCollection(e.t.Context(), 1, f)
 	if err != nil {
 		e.t.Fatalf("CreateCollection: %v", err)
 	}
