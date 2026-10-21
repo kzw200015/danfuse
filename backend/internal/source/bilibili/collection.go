@@ -15,7 +15,7 @@ import (
 //   - 番剧的一季 {"kind":"bangumi","seasonId":N}；
 //   - 投稿合集 {"kind":"ugcSeason","seasonId":N,"mid":M}：mid 是合集的作者，只用来生成展示的链接（空间里的合集页要带 mid）。
 //     它总是取自 B 站的接口（合集条目列表的 meta.mid、稿件 view 里 ugc_season.mid，两者都是合集作者），不取用户贴的链接里的，
-//     所以同一个合集的 ref 总是相同；查重和唯一约束依赖这一点；
+//     所以同一个合集的 ref 总是相同；保存表单时判断换没换合集、编辑的预览标出现在的合集依赖这一点；
 //   - 多 P 投稿 {"kind":"multiPage","aid":N}。
 type collectionRef struct {
 	Kind     string `json:"kind"`

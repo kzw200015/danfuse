@@ -90,6 +90,17 @@ func TestNumberItems(t *testing.T) {
 			},
 		},
 		{
+			name: "默认规则：下级标题以集号开头、隔着空白接标题时认它，上级标题里的集号不算；紧跟别的字符的不认",
+			col: Collection{NumberedByRule: true, Items: []CollectionItem{
+				named("【某番】全13话（更至第2话） / 1 洗眼睛"), named("【某番】全13话（更至第2话） / 2 洗眼睛"),
+				named("某番 / 3-「标题」"), named("某番 / 4K 修复版"),
+			}},
+			want: []CollectionItem{
+				numbered("【某番】全13话（更至第2话） / 1 洗眼睛", 1), numbered("【某番】全13话（更至第2话） / 2 洗眼睛", 2),
+				unmatched("某番 / 3-「标题」", "不符合集号规则"), unmatched("某番 / 4K 修复版", "不符合集号规则"),
+			},
+		},
+		{
 			name: "取结束得最靠后的集号：同一条正则取最后一处，不同的正则之间也比位置",
 			col: Collection{NumberedByRule: true, Items: []CollectionItem{
 				named("某番 第1集 / 第3集"), named("某番 S01E03 / 第5话"), named("某番 S01E06 / 中文字幕"),

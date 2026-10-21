@@ -38,9 +38,13 @@ type episodePattern struct {
 // lastLevelEpisode 标签结尾、紧跟 LabelSeparator 的数字：下级标题只写了集号（"某番 / 05"）。
 const lastLevelEpisode = `/ (?P<episode>\d{1,4})$`
 
-// defaultRule 默认规则：naming.EpisodePatterns（与搜索、match 认集号的写法相同），再加上 lastLevelEpisode。
+// leadingLevelEpisode 紧跟 LabelSeparator、后面隔着空白的数字：下级标题以集号开头、接着写标题（"某番 / 1 洗眼睛"）。
+// 与 lastLevelEpisode 分成两条，合集里混着"/ 3 预告"这类分 P 时可以只删掉这一条。
+const leadingLevelEpisode = `/ (?P<episode>\d{1,4})\s`
+
+// defaultRule 默认规则：naming.EpisodePatterns（与搜索、match 认集号的写法相同），再加上 lastLevelEpisode、leadingLevelEpisode。
 var defaultRule = func() EpisodeRule {
-	r, err := ParseEpisodeRule(append(naming.EpisodePatterns(), lastLevelEpisode))
+	r, err := ParseEpisodeRule(append(naming.EpisodePatterns(), lastLevelEpisode, leadingLevelEpisode))
 	if err != nil {
 		panic(err)
 	}

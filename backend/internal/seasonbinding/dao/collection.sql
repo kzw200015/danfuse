@@ -1,15 +1,5 @@
--- name: SeasonBindingExists :one
--- 这一季是否已经绑定过这个合集（不算 exclude_id 这个季绑定自己）。只用于在列出合集前省掉一次注定 409 的请求，
--- 并发时以唯一约束为准。
-SELECT EXISTS (SELECT 1
-               FROM season_bindings
-               WHERE season_id = @season_id
-                 AND adapter = @adapter::text
-                 AND ref = @ref::jsonb
-                 AND id IS DISTINCT FROM sqlc.narg(exclude_id)::bigint);
-
 -- name: InsertSeasonBinding :one
--- 合集的季绑定。同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
+-- 合集的季绑定。同一季可以多次绑定同一个合集。
 INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, mapping_from, mapping_to, episode_patterns,
                              numbered_by_rule)
 VALUES (@season_id, 'collection', @adapter::text, @ref::jsonb, @link::text, @title, @mapping_from::int, @mapping_to::int,
@@ -50,7 +40,7 @@ RETURNING *;
 
 -- name: SaveCollectionForm :exec
 -- 保存合集的表单（调用方已锁住季绑定）：链接、选的合集、集号对应、集号规则。换成另一个合集（适配器或 ref 变了）时
--- 清掉上次检查时间，追更按从没检查过算。同一季已经绑定过这个合集时撞上唯一约束 (season_id, adapter, ref)。
+-- 清掉上次检查时间，追更按从没检查过算。
 -- 合集的标题、是否按规则编号和条目随后由 RecordSeasonBindingListed 与 UpsertSeasonBindingItems 写入。
 UPDATE season_bindings
 SET adapter          = @adapter::text,
