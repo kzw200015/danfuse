@@ -116,7 +116,6 @@ CREATE TABLE season_bindings (
     kind             text                     NOT NULL DEFAULT 'collection'::text,
     link             text,
     CONSTRAINT season_bindings_pkey PRIMARY KEY (id),
-    CONSTRAINT season_bindings_season_id_adapter_ref_key UNIQUE (season_id, adapter, ref),
     CONSTRAINT season_bindings_episode_patterns_check CHECK (cardinality(episode_patterns) >= 1),
     CONSTRAINT season_bindings_kind_check CHECK (kind = ANY (ARRAY['collection'::text, 'folder'::text])),
     CONSTRAINT season_bindings_kind_columns_check CHECK (kind = 'collection'::text AND adapter IS NOT NULL AND ref IS NOT NULL AND link IS NOT NULL AND numbered_by_rule IS NOT NULL OR kind = 'folder'::text AND adapter IS NULL AND ref IS NULL AND link IS NULL AND numbered_by_rule IS NULL AND NOT follow AND status = 'active'::text AND last_checked_at IS NULL AND last_error IS NULL),
@@ -125,6 +124,7 @@ CREATE TABLE season_bindings (
     CONSTRAINT season_bindings_status_check CHECK (status = ANY (ARRAY['active'::text, 'dead'::text])),
     CONSTRAINT season_bindings_season_id_fkey FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
 );
+CREATE INDEX season_bindings_season_id_idx ON season_bindings (season_id);
 
 CREATE TABLE season_binding_entries (
     id                bigint  GENERATED ALWAYS AS IDENTITY,

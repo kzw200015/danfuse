@@ -22,7 +22,7 @@
 - `season_bindings` 两种共用：
   - 两种都有：标题、集号规则 `episode_patterns`、集号对应 `mapping_from`/`mapping_to`。
   - 只属于合集：`adapter`、`ref`、`link`、`follow`、`numbered_by_rule`、`status`、`last_error`、`last_checked_at`。由 CHECK `season_bindings_kind_columns_check` 按 kind 守住：文件夹的这些列为空、追更关着、状态为正常。`follow` 列的默认值是开着，插入文件夹的季绑定要写明 `follow = false`（`InsertFolderSeasonBinding`）。
-  - 唯一约束 `(season_id, adapter, ref)` 在 NULL 上不生效，同一个文件夹可以在一季上传多次。
+  - 没有按季、合集的唯一约束：同一个合集可以在一季绑定多次（ADR 0011），同一个文件夹也可以在一季上传多次。`season_id` 上是普通索引。
   - `link` 是创建或保存时贴的链接，原样保存，只用来在编辑时预填；合集以 ref 为准，链接不进 ref（理由同 ADR 0009 第 1 条）。
 - `season_binding_items` 是合集上次列出的结果，不是表单。主键 `(season_binding_id, ref)`。`saveItems` 每次列出成功后按规范化的 ref 去重、增改，删掉不在了的。`number` 只存平台给的集号，按规则编号的合集为空，读取时再按季绑定现在的集号规则编号。`last_error`、`last_error_at` 是条目上次补建失败的原因，补建成功、或撞上同源约束跳过后清掉。条目的状态读取时现算，不存储。
 - 文件夹的表单是条目 `season_binding_entries` 与条目的文件 `season_binding_entry_files`：
@@ -81,15 +81,15 @@
 ### 合集
 
 - **创建**（`CreateCollection`）：
-  1. 在事务之外由 `resolve` 识别链接、按 `collectionKind` 选候选（`chooseCandidate`）、查重（`SeasonBindingExists`）、列出合集，识别与列出共用 `source.FetchTimeout`。
-  2. 事务里锁季，插入季绑定（同时绑定同一个合集时撞上唯一约束，返回 409），保存这次列出的结果。
+  1. 在事务之外由 `resolve` 识别链接、按 `collectionKind` 选候选（`chooseCandidate`）、列出合集，识别与列出共用 `source.FetchTimeout`。
+  2. 事务里锁季，插入季绑定，保存这次列出的结果。
   3. 触发后台补建，返回 201 和详情。新建的季绑定开着追更。
 - **保存表单**（`SaveCollection`）：
   1. 拿这个季绑定的补建租约（`tryBackfillLease`），拿不到返回 409"正在补建或保存，稍后再试"。持有到写入提交，期间用租约的 ctx。
-  2. 由 `resolve` 重新识别链接、选候选、查重（不算自己）、列出合集。删除以这次列出的结果为准，不和预览核对。
+  2. 由 `resolve` 重新识别链接、选候选、列出合集。删除以这次列出的结果为准，不和预览核对。
   3. 事务（`saveCollectionTx`）：
      - 锁季，`FOR UPDATE` 锁季绑定（`lockSeasonBinding`）；
-     - `SaveCollectionForm` 写表单，换成另一个合集（适配器或 ref 变了）时清掉上次检查时间；同一季已有这个合集时撞上唯一约束，返回 409；
+     - `SaveCollectionForm` 写表单，换成另一个合集（适配器或 ref 变了）时清掉上次检查时间；
      - `saveListed` 保存这次列出的结果（季绑定恢复为正常、更新标题与是否按规则编号、写条目表）；
      - 派生，用 `DeleteSlotsInTx` 删掉 `Empty`。
   4. 释放租约，记一条 `season binding saved`（带删掉的槽位数），触发后台补建，返回详情。

@@ -604,7 +604,6 @@ func TestSeasonBindingAPIErrors(t *testing.T) {
 			{http.MethodPost, create, `{"link": "https://example.com/v/1", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusBadRequest, "无法识别的链接"},
 			{http.MethodPost, create, `{"link": "fakelist/gone", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusUnprocessableEntity, "合集不存在或已删除"},
 			{http.MethodPost, create, `{"link": "fakelist/down", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusBadGateway, "B 站接口异常"},
-			{http.MethodPost, create, `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusConflict, "这一季已经绑定过这个合集"},
 			{http.MethodPost, "/api/seasons/99/season-bindings/collection", `{"link": "fakelist/s", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": ["(\\d+)"]}`, http.StatusNotFound, "季不存在"},
 
 			{http.MethodGet, "/api/season-bindings/0", "", http.StatusBadRequest, "季绑定 ID 不合法"},

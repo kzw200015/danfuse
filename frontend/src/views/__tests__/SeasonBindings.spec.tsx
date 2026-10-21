@@ -488,7 +488,7 @@ describe('绑定合集', () => {
     vi.mocked(previewNewCollection).mockResolvedValue({
       candidates: [candidate({ items: [item('第13话 回顾', 13, { status: 'noEpisode' })] })],
     })
-    vi.mocked(createCollection).mockRejectedValue(new ApiError('这一季已经绑定过这个合集', 1, 409))
+    vi.mocked(createCollection).mockRejectedValue(new ApiError('B 站接口异常', 1, 502))
     fireEvent.change(form.getByRole('textbox', { name: '合集的链接' }), {
       target: { value: 'ss36429' },
     })
@@ -498,7 +498,7 @@ describe('绑定合集', () => {
     expect(form.queryByRole('alert')).not.toBeInTheDocument()
 
     fireEvent.click(form.getByRole('button', { name: '创建' }))
-    expect(await form.findByRole('alert')).toHaveTextContent('这一季已经绑定过这个合集')
+    expect(await form.findByRole('alert')).toHaveTextContent('B 站接口异常')
     expect(season().seasonBindings).toHaveLength(1)
   })
 })

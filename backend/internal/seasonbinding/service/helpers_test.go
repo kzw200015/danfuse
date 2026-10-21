@@ -33,6 +33,21 @@ func odd(name, reason string) source.CollectionItem {
 	return source.CollectionItem{Ref: source.Ref(`{"name":"` + name + `"}`), Unmatched: reason, Label: name}
 }
 
+// labeled 按规则编号的合集里标签为 label 的条目，弹幕源名字为 name。
+func labeled(name, label string) source.CollectionItem {
+	return source.CollectionItem{Ref: source.Ref(`{"name":"` + name + `"}`), Label: label}
+}
+
+// parseRule 由一组正则得到集号规则。
+func parseRule(t *testing.T, patterns ...string) source.EpisodeRule {
+	t.Helper()
+	r, err := source.ParseEpisodeRule(patterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 // seasonEnv 季绑定测试的环境：一部剧的第 1 季（季 ID 1）有给定集号的集，第 2 季（季 ID 2）没有集；
 // 源适配器只注册了 src；seasonbinding.Service 在后台运行。
 type seasonEnv struct {
@@ -103,7 +118,13 @@ func collectionForm(link string) service.CollectionForm {
 // create 用链接 list/s 给第 1 季创建合集的季绑定（合集第 1 集为第 1 集），等后台的补建结束，返回创建时的详情。
 func (e *seasonEnv) create() service.Detail {
 	e.t.Helper()
-	d, err := e.svc.CreateCollection(e.t.Context(), 1, collectionForm("list/s"))
+	return e.createWith(collectionForm("list/s"))
+}
+
+// createWith 用表单 f 给第 1 季创建合集的季绑定，等后台的补建结束，返回创建时的详情。
+func (e *seasonEnv) createWith(f service.CollectionForm) service.Detail {
+	e.t.Helper()
+	d, err := e.svc.CreateCollection(e.t.Context(), 1, f)
 	if err != nil {
 		e.t.Fatalf("CreateCollection: %v", err)
 	}

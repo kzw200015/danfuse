@@ -4,8 +4,8 @@ import (
 	"fmt"
 )
 
-// CollectionRef 合集在平台内的引用，是适配器自己定义的 JSON，存入 season_bindings.ref（jsonb），
-// 参与唯一约束 (season_id, adapter, ref)。合集是平台上按顺序排列的一组弹幕源（例如 B 站番剧的一季、投稿合集、多 P 投稿）。
+// CollectionRef 合集在平台内的引用，是适配器自己定义的 JSON，存入 season_bindings.ref（jsonb）；
+// 保存表单时按它判断换没换合集。合集是平台上按顺序排列的一组弹幕源（例如 B 站番剧的一季、投稿合集、多 P 投稿）。
 // 与弹幕源的 Ref 分开，编译期不会混用；适配器之外的代码不解析它。
 type CollectionRef []byte
 

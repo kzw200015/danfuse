@@ -46,7 +46,7 @@ type InsertSeasonBindingParams struct {
 	NumberedByRule  bool     `json:"numberedByRule"`
 }
 
-// 合集的季绑定。同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
+// 合集的季绑定。同一季可以多次绑定同一个合集。
 func (q *Queries) InsertSeasonBinding(ctx context.Context, arg InsertSeasonBindingParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertSeasonBinding,
 		arg.SeasonID,
@@ -129,7 +129,7 @@ type SaveCollectionFormParams struct {
 }
 
 // 保存合集的表单（调用方已锁住季绑定）：链接、选的合集、集号对应、集号规则。换成另一个合集（适配器或 ref 变了）时
-// 清掉上次检查时间，追更按从没检查过算。同一季已经绑定过这个合集时撞上唯一约束 (season_id, adapter, ref)。
+// 清掉上次检查时间，追更按从没检查过算。
 // 合集的标题、是否按规则编号和条目随后由 RecordSeasonBindingListed 与 UpsertSeasonBindingItems 写入。
 func (q *Queries) SaveCollectionForm(ctx context.Context, arg SaveCollectionFormParams) error {
 	_, err := q.db.Exec(ctx, saveCollectionForm,
@@ -142,36 +142,6 @@ func (q *Queries) SaveCollectionForm(ctx context.Context, arg SaveCollectionForm
 		arg.ID,
 	)
 	return err
-}
-
-const seasonBindingExists = `-- name: SeasonBindingExists :one
-SELECT EXISTS (SELECT 1
-               FROM season_bindings
-               WHERE season_id = $1
-                 AND adapter = $2::text
-                 AND ref = $3::jsonb
-                 AND id IS DISTINCT FROM $4::bigint)
-`
-
-type SeasonBindingExistsParams struct {
-	SeasonID  int64  `json:"seasonId"`
-	Adapter   string `json:"adapter"`
-	Ref       []byte `json:"ref"`
-	ExcludeID *int64 `json:"excludeId"`
-}
-
-// 这一季是否已经绑定过这个合集（不算 exclude_id 这个季绑定自己）。只用于在列出合集前省掉一次注定 409 的请求，
-// 并发时以唯一约束为准。
-func (q *Queries) SeasonBindingExists(ctx context.Context, arg SeasonBindingExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, seasonBindingExists,
-		arg.SeasonID,
-		arg.Adapter,
-		arg.Ref,
-		arg.ExcludeID,
-	)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
 }
 
 const upsertSeasonBindingItems = `-- name: UpsertSeasonBindingItems :exec

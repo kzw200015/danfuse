@@ -76,21 +76,51 @@ func TestCreateCollectionFailed(t *testing.T) {
 	}
 }
 
-// TestCreateCollectionDuplicate 同一季重复绑定同一个合集（不论链接怎么写）为 409，不再列出合集；
-// 一季可以有多个季绑定，同一个合集也可以绑到别的季上。按种类选候选。
-func TestCreateCollectionDuplicate(t *testing.T) {
+// TestCreateCollectionSameCollectionTwice 同一季可以多次绑定同一个合集（ADR 0011）：合集里装着两个来源季、
+// 本地合成一季时，每个来源季一个季绑定，各用自己的集号规则和集号对应，建出的槽位互不重叠；
+// 规则与已有的季绑定重叠时，重叠的条目按已有同源绑定跳过，不会在一集上建出两个同源的绑定。
+func TestCreateCollectionSameCollectionTwice(t *testing.T) {
+	t.Parallel()
+	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
+		src := &testenv.FakeCollector{
+			Collections: map[string]source.Collection{"s": {Title: "合集 s", NumberedByRule: true, Items: []source.CollectionItem{
+				labeled("a1", "第一季01"), labeled("a2", "第一季02"), labeled("b1", "第二季01"), labeled("b2", "第二季02"),
+			}}},
+			Videos: testenv.FakeVideos("a1", "a2", "b1", "b2"),
+		}
+		env := newSeasonEnv(t, pool, src, 1, 2, 3, 4)
+		first := collectionForm("list/s")
+		first.Rule = parseRule(t, `第一季(\d+)`)
+		second := collectionForm("alias-list/s") // 同一个合集的另一种写法
+		second.Rule = parseRule(t, `第二季(\d+)`)
+		second.Mapping = source.Mapping{From: 1, To: 3}
+
+		a := env.createWith(first).ID
+		b := env.createWith(second).ID
+
+		testutil.AssertStrings(t, "绑定", env.bindings(), []string{"1 a1 1", "2 a2 1", "3 b1 2", "4 b2 2"})
+		testutil.AssertStrings(t, "第二季的季绑定的条目", states(env.get(b)), []string{
+			"第一季01 unmatched - 不符合集号规则", "第一季02 unmatched - 不符合集号规则", "第二季01 keep 3", "第二季02 keep 4",
+		})
+
+		overlap := env.createWith(first).ID
+		testutil.AssertStrings(t, "规则重叠之后的绑定", env.bindings(), []string{"1 a1 1", "2 a2 1", "3 b1 2", "4 b2 2"})
+		testutil.AssertStrings(t, "规则重叠的季绑定的条目", states(env.get(overlap)), []string{
+			"第一季01 alreadyBound 1", "第一季02 alreadyBound 2", "第二季01 unmatched - 不符合集号规则", "第二季02 unmatched - 不符合集号规则",
+		})
+		if d := env.get(a); d.BindingCount != 2 {
+			t.Errorf("第一季的季绑定建出 %d 个绑定, want 2", d.BindingCount)
+		}
+	})
+}
+
+// TestCreateCollectionOtherCollection 一季可以有多个季绑定，同一个合集也可以绑到别的季上。按种类选候选。
+func TestCreateCollectionOtherCollection(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
 		src := &testenv.FakeCollector{Collections: map[string]source.Collection{"s": {Title: "合集 s"}, "t": {Title: "合集 t"}}}
 		env := newSeasonEnv(t, pool, src)
 		env.create()
-		lists := src.ListCount()
-
-		_, err := env.svc.CreateCollection(t.Context(), 1, collectionForm("alias-list/s"))
-		testutil.AssertAppError(t, err, http.StatusConflict, "这一季已经绑定过这个合集")
-		if n := src.ListCount(); n != lists {
-			t.Errorf("又列出了 %d 次合集，want 0：重复的不列出", n-lists)
-		}
 
 		both := collectionForm("both/t")
 		both.CollectionKind = "list"
@@ -306,11 +336,7 @@ func TestSaveCollectionSwitch(t *testing.T) {
 		f := collectionForm("both/t")
 		f.CollectionKind = "list"
 		f.Mapping = source.Mapping{From: 1, To: 2}
-		rule, err := source.ParseEpisodeRule([]string{`(\d+)`})
-		if err != nil {
-			t.Fatal(err)
-		}
-		f.Rule = rule
+		f.Rule = parseRule(t, `(\d+)`)
 		src.Gate()
 		d, err := env.svc.SaveCollection(t.Context(), id, f)
 		if err != nil {
@@ -337,8 +363,7 @@ func TestSaveCollectionSwitch(t *testing.T) {
 	})
 }
 
-// TestSaveCollectionFailed 补建中保存为 409，什么都不改；同一季已经绑定过这个合集为 409（保存它自己的合集不算）；
-// 不存在为 404，文件夹的季绑定为 400。
+// TestSaveCollectionFailed 补建中保存为 409，什么都不改；不存在为 404，文件夹的季绑定为 400。
 func TestSaveCollectionFailed(t *testing.T) {
 	t.Parallel()
 	testenv.SyncTest(t, func(t *testing.T, pool *pgxpool.Pool) {
@@ -350,7 +375,6 @@ func TestSaveCollectionFailed(t *testing.T) {
 			Videos: testenv.FakeVideos("a", "b"),
 		}
 		env := newSeasonEnv(t, pool, src, 1, 2)
-		s := env.create().ID
 		folder := env.folder([]string{"01"}, nil)
 
 		src.Gate()
@@ -361,16 +385,9 @@ func TestSaveCollectionFailed(t *testing.T) {
 		src.Release <- struct{}{}
 		synctest.Wait()
 		src.Started = nil
-
-		_, err = env.svc.SaveCollection(t.Context(), tID, collectionForm("alias-list/s"))
-		testutil.AssertAppError(t, err, http.StatusConflict, "这一季已经绑定过这个合集")
 		if d := env.get(tID); d.Link != "list/t" {
 			t.Errorf("link = %q, want 不变", d.Link)
 		}
-		if _, err := env.svc.SaveCollection(t.Context(), s, collectionForm("alias-list/s")); err != nil {
-			t.Errorf("保存它自己的合集：%v", err)
-		}
-		synctest.Wait()
 
 		_, err = env.svc.SaveCollection(t.Context(), 99, collectionForm("list/s"))
 		testutil.AssertAppError(t, err, http.StatusNotFound, "季绑定不存在")
