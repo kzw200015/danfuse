@@ -64,9 +64,10 @@ type CatalogSource struct {
 const KindJellyfin = "jellyfin"
 
 type Jellyfin struct {
-	URL       string   `mapstructure:"url"`       // 可带子路径，加载时去掉末尾的 /
-	APIKey    string   `mapstructure:"api_key"`   // 只作为请求头发送，不写日志
-	Libraries []string `mapstructure:"libraries"` // 要同步的媒体库名；环境变量里用逗号分隔
+	URL       string   `mapstructure:"url"`        // 同步和下载海报的地址，可带子路径，加载时去掉末尾的 /
+	PublicURL string   `mapstructure:"public_url"` // 浏览器访问的地址；为空时沿用 URL，同样可带子路径
+	APIKey    string   `mapstructure:"api_key"`    // 只作为请求头发送，不写日志
+	Libraries []string `mapstructure:"libraries"`  // 要同步的媒体库名；环境变量里用逗号分隔
 	// ListTimeout 列出媒体库、剧和电影、季和集，每个请求的超时。媒体库很大或 Jellyfin 很慢时调大
 	ListTimeout time.Duration `mapstructure:"list_timeout"`
 	// PosterTimeout 下载一张海报的超时
@@ -181,6 +182,7 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("catalog_source.kind", "")
 	v.SetDefault("catalog_source.jellyfin.url", "")
+	v.SetDefault("catalog_source.jellyfin.public_url", "")
 	v.SetDefault("catalog_source.jellyfin.api_key", "")
 	v.SetDefault("catalog_source.jellyfin.libraries", []string{})
 	v.SetDefault("catalog_source.jellyfin.list_timeout", 2*time.Minute)
@@ -213,6 +215,7 @@ func (c *Config) normalize() {
 	c.Bilibili.Sessdata = strings.TrimSpace(c.Bilibili.Sessdata)
 	jf := &c.CatalogSource.Jellyfin
 	jf.URL = strings.TrimRight(strings.TrimSpace(jf.URL), "/")
+	jf.PublicURL = strings.TrimRight(strings.TrimSpace(jf.PublicURL), "/")
 	libraries := make([]string, 0, len(jf.Libraries))
 	for _, name := range jf.Libraries {
 		if name = strings.TrimSpace(name); name != "" {
@@ -242,11 +245,13 @@ func (c *Config) validate() error {
 	case "":
 	case KindJellyfin:
 		jf := c.CatalogSource.Jellyfin
-		if u, err := url.Parse(jf.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return errors.New("config: catalog_source.jellyfin.url must be an http(s) URL")
-		} else if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
-			// 请求的路径直接拼在 url 后面；api_key 只能放在 api_key 里，不能写进查询串
-			return errors.New("config: catalog_source.jellyfin.url must not contain a query or fragment")
+		if err := validateJellyfinURL("url", jf.URL); err != nil {
+			return err
+		}
+		if jf.PublicURL != "" {
+			if err := validateJellyfinURL("public_url", jf.PublicURL); err != nil {
+				return err
+			}
 		}
 		if jf.APIKey == "" {
 			return errors.New("config: catalog_source.jellyfin.api_key is required")
@@ -304,6 +309,17 @@ func (c *Config) validate() error {
 	}
 	if df := c.DanmakuFile; df.MaxFiles < 1 || df.MaxFileMB < 1 || df.MaxUploadMB < 1 || df.SeasonMaxFiles < 1 || df.SeasonMaxUploadMB < 1 {
 		return errors.New("config: danmaku_file.max_files, max_file_mb, max_upload_mb, season_max_files and season_max_upload_mb must be at least 1")
+	}
+	return nil
+}
+
+func validateJellyfinURL(key, value string) error {
+	u, err := url.Parse(value)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("config: catalog_source.jellyfin.%s must be an http(s) URL", key)
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return fmt.Errorf("config: catalog_source.jellyfin.%s must not contain a query or fragment", key)
 	}
 	return nil
 }

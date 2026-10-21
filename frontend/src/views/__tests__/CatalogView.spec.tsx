@@ -48,7 +48,7 @@ const tv: SeriesDetail = {
   premiereDate: '2019-04-06',
   tmdbId: 60735,
   posterImageId: 5,
-  sourceLink: { url: 'http://jellyfin.test/web/#/details?id=jf1', label: 'Jellyfin' },
+  sourceLink: { url: 'https://media.example.com/jellyfin/web/#/details?id=jf1', label: 'Jellyfin' },
   seasons: [
     {
       id: 10,
@@ -116,7 +116,7 @@ describe('CatalogView', () => {
     )
     expect(screen.getByRole('link', { name: 'Jellyfin' })).toHaveAttribute(
       'href',
-      'http://jellyfin.test/web/#/details?id=jf1',
+      'https://media.example.com/jellyfin/web/#/details?id=jf1',
     )
     expect(
       within(screen.getByRole('complementary')).getByRole('link', { name: /星海旅人/ }),

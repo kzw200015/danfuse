@@ -17,7 +17,12 @@ vi.mock('@/api/settings')
 vi.mock('@/api/sync')
 
 const jellyfin = settings({
-  catalogSource: { kind: 'jellyfin', url: 'http://192.168.1.10:8096', libraries: ['番剧'] },
+  catalogSource: {
+    kind: 'jellyfin',
+    url: 'http://192.168.1.10:8096',
+    publicUrl: '',
+    libraries: ['番剧'],
+  },
   syncInterval: 86400,
 })
 

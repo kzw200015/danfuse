@@ -3,7 +3,10 @@ import { request } from './request'
 /** 目录源的配置，不含 API key */
 export interface CatalogSourceSettings {
   kind: string
+  /** 同步和下载海报的地址 */
   url: string
+  /** 浏览器访问的地址，空串表示沿用 url */
+  publicUrl: string
   libraries: string[]
 }
 

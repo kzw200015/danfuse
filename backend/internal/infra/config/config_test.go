@@ -2,6 +2,8 @@ package config
 
 import (
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -18,12 +20,13 @@ func setEnv(t *testing.T, env map[string]string) {
 
 func TestLoadCatalogSourceFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{
-		"DATABASE_DSN":                      "postgres://localhost/danfuse",
-		"CATALOG_SOURCE_KIND":               "jellyfin",
-		"CATALOG_SOURCE_JELLYFIN_URL":       "http://192.168.1.10:8096/jellyfin/",
-		"CATALOG_SOURCE_JELLYFIN_API_KEY":   "secret",
-		"CATALOG_SOURCE_JELLYFIN_LIBRARIES": "番剧, 电影,,",
-		"SYNC_INTERVAL":                     "24h",
+		"DATABASE_DSN":                       "postgres://localhost/danfuse",
+		"CATALOG_SOURCE_KIND":                "jellyfin",
+		"CATALOG_SOURCE_JELLYFIN_URL":        "http://192.168.1.10:8096/jellyfin/",
+		"CATALOG_SOURCE_JELLYFIN_PUBLIC_URL": " https://media.example.com/jellyfin/ ",
+		"CATALOG_SOURCE_JELLYFIN_API_KEY":    "secret",
+		"CATALOG_SOURCE_JELLYFIN_LIBRARIES":  "番剧, 电影,,",
+		"SYNC_INTERVAL":                      "24h",
 	})
 
 	cfg, err := Load("")
@@ -37,6 +40,9 @@ func TestLoadCatalogSourceFromEnv(t *testing.T) {
 	if jf.URL != "http://192.168.1.10:8096/jellyfin" {
 		t.Errorf("url = %q, want trailing / removed", jf.URL)
 	}
+	if jf.PublicURL != "https://media.example.com/jellyfin" {
+		t.Errorf("public_url = %q, want whitespace and trailing / removed", jf.PublicURL)
+	}
 	if jf.APIKey != "secret" {
 		t.Errorf("api_key = %q, want secret", jf.APIKey)
 	}
@@ -45,6 +51,58 @@ func TestLoadCatalogSourceFromEnv(t *testing.T) {
 	}
 	if cfg.Sync.Interval != 24*time.Hour {
 		t.Errorf("interval = %v, want 24h", cfg.Sync.Interval)
+	}
+}
+
+func TestLoadCatalogSourceFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+catalog_source:
+  kind: jellyfin
+  jellyfin:
+    url: http://jellyfin:8096
+    public_url: https://media.example.com/jellyfin/
+    api_key: secret
+    libraries: [番剧]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name, override, want string
+	}{
+		{"配置文件", "", "https://media.example.com/jellyfin"},
+		{"环境变量覆盖", "http://192.168.1.10:8096/", "http://192.168.1.10:8096"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			setEnv(t, map[string]string{"DATABASE_DSN": "postgres://localhost/danfuse"})
+			if tt.override != "" {
+				setEnv(t, map[string]string{"CATALOG_SOURCE_JELLYFIN_PUBLIC_URL": tt.override})
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if jf := cfg.CatalogSource.Jellyfin; jf.URL != "http://jellyfin:8096" || jf.PublicURL != tt.want {
+				t.Errorf("url = %q, public_url = %q, want 内网地址不变且 public_url = %q", jf.URL, jf.PublicURL, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadCatalogSourceWithoutPublicURL(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_DSN":                      "postgres://localhost/danfuse",
+		"CATALOG_SOURCE_KIND":               "jellyfin",
+		"CATALOG_SOURCE_JELLYFIN_URL":       "http://jellyfin:8096",
+		"CATALOG_SOURCE_JELLYFIN_API_KEY":   "secret",
+		"CATALOG_SOURCE_JELLYFIN_LIBRARIES": "番剧",
+	})
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.CatalogSource.Jellyfin.PublicURL; got != "" {
+		t.Errorf("public_url = %q, want empty by default", got)
 	}
 }
 
@@ -167,6 +225,13 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"url 带查询串", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_URL", "http://jellyfin:8096/?api_key=secret"), "query or fragment"},
 		{"url 带空查询串", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_URL", "http://jellyfin:8096?"), "query or fragment"},
 		{"url 带片段", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_URL", "http://jellyfin:8096/#web"), "query or fragment"},
+		{"public_url 不是 http(s)", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_PUBLIC_URL", "ftp://media.example.com"), "jellyfin.public_url must be an http(s) URL"},
+		{"public_url 是脚本", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_PUBLIC_URL", "javascript:alert(1)"), "jellyfin.public_url must be an http(s) URL"},
+		{"public_url 没有协议", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_PUBLIC_URL", "//media.example.com"), "jellyfin.public_url must be an http(s) URL"},
+		{"public_url 没有主机", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_PUBLIC_URL", "https://"), "jellyfin.public_url must be an http(s) URL"},
+		{"public_url 带查询串", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_PUBLIC_URL", "https://media.example.com/?api_key=secret"), "jellyfin.public_url must not contain a query or fragment"},
+		{"public_url 带空查询串", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_PUBLIC_URL", "https://media.example.com?"), "jellyfin.public_url must not contain a query or fragment"},
+		{"public_url 带片段", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_PUBLIC_URL", "https://media.example.com/#web"), "jellyfin.public_url must not contain a query or fragment"},
 		{"缺 api_key", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_API_KEY", ""), "jellyfin.api_key"},
 		{"缺 libraries", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_LIBRARIES", ""), "jellyfin.libraries"},
 		{"libraries 只有空白", with(jellyfin, "CATALOG_SOURCE_JELLYFIN_LIBRARIES", " , "), "jellyfin.libraries"},

@@ -35,7 +35,7 @@ func TestSettings(t *testing.T) {
 			"kind 为空时不读 Jellyfin 的设置块",
 			config.Dandanplay{},
 			config.CatalogSource{Jellyfin: config.Jellyfin{
-				URL: "http://192.168.1.10:8096", APIKey: apiKey, Libraries: []string{"番剧"},
+				URL: "http://192.168.1.10:8096", PublicURL: "https://media.example.com", APIKey: apiKey, Libraries: []string{"番剧"},
 			}},
 			config.Sync{},
 			config.Bilibili{},
@@ -49,7 +49,17 @@ func TestSettings(t *testing.T) {
 			}},
 			config.Sync{Interval: 24 * time.Hour},
 			config.Bilibili{},
-			`{"dandanplayToken":"s3cret","catalogSource":{"kind":"jellyfin","url":"http://192.168.1.10:8096/jellyfin","libraries":["番剧","电影"]},"syncInterval":86400,"bilibiliSessdataConfigured":false}`,
+			`{"dandanplayToken":"s3cret","catalogSource":{"kind":"jellyfin","url":"http://192.168.1.10:8096/jellyfin","publicUrl":"","libraries":["番剧","电影"]},"syncInterval":86400,"bilibiliSessdataConfigured":false}`,
+		},
+		{
+			"Jellyfin 内外网地址不同",
+			config.Dandanplay{},
+			config.CatalogSource{Kind: config.KindJellyfin, Jellyfin: config.Jellyfin{
+				URL: "http://jellyfin:8096", PublicURL: "https://media.example.com/jellyfin", APIKey: apiKey, Libraries: []string{"番剧"},
+			}},
+			config.Sync{},
+			config.Bilibili{},
+			`{"dandanplayToken":null,"catalogSource":{"kind":"jellyfin","url":"http://jellyfin:8096","publicUrl":"https://media.example.com/jellyfin","libraries":["番剧"]},"syncInterval":0,"bilibiliSessdataConfigured":false}`,
 		},
 		{
 			"定时间隔不是整秒",
@@ -59,7 +69,7 @@ func TestSettings(t *testing.T) {
 			}},
 			config.Sync{Interval: 1500 * time.Millisecond},
 			config.Bilibili{},
-			`{"dandanplayToken":null,"catalogSource":{"kind":"jellyfin","url":"http://jellyfin:8096","libraries":["番剧"]},"syncInterval":1.5,"bilibiliSessdataConfigured":false}`,
+			`{"dandanplayToken":null,"catalogSource":{"kind":"jellyfin","url":"http://jellyfin:8096","publicUrl":"","libraries":["番剧"]},"syncInterval":1.5,"bilibiliSessdataConfigured":false}`,
 		},
 		{
 			"配置了 SESSDATA：只给出已配置",

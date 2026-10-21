@@ -647,32 +647,71 @@ func TestTMDBID(t *testing.T) {
 	})
 }
 
-// TestURLWithSubpath Jellyfin 挂在反向代理的子路径下：请求都发到子路径下面。
+// TestURLWithSubpath Jellyfin 挂在反向代理的子路径下：同步和海报请求都发到接口地址的子路径，不使用公网地址。
 func TestURLWithSubpath(t *testing.T) {
+	const png = "\x89PNG\r\n\x1a\n海报"
 	fake := newFake(t, map[string]string{
 		"virtual-folders.json": `[{"Name":"电影","ItemId":"lib","CollectionType":"movies"}]`,
-		"items-lib.json":       `{"Items":[{"Id":"m1","Type":"Movie","Name":"长夜灯塔","ProviderIds":{"Tmdb":"1"}}]}`,
+		"items-lib.json":       `{"Items":[{"Id":"m1","Type":"Movie","Name":"长夜灯塔","ProviderIds":{"Tmdb":"1"},"ImageTags":{"Primary":"tag"}}]}`,
+		"image-m1":             png,
 	})
 	proxy := httptest.NewServer(http.StripPrefix("/jellyfin", fake)) // 子路径以外的请求返回 404
 	t.Cleanup(proxy.Close)
+	public := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("公网地址不应收到请求：%s", r.URL)
+		http.Error(w, "unexpected request", http.StatusBadGateway)
+	}))
+	t.Cleanup(public.Close)
 
-	src := New(config.Jellyfin{URL: proxy.URL + "/jellyfin", APIKey: testAPIKey, Libraries: []string{"电影"}, ListTimeout: time.Minute, PosterTimeout: time.Minute})
+	src := New(config.Jellyfin{
+		URL: proxy.URL + "/jellyfin", PublicURL: public.URL + "/public",
+		APIKey: testAPIKey, Libraries: []string{"电影"}, ListTimeout: time.Minute, PosterTimeout: time.Minute,
+	})
 	listing, err := src.List(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := collect(t, listing.Items); len(got) != 1 || got[0].Name != "长夜灯塔" {
 		t.Errorf("Items = %+v, want 一部电影", got)
+	} else if got[0].Series == nil || got[0].Series.Poster == nil || string(got[0].Series.Poster.Data) != png {
+		t.Errorf("未从接口地址取得海报：%+v", got[0].Series)
 	}
 }
 
-// TestLink 剧的链接是网页客户端的详情页，Jellyfin 挂在子路径下时也在子路径下面。
+// TestLink 剧的链接优先用公网地址，未配置时沿用接口地址；两者都保留子路径。
 func TestLink(t *testing.T) {
-	src := New(config.Jellyfin{URL: "http://192.168.1.10:8096/jellyfin"})
-	got := src.Link("a2e82866ba1950c858d34adbd471dda5")
-	want := catalog.Link{URL: "http://192.168.1.10:8096/jellyfin/web/#/details?id=a2e82866ba1950c858d34adbd471dda5", Label: "Jellyfin"}
-	if got != want {
-		t.Errorf("Link = %+v, want %+v", got, want)
+	for _, tt := range []struct {
+		name, apiURL, publicURL, sourceID, wantURL string
+	}{
+		{
+			"未配置公网地址", "http://jellyfin:8096", "", "jf1",
+			"http://jellyfin:8096/web/#/details?id=jf1",
+		},
+		{
+			"接口地址带子路径", "http://192.168.1.10:8096/jellyfin", "", "jf1",
+			"http://192.168.1.10:8096/jellyfin/web/#/details?id=jf1",
+		},
+		{
+			"公网地址", "http://jellyfin:8096", "https://media.example.com", "jf1",
+			"https://media.example.com/web/#/details?id=jf1",
+		},
+		{
+			"公网地址带独立子路径", "http://jellyfin:8096/internal", "https://media.example.com/jellyfin", "jf1",
+			"https://media.example.com/jellyfin/web/#/details?id=jf1",
+		},
+		{
+			"目录源 ID 转义", "http://jellyfin:8096", "https://media.example.com/jellyfin", "a&b /?#",
+			"https://media.example.com/jellyfin/web/#/details?id=a%26b+%2F%3F%23",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			src := New(config.Jellyfin{URL: tt.apiURL, PublicURL: tt.publicURL})
+			got := src.Link(tt.sourceID)
+			want := catalog.Link{URL: tt.wantURL, Label: "Jellyfin"}
+			if got != want {
+				t.Errorf("Link = %+v, want %+v", got, want)
+			}
+		})
 	}
 }
 

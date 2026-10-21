@@ -39,6 +39,7 @@ type scheduledFetchSettings struct {
 type catalogSourceSettings struct {
 	Kind      string   `json:"kind"`
 	URL       string   `json:"url"`
+	PublicURL string   `json:"publicUrl"` // 浏览器访问的地址；空串表示沿用 URL
 	Libraries []string `json:"libraries"`
 }
 
@@ -63,7 +64,9 @@ func (h *Handler) Get(c *echo.Context) error {
 	// 只读取选中那一种的设置块；kind 为空表示未配置目录源（config 已校验，只能为空或 jellyfin）
 	if cfg.CatalogSource.Kind == config.KindJellyfin {
 		jf := cfg.CatalogSource.Jellyfin
-		resp.CatalogSource = &catalogSourceSettings{Kind: cfg.CatalogSource.Kind, URL: jf.URL, Libraries: jf.Libraries}
+		resp.CatalogSource = &catalogSourceSettings{
+			Kind: cfg.CatalogSource.Kind, URL: jf.URL, PublicURL: jf.PublicURL, Libraries: jf.Libraries,
+		}
 	}
 	return response.OK(c, resp)
 }
