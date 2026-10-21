@@ -7,6 +7,8 @@ package dao
 
 import (
 	"context"
+
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 const deleteSeasonBindingEntries = `-- name: DeleteSeasonBindingEntries :exec
@@ -21,17 +23,17 @@ func (q *Queries) DeleteSeasonBindingEntries(ctx context.Context, ids []int64) e
 }
 
 const insertFolderSeasonBinding = `-- name: InsertFolderSeasonBinding :one
-INSERT INTO season_bindings (season_id, kind, title, follow, mapping_from, mapping_to, episode_patterns)
-VALUES ($1, 'folder', $2, false, $3::int, $4::int, $5::text[])
-RETURNING id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, episode_patterns, numbered_by_rule, kind, link
+INSERT INTO season_bindings (season_id, kind, title, follow, mapping_from, mapping_to, episode_rule)
+VALUES ($1, 'folder', $2, false, $3::int, $4::int, $5)
+RETURNING id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, numbered_by_rule, kind, link, episode_rule
 `
 
 type InsertFolderSeasonBindingParams struct {
-	SeasonID        int64    `json:"seasonId"`
-	Title           string   `json:"title"`
-	MappingFrom     int32    `json:"mappingFrom"`
-	MappingTo       int32    `json:"mappingTo"`
-	EpisodePatterns []string `json:"episodePatterns"`
+	SeasonID    int64                    `json:"seasonId"`
+	Title       string                   `json:"title"`
+	MappingFrom int32                    `json:"mappingFrom"`
+	MappingTo   int32                    `json:"mappingTo"`
+	EpisodeRule source.EpisodeRuleConfig `json:"episodeRule"`
 }
 
 // 文件夹的季绑定，标题为文件夹名。只属于合集的列为空，追更恒为关。
@@ -41,7 +43,7 @@ func (q *Queries) InsertFolderSeasonBinding(ctx context.Context, arg InsertFolde
 		arg.Title,
 		arg.MappingFrom,
 		arg.MappingTo,
-		arg.EpisodePatterns,
+		arg.EpisodeRule,
 	)
 	var i SeasonBinding
 	err := row.Scan(
@@ -57,10 +59,10 @@ func (q *Queries) InsertFolderSeasonBinding(ctx context.Context, arg InsertFolde
 		&i.LastError,
 		&i.LastCheckedAt,
 		&i.CreatedAt,
-		&i.EpisodePatterns,
 		&i.NumberedByRule,
 		&i.Kind,
 		&i.Link,
+		&i.EpisodeRule,
 	)
 	return i, err
 }
@@ -261,17 +263,17 @@ UPDATE season_bindings
 SET title            = $1,
     mapping_from     = $2::int,
     mapping_to       = $3::int,
-    episode_patterns = $4::text[]
+    episode_rule = $4
 WHERE id = $5
-RETURNING id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, episode_patterns, numbered_by_rule, kind, link
+RETURNING id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, numbered_by_rule, kind, link, episode_rule
 `
 
 type UpdateFolderSeasonBindingParams struct {
-	Title           string   `json:"title"`
-	MappingFrom     int32    `json:"mappingFrom"`
-	MappingTo       int32    `json:"mappingTo"`
-	EpisodePatterns []string `json:"episodePatterns"`
-	ID              int64    `json:"id"`
+	Title       string                   `json:"title"`
+	MappingFrom int32                    `json:"mappingFrom"`
+	MappingTo   int32                    `json:"mappingTo"`
+	EpisodeRule source.EpisodeRuleConfig `json:"episodeRule"`
+	ID          int64                    `json:"id"`
 }
 
 // 保存文件夹的季绑定的表单：标题（换文件夹时为新的文件夹名）、集号规则、集号对应。返回更新后的季绑定。
@@ -280,7 +282,7 @@ func (q *Queries) UpdateFolderSeasonBinding(ctx context.Context, arg UpdateFolde
 		arg.Title,
 		arg.MappingFrom,
 		arg.MappingTo,
-		arg.EpisodePatterns,
+		arg.EpisodeRule,
 		arg.ID,
 	)
 	var i SeasonBinding
@@ -297,10 +299,10 @@ func (q *Queries) UpdateFolderSeasonBinding(ctx context.Context, arg UpdateFolde
 		&i.LastError,
 		&i.LastCheckedAt,
 		&i.CreatedAt,
-		&i.EpisodePatterns,
 		&i.NumberedByRule,
 		&i.Kind,
 		&i.Link,
+		&i.EpisodeRule,
 	)
 	return i, err
 }

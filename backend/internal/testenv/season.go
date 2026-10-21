@@ -18,9 +18,9 @@ func InsertCollectionSeasonBinding(t testing.TB, pool *pgxpool.Pool, seasonID in
 	t.Helper()
 	var id int64
 	err := pool.QueryRow(t.Context(), `
-		INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, mapping_from, mapping_to, episode_patterns, numbered_by_rule)
+		INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, mapping_from, mapping_to, episode_rule, numbered_by_rule)
 		VALUES ($1, 'collection', 'fake', jsonb_build_object('list', $2::text), 'list/' || $2, '合集 ' || $2, $3, $4, $5, false)
-		RETURNING id`, seasonID, name, from, to, source.DefaultEpisodeRule().Patterns()).Scan(&id)
+		RETURNING id`, seasonID, name, from, to, source.DefaultEpisodeRule().Config()).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,9 +39,9 @@ func InsertFolderSeasonBinding(t testing.TB, pool *pgxpool.Pool, seasonID int64,
 	t.Helper()
 	var id int64
 	err := pool.QueryRow(t.Context(), `
-		INSERT INTO season_bindings (season_id, kind, title, follow, mapping_from, mapping_to, episode_patterns)
+		INSERT INTO season_bindings (season_id, kind, title, follow, mapping_from, mapping_to, episode_rule)
 		VALUES ($1, 'folder', $2, false, $3, $4, $5)
-		RETURNING id`, seasonID, title, from, to, source.DefaultEpisodeRule().Patterns()).Scan(&id)
+		RETURNING id`, seasonID, title, from, to, source.DefaultEpisodeRule().Config()).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}

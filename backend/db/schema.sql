@@ -111,13 +111,13 @@ CREATE TABLE season_bindings (
     last_error       text,
     last_checked_at  timestamp with time zone,
     created_at       timestamp with time zone NOT NULL DEFAULT now(),
-    episode_patterns text[]                   NOT NULL,
     numbered_by_rule boolean,
     kind             text                     NOT NULL DEFAULT 'collection'::text,
     link             text,
+    episode_rule     jsonb                    NOT NULL,
     CONSTRAINT season_bindings_pkey PRIMARY KEY (id),
     CONSTRAINT season_bindings_season_id_adapter_ref_key UNIQUE (season_id, adapter, ref),
-    CONSTRAINT season_bindings_episode_patterns_check CHECK (cardinality(episode_patterns) >= 1),
+    CONSTRAINT season_bindings_episode_rule_check CHECK (jsonb_typeof(episode_rule) = 'object'::text AND ((episode_rule ->> 'version'::text) = ANY (ARRAY['1'::text, '2'::text])) AND ((episode_rule ->> 'scope'::text) = ANY (ARRAY['full'::text, 'entry'::text])) AND jsonb_typeof(episode_rule -> 'rules'::text) = 'array'::text AND jsonb_array_length(episode_rule -> 'rules'::text) >= 1 AND jsonb_array_length(episode_rule -> 'rules'::text) <= 10 AND jsonb_typeof(episode_rule -> 'excludes'::text) = 'array'::text AND jsonb_array_length(episode_rule -> 'excludes'::text) <= 10),
     CONSTRAINT season_bindings_kind_check CHECK (kind = ANY (ARRAY['collection'::text, 'folder'::text])),
     CONSTRAINT season_bindings_kind_columns_check CHECK (kind = 'collection'::text AND adapter IS NOT NULL AND ref IS NOT NULL AND link IS NOT NULL AND numbered_by_rule IS NOT NULL OR kind = 'folder'::text AND adapter IS NULL AND ref IS NULL AND link IS NULL AND numbered_by_rule IS NULL AND NOT follow AND status = 'active'::text AND last_checked_at IS NULL AND last_error IS NULL),
     CONSTRAINT season_bindings_mapping_from_check CHECK (mapping_from >= 0),
@@ -145,6 +145,7 @@ CREATE TABLE season_binding_items (
     label             text                     NOT NULL,
     last_error        text,
     last_error_at     timestamp with time zone,
+    label_parts       text[],
     CONSTRAINT season_binding_items_pkey PRIMARY KEY (season_binding_id, ref),
     CONSTRAINT season_binding_items_season_binding_id_fkey FOREIGN KEY (season_binding_id) REFERENCES season_bindings(id) ON DELETE CASCADE
 );

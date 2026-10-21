@@ -6,6 +6,8 @@ import {
   binding,
   card,
   defaultPatterns,
+  defaultEpisodeRule,
+  episodeRuleDefaults,
   folderSeasonBinding,
   lighthouse,
   mockCatalog,
@@ -109,7 +111,7 @@ beforeEach(() => {
   parts = {}
   mockRootLayout()
   mockCatalog(() => all)
-  vi.mocked(getDefaultEpisodePatterns).mockResolvedValue({ episodePatterns: defaultPatterns })
+  vi.mocked(getDefaultEpisodePatterns).mockResolvedValue(episodeRuleDefaults)
   // mock 的类型按两种详情的联合，这里按服务端的季绑定拼出，种类总是对得上
   vi.mocked(getSeasonBinding).mockImplementation(async (id) => serverDetail(id) as never)
 })
@@ -301,7 +303,7 @@ describe('绑定合集', () => {
     await waitFor(() =>
       expect(previewNewCollection).toHaveBeenCalledWith(11, {
         link: 'ss36429',
-        episodePatterns: defaultPatterns,
+        episodeRule: defaultEpisodeRule,
         mappingFrom: 1,
         mappingTo: 1,
       }),
@@ -335,7 +337,7 @@ describe('绑定合集', () => {
     await waitFor(() =>
       expect(previewNewCollection).toHaveBeenLastCalledWith(11, {
         link: 'ss36429',
-        episodePatterns: defaultPatterns,
+        episodeRule: defaultEpisodeRule,
         mappingFrom: 13,
         mappingTo: 1,
       }),
@@ -368,7 +370,7 @@ describe('绑定合集', () => {
       expect(createCollection).toHaveBeenCalledWith(11, {
         link: 'ss36429',
         collectionKind: 'bangumi',
-        episodePatterns: defaultPatterns,
+        episodeRule: defaultEpisodeRule,
         mappingFrom: 13,
         mappingTo: 1,
       }),
@@ -417,7 +419,7 @@ describe('绑定合集', () => {
           sourceLabel: 'B 站投稿合集 8597253',
           items: [
             item('星海旅人 第1集', 1, { status: 'keep' }),
-            form.episodePatterns.length === 1
+            (form.episodeRule?.rules.length ?? form.episodePatterns?.length) === 1
               ? item('星海旅人 第2集 PV', null, { status: 'unmatched', reason: '认不出集号' })
               : item('星海旅人 第2集 PV', 2),
           ],
@@ -445,6 +447,7 @@ describe('绑定合集', () => {
       ['2', '星海旅人 第2集 PV', '第 2 集 · 新建'],
     ])
     // 改集号规则：编辑的起点是默认规则，改完自动重新预览
+    fireEvent.click(form.getByText('高级正则与排除规则'))
     expect(form.getByRole('textbox', { name: '集号规则第 1 条' })).toHaveValue('第(\\d+)集')
     fireEvent.click(form.getByRole('button', { name: '删除第 2 条' }))
     fireEvent.change(form.getByRole('textbox', { name: '集号规则第 1 条' }), {
@@ -455,7 +458,7 @@ describe('绑定合集', () => {
     await waitFor(() =>
       expect(previewNewCollection).toHaveBeenLastCalledWith(11, {
         link: 'BV17x411w7KC',
-        episodePatterns: ['第(\\d+)集$'],
+        episodeRule: { ...defaultEpisodeRule, rules: [{ pattern: '第(\\d+)集$', adjustment: 0 }] },
         mappingFrom: 1,
         mappingTo: 1,
       }),
@@ -471,7 +474,7 @@ describe('绑定合集', () => {
       expect(createCollection).toHaveBeenCalledWith(11, {
         link: 'BV17x411w7KC',
         collectionKind: 'ugcSeason',
-        episodePatterns: ['第(\\d+)集$'],
+        episodeRule: { ...defaultEpisodeRule, rules: [{ pattern: '第(\\d+)集$', adjustment: 0 }] },
         mappingFrom: 1,
         mappingTo: 1,
       }),
@@ -504,6 +507,38 @@ describe('绑定合集', () => {
 })
 
 describe('编辑合集的季绑定', () => {
+  it('旧规则升级仅修改草稿：预览过期时禁用保存，取消后重新打开仍为旧版', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    Object.assign(serverBinding(1), { numberedByRule: true, mappingTo: 13 })
+    vi.mocked(previewCollectionEdit).mockResolvedValue({
+      candidates: [candidate({ numberedByRule: true, current: true })],
+    })
+    renderRoutes('/catalog/1/11')
+    const sb = await card('星海旅人 第一季')
+    fireEvent.click(sb.getByRole('button', { name: '编辑' }))
+    const form = within(sb.getByRole('region', { name: '编辑季绑定' }))
+    await form.findByRole('region', { name: '预览' })
+    const upgrade = form.getByRole('button', { name: '使用新版模板' })
+    await waitFor(() => expect(upgrade).toBeEnabled())
+    fireEvent.click(upgrade)
+    expect(form.getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(form.getByText(/预览已过期/)).toBeInTheDocument()
+    await advance(600)
+    await waitFor(() =>
+      expect(previewCollectionEdit).toHaveBeenLastCalledWith(1, {
+        link: 'https://b23.tv/ss41410',
+        episodeRule: defaultEpisodeRule,
+        mappingFrom: 1,
+        mappingTo: 13,
+      }),
+    )
+    fireEvent.click(form.getByRole('button', { name: '取消' }))
+    fireEvent.click(sb.getByRole('button', { name: '编辑' }))
+    const reopened = within(sb.getByRole('region', { name: '编辑季绑定' }))
+    expect(await reopened.findByText(/旧版规则/)).toBeInTheDocument()
+    expect(saveCollection).not.toHaveBeenCalled()
+  })
+
   it('打开就按保存的表单预览、选中保存的候选；没改也能保存，没有删除和替换时直接保存', async () => {
     vi.mocked(previewCollectionEdit).mockResolvedValue({
       candidates: [
@@ -840,7 +875,7 @@ describe('上传弹幕文件夹', () => {
       expect(previewNewFolder).toHaveBeenCalledWith(11, {
         folder: '星海旅人',
         entries: archiveEntries,
-        episodePatterns: defaultPatterns,
+        episodeRule: defaultEpisodeRule,
         mappingFrom: 1,
         mappingTo: 1,
       }),
@@ -867,7 +902,7 @@ describe('上传弹幕文件夹', () => {
       '星海旅人/2/20121007.xml',
       '星海旅人/SP/20121231.xml',
     ])
-    expect(rules).toEqual({ episodePatterns: defaultPatterns, mappingFrom: 1, mappingTo: 1 })
+    expect(rules).toEqual({ episodeRule: defaultEpisodeRule, mappingFrom: 1, mappingTo: 1 })
     act(() => progress!(0.5))
     expect(await form.findByText('上传中 50%')).toBeInTheDocument()
     expect(form.getByRole('progressbar', { name: '上传进度' })).toBeInTheDocument()

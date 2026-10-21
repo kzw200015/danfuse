@@ -7,12 +7,14 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
-// Entry 已编好号的条目，取自 source.NumberItems / NumberLabels 的输出。
+// Entry 已编好号的条目，取自 source.NumberItems / NumberEntries 的输出。
 type Entry struct {
-	Source    string // 弹幕源的身份：合集为 source.CanonicalRef(ref)；文件夹为条目 ID
-	Label     string
-	Number    int    // Unmatched 为空时才有意义
-	Unmatched string // 非空表示对不上，内容是 source 给出的原因
+	Source     string // 弹幕源的身份：合集为 source.CanonicalRef(ref)；文件夹为条目 ID
+	Label      string
+	Number     int    // Unmatched 为空时才有意义
+	Unmatched  string // 非空表示对不上，内容是 source 给出的原因
+	ReasonCode string
+	Trace      *source.EpisodeTrace
 }
 
 // Episode 本季的一集，连同这个季绑定在这一集上的槽位。
@@ -104,10 +106,20 @@ func deriveItem(e Entry, m source.Mapping, episodes map[int]Episode) Item {
 	if e.Unmatched != "" {
 		return Item{Entry: e, Status: StatusUnmatched}
 	}
-	n, ok := m.Episode(e.Number)
-	if !ok {
+	if e.Number < m.From {
 		return Item{Entry: e, Status: StatusBeforeStart}
 	}
+	local := int64(e.Number) - int64(m.From) + int64(m.To)
+	if e.Trace != nil {
+		trace := *e.Trace
+		trace.LocalNumber = new(local)
+		e.Trace = &trace
+	}
+	if local < 0 || local > source.MaxEpisodeNumber {
+		e.ReasonCode, e.Unmatched = source.ReasonMapping, "集号对应后的本地集号越界"
+		return Item{Entry: e, Status: StatusUnmatched}
+	}
+	n := int(local)
 	ep, ok := episodes[n]
 	if !ok {
 		return Item{Entry: e, Status: StatusNoEpisode, Episode: n}

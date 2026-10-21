@@ -217,7 +217,13 @@ func (m *Migrator) UpTo(t testing.TB, version int64) {
 // DownTo 回退 version 之后的迁移，回到 version。
 func (m *Migrator) DownTo(t testing.TB, version int64) {
 	t.Helper()
-	if _, err := m.provider.DownTo(t.Context(), version); err != nil {
+	if err := m.TryDownTo(t.Context(), version); err != nil {
 		t.Fatalf("dbtest: migrate down to %d: %v", version, err)
 	}
+}
+
+// TryDownTo allows tests to assert a deliberately refused, lossful rollback.
+func (m *Migrator) TryDownTo(ctx context.Context, version int64) error {
+	_, err := m.provider.DownTo(ctx, version)
+	return err
 }

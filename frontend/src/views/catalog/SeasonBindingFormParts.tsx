@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Loader2Icon } from 'lucide-react'
 
-import type { Candidate, EpisodeRuleForm, Preview } from '@/api/season-bindings'
+import type { Candidate, EpisodeRuleConfig, EpisodeRuleForm, Preview } from '@/api/season-bindings'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { Badge } from '@/components/ui/badge'
@@ -12,7 +12,7 @@ import { useDefaultEpisodePatterns } from '@/hooks/use-season-bindings'
 import EpisodeRuleInput from './EpisodeRuleInput'
 import MappingInputs from './MappingInputs'
 import PreviewTable from './PreviewTable'
-import { cleanPatterns, episodeText, parseMappingNumber, summaryTags } from './season-binding'
+import { episodeText, legacyRule, parseMappingNumber, summaryTags } from './season-binding'
 import { FormFrame } from './shared'
 
 /**
@@ -26,13 +26,13 @@ export function AddFormFrame({
 }: {
   label: string
   onClose: () => void
-  children: (defaultPatterns: string[]) => ReactNode
+  children: (defaultRule: EpisodeRuleConfig) => ReactNode
 }) {
   const defaults = useDefaultEpisodePatterns()
   return (
     <FormFrame label={label}>
       {defaults.data ? (
-        children(defaults.data)
+        children(defaults.data.episodeRule)
       ) : (
         <>
           {defaults.error ? (
@@ -54,18 +54,36 @@ export function AddFormFrame({
  * 集号对应不合法时为 null，这时不预览
  */
 export function useRuleDraft(initial: EpisodeRuleForm) {
-  const [patterns, setPatterns] = useState(initial.episodePatterns)
+  const [rule, setRule] = useState(initial.episodeRule ?? legacyRule(initial.episodePatterns!))
   const [fromText, setFromText] = useState(String(initial.mappingFrom))
   const [toText, setToText] = useState(String(initial.mappingTo))
   const mappingFrom = parseMappingNumber(fromText)
   const mappingTo = parseMappingNumber(toText)
   const form: EpisodeRuleForm | null =
-    mappingFrom === null || mappingTo === null
+    mappingFrom === null ||
+    mappingTo === null ||
+    rule.rules.some((p) => !Number.isInteger(p.adjustment) || Math.abs(p.adjustment) > 2147483647)
       ? null
-      : { episodePatterns: cleanPatterns(patterns), mappingFrom, mappingTo }
+      : {
+          ...(rule.version === 1
+            ? { episodePatterns: rule.rules.map((p) => p.pattern.trim()).filter(Boolean) }
+            : {
+                episodeRule: {
+                  ...rule,
+                  rules: rule.rules
+                    .map((p) => ({ ...p, pattern: p.pattern.trim() }))
+                    .filter((p) => p.pattern),
+                  excludes: rule.excludes
+                    .map((p) => ({ ...p, pattern: p.pattern.trim() }))
+                    .filter((p) => p.pattern),
+                },
+              }),
+          mappingFrom,
+          mappingTo,
+        }
   return {
-    patterns,
-    setPatterns,
+    rule,
+    setRule,
     from: { text: fromText, valid: mappingFrom !== null, onChange: setFromText },
     to: { text: toText, valid: mappingTo !== null, onChange: setToText },
     form,
@@ -92,7 +110,7 @@ export function RuleFields({
   return (
     <>
       {showPatterns && (
-        <EpisodeRuleInput value={draft.patterns} onChange={draft.setPatterns} disabled={disabled} />
+        <EpisodeRuleInput value={draft.rule} onChange={draft.setRule} disabled={disabled} />
       )}
       <MappingInputs prefix={prefix} from={draft.from} to={draft.to} disabled={disabled} />
     </>
@@ -167,6 +185,11 @@ export function PreviewSection({
         </span>
       )}
       {state.error && <ErrorNote>{state.error.message}</ErrorNote>}
+      {candidate && !state.current && (
+        <span role="status" className="text-xs text-amber-700">
+          预览已过期，当前配置预览完成后才能保存。
+        </span>
+      )}
       {candidate && (
         <section aria-label="预览" className="grid gap-2">
           <div className="flex flex-wrap gap-1">

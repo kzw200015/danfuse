@@ -251,7 +251,7 @@ func (a *Adapter) listUGCSeason(ctx context.Context, seasonID int64) (source.Col
 		for _, p := range ps {
 			if p.Page >= 1 {
 				c.Items = append(c.Items, source.CollectionItem{
-					Ref: ref{Kind: kindVideo, Aid: e.Aid, Page: p.Page}.encode(), Label: pageLabel(e.Title, p.Part),
+					Ref: ref{Kind: kindVideo, Aid: e.Aid, Page: p.Page}.encode(), Label: pageLabel(e.Title, p.Part), LabelParts: pageLabelParts(e.Title, p.Part),
 				})
 			}
 		}
@@ -308,6 +308,14 @@ func pageLabel(title, part string) string {
 	return title + source.LabelSeparator + part
 }
 
+func pageLabelParts(title, part string) []string {
+	title, part = strings.TrimSpace(title), strings.TrimSpace(part)
+	if part == "" || part == title {
+		return []string{title}
+	}
+	return []string{title, part}
+}
+
 // archivesData x/polymer/web-space/seasons_archives_list 的 data：合集的一页条目，顺序与 view 里各小节展开后的顺序一致。
 type archivesData struct {
 	Archives []archive     `json:"archives"`
@@ -346,7 +354,7 @@ func (a *Adapter) listPages(ctx context.Context, aid int64) (source.Collection, 
 	c := source.Collection{Title: strings.TrimSpace(v.Title), NumberedByRule: true}
 	for _, p := range v.Pages {
 		if p.Page >= 1 {
-			c.Items = append(c.Items, source.CollectionItem{Ref: ref{Kind: kindVideo, Aid: aid, Page: p.Page}.encode(), Label: pageLabel(v.Title, p.Part)})
+			c.Items = append(c.Items, source.CollectionItem{Ref: ref{Kind: kindVideo, Aid: aid, Page: p.Page}.encode(), Label: pageLabel(v.Title, p.Part), LabelParts: pageLabelParts(v.Title, p.Part)})
 		}
 	}
 	return c, nil

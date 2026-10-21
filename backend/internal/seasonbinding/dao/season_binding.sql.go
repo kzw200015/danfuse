@@ -21,7 +21,7 @@ func (q *Queries) DeleteSeasonBinding(ctx context.Context, id int64) error {
 }
 
 const getSeasonBinding = `-- name: GetSeasonBinding :one
-SELECT id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, episode_patterns, numbered_by_rule, kind, link
+SELECT id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, numbered_by_rule, kind, link, episode_rule
 FROM season_bindings
 WHERE id = $1
 `
@@ -43,16 +43,16 @@ func (q *Queries) GetSeasonBinding(ctx context.Context, id int64) (SeasonBinding
 		&i.LastError,
 		&i.LastCheckedAt,
 		&i.CreatedAt,
-		&i.EpisodePatterns,
 		&i.NumberedByRule,
 		&i.Kind,
 		&i.Link,
+		&i.EpisodeRule,
 	)
 	return i, err
 }
 
 const getSeasonBindingSummary = `-- name: GetSeasonBindingSummary :one
-SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.episode_patterns, sb.numbered_by_rule, sb.kind, sb.link,
+SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.numbered_by_rule, sb.kind, sb.link, sb.episode_rule,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int              AS binding_count,
        (SELECT count(*) FROM season_binding_entries en WHERE en.season_binding_id = sb.id)::int AS entry_count,
        EXISTS (SELECT 1
@@ -93,10 +93,10 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 		&i.SeasonBinding.LastError,
 		&i.SeasonBinding.LastCheckedAt,
 		&i.SeasonBinding.CreatedAt,
-		&i.SeasonBinding.EpisodePatterns,
 		&i.SeasonBinding.NumberedByRule,
 		&i.SeasonBinding.Kind,
 		&i.SeasonBinding.Link,
+		&i.SeasonBinding.EpisodeRule,
 		&i.BindingCount,
 		&i.EntryCount,
 		&i.Running,
@@ -105,7 +105,7 @@ func (q *Queries) GetSeasonBindingSummary(ctx context.Context, arg GetSeasonBind
 }
 
 const listSeasonBindingSummariesBySeries = `-- name: ListSeasonBindingSummariesBySeries :many
-SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.episode_patterns, sb.numbered_by_rule, sb.kind, sb.link,
+SELECT sb.id, sb.season_id, sb.adapter, sb.ref, sb.title, sb.mapping_from, sb.mapping_to, sb.follow, sb.status, sb.last_error, sb.last_checked_at, sb.created_at, sb.numbered_by_rule, sb.kind, sb.link, sb.episode_rule,
        (SELECT count(*) FROM bindings b WHERE b.season_binding_id = sb.id)::int              AS binding_count,
        (SELECT count(*) FROM season_binding_entries en WHERE en.season_binding_id = sb.id)::int AS entry_count,
        EXISTS (SELECT 1
@@ -153,10 +153,10 @@ func (q *Queries) ListSeasonBindingSummariesBySeries(ctx context.Context, arg Li
 			&i.SeasonBinding.LastError,
 			&i.SeasonBinding.LastCheckedAt,
 			&i.SeasonBinding.CreatedAt,
-			&i.SeasonBinding.EpisodePatterns,
 			&i.SeasonBinding.NumberedByRule,
 			&i.SeasonBinding.Kind,
 			&i.SeasonBinding.Link,
+			&i.SeasonBinding.EpisodeRule,
 			&i.BindingCount,
 			&i.EntryCount,
 			&i.Running,
@@ -187,7 +187,7 @@ func (q *Queries) LockSeason(ctx context.Context, id int64) (int64, error) {
 }
 
 const lockSeasonBindingForUpdate = `-- name: LockSeasonBindingForUpdate :one
-SELECT id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, episode_patterns, numbered_by_rule, kind, link
+SELECT id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, numbered_by_rule, kind, link, episode_rule
 FROM season_bindings
 WHERE id = $1
 FOR UPDATE
@@ -210,10 +210,10 @@ func (q *Queries) LockSeasonBindingForUpdate(ctx context.Context, id int64) (Sea
 		&i.LastError,
 		&i.LastCheckedAt,
 		&i.CreatedAt,
-		&i.EpisodePatterns,
 		&i.NumberedByRule,
 		&i.Kind,
 		&i.Link,
+		&i.EpisodeRule,
 	)
 	return i, err
 }

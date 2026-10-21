@@ -28,11 +28,14 @@ const notMatchPattern = "不符合集号规则"
 // 由 ParseEpisodeRule 或 DefaultEpisodeRule 得到，零值不可用。
 type EpisodeRule struct {
 	patterns []episodePattern
+	config   EpisodeRuleConfig
+	excludes []*regexp.Regexp
 }
 
 type episodePattern struct {
-	re    *regexp.Regexp
-	group int // 集号所在捕获组的下标
+	re         *regexp.Regexp
+	group      int // 集号所在捕获组的下标
+	adjustment int64
 }
 
 // lastLevelEpisode 标签结尾、紧跟 LabelSeparator 的数字：下级标题只写了集号（"某番 / 05"）。
@@ -68,6 +71,10 @@ func ParseEpisodeRule(patterns []string) (EpisodeRule, error) {
 			return EpisodeRule{}, fmt.Errorf("第 %d 条集号规则%w", i+1, err)
 		}
 		r.patterns[i] = p
+	}
+	r.config = EpisodeRuleConfig{Version: 1, Scope: "full", Rules: make([]EpisodePattern, len(patterns)), Excludes: []EpisodeExclude{}}
+	for i, p := range r.patterns {
+		r.config.Rules[i] = EpisodePattern{Pattern: p.re.String()}
 	}
 	return r, nil
 }
@@ -119,11 +126,15 @@ func NumberItems(c Collection, r EpisodeRule) []CollectionItem {
 }
 
 // NumberLabels 用集号规则从一组名称认出序号，与按规则编号的合集同一套匹配和"集号重复"的标注，但不按 ref 去重：
-// 结果与 labels 一一对应（名称相同的也各自保留），只填 Label、Number、Unmatched。给没有弹幕源的条目用（文件夹的季绑定的条目）。
+// 结果与 labels 一一对应（名称相同的也各自保留），填名称、集号与识别诊断，不填 Ref。
 func NumberLabels(labels []string, r EpisodeRule) []CollectionItem {
 	items := make([]CollectionItem, len(labels))
 	for i, label := range labels {
-		items[i] = r.match(CollectionItem{Label: label})
+		it := CollectionItem{Label: label}
+		if r.config.Version == 2 {
+			it.LabelParts = []string{label}
+		}
+		items[i] = r.match(it)
 	}
 	return markDuplicateNumbers(items)
 }
@@ -133,41 +144,54 @@ func NumberLabels(labels []string, r EpisodeRule) []CollectionItem {
 // 每一条都匹配不上、且清洗为 NFKC 后有变化时，再按清洗后的标签匹配（全角的数字、字母也能认出）；集号的捕获组没有参与匹配时
 // 算这一处匹配不上。取到的（清洗为 NFKC 之后）不是不小于 0 的整数时对不上，原因写明捕获到的内容，不退而取别的匹配。
 func (r EpisodeRule) match(it CollectionItem) CollectionItem {
-	captured, ok := r.findLast(it.Label)
+	if r.config.Version == 2 {
+		return r.matchV2(it)
+	}
+	t := &EpisodeTrace{Version: 1, Scope: "full", ScopeLabel: "完整标题（旧版）", Input: it.Label}
+	it.Trace, it.ReasonCode = t, ""
+	match, ok := r.findLast(it.Label)
 	if normalized := norm.NFKC.String(it.Label); !ok && normalized != it.Label {
-		captured, ok = r.findLast(normalized)
+		t.Normalized = true
+		match, ok = r.findLast(normalized)
 	}
 	if !ok {
-		it.Number, it.Unmatched = 0, notMatchPattern
+		it.Number, it.Unmatched, it.ReasonCode = 0, notMatchPattern, ReasonNoMatch
 		return it
 	}
+	captured := match.captured
+	t.RuleIndex, t.Captured, t.Season = new(match.rule+1), captured, match.season
+	t.Normalized = t.Normalized || norm.NFKC.String(captured) != captured
 	n, err := strconv.ParseUint(norm.NFKC.String(captured), 10, 31)
 	if err != nil {
-		it.Number, it.Unmatched = 0, NotInteger(captured)
+		it.Number, it.Unmatched, it.ReasonCode = 0, NotInteger(captured), ReasonInvalidNumber
 	} else {
 		it.Number, it.Unmatched = int(n), ""
+		t.RawNumber, t.AdjustedNumber = new(int64(n)), new(int64(n))
 	}
 	return it
 }
 
-// findLast 在 s 里用每一条正则匹配，返回结束得最靠后的集号；一样靠后时取排在前面的正则捕获到的。
-func (r EpisodeRule) findLast(s string) (string, bool) {
-	captured, end := "", -1
-	for _, p := range r.patterns {
-		if c, e := p.last(s); e > end {
-			captured, end = c, e
-		}
-	}
-	return captured, end >= 0
+type episodeMatch struct {
+	rule     int
+	captured string
+	season   string
 }
 
-// last 在 s 里找这条正则的每一处匹配，返回最后一处集号的捕获组捕获到的内容和结束位置；匹配不上时结束位置为 -1。
-func (p episodePattern) last(s string) (string, int) {
-	captured, end := "", -1
-	for _, m := range p.re.FindAllStringSubmatchIndex(s, -1) {
-		if m[2*p.group] >= 0 {
-			captured, end = s[m[2*p.group]:m[2*p.group+1]], m[2*p.group+1]
+// findLast 在 s 里用每一条正则匹配，返回结束得最靠后的集号；一样靠后时取排在前面的正则捕获到的。
+func (r EpisodeRule) findLast(s string) (episodeMatch, bool) {
+	var best episodeMatch
+	end := -1
+	for i, p := range r.patterns {
+		for _, m := range p.re.FindAllStringSubmatchIndex(s, -1) {
+			start, stop := m[2*p.group], m[2*p.group+1]
+			if start < 0 || stop <= end {
+				continue
+			}
+			best, end = episodeMatch{rule: i, captured: s[start:stop]}, stop
+			if group := p.re.SubexpIndex("season"); group > 0 && m[2*group] >= 0 {
+				best.season = s[m[2*group]:m[2*group+1]]
+			}
 		}
 	}
-	return captured, end
+	return best, end >= 0
 }

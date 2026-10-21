@@ -7,6 +7,8 @@ package dao
 
 import (
 	"context"
+
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 const deleteStaleSeasonBindingItems = `-- name: DeleteStaleSeasonBindingItems :exec
@@ -27,23 +29,23 @@ func (q *Queries) DeleteStaleSeasonBindingItems(ctx context.Context, arg DeleteS
 }
 
 const insertSeasonBinding = `-- name: InsertSeasonBinding :one
-INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, mapping_from, mapping_to, episode_patterns,
+INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, mapping_from, mapping_to, episode_rule,
                              numbered_by_rule)
 VALUES ($1, 'collection', $2::text, $3::jsonb, $4::text, $5, $6::int, $7::int,
-        $8::text[], $9::boolean)
+        $8, $9::boolean)
 RETURNING id
 `
 
 type InsertSeasonBindingParams struct {
-	SeasonID        int64    `json:"seasonId"`
-	Adapter         string   `json:"adapter"`
-	Ref             []byte   `json:"ref"`
-	Link            string   `json:"link"`
-	Title           string   `json:"title"`
-	MappingFrom     int32    `json:"mappingFrom"`
-	MappingTo       int32    `json:"mappingTo"`
-	EpisodePatterns []string `json:"episodePatterns"`
-	NumberedByRule  bool     `json:"numberedByRule"`
+	SeasonID       int64                    `json:"seasonId"`
+	Adapter        string                   `json:"adapter"`
+	Ref            []byte                   `json:"ref"`
+	Link           string                   `json:"link"`
+	Title          string                   `json:"title"`
+	MappingFrom    int32                    `json:"mappingFrom"`
+	MappingTo      int32                    `json:"mappingTo"`
+	EpisodeRule    source.EpisodeRuleConfig `json:"episodeRule"`
+	NumberedByRule bool                     `json:"numberedByRule"`
 }
 
 // 合集的季绑定。同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
@@ -56,7 +58,7 @@ func (q *Queries) InsertSeasonBinding(ctx context.Context, arg InsertSeasonBindi
 		arg.Title,
 		arg.MappingFrom,
 		arg.MappingTo,
-		arg.EpisodePatterns,
+		arg.EpisodeRule,
 		arg.NumberedByRule,
 	)
 	var id int64
@@ -71,7 +73,7 @@ SET status           = 'active',
     title            = $1,
     numbered_by_rule = $2::boolean
 WHERE id = $3
-RETURNING id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, episode_patterns, numbered_by_rule, kind, link
+RETURNING id, season_id, adapter, ref, title, mapping_from, mapping_to, follow, status, last_error, last_checked_at, created_at, numbered_by_rule, kind, link, episode_rule
 `
 
 type RecordSeasonBindingListedParams struct {
@@ -98,10 +100,10 @@ func (q *Queries) RecordSeasonBindingListed(ctx context.Context, arg RecordSeaso
 		&i.LastError,
 		&i.LastCheckedAt,
 		&i.CreatedAt,
-		&i.EpisodePatterns,
 		&i.NumberedByRule,
 		&i.Kind,
 		&i.Link,
+		&i.EpisodeRule,
 	)
 	return i, err
 }
@@ -113,19 +115,19 @@ SET adapter          = $1::text,
     link             = $3::text,
     mapping_from     = $4::int,
     mapping_to       = $5::int,
-    episode_patterns = $6::text[],
+    episode_rule = $6,
     last_checked_at  = CASE WHEN adapter = $1::text AND ref = $2::jsonb THEN last_checked_at END
 WHERE id = $7
 `
 
 type SaveCollectionFormParams struct {
-	Adapter         string   `json:"adapter"`
-	Ref             []byte   `json:"ref"`
-	Link            string   `json:"link"`
-	MappingFrom     int32    `json:"mappingFrom"`
-	MappingTo       int32    `json:"mappingTo"`
-	EpisodePatterns []string `json:"episodePatterns"`
-	ID              int64    `json:"id"`
+	Adapter     string                   `json:"adapter"`
+	Ref         []byte                   `json:"ref"`
+	Link        string                   `json:"link"`
+	MappingFrom int32                    `json:"mappingFrom"`
+	MappingTo   int32                    `json:"mappingTo"`
+	EpisodeRule source.EpisodeRuleConfig `json:"episodeRule"`
+	ID          int64                    `json:"id"`
 }
 
 // 保存合集的表单（调用方已锁住季绑定）：链接、选的合集、集号对应、集号规则。换成另一个合集（适配器或 ref 变了）时
@@ -138,7 +140,7 @@ func (q *Queries) SaveCollectionForm(ctx context.Context, arg SaveCollectionForm
 		arg.Link,
 		arg.MappingFrom,
 		arg.MappingTo,
-		arg.EpisodePatterns,
+		arg.EpisodeRule,
 		arg.ID,
 	)
 	return err
@@ -175,16 +177,18 @@ func (q *Queries) SeasonBindingExists(ctx context.Context, arg SeasonBindingExis
 }
 
 const upsertSeasonBindingItems = `-- name: UpsertSeasonBindingItems :exec
-INSERT INTO season_binding_items (season_binding_id, ref, position, number, label)
-SELECT $1::bigint,
-       unnest($2::text[])::jsonb,
-       unnest($3::int[]),
-       nullif(unnest($4::int[]), -1),
-       unnest($5::text[])
+INSERT INTO season_binding_items (season_binding_id, ref, position, number, label, label_parts)
+SELECT $1::bigint, r.ref::jsonb, r.position, nullif(r.number, -1), r.label,
+       CASE WHEN r.label_parts::jsonb = 'null'::jsonb THEN NULL
+            ELSE ARRAY(SELECT jsonb_array_elements_text(r.label_parts::jsonb)) END
+FROM (SELECT unnest($2::text[]) AS ref, unnest($3::int[]) AS position,
+             unnest($4::int[]) AS number, unnest($5::text[]) AS label,
+             unnest($6::text[]) AS label_parts) r
 ON CONFLICT (season_binding_id, ref) DO UPDATE
 SET position = excluded.position,
     number   = excluded.number,
-    label    = excluded.label
+    label    = excluded.label,
+    label_parts = excluded.label_parts
 `
 
 type UpsertSeasonBindingItemsParams struct {
@@ -193,6 +197,7 @@ type UpsertSeasonBindingItemsParams struct {
 	Positions       []int32  `json:"positions"`
 	Numbers         []int32  `json:"numbers"`
 	Labels          []string `json:"labels"`
+	LabelParts      []string `json:"labelParts"`
 }
 
 // 写入一次列出的结果，各数组按下标一一对应，ref 是 JSON 文本。number 是平台给的集号，为 -1 时存为 null
@@ -205,6 +210,7 @@ func (q *Queries) UpsertSeasonBindingItems(ctx context.Context, arg UpsertSeason
 		arg.Positions,
 		arg.Numbers,
 		arg.Labels,
+		arg.LabelParts,
 	)
 	return err
 }

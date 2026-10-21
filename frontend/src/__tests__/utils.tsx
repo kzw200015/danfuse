@@ -5,7 +5,12 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 
 import type { FileBinding, LinkBinding } from '@/api/bindings'
 import { ApiError } from '@/api/request'
-import type { CollectionSeasonBinding, FolderSeasonBinding } from '@/api/season-bindings'
+import type {
+  CollectionSeasonBinding,
+  EpisodeRuleConfig,
+  EpisodeRuleDefaults,
+  FolderSeasonBinding,
+} from '@/api/season-bindings'
 import { getSeries, listSeries, type SeriesDetail, type SeriesSummary } from '@/api/series'
 import { getSettings, type Settings } from '@/api/settings'
 import { getLatestSyncRun, getSyncRun, listSyncRuns, type SyncRunDetail } from '@/api/sync'
@@ -143,6 +148,29 @@ export function fileBinding(id: number, patch: Partial<FileBinding> = {}): FileB
 /** 默认的集号规则（假的，只要是两条） */
 export const defaultPatterns = ['第(\\d+)集', 'EP(\\d+)']
 
+export const legacyEpisodeRule: EpisodeRuleConfig = {
+  version: 1,
+  scope: 'full',
+  rules: defaultPatterns.map((pattern) => ({ pattern, adjustment: 0 })),
+  excludes: [],
+}
+
+export const defaultEpisodeRule: EpisodeRuleConfig = {
+  version: 2,
+  scope: 'entry',
+  rules: defaultPatterns.map((pattern) => ({ pattern, adjustment: 0 })),
+  excludes: [{ pattern: 'OAD|OVA|特别篇', kind: 'nonRegular' }],
+}
+
+export const episodeRuleDefaults: EpisodeRuleDefaults = {
+  episodePatterns: defaultPatterns,
+  episodeRule: defaultEpisodeRule,
+  templates: [
+    { id: 'episodeLabel', name: '第几话 / 第几集（未标季）', example: '第1话', season: false },
+    { id: 'seasonNumber', name: '季号＋数字', example: '第一季01', season: true },
+  ],
+}
+
 /** 一个合集的季绑定，默认是季 11 上开着追更的 B 站番剧，建出了 1 个绑定 */
 export function seasonBinding(
   id: number,
@@ -161,6 +189,7 @@ export function seasonBinding(
     mappingTo: 1,
     numberedByRule: false,
     episodePatterns: defaultPatterns,
+    episodeRule: legacyEpisodeRule,
     follow: true,
     status: 'active',
     lastError: null,
@@ -183,6 +212,7 @@ export function folderSeasonBinding(
     seasonId: 11,
     title: '来自新世界',
     episodePatterns: defaultPatterns,
+    episodeRule: legacyEpisodeRule,
     mappingFrom: 1,
     mappingTo: 1,
     entryCount: 1,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/apierr"
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
 	"github.com/kzw200015/danfuse/backend/internal/source"
 )
@@ -56,11 +57,18 @@ func storedInput(ctx context.Context, q *dao.Queries, sb dao.SeasonBinding) (der
 
 // formRule 季绑定保存的集号规则。存进去之前校验过，解析失败是服务器内部错误。
 func formRule(sb dao.SeasonBinding) (source.EpisodeRule, error) {
-	rule, err := source.ParseEpisodeRule(sb.EpisodePatterns)
+	rule, err := source.ParseEpisodeRuleConfig(sb.EpisodeRule)
 	if err != nil {
 		return source.EpisodeRule{}, fmt.Errorf("parse episode patterns of season binding %d: %w", sb.ID, err)
 	}
 	return rule, nil
+}
+
+func checkRuleVersion(sb dao.SeasonBinding, rule source.EpisodeRule) error {
+	if sb.EpisodeRule.Version == 2 && rule.Config().Version != 2 {
+		return apierr.ErrConflict.WithMessage("此绑定已使用新版集号规则，请刷新客户端后重试")
+	}
+	return nil
 }
 
 // formMapping 季绑定保存的集号对应。
@@ -73,7 +81,7 @@ func formMapping(sb dao.SeasonBinding) source.Mapping {
 func collectionEntries(items []source.CollectionItem) []Entry {
 	entries := make([]Entry, len(items))
 	for i, it := range items {
-		entries[i] = Entry{Source: source.CanonicalRef(it.Ref), Label: it.Label, Number: it.Number, Unmatched: it.Unmatched}
+		entries[i] = Entry{Source: source.CanonicalRef(it.Ref), Label: it.Label, Number: it.Number, Unmatched: it.Unmatched, ReasonCode: it.ReasonCode, Trace: it.Trace}
 	}
 	return entries
 }
@@ -86,7 +94,7 @@ const noPlatformNumber = "平台没有给出整数集号"
 func storedCollection(sb dao.SeasonBinding, rows []dao.SeasonBindingItem) source.Collection {
 	col := source.Collection{NumberedByRule: sb.NumberedByRule != nil && *sb.NumberedByRule, Items: make([]source.CollectionItem, len(rows))}
 	for i, r := range rows {
-		it := source.CollectionItem{Ref: r.Ref, Label: r.Label}
+		it := source.CollectionItem{Ref: r.Ref, Label: r.Label, LabelParts: r.LabelParts}
 		switch {
 		case col.NumberedByRule:
 		case r.Number == nil:
@@ -100,17 +108,17 @@ func storedCollection(sb dao.SeasonBinding, rows []dao.SeasonBindingItem) source
 }
 
 // folderEntries 文件夹的条目转为派生的输入：按"季绑定标题 / 条目名称"（source.LabelSeparator，和多 P 投稿的"稿件标题 / 分 P 标题"一致）
-// 用集号规则认集号（source.NumberLabels），派生的条目名称也是拼好的；弹幕源的身份见 formEntry.source。
+// 用集号规则认集号（source.NumberEntries），同时保留标题层级；弹幕源的身份见 formEntry.source。
 // title 为季绑定的标题：新建、换文件夹时为这次的文件夹名。
 func folderEntries(title string, entries []formEntry, rule source.EpisodeRule) []Entry {
-	labels := make([]string, len(entries))
+	items := make([]source.CollectionItem, len(entries))
 	for i, e := range entries {
-		labels[i] = title + source.LabelSeparator + e.label
+		items[i] = source.CollectionItem{Label: title + source.LabelSeparator + e.label, LabelParts: []string{title, e.label}}
 	}
-	numbered := source.NumberLabels(labels, rule)
+	numbered := source.NumberEntries(items, rule)
 	out := make([]Entry, len(entries))
 	for i, it := range numbered {
-		out[i] = Entry{Source: entries[i].source(), Label: it.Label, Number: it.Number, Unmatched: it.Unmatched}
+		out[i] = Entry{Source: entries[i].source(), Label: it.Label, Number: it.Number, Unmatched: it.Unmatched, ReasonCode: it.ReasonCode, Trace: it.Trace}
 	}
 	return out
 }

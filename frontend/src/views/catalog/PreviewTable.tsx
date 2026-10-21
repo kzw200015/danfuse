@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 
 import type { Candidate, Item, ItemStatus } from '@/api/season-bindings'
 import {
@@ -42,6 +42,7 @@ export function ItemTable({
   renderStatus: (item: Item) => ReactNode
   children?: ReactNode
 }) {
+  const tableId = useId()
   return (
     <Table aria-label={label} className="text-xs">
       <TableHeader>
@@ -54,15 +55,67 @@ export function ItemTable({
       <TableBody>
         {items.map((item, i) => (
           // 条目名称在一组里不重复，但后端给出的顺序就是位置，按位置作 key
-          <TableRow key={i}>
+          <TableRow key={i} id={`${tableId}-row-${i + 1}`} tabIndex={-1}>
             <TableCell className="text-right tabular-nums">{item.number ?? '—'}</TableCell>
-            <TableCell className="whitespace-normal">{item.label}</TableCell>
+            <TableCell className="whitespace-normal">
+              {item.label}
+              {item.trace && <ItemDiagnosis item={item} tableId={tableId} row={i + 1} />}
+            </TableCell>
             {renderStatus(item)}
           </TableRow>
         ))}
         {children}
       </TableBody>
     </Table>
+  )
+}
+
+function ItemDiagnosis({ item, tableId, row }: { item: Item; tableId: string; row: number }) {
+  const trace = item.trace!
+  const locate = (target: number) => {
+    const element = document.getElementById(`${tableId}-row-${target}`)
+    element?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    element?.focus({ preventScroll: true })
+  }
+  return (
+    <details className="mt-1 text-muted-foreground">
+      <summary className="w-fit cursor-pointer">识别诊断</summary>
+      <div className="my-2 grid gap-1 border-l-2 pl-2">
+        {trace.scopeLabel && <div>匹配范围：{trace.scopeLabel}</div>}
+        {trace.input && <div className="break-all">匹配标题：{trace.input}</div>}
+        {trace.ruleIndex !== undefined && <div>命中规则：第 {trace.ruleIndex} 条</div>}
+        {trace.captured && <div>捕获内容：{trace.captured}</div>}
+        {trace.season && <div>来源季标记：{trace.season}</div>}
+        <div>归一化：{trace.normalized ? '是（全角等字符已转为 NFKC）' : '否'}</div>
+        {trace.rawNumber !== undefined && <div>原始集号：{trace.rawNumber}</div>}
+        {trace.ruleIndex !== undefined && (
+          <div>
+            集号加减：{trace.adjustment >= 0 ? '+' : ''}
+            {trace.adjustment}
+          </div>
+        )}
+        {trace.adjustedNumber !== undefined && <div>调整后集号：{trace.adjustedNumber}</div>}
+        {trace.localNumber !== undefined && <div>本地集号：{trace.localNumber}</div>}
+        {trace.excludeIndex !== undefined && (
+          <div className="break-all">
+            排除规则：第 {trace.excludeIndex} 条 · <code>{trace.excludePattern}</code>
+          </div>
+        )}
+        {item.reason && <div>原因：{item.reason}</div>}
+        {trace.conflicts
+          ?.filter((c) => c.row !== row)
+          .map((conflict) => (
+            <button
+              key={conflict.row}
+              type="button"
+              className="w-fit text-left underline underline-offset-2"
+              onClick={() => locate(conflict.row)}
+            >
+              定位冲突行 {conflict.row}：{conflict.label}
+            </button>
+          ))}
+      </div>
+    </details>
   )
 }
 

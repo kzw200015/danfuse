@@ -65,11 +65,11 @@ func (s *Service) CreateFolder(ctx context.Context, seasonID int64, files []danm
 			return err
 		}
 		sb, err := q.InsertFolderSeasonBinding(ctx, dao.InsertFolderSeasonBindingParams{
-			SeasonID:        seasonID,
-			Title:           upload.name,
-			MappingFrom:     int32(f.Mapping.From),
-			MappingTo:       int32(f.Mapping.To),
-			EpisodePatterns: f.Rule.Patterns(),
+			SeasonID:    seasonID,
+			Title:       upload.name,
+			MappingFrom: int32(f.Mapping.From),
+			MappingTo:   int32(f.Mapping.To),
+			EpisodeRule: f.Rule.Config(),
 		})
 		if err != nil {
 			return fmt.Errorf("insert folder season binding of season %d: %w", seasonID, err)
@@ -94,6 +94,9 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []danmakufile.
 	if err != nil {
 		return Detail{}, err
 	}
+	if err := checkRuleVersion(sb, f.Rule); err != nil {
+		return Detail{}, err
+	}
 	var upload *uploadedFolder
 	if len(files) > 0 {
 		u, err := readFolder(files)
@@ -109,16 +112,19 @@ func (s *Service) SaveFolder(ctx context.Context, id int64, files []danmakufile.
 		if err != nil {
 			return err
 		}
+		if err := checkRuleVersion(locked, f.Rule); err != nil {
+			return err
+		}
 		title := locked.Title
 		if upload != nil {
 			title = upload.name
 		}
 		saved, err := q.UpdateFolderSeasonBinding(ctx, dao.UpdateFolderSeasonBindingParams{
-			ID:              id,
-			Title:           title,
-			MappingFrom:     int32(f.Mapping.From),
-			MappingTo:       int32(f.Mapping.To),
-			EpisodePatterns: f.Rule.Patterns(),
+			ID:          id,
+			Title:       title,
+			MappingFrom: int32(f.Mapping.From),
+			MappingTo:   int32(f.Mapping.To),
+			EpisodeRule: f.Rule.Config(),
 		})
 		if err != nil {
 			return fmt.Errorf("update folder season binding %d: %w", id, err)
@@ -206,12 +212,15 @@ func (s *Service) getFolder(ctx context.Context, id int64) (dao.SeasonBinding, e
 
 // folderResult 一次写入建出、替换、删除的槽位数，记进日志。
 type folderResult struct {
-	created, replaced, removed int
+	created, replaced, removed                    int
+	ruleVersion, recognized, excluded, duplicates int
 }
 
 func (s *Service) logFolder(ctx context.Context, msg string, id int64, r folderResult) {
 	s.logger.LogAttrs(ctx, slog.LevelInfo, msg, slog.Int64("season_binding_id", id),
-		slog.Int("created", r.created), slog.Int("replaced", r.replaced), slog.Int("removed", r.removed))
+		slog.Int("created", r.created), slog.Int("replaced", r.replaced), slog.Int("removed", r.removed),
+		slog.Int("rule_version", r.ruleVersion), slog.Int("recognized", r.recognized),
+		slog.Int("excluded", r.excluded), slog.Int("duplicates", r.duplicates))
 }
 
 // applyFolder 在写入事务里按季绑定 sb 的表单（已写好、已锁住）落实：
@@ -247,10 +256,20 @@ func (s *Service) applyFolder(ctx context.Context, tx pgx.Tx, sb dao.SeasonBindi
 	r := Derive(folderEntries(sb.Title, entries, rule), formMapping(sb), episodes)
 
 	var (
-		res   folderResult
+		res   = folderResult{ruleVersion: rule.Config().Version}
 		slots []int64 // 要删的槽位所在的集
 	)
 	for _, it := range r.Items {
+		switch it.Entry.ReasonCode {
+		case source.ReasonNonRegular, source.ReasonCustomExcluded:
+			res.excluded++
+		case source.ReasonDuplicate:
+			res.duplicates++
+		default:
+			if it.Entry.Unmatched == "" {
+				res.recognized++
+			}
+		}
 		if it.Status == StatusReplace {
 			slots = append(slots, it.EpisodeID)
 		}

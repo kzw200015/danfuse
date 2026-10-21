@@ -14,6 +14,7 @@ import {
   type CollectionSeasonBinding,
   type CollectionSeasonBindingDetail,
   type EpisodeRuleForm,
+  type EpisodeRuleConfig,
   type Preview,
 } from '@/api/season-bindings'
 import type { Season } from '@/api/series'
@@ -67,7 +68,7 @@ const waitingText = '正在列出合集，最长约 25 秒…'
  */
 export function AddCollectionForm({ season, onClose }: { season: Season; onClose: () => void }) {
   const { data: settings } = useSettings()
-  const mode = (patterns: string[]): CollectionFormMode => ({
+  const mode = (patterns: EpisodeRuleConfig): CollectionFormMode => ({
     verb: '创建',
     savedText: '已创建季绑定，正在后台补建',
     initialLink: '',

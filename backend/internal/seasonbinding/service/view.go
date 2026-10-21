@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/dao"
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 // View 季绑定的 JSON（剧详情里的 seasonBindings[]）：两种都有的字段，加上只属于合集的（*CollectionView）或只属于文件夹的
@@ -15,10 +16,11 @@ type View struct {
 	Kind     string `json:"kind"`  // collection | folder
 	Title    string `json:"title"` // 合集的季绑定为合集标题，每次列出时更新；文件夹的季绑定为上传的文件夹名
 	// EpisodePatterns 集号规则：一组正则，取法见 source.EpisodeRule
-	EpisodePatterns []string `json:"episodePatterns"`
-	MappingFrom     int32    `json:"mappingFrom"` // 集号对应：条目第 mappingFrom 集为本地第 mappingTo 集
-	MappingTo       int32    `json:"mappingTo"`
-	BindingCount    int32    `json:"bindingCount"` // 它建出的、现存的绑定数
+	EpisodePatterns []string                 `json:"episodePatterns"`
+	EpisodeRule     source.EpisodeRuleConfig `json:"episodeRule"`
+	MappingFrom     int32                    `json:"mappingFrom"` // 集号对应：条目第 mappingFrom 集为本地第 mappingTo 集
+	MappingTo       int32                    `json:"mappingTo"`
+	BindingCount    int32                    `json:"bindingCount"` // 它建出的、现存的绑定数
 	// CreatedAt 创建时间：文件夹的季绑定为第一次上传的时间
 	CreatedAt time.Time `json:"createdAt"`
 
@@ -55,12 +57,14 @@ type Detail struct {
 
 // ItemView 一个条目派生的结果（Item 的 JSON），详情和预览共用。
 type ItemView struct {
-	Label         string    `json:"label"`         // 文件夹的条目为"季绑定标题 / 条目名称"
-	Number        *int      `json:"number"`        // 序号；对不上时为 null
-	EpisodeNumber *int      `json:"episodeNumber"` // 对到的本地集号；对不上、在起点之前时为 null
-	Status        Status    `json:"status"`
-	Reason        *string   `json:"reason"`   // 对不上的原因
-	Replaces      *SlotView `json:"replaces"` // 替换时为槽位里原来的绑定
+	Label         string               `json:"label"`         // 文件夹的条目为"季绑定标题 / 条目名称"
+	Number        *int                 `json:"number"`        // 序号；对不上时为 null
+	EpisodeNumber *int                 `json:"episodeNumber"` // 对到的本地集号；对不上、在起点之前时为 null
+	Status        Status               `json:"status"`
+	Reason        *string              `json:"reason"`   // 对不上的原因
+	Replaces      *SlotView            `json:"replaces"` // 替换时为槽位里原来的绑定
+	ReasonCode    string               `json:"reasonCode,omitempty"`
+	Trace         *source.EpisodeTrace `json:"trace,omitempty"`
 	// ItemError 只在详情里有（文件夹的恒为 null）；预览里为 nil，不出现在 JSON 里
 	*ItemError
 }
@@ -128,7 +132,7 @@ func newCandidate(r Result) Candidate {
 func itemViews(items []Item) []ItemView {
 	views := make([]ItemView, len(items))
 	for i, it := range items {
-		v := ItemView{Label: it.Entry.Label, Status: it.Status}
+		v := ItemView{Label: it.Entry.Label, Status: it.Status, ReasonCode: it.Entry.ReasonCode, Trace: it.Entry.Trace}
 		switch it.Status {
 		case StatusUnmatched:
 			v.Reason = new(it.Entry.Unmatched)
@@ -161,12 +165,17 @@ func slotView(episode int, s Slot) SlotView {
 // view 季绑定的 JSON。合集的季绑定的链接和标签交给它的适配器生成；文件夹的季绑定没有合集，不经过适配器。
 // entryCount 只用于文件夹，running 只用于合集。
 func (s *Service) view(sb dao.SeasonBinding, bindingCount, entryCount int32, running bool) (View, error) {
+	rule, err := formRule(sb)
+	if err != nil {
+		return View{}, err
+	}
 	v := View{
 		ID:              sb.ID,
 		SeasonID:        sb.SeasonID,
 		Kind:            sb.Kind,
 		Title:           sb.Title,
-		EpisodePatterns: sb.EpisodePatterns,
+		EpisodePatterns: rule.Patterns(),
+		EpisodeRule:     rule.Config(),
 		MappingFrom:     sb.MappingFrom,
 		MappingTo:       sb.MappingTo,
 		BindingCount:    bindingCount,

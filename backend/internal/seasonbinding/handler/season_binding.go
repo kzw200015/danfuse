@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+
 	"github.com/labstack/echo/v5"
 
 	"github.com/kzw200015/danfuse/backend/internal/infra/httpx/request"
@@ -13,9 +15,10 @@ const invalidMapping = "集号对应必须是不小于 0 的整数"
 
 // ruleForm 两种季绑定的表单（和预览）共有的部分：集号规则与集号对应。嵌进各自的请求结构体，在 Validate 里调用 parse。
 type ruleForm struct {
-	EpisodePatterns []string `json:"episodePatterns"` // 集号规则，必须传；管理界面先取默认规则
-	MappingFrom     *int32   `json:"mappingFrom"`
-	MappingTo       *int32   `json:"mappingTo"`
+	EpisodePatterns json.RawMessage `json:"episodePatterns"`
+	EpisodeRule     json.RawMessage `json:"episodeRule"`
+	MappingFrom     *int32          `json:"mappingFrom"`
+	MappingTo       *int32          `json:"mappingTo"`
 
 	rule    source.EpisodeRule
 	mapping source.Mapping
@@ -27,7 +30,26 @@ func (f *ruleForm) parse() error {
 		return request.InvalidParam(invalidMapping)
 	}
 	f.mapping = source.Mapping{From: int(*f.MappingFrom), To: int(*f.MappingTo)}
-	rule, err := source.ParseEpisodeRule(f.EpisodePatterns)
+	if len(f.EpisodeRule) > 0 && len(f.EpisodePatterns) > 0 {
+		return request.InvalidParam("episodeRule 和 episodePatterns 不能同时提供")
+	}
+	var rule source.EpisodeRule
+	var err error
+	if len(f.EpisodeRule) > 0 {
+		var config source.EpisodeRuleConfig
+		if err := json.Unmarshal(f.EpisodeRule, &config); err != nil {
+			return request.InvalidParam("集号规则格式不合法")
+		}
+		rule, err = source.ParseEpisodeRuleConfig(config)
+	} else {
+		var patterns []string
+		if len(f.EpisodePatterns) > 0 {
+			if err := json.Unmarshal(f.EpisodePatterns, &patterns); err != nil {
+				return request.InvalidParam("集号规则格式不合法")
+			}
+		}
+		rule, err = source.ParseEpisodeRule(patterns)
+	}
 	if err != nil {
 		return request.InvalidParam(err.Error())
 	}
@@ -122,14 +144,4 @@ func (h *Handler) Delete(c *echo.Context) error {
 		return err
 	}
 	return response.OK(c, nil)
-}
-
-type defaultEpisodeRuleResponse struct {
-	EpisodePatterns []string `json:"episodePatterns"`
-}
-
-// DefaultEpisodeRule GET /api/episode-rules/default
-// 默认的集号规则：管理界面预览时作为编辑的起点，"恢复默认"时取它。
-func (h *Handler) DefaultEpisodeRule(c *echo.Context) error {
-	return response.OK(c, defaultEpisodeRuleResponse{EpisodePatterns: source.DefaultEpisodeRule().Patterns()})
 }

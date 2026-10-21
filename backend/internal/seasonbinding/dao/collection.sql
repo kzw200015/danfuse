@@ -10,26 +10,28 @@ SELECT EXISTS (SELECT 1
 
 -- name: InsertSeasonBinding :one
 -- 合集的季绑定。同一季重复绑定同一个合集时撞上唯一约束 (season_id, adapter, ref)。
-INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, mapping_from, mapping_to, episode_patterns,
+INSERT INTO season_bindings (season_id, kind, adapter, ref, link, title, mapping_from, mapping_to, episode_rule,
                              numbered_by_rule)
 VALUES (@season_id, 'collection', @adapter::text, @ref::jsonb, @link::text, @title, @mapping_from::int, @mapping_to::int,
-        @episode_patterns::text[], @numbered_by_rule::boolean)
+        @episode_rule, @numbered_by_rule::boolean)
 RETURNING id;
 
 -- name: UpsertSeasonBindingItems :exec
 -- 写入一次列出的结果，各数组按下标一一对应，ref 是 JSON 文本。number 是平台给的集号，为 -1 时存为 null
 -- （按规则编号的合集、平台没给出整数集号的条目）。按 (季绑定, 弹幕源) upsert：已有的条目更新位置、集号与标签，
 -- 上次失败的原因保留。调用方保证 ref 不重复。同 InsertDanmaku，SELECT 列表里的多个 unnest 同步展开。
-INSERT INTO season_binding_items (season_binding_id, ref, position, number, label)
-SELECT @season_binding_id::bigint,
-       unnest(@refs::text[])::jsonb,
-       unnest(@positions::int[]),
-       nullif(unnest(@numbers::int[]), -1),
-       unnest(@labels::text[])
+INSERT INTO season_binding_items (season_binding_id, ref, position, number, label, label_parts)
+SELECT @season_binding_id::bigint, r.ref::jsonb, r.position, nullif(r.number, -1), r.label,
+       CASE WHEN r.label_parts::jsonb = 'null'::jsonb THEN NULL
+            ELSE ARRAY(SELECT jsonb_array_elements_text(r.label_parts::jsonb)) END
+FROM (SELECT unnest(@refs::text[]) AS ref, unnest(@positions::int[]) AS position,
+             unnest(@numbers::int[]) AS number, unnest(@labels::text[]) AS label,
+             unnest(@label_parts::text[]) AS label_parts) r
 ON CONFLICT (season_binding_id, ref) DO UPDATE
 SET position = excluded.position,
     number   = excluded.number,
-    label    = excluded.label;
+    label    = excluded.label,
+    label_parts = excluded.label_parts;
 
 -- name: DeleteStaleSeasonBindingItems :exec
 -- 删掉合集里已经没有的条目。refs 是这次列出的全部 ref（JSON 文本），按 jsonb 比较。
@@ -58,6 +60,6 @@ SET adapter          = @adapter::text,
     link             = @link::text,
     mapping_from     = @mapping_from::int,
     mapping_to       = @mapping_to::int,
-    episode_patterns = @episode_patterns::text[],
+    episode_rule = @episode_rule,
     last_checked_at  = CASE WHEN adapter = @adapter::text AND ref = @ref::jsonb THEN last_checked_at END
 WHERE id = @id;

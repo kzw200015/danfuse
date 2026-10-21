@@ -10,7 +10,7 @@ import (
 )
 
 const listSeasonBindingItems = `-- name: ListSeasonBindingItems :many
-SELECT season_binding_id, ref, position, number, label, last_error, last_error_at
+SELECT season_binding_id, ref, position, number, label, last_error, last_error_at, label_parts
 FROM season_binding_items
 WHERE season_binding_id = $1
 ORDER BY position
@@ -34,6 +34,7 @@ func (q *Queries) ListSeasonBindingItems(ctx context.Context, seasonBindingID in
 			&i.Label,
 			&i.LastError,
 			&i.LastErrorAt,
+			&i.LabelParts,
 		); err != nil {
 			return nil, err
 		}

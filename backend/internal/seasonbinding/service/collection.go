@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -51,15 +52,15 @@ func (s *Service) CreateCollection(ctx context.Context, seasonID int64, f Collec
 		}
 		var err error
 		id, err = q.InsertSeasonBinding(ctx, dao.InsertSeasonBindingParams{
-			SeasonID:        seasonID,
-			Adapter:         r.adapter.ID(),
-			Ref:             r.ref,
-			Link:            f.Link,
-			Title:           r.col.Title,
-			MappingFrom:     int32(f.Mapping.From),
-			MappingTo:       int32(f.Mapping.To),
-			EpisodePatterns: f.Rule.Patterns(),
-			NumberedByRule:  r.col.NumberedByRule,
+			SeasonID:       seasonID,
+			Adapter:        r.adapter.ID(),
+			Ref:            r.ref,
+			Link:           f.Link,
+			Title:          r.col.Title,
+			MappingFrom:    int32(f.Mapping.From),
+			MappingTo:      int32(f.Mapping.To),
+			EpisodeRule:    f.Rule.Config(),
+			NumberedByRule: r.col.NumberedByRule,
 		})
 		if err != nil {
 			if database.IsUniqueViolation(err) {
@@ -87,6 +88,9 @@ func (s *Service) CreateCollection(ctx context.Context, seasonID int64, f Collec
 func (s *Service) SaveCollection(ctx context.Context, id int64, f CollectionForm) (Detail, error) {
 	sb, err := s.getCollection(ctx, id)
 	if err != nil {
+		return Detail{}, err
+	}
+	if err := checkRuleVersion(sb, f.Rule); err != nil {
 		return Detail{}, err
 	}
 	lease, err := s.tryBackfillLease(ctx, id)
@@ -122,17 +126,21 @@ func (s *Service) SaveCollection(ctx context.Context, id int64, f CollectionForm
 // saveCollectionTx SaveCollection 的写入事务，返回删掉的槽位数。
 func (s *Service) saveCollectionTx(ctx context.Context, tx pgx.Tx, seasonID, id int64, f CollectionForm, r resolved) (int, error) {
 	q := s.q.WithTx(tx)
-	if _, err := lockSeasonBinding(ctx, q, seasonID, id); err != nil {
+	locked, err := lockSeasonBinding(ctx, q, seasonID, id)
+	if err != nil {
 		return 0, err
 	}
-	err := q.SaveCollectionForm(ctx, dao.SaveCollectionFormParams{
-		ID:              id,
-		Adapter:         r.adapter.ID(),
-		Ref:             r.ref,
-		Link:            f.Link,
-		MappingFrom:     int32(f.Mapping.From),
-		MappingTo:       int32(f.Mapping.To),
-		EpisodePatterns: f.Rule.Patterns(),
+	if err := checkRuleVersion(locked, f.Rule); err != nil {
+		return 0, err
+	}
+	err = q.SaveCollectionForm(ctx, dao.SaveCollectionFormParams{
+		ID:          id,
+		Adapter:     r.adapter.ID(),
+		Ref:         r.ref,
+		Link:        f.Link,
+		MappingFrom: int32(f.Mapping.From),
+		MappingTo:   int32(f.Mapping.To),
+		EpisodeRule: f.Rule.Config(),
 	})
 	if err != nil {
 		if database.IsUniqueViolation(err) {
@@ -296,7 +304,7 @@ func chooseCandidate(candidates []source.CollectionCandidate, kind string) (sour
 // 对不上的条目存为 null，读取时再按季绑定的集号规则编号（见 storedCollection）。
 func saveItems(ctx context.Context, q *dao.Queries, id int64, col source.Collection) error {
 	p := dao.UpsertSeasonBindingItemsParams{
-		SeasonBindingID: id, Refs: []string{}, Positions: []int32{}, Numbers: []int32{}, Labels: []string{},
+		SeasonBindingID: id, Refs: []string{}, Positions: []int32{}, Numbers: []int32{}, Labels: []string{}, LabelParts: []string{},
 	}
 	for _, it := range source.UniqueRefs(col.Items) {
 		number := int32(-1) // 存为 null
@@ -307,6 +315,11 @@ func saveItems(ctx context.Context, q *dao.Queries, id int64, col source.Collect
 		p.Positions = append(p.Positions, int32(len(p.Refs)))
 		p.Numbers = append(p.Numbers, number)
 		p.Labels = append(p.Labels, it.Label)
+		parts, err := json.Marshal(it.LabelParts)
+		if err != nil {
+			return fmt.Errorf("encode label parts: %w", err)
+		}
+		p.LabelParts = append(p.LabelParts, string(parts))
 	}
 	if err := q.DeleteStaleSeasonBindingItems(ctx, dao.DeleteStaleSeasonBindingItemsParams{SeasonBindingID: id, Refs: p.Refs}); err != nil {
 		return fmt.Errorf("delete stale items of season binding %d: %w", id, err)

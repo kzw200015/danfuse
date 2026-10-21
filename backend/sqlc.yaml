@@ -20,6 +20,10 @@ overrides:
       # 搜索列是 Go 生成的 tsvector 文本（catalog.SearchVector）
       - column: seasons.search_vector
         go_type: string
+      - column: season_bindings.episode_rule
+        go_type:
+          import: github.com/kzw200015/danfuse/backend/internal/source
+          type: EpisodeRuleConfig
 sql:
   - engine: postgresql
     schema: db/migrations

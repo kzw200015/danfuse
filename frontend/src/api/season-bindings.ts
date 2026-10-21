@@ -2,6 +2,54 @@ import { request, slowRequestTimeout, uploadRequestTimeout } from './request'
 
 export type SeasonBindingStatus = 'active' | 'dead'
 
+export interface EpisodePattern {
+  pattern: string
+  adjustment: number
+}
+
+export interface EpisodeExclude {
+  pattern: string
+  kind: 'nonRegular' | 'custom'
+}
+
+export interface EpisodeRuleConfig {
+  version: 1 | 2
+  scope: 'full' | 'entry'
+  rules: EpisodePattern[]
+  excludes: EpisodeExclude[]
+}
+
+export interface EpisodeTemplate {
+  id: string
+  name: string
+  example: string
+  season: boolean
+}
+
+export interface EpisodeRuleDefaults {
+  episodePatterns: string[]
+  episodeRule: EpisodeRuleConfig
+  templates: EpisodeTemplate[]
+}
+
+export interface EpisodeTrace {
+  version: number
+  scope: string
+  scopeLabel: string
+  input: string
+  normalized: boolean
+  ruleIndex?: number
+  captured?: string
+  season?: string
+  rawNumber?: number
+  adjustment: number
+  adjustedNumber?: number
+  localNumber?: number
+  excludeIndex?: number
+  excludePattern?: string
+  conflicts?: Array<{ row: number; label: string }>
+}
+
 /**
  * 季绑定（剧详情里的 seasonBindings[]），按 kind 分两种：合集的季绑定（一季与一个合集的对应关系）、
  * 文件夹的季绑定（一季与上传的一个弹幕文件夹的对应关系）。两种都保存着一份表单，各集的绑定按表单建出
@@ -16,6 +64,7 @@ interface SeasonBindingBase {
   title: string
   /** 集号规则：一组正则，取条目名称里结束得最靠后的集号，一样靠后时排在前面的优先 */
   episodePatterns: string[]
+  episodeRule: EpisodeRuleConfig
   /** 集号对应：条目第 mappingFrom 集为本地第 mappingTo 集，之后一一顺延 */
   mappingFrom: number
   mappingTo: number
@@ -96,6 +145,8 @@ export interface Item {
   status: ItemStatus
   /** unmatched 时为对不上的原因 */
   reason: string | null
+  reasonCode?: string
+  trace?: EpisodeTrace
   /** replace 时为槽位里原来的绑定 */
   replaces: SlotView | null
   /** 上次补建这个条目失败的原因，成功后清掉；只在详情里有（文件夹恒为 null） */
@@ -149,19 +200,21 @@ export interface Preview {
 }
 
 /** 两种表单共有的部分：集号规则与集号对应 */
-export interface EpisodeRuleForm {
-  episodePatterns: string[]
+export type EpisodeRuleForm = {
   mappingFrom: number
   mappingTo: number
-}
+} & (
+  | { episodeRule: EpisodeRuleConfig; episodePatterns?: never }
+  | { episodePatterns: string[]; episodeRule?: never }
+)
 
 /** 合集的表单（预览）：贴的链接 */
-export interface CollectionPreviewForm extends EpisodeRuleForm {
+export type CollectionPreviewForm = EpisodeRuleForm & {
   link: string
 }
 
 /** 合集的表单（创建、保存）：另外带上选中的候选 */
-export interface CollectionForm extends CollectionPreviewForm {
+export type CollectionForm = CollectionPreviewForm & {
   /** 候选的 collectionKind；链接只有一个候选时可以不传 */
   collectionKind?: string
 }
@@ -248,6 +301,7 @@ function folderRequest(
     'form',
     JSON.stringify({
       episodePatterns: form.episodePatterns,
+      episodeRule: form.episodeRule,
       mappingFrom: form.mappingFrom,
       mappingTo: form.mappingTo,
     }),
@@ -338,5 +392,17 @@ export function deleteSeasonBinding(id: number) {
 
 /** 默认的集号规则：编辑的起点，"恢复默认"时取它 */
 export function getDefaultEpisodePatterns() {
-  return request<{ episodePatterns: string[] }>({ url: '/episode-rules/default' })
+  return request<EpisodeRuleDefaults>({ url: '/episode-rules/default' })
+}
+
+export function renderEpisodeTemplate(input: {
+  templateId: string
+  season?: number
+  adjustment: number
+}) {
+  return request<{ rule: EpisodePattern; example: string }>({
+    url: '/episode-rules/template',
+    method: 'POST',
+    data: input,
+  })
 }

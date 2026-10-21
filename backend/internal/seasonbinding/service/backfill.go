@@ -173,7 +173,11 @@ type backfillRound struct {
 	start    time.Time // 这一轮的开始时间，结束时写为上次检查时间
 	seasonID int64     // 读到季绑定之后才有
 
-	items        int   // 列出的合集条目数
+	items        int // 列出的合集条目数
+	ruleVersion  int
+	recognized   int
+	excluded     int
+	duplicates   int
 	created      int   // 新建的绑定
 	replaced     int   // 替换的绑定
 	alreadyBound int   // 对到的集上已有同一个弹幕源的绑定而跳过的条目（含写入时才撞上的）
@@ -228,6 +232,10 @@ func (s *Service) backfill(ctx context.Context, id int64, trigger string, due []
 		slog.String("due", strings.Join(due, ",")),
 		slog.Duration("duration", time.Since(r.start)),
 		slog.Int("items", r.items),
+		slog.Int("rule_version", r.ruleVersion),
+		slog.Int("recognized", r.recognized),
+		slog.Int("excluded", r.excluded),
+		slog.Int("duplicates", r.duplicates),
 		slog.Int("created", r.created),
 		slog.Int("replaced", r.replaced),
 		slog.Int("already_bound", r.alreadyBound),
@@ -250,6 +258,7 @@ func (s *Service) runBackfill(ctx context.Context, r *backfillRound) error {
 		return err
 	}
 	r.seasonID = sb.SeasonID
+	r.ruleVersion = sb.EpisodeRule.Version
 	adapter, err := s.sources.Get(*sb.Adapter)
 	if err != nil {
 		return err
@@ -279,6 +288,7 @@ func (s *Service) runBackfill(ctx context.Context, r *backfillRound) error {
 		if err != nil {
 			return err
 		}
+		r.ruleVersion = rule.Config().Version
 		episodes, err := episodeSlots(ctx, q, form.SeasonID, &form.ID, *form.Adapter)
 		if err != nil {
 			return err
@@ -291,6 +301,18 @@ func (s *Service) runBackfill(ctx context.Context, r *backfillRound) error {
 	}
 
 	r.items = len(plan.Items)
+	for _, it := range plan.Items {
+		switch it.Entry.ReasonCode {
+		case source.ReasonNonRegular, source.ReasonCustomExcluded:
+			r.excluded++
+		case source.ReasonDuplicate:
+			r.duplicates++
+		default:
+			if it.Entry.Unmatched == "" {
+				r.recognized++
+			}
+		}
+	}
 	for _, it := range plan.Items {
 		switch it.Status {
 		case StatusAlreadyBound:

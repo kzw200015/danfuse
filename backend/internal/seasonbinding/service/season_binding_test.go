@@ -47,7 +47,7 @@ func TestCollectionDetail(t *testing.T) {
 		got := env.get(created.ID)
 		want := service.View{
 			ID: 1, SeasonID: 1, Kind: "collection", Title: "某番剧",
-			EpisodePatterns: source.DefaultEpisodeRule().Patterns(), MappingFrom: 1, MappingTo: 1, BindingCount: 2,
+			EpisodePatterns: source.DefaultEpisodeRule().Patterns(), EpisodeRule: source.DefaultEpisodeRule().Config(), MappingFrom: 1, MappingTo: 1, BindingCount: 2,
 			CollectionView: &service.CollectionView{
 				Adapter: "fake", Link: "list/s", SourceURL: "https://fake.test/list/s", SourceLabel: "假合集 s",
 				Follow: true, Status: "active", LastCheckedAt: &start,
@@ -112,7 +112,12 @@ func TestFolderDetail(t *testing.T) {
 		})
 		testutil.AssertJSON(t, d.Items[0], `{
 			"label": "星海旅人 / 01", "number": 1, "episodeNumber": 1, "status": "keep", "reason": null, "replaces": null,
-			"lastError": null, "lastErrorAt": null
+			"lastError": null, "lastErrorAt": null,
+			"trace": {
+				"version": 1, "scope": "full", "scopeLabel": "完整标题（旧版）", "input": "星海旅人 / 01",
+				"normalized": false, "ruleIndex": 4, "captured": "01", "rawNumber": 1, "adjustment": 0,
+				"adjustedNumber": 1, "localNumber": 1
+			}
 		}`)
 		testutil.AssertJSON(t, d.EmptySlots, `[]`)
 	})
@@ -137,7 +142,7 @@ func TestListBySeries(t *testing.T) {
 		if len(views[1]) != 2 || views[1][0].ID != folder {
 			t.Fatalf("第 1 季的季绑定 = %+v", views[1])
 		}
-		common := []string{"bindingCount", "createdAt", "episodePatterns", "id", "kind", "mappingFrom", "mappingTo", "seasonId", "title"}
+		common := []string{"bindingCount", "createdAt", "episodePatterns", "episodeRule", "id", "kind", "mappingFrom", "mappingTo", "seasonId", "title"}
 		for i, want := range []struct {
 			kind, title string
 			bindings    int32

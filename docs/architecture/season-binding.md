@@ -4,7 +4,7 @@
 
 ## 文件
 
-下表是 `service/` 里的文件；`handler/` 里是入口 `routes.go`（`Handler`、`Register`）和同名的 `season_binding.go`、`collection.go`、`folder.go`。
+下表是 `service/` 里的文件；`handler/` 里是入口 `routes.go`（`Handler`、`Register`）和同名的 `season_binding.go`、`collection.go`、`folder.go`，默认规则与模板生成在 `episode_rule.go`。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -20,11 +20,11 @@
 ## 数据
 
 - `season_bindings` 两种共用：
-  - 两种都有：标题、集号规则 `episode_patterns`、集号对应 `mapping_from`/`mapping_to`。
+  - 两种都有：标题、版本化集号规则 `episode_rule`（JSONB）、集号对应 `mapping_from`/`mapping_to`。配置中的实际正则、顺序、加减值、排除项随绑定保存，不按未来默认表重新解释。
   - 只属于合集：`adapter`、`ref`、`link`、`follow`、`numbered_by_rule`、`status`、`last_error`、`last_checked_at`。由 CHECK `season_bindings_kind_columns_check` 按 kind 守住：文件夹的这些列为空、追更关着、状态为正常。`follow` 列的默认值是开着，插入文件夹的季绑定要写明 `follow = false`（`InsertFolderSeasonBinding`）。
   - 唯一约束 `(season_id, adapter, ref)` 在 NULL 上不生效，同一个文件夹可以在一季上传多次。
   - `link` 是创建或保存时贴的链接，原样保存，只用来在编辑时预填；合集以 ref 为准，链接不进 ref（理由同 ADR 0009 第 1 条）。
-- `season_binding_items` 是合集上次列出的结果，不是表单。主键 `(season_binding_id, ref)`。`saveItems` 每次列出成功后按规范化的 ref 去重、增改，删掉不在了的。`number` 只存平台给的集号，按规则编号的合集为空，读取时再按季绑定现在的集号规则编号。`last_error`、`last_error_at` 是条目上次补建失败的原因，补建成功、或撞上同源约束跳过后清掉。条目的状态读取时现算，不存储。
+- `season_binding_items` 是合集上次列出的结果，不是表单。主键 `(season_binding_id, ref)`。`saveItems` 每次列出成功后按规范化的 ref 去重、增改，删掉不在了的。`label` 保留展示标题，`label_parts` 可空 text[] 保存真实标题层级。`number` 只存平台给的集号，按规则编号的合集为空，读取时再按季绑定现在的规则编号，避免重复应用加减。`last_error`、`last_error_at` 是条目上次补建失败的原因，补建成功、或撞上同源约束跳过后清掉。条目的状态、诊断读取时现算，不存储。
 - 文件夹的表单是条目 `season_binding_entries` 与条目的文件 `season_binding_entry_files`：
   - 条目名称 `label` 不带文件夹名（子目录名，或去掉扩展名的文件名），唯一约束 `(season_binding_id, label)`。
   - 文件按 `(entry_id, sha256)` 去重，没有加入时间。
@@ -37,15 +37,17 @@
 - 建出的文件绑定没有 `binding_files` 行，`file_count` 为 0，标题是条目名称；文件列表、重新解析、卡片上的份数都读条目的文件（`binding` 的 `storedFiles`、`view`）。
 - 约束表达不了的跨表规则（链接绑定只由合集的季绑定建出等）由代码保证，`testenv.AssertInvariants` 检查（见 [`testing.md`](testing.md)）。
 
+迁移 `00011` 按原顺序把 `episode_patterns` 转为 version 1（完整范围、加减零、无排除），已有 `label_parts` 保持 NULL。不改已有绑定、弹幕、时间偏移、追更、映射或平台集号。后台补建可以刷新标题层级，但不切换规则版本。用户在编辑预览中主动切换新版时重新列出合集，保存后详情与补建使用这份配置；新版遇到历史缺失层级缓存时提示"标题信息不完整"。Down 只有全库均为 version 1 时可还原，存在 version 2 即拒绝有损回退。
+
 ## 派生
 
-`Derive(entries, mapping, episodes)` 是纯函数，只管集号对应和槽位。编号、认不出集号、集号重复、按 ref 去重都由 `source.NumberItems` / `NumberLabels` 事先做好，所以对到同一集的条目至多一个。
+`Derive(entries, mapping, episodes)` 是纯函数，只管集号对应和槽位。编号、排除、集号加减、调整后重复、按 ref 去重都由 `source.NumberItems` / `NumberEntries` 事先做好，所以对到同一集的条目至多一个。完整的规则流水线见 [`sources.md`](sources.md#集号规则adr-0011)。
 
 - 输入：
   - `Entry.Source` 是弹幕源的身份：合集为 `source.CanonicalRef(ref)`，文件夹为条目 ID。
   - `Episode.Slot` 是这个季绑定在那一集建出的绑定。
   - `Episode.Occupied` 是那一集上别的绑定占用的、这个适配器的弹幕源；只对合集，文件夹为 nil。
-- 每个条目依次判断：对不上（`unmatched`，原因原样输出）→ 序号在起点之前（`beforeStart`）→ 目录里没有对到的集（`noEpisode`）。对到了集时再看：
+- 每个条目依次判断：对不上（`unmatched`，原因原样输出）→ 序号在起点之前（`beforeStart`）→ int64 计算并检查本地集号范围 → 目录里没有对到的集（`noEpisode`）。对到了集时再看：
   - `Occupied` 里有它的弹幕源：已有同源绑定（`alreadyBound`），槽位不动，也不算空；
   - 槽位为空：新建（`create`）；
   - 槽位里是同一个弹幕源：保留（`keep`）；
@@ -55,7 +57,7 @@
 - 进入派生的 ref 都经过 `source.CanonicalRef`（键排序、紧凑、数字原样）：适配器列出的条目、`season_binding_items.ref`、`bindings.ref`。否则从 jsonb 读出的文本带空格、键会重排，所有槽位都会被判成替换。规范化的 ref 是合法的 JSON，补建时原样交给适配器的 `Fetch`。
 - 输入从哪里来（`derive_input.go`）：
   - 合集的预览、保存、补建用这次列出的合集 `source.NumberItems(col, 规则)`；详情用 `storedCollection` 把条目表拼回 `source.Collection` 再编号，番剧条目的 `number` 为空时原因写"平台没有给出整数集号"。
-  - 文件夹的条目按"季绑定标题 / 条目名称"（`source.LabelSeparator`，和多 P 投稿的"稿件标题 / 分 P 标题"一致）用 `source.NumberLabels` 认集号（`folderEntries`）。API 里文件夹条目的 `label` 也是拼好的名称；库里只存条目名称。新建、换文件夹时标题取这次的文件夹名。
+  - 文件夹的条目用 `source.NumberEntries` 认集号（`folderEntries`），明确传入 `LabelParts: [季绑定标题, 条目名称]`，`label` 仍按 `source.LabelSeparator` 展示为"季绑定标题 / 条目名称"。库里只存条目名称；新建、换文件夹时标题取这次的文件夹名。
   - `episodeSlots` 查一季的集和槽位（`ListSeasonEpisodeSlots`），合集另查 `ListSeasonOccupiedSources`。预览和详情在读取时查，保存和补建在写入事务里查。
 
 ## 写入
@@ -89,7 +91,7 @@
   2. 由 `resolve` 重新识别链接、选候选、查重（不算自己）、列出合集。删除以这次列出的结果为准，不和预览核对。
   3. 事务（`saveCollectionTx`）：
      - 锁季，`FOR UPDATE` 锁季绑定（`lockSeasonBinding`）；
-     - `SaveCollectionForm` 写表单，换成另一个合集（适配器或 ref 变了）时清掉上次检查时间；同一季已有这个合集时撞上唯一约束，返回 409；
+     - 再检查规则版本，拒绝把已存 version 2 的绑定写回旧格式/version 1（409，要求刷新客户端）；`SaveCollectionForm` 写表单，换成另一个合集（适配器或 ref 变了）时清掉上次检查时间；同一季已有这个合集时撞上唯一约束，返回 409；
      - `saveListed` 保存这次列出的结果（季绑定恢复为正常、更新标题与是否按规则编号、写条目表）；
      - 派生，用 `DeleteSlotsInTx` 删掉 `Empty`。
   4. 释放租约，记一条 `season binding saved`（带删掉的槽位数），触发后台补建，返回详情。
@@ -121,7 +123,7 @@
      - 撞上同源约束（`ErrSourceBound`）：事务回滚，旧的绑定保留，计入已有同源绑定，另外清掉条目上次失败的原因；
      - 限流：记下原因，结束这一轮；
      - 其他拉取失败：原因记在条目的 `last_error`、`last_error_at` 上（`setItemError`），继续下一个。
-  4. 正常结束或因错误、限流结束时，`FinishSeasonBindingCheck` 把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算上次检查之后才有的。被关闭服务或丢失租约打断时不写，下一次扫描接着做。结束时记一条 `backfill finished`，记下了错误时为 warn 级别。
+  4. 正常结束或因错误、限流结束时，`FinishSeasonBindingCheck` 把上次检查时间写为这一轮的开始时间：补建期间同步进来的集仍算上次检查之后才有的。被关闭服务或丢失租约打断时不写，下一次扫描接着做。结束时记一条 `backfill finished`，记下了错误时为 warn 级别。现有日志增加 `rule_version`、`recognized`、`excluded`、`duplicates` 计数，文件夹补建日志同样记录，不引入新任务或服务。
 - 补建只建出绑定，不重新拉取已经建出的绑定：之后的重新拉取是定时拉取（[`scheduled-fetch.md`](scheduled-fetch.md)），与追更开关、季绑定的租约都无关。
 - 追更的扫描（`scan`）由同一个循环每隔 `follow.scan_interval`（默认 1 分钟）在后台开始一次，一次补建一个，不等上一次扫描做完（同一个季绑定靠它的租约不会重复补建）。
   - 到期的判定见 `ListDueSeasonBindings`：从没检查过、满一个检查周期 `follow.check_interval`（默认 12 小时）、季里有晚于上次检查建出的集。
@@ -141,7 +143,7 @@
   - 子目录合成一个条目，顶层的文件各自一个条目；
   - 条目名称不能重复。
 - 事务：
-  1. 锁季、锁季绑定；创建时插入季绑定（标题为文件夹名），保存时 `UpdateFolderSeasonBinding` 写规则和对应，换文件夹时标题改为新的文件夹名。
+  1. 锁季、锁季绑定并检查 version 2 不得降级；创建时插入季绑定（标题为文件夹名），保存时 `UpdateFolderSeasonBinding` 写规则和对应，换文件夹时标题改为新的文件夹名。
   2. `applyFolder` 落实表单：
      1. 定出条目：换文件夹（和创建）时为这次上传的，由 `matchEntries` 按"名称 + 文件哈希的集合"对上保存的条目，对上的沿用条目 ID，没对上的用临时身份 `new:<名称>`，它不会与任何槽位相同；文件夹名不参与，改名后照样对得上。不换文件夹时为保存的条目。
      2. 派生。
@@ -164,9 +166,10 @@
 
 ```
 GET    /api/episode-rules/default
-POST   /api/seasons/:id/season-bindings/collection/preview  {link, episodePatterns, mappingFrom, mappingTo} → 预览
-POST   /api/seasons/:id/season-bindings/collection          {link, collectionKind, episodePatterns, mappingFrom, mappingTo} → 201 详情
-POST   /api/seasons/:id/season-bindings/folder/preview      {folder, entries, episodePatterns, mappingFrom, mappingTo} → 预览
+POST   /api/episode-rules/template                        {templateId, season?, adjustment} → {rule, example}
+POST   /api/seasons/:id/season-bindings/collection/preview  {link, episodeRule, mappingFrom, mappingTo} → 预览
+POST   /api/seasons/:id/season-bindings/collection          {link, collectionKind, episodeRule, mappingFrom, mappingTo} → 201 详情
+POST   /api/seasons/:id/season-bindings/folder/preview      {folder, entries, episodeRule, mappingFrom, mappingTo} → 预览
 POST   /api/seasons/:id/season-bindings/folder              multipart：files + form → 201 详情
 GET    /api/season-bindings/:id                             详情
 POST   /api/season-bindings/:id/collection/preview          同新建 → 预览
@@ -178,11 +181,15 @@ POST   /api/season-bindings/:id/backfill                    合集 202、文件�
 DELETE /api/season-bindings/:id
 ```
 
-- multipart 里 `files` 的文件名是以文件夹名开头的相对路径，`form` 是 JSON `{episodePatterns, mappingFrom, mappingTo}`（`parseFolderForm`）。集号规则和集号对应由各请求嵌入的 `ruleForm` 在 `Validate` 里解析。
+- multipart 里 `files` 的文件名是以文件夹名开头的相对路径，`form` 是 JSON `{episodeRule, mappingFrom, mappingTo}`（`parseFolderForm`）。集号规则和集号对应由各请求嵌入的 `ruleForm` 在 `Validate` 里解析。
+- 兼容请求可用 `episodePatterns: string[]` 代替 `episodeRule`，解释为 version 1；同时提供两个字段（包括显式 null）为 400。version 2 绑定拒绝旧字段或 version 1 的写回（409），检查既在前置读取也在锁住季绑定的事务中，防止并发覆盖。
+- 默认接口返回旧 `episodePatterns`、新版 `episodeRule` 和模板元数据 `templates`；模板接口不请求平台、不访问数据库，由 `source.RenderEpisodeTemplate` 生成实际正则和示例。除季号类与 `sxe` 外传 `season` 会报参数错误。
+- `View` 继续输出 `episodePatterns` 的正则投影，同时带完整 `episodeRule`；旧投影无法表达加减和排除，客户端应使用完整结构。
 - 种类不符时返回 400，例如对合集的季绑定调用 `/folder`（`getKind`）。
 - 剧详情里的 `seasonBindings[]` 是 `View`：两种都有的字段，加上合集的（`adapter`、`link`、`sourceUrl`、`sourceLabel`、`numberedByRule`、`follow`、`status`、`lastError`、`lastCheckedAt`、`running`）或文件夹的（`entryCount`）。
 - 详情是 `View` 加 `items`（按补建的语义派生，不删除）和 `emptySlots`；合集的条目带 `lastError`、`lastErrorAt`，文件夹的恒为 null。详情不请求平台。
 - 预览是 `{candidates}`，每组带 `items`、`removed`（保存后删除的槽位）、`summary`。
+- `ItemView` 保留既有 status 和 number 语义，另带 `reasonCode` 与可选 `trace`。原因码区分 `noMatch`、`invalidNumber`、`nonRegular`、`customExcluded`、`adjustmentOutOfRange`、`mappingOutOfRange`、`duplicateNumber`、`missingLabelParts`。重复号码被清空后仍通过 trace 显示号码及冲突行和标题；诊断不持久化、不输出原始 ref。
 
 ## 建出的绑定
 
@@ -199,15 +206,19 @@ DELETE /api/season-bindings/:id
 - 共用的部分在 `SeasonBindingFormParts.tsx`，只接收预览结果和保存：
   - `RuleFields` 是集号规则与集号对应的输入框，`useRuleDraft` 管它们的状态；
   - `PreviewSection` 是汇总标签（`summaryTags`）、`PreviewTable`（要删的槽位接在表尾）和带确认的保存。
+- 新建用默认 version 2、下级范围、仅正片开启、映射 `1 = 1`。`EpisodeRuleInput` 以模板为入口，选择格式、适用时的来源季、加减值；`useEpisodeTemplate` 查询后端生成正则。"仅使用此规则"替换正向规则，"添加覆盖规则"插到首位。每条显示加减，高级编辑提供正则、排序、删除和自定义排除。
+- 匹配范围属于整组；仅正片开关加入默认 `nonRegular` 排除快照，关闭时只移除这一类，保留 custom。加减的命名与弹幕时间偏移分开。
+- 已有绑定按其保存版本打开，version 1 显示"旧版规则"并原样预览。"使用新版模板"替换草稿规则、保留映射，不自动迁移自定义正则；取消后恢复原配置。升级和普通修改一样等待预览、确认删除/替换、保存，沿用租约、事务和槽位。
 - `useSeasonBindingPreview`（`use-season-bindings.ts`）让预览随表单自动刷新：
   - 查询键是防抖（`previewDebounce`，600ms）后的输入，不缓存，重新预览时保留上一次的结果。
-  - `current` 为 false（还没防抖完、正在预览、预览失败）时不能保存；保存不比较表单改没改。
+  - `current` 为 false（还没防抖完、正在预览、预览失败）时旧预览标为过期，不能保存；保存不比较表单改没改。
   - 有删除或替换时，保存前用确认框逐条列出要删的绑定，并说明替换的集偏移归零。
 - 季绑定卡片（`SeasonBindingCard`）两种共用：
   - 卡片上只读地显示集号对应，集号规则和集号对应都在"编辑"里改。
   - 合集另有追更开关、状态、上次检查和"补建中"。
   - 删除的确认框写明建出的绑定会连同弹幕一起删除，文件夹另加"上传的文件也一起删除"。
   - `EntryTable` 用 `itemStatusText` 写出各条目的状态，上次失败的标红；表下用黄色提示列出 `emptySlots`。
+- 预览与详情共用 `ItemTable` 的可展开诊断。排除项显示"已排除"，重复项显示冲突号码，诊断中的按钮按本表行号滚动并聚焦其他冲突行。
 - 季绑定的详情（`useSeasonBinding`，键 `['season-bindings', id]`）只在展开条目表、或合集正在补建时取。正在补建时每秒轮询，结束后让剧详情失效；季绑定的列表在剧详情里。
 - 写入成功后用 `useWatchSeasonBinding` 把返回的详情放进缓存，合集的轮询随即开始；两种季绑定都另外重新加载剧详情（文件夹的写入当场建出绑定，合集保存时当场删除没有条目的槽位）。
 
@@ -222,3 +233,5 @@ DELETE /api/season-bindings/:id
   - 要让写入事务等锁时用 `holdRowLock` 在另一个事务里锁住行，`waitLockWaiters` 等到有连接在等锁。
 - `testenv.FakeCollector` 每次拉取在 `Started` 上报弹幕源名字、从 `Release` 收到一次放行；气泡与并发用例的通用写法见 [`testing.md`](testing.md)。
 - 路由、参数校验与状态码在 `server/season_binding_test.go`。
+- `source/episode_config_test.go` 覆盖多季合集的标题、模板限定季、优先级、归一化、边界、加减与排除；旧版 `source/episode_rule_test.go` 继续验证原识别结果并验证新诊断。`service/episode_rules_test.go` 用真实 PostgreSQL 验证合集 12→25 集的预览/保存/补建一致性、保留 ID/弹幕/偏移、缓存标题和文件夹对等行为；`infra/database/migration_00011_test.go` 验证迁移往返及有新版配置时拒绝回退。
+- 前端 `EpisodeRules.spec.tsx` 和 `SeasonBindings.spec.tsx` 验证模板替换/前置、仅正片与 custom 共存、主动升级与取消、冲突定位、过期预览禁存及原有删除/替换确认。

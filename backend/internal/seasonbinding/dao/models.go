@@ -6,25 +6,27 @@ package dao
 
 import (
 	"time"
+
+	"github.com/kzw200015/danfuse/backend/internal/source"
 )
 
 type SeasonBinding struct {
-	ID              int64      `json:"id"`
-	SeasonID        int64      `json:"seasonId"`
-	Adapter         *string    `json:"adapter"`
-	Ref             []byte     `json:"ref"`
-	Title           string     `json:"title"`
-	MappingFrom     int32      `json:"mappingFrom"`
-	MappingTo       int32      `json:"mappingTo"`
-	Follow          bool       `json:"follow"`
-	Status          string     `json:"status"`
-	LastError       *string    `json:"lastError"`
-	LastCheckedAt   *time.Time `json:"lastCheckedAt"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	EpisodePatterns []string   `json:"episodePatterns"`
-	NumberedByRule  *bool      `json:"numberedByRule"`
-	Kind            string     `json:"kind"`
-	Link            *string    `json:"link"`
+	ID             int64                    `json:"id"`
+	SeasonID       int64                    `json:"seasonId"`
+	Adapter        *string                  `json:"adapter"`
+	Ref            []byte                   `json:"ref"`
+	Title          string                   `json:"title"`
+	MappingFrom    int32                    `json:"mappingFrom"`
+	MappingTo      int32                    `json:"mappingTo"`
+	Follow         bool                     `json:"follow"`
+	Status         string                   `json:"status"`
+	LastError      *string                  `json:"lastError"`
+	LastCheckedAt  *time.Time               `json:"lastCheckedAt"`
+	CreatedAt      time.Time                `json:"createdAt"`
+	NumberedByRule *bool                    `json:"numberedByRule"`
+	Kind           string                   `json:"kind"`
+	Link           *string                  `json:"link"`
+	EpisodeRule    source.EpisodeRuleConfig `json:"episodeRule"`
 }
 
 type SeasonBindingItem struct {
@@ -35,4 +37,5 @@ type SeasonBindingItem struct {
 	Label           string     `json:"label"`
 	LastError       *string    `json:"lastError"`
 	LastErrorAt     *time.Time `json:"lastErrorAt"`
+	LabelParts      []string   `json:"labelParts"`
 }

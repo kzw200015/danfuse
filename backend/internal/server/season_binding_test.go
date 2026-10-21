@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -119,13 +120,13 @@ func TestSeasonBindingAPI(t *testing.T) {
 
 		// 默认的集号规则
 		_, _, data := call(t, srv, http.MethodGet, "/api/episode-rules/default", "", http.StatusOK)
-		testutil.AssertJSON(t, data, `{"episodePatterns": `+defaultPatterns+`}`)
+		testutil.AssertJSON(t, data, `{"episodePatterns": `+defaultPatterns+`, "episodeRule": `+jsonString(source.DefaultEpisodeRuleV2().Config())+`, "templates": `+jsonString(source.EpisodeTemplates())+`}`)
 
 		// 创建：201 和详情，只有合集的字段，不含原始 ref；补建在后台进行
 		_, _, data = call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/collection",
 			`{"link": " fakelist/s ", "mappingFrom": 1, "mappingTo": 1, "episodePatterns": `+defaultPatterns+`}`, http.StatusCreated)
 		wantFields := []string{
-			"adapter", "bindingCount", "createdAt", "emptySlots", "episodePatterns", "follow", "id", "items", "kind", "lastCheckedAt", "lastError",
+			"adapter", "bindingCount", "createdAt", "emptySlots", "episodePatterns", "episodeRule", "follow", "id", "items", "kind", "lastCheckedAt", "lastError",
 			"link", "mappingFrom", "mappingTo", "numberedByRule", "running", "seasonId", "sourceLabel", "sourceUrl", "status", "title",
 		}
 		if got := slices.Sorted(maps.Keys(decodeObject(t, data))); !slices.Equal(got, wantFields) {
@@ -141,6 +142,7 @@ func TestSeasonBindingAPI(t *testing.T) {
 			"id": 1, "seasonId": 1, "kind": "collection", "adapter": "fake", "link": "fakelist/s",
 			"sourceUrl": "https://fake.test/list/s", "sourceLabel": "假合集 s",
 			"title": "合集 s", "mappingFrom": 1, "mappingTo": 1, "numberedByRule": false, "episodePatterns": `+defaultPatterns+`,
+			"episodeRule": `+jsonString(source.DefaultEpisodeRule().Config())+`,
 			"follow": true, "status": "active", "lastError": null, "running": false, "bindingCount": 2,
 			"items": [
 				{"label": "s1", "number": 1, "episodeNumber": 1, "status": "keep", "reason": null, "replaces": null, "lastError": null, "lastErrorAt": null},
@@ -374,6 +376,17 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 		}
 		entries := `[{"label": "01", "sha256s": ` + sha256s(files[0]) + `}, {"label": "02", "sha256s": ` + sha256s(files[1], files[2]) + `},
 			{"label": "花絮", "sha256s": ` + sha256s(files[3]) + `}]`
+		matchedTrace := func(n int64) string {
+			label := fmt.Sprintf("来自新世界 / %02d", n)
+			return jsonString(source.EpisodeTrace{
+				Version: 1, Scope: "full", ScopeLabel: "完整标题（旧版）", Input: label,
+				RuleIndex: new(len(source.DefaultEpisodeRule().Patterns())), Captured: fmt.Sprintf("%02d", n),
+				RawNumber: &n, AdjustedNumber: &n, LocalNumber: &n,
+			})
+		}
+		unmatchedTrace := jsonString(source.EpisodeTrace{
+			Version: 1, Scope: "full", ScopeLabel: "完整标题（旧版）", Input: "来自新世界 / 花絮",
+		})
 
 		// 预览新建：只传文件夹名、条目名称和文件哈希
 		_, _, data := call(t, srv, http.MethodPost, "/api/seasons/1/season-bindings/folder/preview",
@@ -382,9 +395,10 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 			"collectionKind": null, "title": "来自新世界", "sourceUrl": null, "sourceLabel": null, "finished": false,
 			"numberedByRule": true, "current": false,
 			"items": [
-				{"label": "来自新世界 / 01", "number": 1, "episodeNumber": 1, "status": "create", "reason": null, "replaces": null},
-				{"label": "来自新世界 / 02", "number": 2, "episodeNumber": 2, "status": "create", "reason": null, "replaces": null},
-				{"label": "来自新世界 / 花絮", "number": null, "episodeNumber": null, "status": "unmatched", "reason": "不符合集号规则", "replaces": null}
+				{"label": "来自新世界 / 01", "number": 1, "episodeNumber": 1, "status": "create", "reason": null, "replaces": null, "trace": `+matchedTrace(1)+`},
+				{"label": "来自新世界 / 02", "number": 2, "episodeNumber": 2, "status": "create", "reason": null, "replaces": null, "trace": `+matchedTrace(2)+`},
+				{"label": "来自新世界 / 花絮", "number": null, "episodeNumber": null, "status": "unmatched", "reason": "不符合集号规则", "replaces": null,
+				 "reasonCode": "noMatch", "trace": `+unmatchedTrace+`}
 			],
 			"removed": [], "summary": {"create": 2, "replace": 0, "remove": 0, "keep": 0}
 		}]}`)
@@ -394,7 +408,7 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 			map[string]string{"form": `{` + folderRules(1) + `}`}, http.StatusCreated)
 		detail := decodeObject(t, data)
 		wantFields := []string{
-			"bindingCount", "createdAt", "emptySlots", "entryCount", "episodePatterns", "id", "items", "kind",
+			"bindingCount", "createdAt", "emptySlots", "entryCount", "episodePatterns", "episodeRule", "id", "items", "kind",
 			"mappingFrom", "mappingTo", "seasonId", "title",
 		}
 		if got := slices.Sorted(maps.Keys(detail)); !slices.Equal(got, wantFields) {
@@ -404,14 +418,15 @@ func TestFolderSeasonBindingAPI(t *testing.T) {
 		testutil.AssertJSON(t, json.RawMessage(jsonString(detail)), `{
 			"id": 1, "seasonId": 1, "kind": "folder", "title": "来自新世界",
 			"episodePatterns": `+jsonString(source.DefaultEpisodeRule().Patterns())+`, "mappingFrom": 1, "mappingTo": 1,
+			"episodeRule": `+jsonString(source.DefaultEpisodeRule().Config())+`,
 			"bindingCount": 2, "entryCount": 3,
 			"items": [
 				{"label": "来自新世界 / 01", "number": 1, "episodeNumber": 1, "status": "keep", "reason": null, "replaces": null,
-				 "lastError": null, "lastErrorAt": null},
+				 "lastError": null, "lastErrorAt": null, "trace": `+matchedTrace(1)+`},
 				{"label": "来自新世界 / 02", "number": 2, "episodeNumber": 2, "status": "keep", "reason": null, "replaces": null,
-				 "lastError": null, "lastErrorAt": null},
+				 "lastError": null, "lastErrorAt": null, "trace": `+matchedTrace(2)+`},
 				{"label": "来自新世界 / 花絮", "number": null, "episodeNumber": null, "status": "unmatched", "reason": "不符合集号规则",
-				 "replaces": null, "lastError": null, "lastErrorAt": null}
+				 "replaces": null, "lastError": null, "lastErrorAt": null, "reasonCode": "noMatch", "trace": `+unmatchedTrace+`}
 			],
 			"emptySlots": []
 		}`)

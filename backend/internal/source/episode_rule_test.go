@@ -12,6 +12,15 @@ func named(label string) CollectionItem {
 	return CollectionItem{Ref: Ref(`"` + label + `"`), Label: label}
 }
 
+// Existing cases assert the legacy numbering contract; diagnostics are verified separately.
+func withoutDiagnostics(items []CollectionItem) []CollectionItem {
+	out := slices.Clone(items)
+	for i := range out {
+		out[i].Trace, out[i].ReasonCode = nil, ""
+	}
+	return out
+}
+
 func TestParseEpisodeRule(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -159,7 +168,7 @@ func TestNumberItems(t *testing.T) {
 			}
 			in := append([]CollectionItem(nil), tt.col.Items...)
 			got := NumberItems(tt.col, r)
-			if !reflect.DeepEqual(got, tt.want) {
+			if !reflect.DeepEqual(withoutDiagnostics(got), tt.want) {
 				t.Errorf("NumberItems() = %+v\nwant %+v", got, tt.want)
 			}
 			if !reflect.DeepEqual(tt.col.Items, in) && len(in) > 0 {
@@ -179,7 +188,28 @@ func TestNumberLabels(t *testing.T) {
 		{Label: "某番 / 02", Unmatched: "集号重复"},
 		{Label: "某番 / SP", Unmatched: "不符合集号规则"},
 	}
-	if !reflect.DeepEqual(got, want) {
+	if !reflect.DeepEqual(withoutDiagnostics(got), want) {
 		t.Errorf("NumberLabels() = %+v\nwant %+v", got, want)
+	}
+}
+
+func TestLegacyEpisodeDiagnostics(t *testing.T) {
+	r, err := ParseEpisodeRule([]string{`第(\d+)话`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := NumberLabels([]string{"更至第2话 / 第３话", "第2话", "第４话", "未知"}, r)
+	for i, it := range items[:2] {
+		if it.Number != 0 || it.Unmatched != duplicateNumber || it.ReasonCode != ReasonDuplicate ||
+			it.Trace.Version != 1 || *it.Trace.AdjustedNumber != 2 || len(it.Trace.Conflicts) != 2 ||
+			*it.Trace.RuleIndex != 1 || it.Trace.Captured != "2" {
+			t.Fatalf("duplicate %d = %+v / %+v", i, it, it.Trace)
+		}
+	}
+	if items[0].Trace.Normalized || !items[2].Trace.Normalized || items[2].Number != 4 {
+		t.Fatal("legacy raw-first normalization changed")
+	}
+	if items[3].ReasonCode != ReasonNoMatch || items[3].Trace.RuleIndex != nil {
+		t.Fatal("unmatched diagnostic lost")
 	}
 }

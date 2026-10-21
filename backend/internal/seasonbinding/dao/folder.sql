@@ -7,8 +7,8 @@ ORDER BY position;
 
 -- name: InsertFolderSeasonBinding :one
 -- 文件夹的季绑定，标题为文件夹名。只属于合集的列为空，追更恒为关。
-INSERT INTO season_bindings (season_id, kind, title, follow, mapping_from, mapping_to, episode_patterns)
-VALUES (@season_id, 'folder', @title, false, @mapping_from::int, @mapping_to::int, @episode_patterns::text[])
+INSERT INTO season_bindings (season_id, kind, title, follow, mapping_from, mapping_to, episode_rule)
+VALUES (@season_id, 'folder', @title, false, @mapping_from::int, @mapping_to::int, @episode_rule)
 RETURNING *;
 
 -- name: UpdateFolderSeasonBinding :one
@@ -17,7 +17,7 @@ UPDATE season_bindings
 SET title            = @title,
     mapping_from     = @mapping_from::int,
     mapping_to       = @mapping_to::int,
-    episode_patterns = @episode_patterns::text[]
+    episode_rule = @episode_rule
 WHERE id = @id
 RETURNING *;
 

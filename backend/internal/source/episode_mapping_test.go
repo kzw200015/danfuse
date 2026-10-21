@@ -63,8 +63,13 @@ func TestMarkDuplicateNumbers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			in := append([]CollectionItem(nil), tt.items...)
 			got := markDuplicateNumbers(tt.items)
-			if !reflect.DeepEqual(got, tt.want) {
+			if !reflect.DeepEqual(withoutDiagnostics(got), tt.want) {
 				t.Errorf("markDuplicateNumbers() = %+v\nwant %+v", got, tt.want)
+			}
+			for _, it := range got {
+				if it.Unmatched == duplicateNumber && (it.Trace == nil || len(it.Trace.Conflicts) < 2 || it.Trace.AdjustedNumber == nil || it.ReasonCode != ReasonDuplicate) {
+					t.Errorf("duplicate number missing diagnostic: %+v", it)
+				}
 			}
 			if !reflect.DeepEqual(tt.items, in) {
 				t.Errorf("改动了传入的切片：%+v", tt.items)

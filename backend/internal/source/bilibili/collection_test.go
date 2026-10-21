@@ -317,6 +317,19 @@ func TestListUGCSeason(t *testing.T) {
 				if !reflect.DeepEqual(items(got), tt.want) {
 					t.Errorf("条目 = %+v\nwant %+v", items(got), tt.want)
 				}
+				wantParts := [][]string{
+					{"合集里的稿件", "第 1"},
+					{"合集里的稿件", "第 2"},
+					{"第二个", "局 1"},
+					{"第二个", "局 2"},
+					{"第二个", "局 3"},
+					{"下一节"},
+				}
+				for i, it := range got.Items {
+					if !slices.Equal(it.LabelParts, wantParts[i]) {
+						t.Errorf("第 %d 条标题层级 = %q, want %q", i+1, it.LabelParts, wantParts[i])
+					}
+				}
 			}
 			if req := fake.requested(); !slices.Equal(req, tt.requests) {
 				t.Errorf("请求 = %q, want %q", req, tt.requests)
@@ -377,6 +390,17 @@ func TestListMultiPage(t *testing.T) {
 	}
 	if err != nil || got.Title != "合辑" || got.Finished || !got.NumberedByRule || !reflect.DeepEqual(items(got), want) {
 		t.Errorf("ListCollection() = (%q, 按规则编号 %v, %+v, %v)\nwant (合辑, 按规则编号, %+v)", got.Title, got.NumberedByRule, items(got), err, want)
+	}
+	for i, parts := range [][]string{{"合辑", "第一首"}, {"合辑"}, {"合辑"}} {
+		if !slices.Equal(got.Items[i].LabelParts, parts) {
+			t.Errorf("第 %d P 标题层级 = %q, want %q", i+1, got.Items[i].LabelParts, parts)
+		}
+	}
+}
+
+func TestPageLabelPartsPreservesLiteralSlash(t *testing.T) {
+	if got := pageLabelParts(" 上级 / 标题 ", " 第1话 / 开始 "); !slices.Equal(got, []string{"上级 / 标题", "第1话 / 开始"}) {
+		t.Fatalf("title was split: %q", got)
 	}
 }
 

@@ -1,6 +1,6 @@
 # 弹幕源与绑定
 
-源适配器、合集与集号规则、弹幕文件，以及管理界面的绑定卡片。术语见 `GLOSSARY.md`，相关决策见 ADR 0004、0005。
+源适配器、合集与集号规则、弹幕文件，以及管理界面的绑定卡片。术语见 `GLOSSARY.md`，相关决策见 ADR 0004、0005、0011。
 
 ## 源适配器
 
@@ -11,10 +11,40 @@
   - 它只适用于按 ref 能重新拉取的弹幕源，弹幕文件不实现它。
 - 合集 ref（`source.CollectionRef`）与弹幕源 ref 是两种类型；合集条目的弹幕源 ref 与单集绑定同一套格式，所以手动绑过的同一个弹幕源能被认出来。
 - 集号对应（`source.Mapping`）、集号规则（`source.EpisodeRule`）、条目的整理（`source.NumberItems`）是 `source` 包里的纯计算，不在适配器里做：
-  - 集号规则（ADR 0005）：投稿合集与多 P 投稿的适配器只给出展开到分 P 的条目和标签、标明 `Collection.NumberedByRule`，序号由季绑定上的规则从标签认出。规则是一组正则，取标签里结束得最靠后的集号、一样靠后时取排在前面的正则（`naming.Parse` 仍按表的优先级认，两者只共用正则），季绑定存它的副本；默认规则取自 `naming.EpisodePatterns`（`internal/naming`），即 `naming.Parse` 那张表里带 `episode` 组的写法，再加上认结尾 `/ N` 的一条：标签有两级标题时用 `source.LabelSeparator`（` / `）拼成"上级 / 下级"，越靠后越具体（见 `CollectionItem.Label`），新的源适配器拼标签也要照这个约定。
-  - `NumberItems` 先按规范化的 ref 去重（`UniqueRefs`，保存合集的条目时也用它），按规则编号的合集再认出序号，最后标出重复序号（`markDuplicateNumbers`）；`NumberLabels` 只接收名称，认序号、标重复，不去重，结果与名称一一对应（文件夹的季绑定用它，名称为"季绑定标题 / 条目名称"）。
+  - 投稿合集与多 P 投稿只给出展开到分 P 的条目和结构化标题、标明 `Collection.NumberedByRule`，序号由季绑定上的规则认出。番剧继续用平台集号。
+  - `NumberItems` 先按规范化的 ref 去重（`UniqueRefs`，保存合集条目时也用它），按规则编号的合集再认集号，最后标记重复（`markDuplicateNumbers`）。文件夹用 `NumberEntries` 接收结构化条目，不按 ref 去重；`NumberLabels` 是单层名称的便捷入口。
 - B 站适配器的链接解析（`bilibili/link.go`）只做字符串分类（短链先跳转一次再分类），集面板与季面板各自决定接受哪些（集面板遇到合集的链接时提示到季面板）。
 - 源适配器返回 `*source.Error`（带 Kind）：补建、定时拉取、标为失效都按 Kind 分支；管理 API 由 `binding.SourceAPIError`（季绑定的预览、创建、保存也用它）按 Kind 转成 400/422/502，只包装 Err，日志里提示不重复。
+
+## 集号规则（ADR 0011）
+
+`episode_rule.go` 保留旧版规则入口及匹配选择，`episode_config.go` 管版本化配置、新版识别和诊断，`episode_templates.go` 管模板与默认快照。它们都是纯计算；搜索、文件名和弹弹 API 的 `naming` 不改变。
+
+`EpisodeRuleConfig` 保存完整配置：
+
+```json
+{
+  "version": 2,
+  "scope": "entry",
+  "rules": [
+    {"pattern": "^第(?:二|2)季(?P<episode>\\d+)$", "adjustment": 12}
+  ],
+  "excludes": [
+    {"pattern": "特别篇", "kind": "custom"}
+  ]
+}
+```
+
+- `version: 1` 只能是完整标题范围、加减值零、无排除项。`ParseEpisodeRule([]string)` 产生它；`DefaultEpisodeRule` 保留旧的 `naming.EpisodePatterns()` 加结尾 `/ N`。先按原文匹配，所有规则失败才试 NFKC；捕获内容再经 NFKC 转整数。已有绑定一直按这个顺序解释。
+- `version: 2` 支持 `scope: entry | full`、每条 `adjustment` 和排除规则。正向规则 1～10 条，排除规则至多 10 条，每条最多 200 个 Unicode 字符，使用 Go RE2。正向规则需要捕获组，优先命名 `episode`，否则第一个捕获组；`season` 只记录诊断。
+- `CollectionItem.Label` 仍是展示和旧规则输入；`LabelParts` 独立保存为 `["稿件标题"]` 或 `["稿件标题","分 P 标题"]`。B 站 `pageLabelParts` 在已有数据处组装，分 P 标题为空或与稿件标题相同则单层；标题本身含 `/` 也不会拆分。文件夹由已有文件夹名与条目名称直接组装两层。
+- 新版先取最下级标题、NFKC 后检查排除项；无论正向范围如何，排除始终只看这一层。随后选择 `entry` 的最下级或 `full` 的完整展示标题，NFKC 后匹配。独立下级存在却不匹配时不退回上级。缺少有效 `LabelParts` 时返回 `missingLabelParts`，不拆历史展示字符串来猜测。
+- 两版都比较捕获组的结束位置：最靠后优先，同位置前面的规则优先。选定匹配后才应用加减值。原始数、调整结果和映射后的本地数必须在 0～2147483647，运算用 int64；失败不改取另一条规则。
+- 新版流水线：ref 去重 → 下级标题排除 → 选范围 → NFKC → 捕获 → 加减 → 调整后查重 → `Derive` 应用集号对应和槽位。碰撞的全部条目对不上，`Number` 仍清零，原号码在诊断里；起点之前仍不参与。
+- `DefaultEpisodeRuleV2` 使用下级范围、七类模板、加减零和 `NonRegularExcludes()` 快照。模板 ID 为 `episodeLabel`、`seasonNumber`、`seasonEpisodeLabel`、`numberPrefix`、`numberOnly`、`sxe`、`ep`；`RenderEpisodeTemplate` 仅接受季号类和 `sxe` 的来源季参数，支持数字及规范中文季号。
+- 数字开头模板限定边界，不截取 `1080P`、小数或集号范围。仅正片通过 `kind: nonRegular` 排除项表达：英语类型标记有单词边界并接受常见标点、编号、大小写，`SPY` 不会误排。中文特别篇、预告也排除。总标题包含"＋特别篇"不影响下级正片。
+- `EpisodeRule.Config()` 返回独立快照；后端生成模板正则，前端只编辑返回值。默认值之后变化不重新解释保存的绑定，也不根据季号、总话数、分 P 顺序或最大集号计算加减。
+- `EpisodeTrace` 和 `ReasonCode` 随计算结果传到预览和详情，不存库、不含 ref。诊断包含范围、实际输入、归一化、规则索引、捕获/来源季、原始/调整后/本地集号、排除项、冲突行号与标题。旧版原始号码与状态语义不变；重复的平台集号也保留冲突证据。
 
 ## 弹幕文件（ADR 0004）
 

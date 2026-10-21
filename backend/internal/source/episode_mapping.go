@@ -20,15 +20,22 @@ func (m Mapping) Episode(n int) (episode int, ok bool) {
 // markDuplicateNumbers 返回标出重复序号之后的条目：同一个合集里两个以上的条目序号相同时，这些条目都对不上，
 // 原因为 duplicateNumber。已经对不上的条目不参与判定。与集号对应无关，不改动传入的切片。
 func markDuplicateNumbers(items []CollectionItem) []CollectionItem {
-	count := make(map[int]int)
-	for _, it := range items {
+	rows := make(map[int][]EpisodeConflict)
+	for i, it := range items {
 		if it.Unmatched == "" {
-			count[it.Number]++
+			rows[it.Number] = append(rows[it.Number], EpisodeConflict{Row: i + 1, Label: it.Label})
 		}
 	}
 	marked := make([]CollectionItem, len(items))
 	for i, it := range items {
-		if it.Unmatched == "" && count[it.Number] > 1 {
+		if it.Unmatched == "" && len(rows[it.Number]) > 1 {
+			trace := EpisodeTrace{Scope: "platform", ScopeLabel: "平台集号", Input: it.Label}
+			if it.Trace != nil {
+				trace = *it.Trace
+			}
+			number := int64(it.Number)
+			trace.AdjustedNumber, trace.Conflicts = &number, rows[it.Number]
+			it.Trace, it.ReasonCode = &trace, ReasonDuplicate
 			it.Number, it.Unmatched = 0, duplicateNumber
 		}
 		marked[i] = it

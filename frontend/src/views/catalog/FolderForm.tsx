@@ -10,6 +10,7 @@ import {
   saveFolder,
   type EntryHashes,
   type EpisodeRuleForm,
+  type EpisodeRuleConfig,
   type FolderPreviewForm,
   type FolderSeasonBinding,
   type FolderSeasonBindingDetail,
@@ -67,7 +68,7 @@ export interface FolderFormMode {
  * 看保存后的结果，上传后当场建出各集的绑定，要么全部成功，要么什么都不保存
  */
 export function AddFolderForm({ season, onClose }: { season: Season; onClose: () => void }) {
-  const mode = (patterns: string[]): FolderFormMode => ({
+  const mode = (patterns: EpisodeRuleConfig): FolderFormMode => ({
     verb: '上传',
     savedText: (d) => `已上传「${d.title}」，建出 ${d.bindingCount} 个绑定`,
     pickLabel: '选择文件夹',

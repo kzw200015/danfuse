@@ -8,8 +8,8 @@ import (
 	"github.com/kzw200015/danfuse/backend/internal/seasonbinding/service"
 )
 
-// Handler 季绑定的管理 API。接口按功能分文件，与 service 里的同名：season_binding.go（不分种类的详情、开关追更、立即补建、删除、
-// 默认的集号规则，以及两种表单共有的集号规则部分）、collection.go（合集）、folder.go（文件夹）。
+// Handler 季绑定的管理 API。接口按功能分文件，与 service 里的同名：season_binding.go（不分种类的详情、开关追更、立即补建、删除，
+// 以及两种表单共有的集号规则部分）、collection.go（合集）、folder.go（文件夹）；episode_rule.go 提供默认规则与模板生成。
 type Handler struct {
 	svc    *service.Service
 	upload config.DanmakuFile // 一次上传弹幕文件的上限，上传文件夹用其中按季的那组
@@ -34,4 +34,5 @@ func (h *Handler) Register(api *echo.Group) {
 	api.POST("/season-bindings/:id/folder/preview", h.PreviewFolderEdit)
 	api.PUT("/season-bindings/:id/folder", h.SaveFolder)
 	api.GET("/episode-rules/default", h.DefaultEpisodeRule)
+	api.POST("/episode-rules/template", h.RenderEpisodeTemplate)
 }

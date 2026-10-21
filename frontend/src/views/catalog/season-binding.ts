@@ -1,6 +1,7 @@
 import type {
   Candidate,
   EpisodeRuleForm,
+  EpisodeRuleConfig,
   Item,
   SeasonBinding,
   SeasonBindingKind,
@@ -39,6 +40,12 @@ function statusText(item: Item, kind: SeasonBindingKind) {
     case 'alreadyBound':
       return '已有同源绑定'
     case 'unmatched':
+      if (item.reasonCode === 'nonRegular' || item.reasonCode === 'customExcluded') {
+        return `已排除（${item.reason ?? '命中排除规则'}）`
+      }
+      if (item.reasonCode === 'duplicateNumber' && item.trace?.adjustedNumber !== undefined) {
+        return `对不上（集号 ${item.trace.adjustedNumber} 重复）`
+      }
       return `对不上（${item.reason ?? '认不出集号'}）`
     case 'beforeStart':
       return '在起点之前'
@@ -128,16 +135,27 @@ export function seasonBindingTag(
 }
 
 /** 添加季绑定时集号规则、集号对应的初始值：默认的集号规则与 1 = 1，不按内容猜 */
-export function defaultRules(episodePatterns: string[]): EpisodeRuleForm {
-  return { episodePatterns, mappingFrom: 1, mappingTo: 1 }
+export function defaultRules(episodeRule: EpisodeRuleConfig): EpisodeRuleForm {
+  return { episodeRule, mappingFrom: 1, mappingTo: 1 }
 }
 
 /** 编辑季绑定时集号规则、集号对应的初始值：季绑定保存的 */
 export function savedRules(sb: SeasonBinding): EpisodeRuleForm {
   return {
-    episodePatterns: sb.episodePatterns,
+    ...(sb.episodeRule.version === 1
+      ? { episodePatterns: sb.episodePatterns }
+      : { episodeRule: sb.episodeRule }),
     mappingFrom: sb.mappingFrom,
     mappingTo: sb.mappingTo,
+  }
+}
+
+export function legacyRule(patterns: string[]): EpisodeRuleConfig {
+  return {
+    version: 1,
+    scope: 'full',
+    rules: patterns.map((pattern) => ({ pattern, adjustment: 0 })),
+    excludes: [],
   }
 }
 

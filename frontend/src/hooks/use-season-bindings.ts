@@ -11,6 +11,7 @@ import {
 import {
   getDefaultEpisodePatterns,
   getSeasonBinding,
+  renderEpisodeTemplate,
   type Preview,
   type SeasonBinding,
   type SeasonBindingDetail,
@@ -32,12 +33,24 @@ export const seasonBindingKeys = {
 /** 默认的集号规则，写死在后端，取一次就不再刷新；查询键 ['episode-rules', 'default'] */
 export const defaultEpisodePatternsOptions = queryOptions({
   queryKey: ['episode-rules', 'default'],
-  queryFn: async () => (await getDefaultEpisodePatterns()).episodePatterns,
+  queryFn: getDefaultEpisodePatterns,
   staleTime: Infinity,
 })
 
 export function useDefaultEpisodePatterns() {
   return useQuery(defaultEpisodePatternsOptions)
+}
+
+export function useEpisodeTemplate(
+  input: Parameters<typeof renderEpisodeTemplate>[0],
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['episode-rules', 'template', input],
+    queryFn: () => renderEpisodeTemplate(input),
+    enabled,
+    staleTime: Infinity,
+  })
 }
 
 /** 正在补建时轮询详情的间隔 */
