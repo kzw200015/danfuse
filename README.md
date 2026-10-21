@@ -46,7 +46,7 @@ flowchart LR
 2. 在 Jellyfin 的"控制台 → API 密钥"里新建一个 API key。
 3. 按实际情况修改 `compose.yaml` 里 danfuse 的 `environment`：
    - `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL`：容器里能访问到的 Jellyfin 地址，例如 `http://192.168.1.10:8096`。容器里的 `localhost` 是容器自己，不是宿主机。
-   - `DANFUSE_CATALOG_SOURCE_JELLYFIN_PUBLIC_URL`：可选，浏览器能访问到的 Jellyfin 公网地址，例如 `https://media.example.com/jellyfin`。接口地址填容器之间的地址时，用它生成剧详情里的"Jellyfin"链接；留空则沿用接口地址。
+   - `DANFUSE_CATALOG_SOURCE_JELLYFIN_PUBLIC_URL`：浏览器访问地址与接口地址不同时填写，见[配置](#配置)。
    - `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES`：要同步的媒体库名，用逗号分隔，例如 `番剧,电影`。
    - 其他配置项见[配置](#配置)。
 4. 在 `compose.yaml` 旁边新建 `.env`，写入敏感值（不要提交进仓库）：
@@ -136,8 +136,8 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `database.connect_timeout` | `DANFUSE_DATABASE_CONNECT_TIMEOUT` | `10s` | 启动时连接数据库的超时，超时后服务退出 |
 | `dandanplay.token` | `DANFUSE_DANDANPLAY_TOKEN` | 空 | 可选。设置后弹弹 API 挂在 `/dandanplay/<token>/api/v2`，否则为 `/dandanplay/api/v2`。只能含字母、数字和 `-` `.` `_` `~`，不能是 `.` 或 `..` |
 | `catalog_source.kind` | `DANFUSE_CATALOG_SOURCE_KIND` | 空 | 目录源的种类。为空表示不启用同步；目前只支持 `jellyfin` |
-| `catalog_source.jellyfin.url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL` | 空 | Jellyfin 的接口地址，供 danfuse 同步目录和下载海报；可以填容器之间的地址，例如 `http://jellyfin:8096`。`http://` 或 `https://` 开头，可以带子路径，不能带查询串或片段；首尾空白和末尾的 `/` 会被去掉 |
-| `catalog_source.jellyfin.public_url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_PUBLIC_URL` | 空 | 可选。浏览器访问 Jellyfin 的公网地址，用于剧详情里的"Jellyfin"链接；为空时沿用接口地址。可以带独立的子路径，例如 `https://media.example.com/jellyfin`；协议、查询串、片段和空白的处理与接口地址相同 |
+| `catalog_source.jellyfin.url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_URL` | 空 | Jellyfin 的接口地址，供 danfuse 同步目录和下载海报。`http://` 或 `https://` 开头，可以带子路径，不能带查询串或片段；首尾空白和末尾的 `/` 会被去掉 |
+| `catalog_source.jellyfin.public_url` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_PUBLIC_URL` | 空 | 可选。浏览器访问 Jellyfin 的地址，用于剧详情里的"Jellyfin"链接；为空时沿用 `url`。支持独立子路径，地址格式与 `url` 相同。修改后重启生效，已有目录源 ID 的剧无需重新同步 |
 | `catalog_source.jellyfin.api_key` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY` | 空 | Jellyfin 的 API key，在"控制台 → API 密钥"里生成 |
 | `catalog_source.jellyfin.libraries` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES` | 空 | 要同步的媒体库名。YAML 里写成列表，环境变量里用逗号分隔，例如 `番剧,电影`。媒体库的类型必须是节目或电影，其他类型的会被跳过 |
 | `catalog_source.jellyfin.list_timeout` | `DANFUSE_CATALOG_SOURCE_JELLYFIN_LIST_TIMEOUT` | `2m` | 同步时列出媒体库、剧和电影、季和集，每个请求的超时。媒体库很大或 Jellyfin 很慢、同步提示"请求 Jellyfin 超时"时调大 |
@@ -160,8 +160,8 @@ export DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
 | `danmaku_file.season_max_upload_mb` | `DANFUSE_DANMAKU_FILE_SEASON_MAX_UPLOAD_MB` | `200` | 按季上传时一次合计的上限，单位 MB；单份仍受 `max_file_mb` 限制。同样注意反向代理的请求体上限；管理界面不限这个请求的时长 |
 
 - `catalog_source.kind` 为 `jellyfin` 时，`url`、`api_key`、`libraries` 都必须填写；`sync.interval` 大于 0 时必须配置目录源。
-- 接口地址与浏览器访问地址不同时，可以把 `url` 配成 `http://jellyfin:8096`，把 `public_url` 配成 `https://media.example.com/jellyfin`。剧详情里的"Jellyfin"链接会打开 `https://media.example.com/jellyfin/web/#/details?id=<目录源ID>`，同步和海报请求仍发往接口地址。修改公网地址后重启 danfuse 即可，已有目录源 ID 的剧无需重新同步；右上角设置里会分别显示接口地址和公网地址。
-- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；`database.connect_timeout` 不大于 0；目录源的种类不认识；选了 `jellyfin` 但缺地址、API key 或媒体库名，或 `list_timeout`、`poster_timeout` 不大于 0；Jellyfin 接口地址或已填写的公网地址不是 http(s)，或带了查询串、片段；同步间隔为负，或大于 0 但没有配置目录源；`sync.keep_runs` 小于 1；`follow.scan_interval`、`follow.check_interval`、`scheduled_fetch.interval` 不大于 0，或 `scheduled_fetch.window` 为负；token 或 SESSDATA 含不允许的字符；`bilibili.requests_per_second`、`bilibili.request_timeout` 不大于 0，或 `bilibili.burst`、`bilibili.fetch_concurrency` 小于 1；上传弹幕文件的五个上限有小于 1 的。
+- 例如，`url` 填 `http://jellyfin:8096`，`public_url` 填 `https://media.example.com/jellyfin`。
+- 配置写错时服务拒绝启动，并说明是哪一项：`database.dsn` 为空；`database.max_conns` 为负数；`database.connect_timeout` 不大于 0；目录源的种类不认识；选了 `jellyfin` 但必填项缺失、地址格式不符合表中要求，或 `list_timeout`、`poster_timeout` 不大于 0；同步间隔为负，或大于 0 但没有配置目录源；`sync.keep_runs` 小于 1；`follow.scan_interval`、`follow.check_interval`、`scheduled_fetch.interval` 不大于 0，或 `scheduled_fetch.window` 为负；token 或 SESSDATA 含不允许的字符；`bilibili.requests_per_second`、`bilibili.request_timeout` 不大于 0，或 `bilibili.burst`、`bilibili.fetch_concurrency` 小于 1；上传弹幕文件的五个上限有小于 1 的。
 - 启动时不连接 Jellyfin，两个服务的启动顺序互不影响；媒体库存不存在、类型对不对在每次同步时检查，有问题的会出现在同步记录的警告里。
 - **SESSDATA**：在浏览器里登录 B 站，从开发者工具的 Cookie 里找到 `SESSDATA`，原样复制它的值（里面的逗号显示为 `%2C`，不要还原），不能含空格、逗号、分号、引号和反斜杠。它会过期，过期后悄悄退化成未登录的效果，需要换上新的值后重启。没有配置时以未登录的身份拉取，弹幕可能不全。
 - Jellyfin 的 API key、SESSDATA 和 token 都不会写进日志；API key 和 SESSDATA 不入库，管理界面上只显示"已配置"。
