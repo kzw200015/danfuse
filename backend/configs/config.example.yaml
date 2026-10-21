@@ -29,7 +29,8 @@ dandanplay:
 catalog_source:
   kind: "" # 为空表示不启用同步；目前只支持 jellyfin
   jellyfin:
-    url: "" # 例如 http://192.168.1.10:8096，可带子路径；末尾的 / 会被去掉。管理界面上跳回 Jellyfin 的链接也用它
+    url: "" # 同步和下载海报的接口地址，例如 http://jellyfin:8096，可带子路径；末尾的 / 会被去掉
+    public_url: "" # 可选，浏览器访问的公网地址，例如 https://media.example.com/jellyfin；为空时沿用 url，同样可带子路径
     api_key: "" # 只作为请求头发送，不写日志
     libraries: [] # 要同步的媒体库名，必填；环境变量里用逗号分隔，例如 DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES=番剧,电影
     list_timeout: 2m # 列出媒体库、剧和电影、季和集，每个请求的超时；媒体库很大或 Jellyfin 很慢时调大

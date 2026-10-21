@@ -23,6 +23,7 @@ import (
 type Source struct {
 	client    *client
 	libraries []string
+	webURL    string
 }
 
 var _ catalog.Source = (*Source)(nil)
@@ -32,6 +33,7 @@ func New(cfg config.Jellyfin) *Source {
 	return &Source{
 		client:    &client{baseURL: cfg.URL, apiKey: cfg.APIKey, listTimeout: cfg.ListTimeout, posterTimeout: cfg.PosterTimeout},
 		libraries: cfg.Libraries,
+		webURL:    cmp.Or(cfg.PublicURL, cfg.URL),
 	}
 }
 
@@ -65,10 +67,10 @@ func (s *Source) List(ctx context.Context) (catalog.Listing, error) {
 	return catalog.Listing{Total: len(listed), Warnings: warnings, Items: s.items(ctx, listed)}, nil
 }
 
-// Link 见 catalog.Source：Jellyfin 网页客户端里这部剧或电影的详情页，地址用配置的 url（浏览器也要能打开它）。
+// Link 见 catalog.Source：Jellyfin 网页客户端里这部剧或电影的详情页，优先用 public_url，未配置时沿用 url。
 // 不带 serverId，网页客户端用当前登录的服务器。
 func (s *Source) Link(sourceID string) catalog.Link {
-	return catalog.Link{URL: s.client.baseURL + "/web/#/details?id=" + url.QueryEscape(sourceID), Label: "Jellyfin"}
+	return catalog.Link{URL: s.webURL + "/web/#/details?id=" + url.QueryEscape(sourceID), Label: "Jellyfin"}
 }
 
 // pickLibraries 按名字找到配置的媒体库（去重并按名称排序）；找不到的、类型不是剧集或电影的跳过，返回跳过的原因。

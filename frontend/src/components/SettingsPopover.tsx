@@ -170,8 +170,12 @@ function CatalogSourceInfo({ settings }: { settings: Settings }) {
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
       <dt className="text-muted-foreground">种类</dt>
       <dd>{catalogSourceKinds[source.kind] ?? source.kind}</dd>
-      <dt className="text-muted-foreground">地址</dt>
+      <dt className="text-muted-foreground">接口地址</dt>
       <dd className="font-mono break-all">{source.url}</dd>
+      <dt className="text-muted-foreground">公网地址</dt>
+      <dd className={source.publicUrl ? 'font-mono break-all' : undefined}>
+        {source.publicUrl || '未配置，访问时使用接口地址'}
+      </dd>
       <dt className="text-muted-foreground">媒体库</dt>
       <dd className="flex flex-wrap gap-1">
         {source.libraries.map((name) => (

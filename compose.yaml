@@ -22,6 +22,7 @@ services:
       DANFUSE_DATABASE_DSN: postgres://danfuse:danfuse@postgres:5432/danfuse?sslmode=disable
       DANFUSE_CATALOG_SOURCE_KIND: jellyfin
       DANFUSE_CATALOG_SOURCE_JELLYFIN_URL: http://192.168.1.10:8096
+      DANFUSE_CATALOG_SOURCE_JELLYFIN_PUBLIC_URL: "" # 可选，浏览器访问的地址，例如 https://jellyfin.example.com；为空时沿用上面的地址
       DANFUSE_CATALOG_SOURCE_JELLYFIN_API_KEY: ${JELLYFIN_API_KEY}
       DANFUSE_CATALOG_SOURCE_JELLYFIN_LIBRARIES: 番剧,电影 # 要同步的媒体库名，逗号分隔
       DANFUSE_SYNC_INTERVAL: 24h # 定时同步的间隔，0 表示只手动同步

@@ -98,7 +98,8 @@ describe('设置弹出层', () => {
       settings({
         catalogSource: {
           kind: 'jellyfin',
-          url: 'http://192.168.1.10:8096',
+          url: 'http://jellyfin:8096',
+          publicUrl: 'https://media.example.com/jellyfin',
           libraries: ['番剧', '电影'],
         },
         syncInterval: 86400,
@@ -110,7 +111,8 @@ describe('设置弹出层', () => {
     const dialog = await openSettings()
 
     expect(await settingValue(dialog, '种类')).toBe('Jellyfin')
-    expect(await settingValue(dialog, '地址')).toBe('http://192.168.1.10:8096')
+    expect(await settingValue(dialog, '接口地址')).toBe('http://jellyfin:8096')
+    expect(await settingValue(dialog, '公网地址')).toBe('https://media.example.com/jellyfin')
     expect(await settingValue(dialog, '媒体库')).toBe('番剧电影')
     expect(await settingValue(dialog, '定时同步')).toBe('每 24 小时')
     expect(await settingValue(dialog, 'API key')).toBe('已配置')
@@ -118,6 +120,24 @@ describe('设置弹出层', () => {
       '绑定建出后 336 小时内，每 12 小时重新拉取一次',
     )
     expect(await settingValue(dialog, 'SESSDATA')).toBe('已配置')
+  })
+
+  it('未配置公网地址时，提示访问时使用接口地址', async () => {
+    vi.mocked(getSettings).mockResolvedValue(
+      settings({
+        catalogSource: {
+          kind: 'jellyfin',
+          url: 'http://192.168.1.10:8096/jellyfin',
+          publicUrl: '',
+          libraries: ['番剧'],
+        },
+      }),
+    )
+    renderRoutes('/catalog')
+
+    const dialog = await openSettings()
+
+    expect(await settingValue(dialog, '公网地址')).toBe('未配置，访问时使用接口地址')
   })
 
   it('未配置目录源、SESSDATA，关闭定时拉取', async () => {
