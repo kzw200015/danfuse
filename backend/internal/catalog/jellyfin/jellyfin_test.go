@@ -257,7 +257,10 @@ func TestItemsStopsOnBreak(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for range listing.Items {
+	for _, err := range listing.Items {
+		if err != nil {
+			t.Fatal(err)
+		}
 		break
 	}
 

@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.14
+          version: v2.15
           working-directory: backend
       # 数据库测试由 testcontainers 起 postgres:18 容器，GitHub 的 Ubuntu runner 自带 Docker
       - run: go test ./...
