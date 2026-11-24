@@ -89,6 +89,14 @@ describe('groupFolderFiles', () => {
   ])('%s', (_, paths, error) => {
     expect(shape(paths)).toEqual({ ok: false, error })
   })
+
+  it('浏览器不返回 webkitRelativePath 时给出明确提示，不误报没有 XML', () => {
+    const plain = [new File(['<i></i>'], 'E01.xml', { type: 'text/xml' })]
+    expect(groupFolderFiles(plain)).toEqual({
+      ok: false,
+      error: '当前浏览器不支持选择文件夹，请改用桌面浏览器按季上传，或进入单集上传弹幕文件',
+    })
+  })
 })
 
 const file = (content: string, name: string) => new File([content], name)

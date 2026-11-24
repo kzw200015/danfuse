@@ -213,6 +213,7 @@ describe('resolveSelection', () => {
   it.each([
     ['剧：默认第 1 季，不选集', tv, undefined, undefined, 'season 11 episode -'],
     ['剧：选中季', tv, '10', undefined, 'season 10 episode -'],
+    ['剧：显式进入季面板 /season', tv, '11', 'season', 'season 11 episode -'],
     ['剧：选中集', tv, '11', '111', 'season 11 episode 111'],
     ['剧：季不在这部剧里', tv, '20', undefined, 'missing season'],
     ['剧：季 ID 不是数字', tv, 'abc', undefined, 'missing season'],
@@ -220,6 +221,7 @@ describe('resolveSelection', () => {
     ['剧：没有季', { ...tv, seasons: [] }, undefined, undefined, 'season - episode -'],
     ['电影：直接选中唯一那一集', movie, undefined, undefined, 'season 20 episode 200'],
     ['电影：给了季也选中那一集', movie, '20', undefined, 'season 20 episode 200'],
+    ['电影：误入 /season 也落回正片', movie, '20', 'season', 'season 20 episode 200'],
     ['电影：季不存在', movie, '10', undefined, 'missing season'],
   ])('%s', (_, series, seasonId, episodeId, want) => {
     expect(selected(resolveSelection(series, seasonId, episodeId))).toBe(want)

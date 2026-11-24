@@ -12,7 +12,7 @@ export const routes: RouteObject[] = [
       // 只做重定向；显式声明不渲染任何东西，否则 React Router 会警告叶子路由没有 element
       { index: true, loader: () => redirect('/catalog'), element: null },
       {
-        // 选中的剧、季（季面板）、集（集面板）
+        // 选中的剧、季（季面板，窄屏下经 /season 显式进入）、集（集面板）
         path: 'catalog/:seriesId?/:seasonId?/:episodeId?',
         lazy: async () => ({ Component: (await import('@/views/CatalogView')).default }),
       },

@@ -17,7 +17,7 @@ export default function App() {
   const latestRun = useLatestSyncRun()
 
   return (
-    <div className="flex h-svh flex-col bg-background text-foreground">
+    <div className="flex h-dvh flex-col bg-background pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-foreground">
       <header className="flex h-12 shrink-0 items-center gap-4 border-b px-4">
         <span className="font-semibold">Danfuse</span>
         <nav className="flex items-center gap-1">

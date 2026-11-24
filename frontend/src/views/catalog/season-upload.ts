@@ -27,6 +27,12 @@ function stripExtension(name: string) {
 
 /** 把目录选择选出的文件按相对路径（webkitRelativePath）分成条目 */
 export function groupFolderFiles(files: readonly File[]): FolderGrouping {
+  if (files.length > 0 && files.every((f) => !f.webkitRelativePath)) {
+    return {
+      ok: false,
+      error: '当前浏览器不支持选择文件夹，请改用桌面浏览器按季上传，或进入单集上传弹幕文件',
+    }
+  }
   // 浏览器给出的顺序不确定，先按路径的自然顺序排好（2 在 10 前面），条目里的文件与"第一份越界文件"都按这个顺序
   const sorted = files.toSorted((a, b) =>
     naturalOrder.compare(a.webkitRelativePath, b.webkitRelativePath),

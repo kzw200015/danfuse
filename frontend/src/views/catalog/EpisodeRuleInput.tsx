@@ -1,5 +1,6 @@
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, XIcon } from 'lucide-react'
 
+import { InfoTip } from '@/components/InfoTip'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useDefaultEpisodePatterns } from '@/hooks/use-season-bindings'
@@ -8,6 +9,9 @@ import { samePatterns } from './season-binding'
 
 /** 集号规则最多的条数，与后端相同 */
 const maxPatterns = 10
+
+const ruleHint =
+  '从条目的标题里认集号：每一条都在标题里找，取最靠后的那个集号，位置一样时取排在前面的；都匹配不上的条目对不上、不补建。每条是一个正则，有名为 episode 的捕获组时取它，否则取第一个捕获组。默认规则认「S01E03」「第3集」「第3话」「EP3」和结尾的「/ 03」'
 
 /**
  * 集号规则的编辑：一组正则（排在前面的优先），每条一行，可以上移、下移、删除，也可以新增、恢复默认。
@@ -30,9 +34,10 @@ export default function EpisodeRuleInput({
   }
   return (
     <div role="group" aria-label="集号规则" className="grid gap-1 text-xs text-muted-foreground">
-      <span title="从条目的标题里认集号：每一条都在标题里找，取最靠后的那个集号，位置一样时取排在前面的；都匹配不上的条目对不上、不补建。每条是一个正则，有名为 episode 的捕获组时取它，否则取第一个捕获组。默认规则认「S01E03」「第3集」「第3话」「EP3」和结尾的「/ 03」">
-        集号规则（取最靠后的集号，位置一样时排在前面的优先）
-      </span>
+      <div className="flex items-center gap-1.5">
+        <span title={ruleHint}>集号规则（取最靠后的集号，位置一样时排在前面的优先）</span>
+        <InfoTip label="集号规则说明" content={ruleHint} />
+      </div>
       {value.map((pattern, i) => (
         // 没有稳定的 ID，按位置作 key：输入框是受控的，移动之后内容跟着值走
         <div key={i} className="flex items-center gap-1">

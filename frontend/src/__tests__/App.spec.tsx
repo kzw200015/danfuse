@@ -171,6 +171,23 @@ describe('设置弹出层', () => {
     expect(writeText).toHaveBeenCalledWith(url)
   })
 
+  it('没有 navigator.clipboard 时经 execCommand 降级复制成功', async () => {
+    const execCommand = vi.fn<(commandId: string) => boolean>().mockReturnValue(true)
+    const original = document.execCommand
+    Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true })
+    onTestFinished(() => {
+      Object.defineProperty(document, 'execCommand', { value: original, configurable: true })
+    })
+    renderRoutes('/catalog')
+
+    const dialog = await openSettings()
+    expect(await within(dialog).findByText(`${location.origin}/dandanplay`)).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '复制' }))
+    expect(await screen.findByText('已复制弹弹 API 地址')).toBeInTheDocument()
+    expect(execCommand).toHaveBeenCalledWith('copy')
+  })
+
   it('浏览器不允许写剪贴板时提示手动复制', async () => {
     // 与通过 http 访问内网地址时一样，jsdom 没有 navigator.clipboard
     renderRoutes('/catalog')

@@ -34,10 +34,15 @@ export default function SettingsPopover() {
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger render={<Button variant="ghost" size="icon-sm" title="设置" />}>
+        <PopoverTrigger
+          render={<Button variant="ghost" size="icon-sm" aria-label="设置" title="设置" />}
+        >
           <SettingsIcon />
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-[28rem] gap-3">
+        <PopoverContent
+          align="end"
+          className="max-h-[82dvh] w-[min(28rem,calc(100vw-1rem))] gap-3 overflow-y-auto"
+        >
           <PopoverHeader>
             <PopoverTitle>设置</PopoverTitle>
             <PopoverDescription>
@@ -62,7 +67,7 @@ function SettingsContent({ onManageBlockedWords }: { onManageBlockedWords: () =>
   if (error) return <ErrorNote>{error.message}</ErrorNote>
   if (!data) return <p className="text-xs text-muted-foreground">加载中…</p>
   return (
-    <>
+    <div className="grid gap-3">
       <section className="grid gap-1.5">
         <h3 className="text-sm font-medium">弹弹 API 地址</h3>
         <DandanUrl token={data.dandanplayToken} />
@@ -101,7 +106,7 @@ function SettingsContent({ onManageBlockedWords }: { onManageBlockedWords: () =>
           </dd>
         </dl>
       </section>
-    </>
+    </div>
   )
 }
 
@@ -130,19 +135,27 @@ function DandanUrl({ token }: { token: string | null }) {
 
   async function copy() {
     setCopyFailed(false)
-    try {
-      // 剪贴板只在 https 或 localhost 页面可用，通过 http 访问内网地址时 navigator.clipboard 不存在
-      await navigator.clipboard.writeText(url)
-      toast.success('已复制弹弹 API 地址')
-    } catch {
-      setCopyFailed(true)
+    // 剪贴板只在 https 或 localhost 页面可用，通过 http 访问内网地址时 navigator.clipboard 不存在
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(url)
+        toast.success('已复制弹弹 API 地址')
+        return
+      } catch {
+        // 权限受限或拒绝时继续尝试降级复制
+      }
     }
+    if (fallbackCopyText(url)) {
+      toast.success('已复制弹弹 API 地址')
+      return
+    }
+    setCopyFailed(true)
   }
 
   return (
     <div className="grid gap-1.5">
-      <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs select-all">
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+        <code className="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-xs break-all whitespace-normal select-all sm:truncate">
           {url}
         </code>
         <Button size="sm" variant="outline" onClick={copy}>
@@ -161,6 +174,31 @@ function DandanUrl({ token }: { token: string | null }) {
       </p>
     </div>
   )
+}
+
+/** 非 HTTPS 局域网环境下用隐藏 textarea 尝试降级复制（兼容 iOS Safari 并恢复原焦点） */
+function fallbackCopyText(text: string): boolean {
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false
+  const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.top = '0'
+  area.style.left = '0'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  area.focus({ preventScroll: true })
+  area.select()
+  area.setSelectionRange(0, text.length)
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    document.body.removeChild(area)
+    prev?.focus({ preventScroll: true })
+  }
 }
 
 function CatalogSourceInfo({ settings }: { settings: Settings }) {

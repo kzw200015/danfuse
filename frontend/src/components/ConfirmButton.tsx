@@ -44,7 +44,11 @@ export function ConfirmButton({
       <AlertDialogContent className="data-[size=default]:sm:max-w-md">
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription render={<div className="grid gap-2 text-left" />}>
+          <AlertDialogDescription
+            render={
+              <div className="grid min-h-0 max-h-[50dvh] gap-2 overflow-y-auto pr-1 text-left" />
+            }
+          >
             {children}
           </AlertDialogDescription>
         </AlertDialogHeader>

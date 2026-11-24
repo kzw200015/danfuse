@@ -1,3 +1,4 @@
+import { InfoTip } from '@/components/InfoTip'
 import { Input } from '@/components/ui/input'
 
 import { mappingHint } from './season-binding'
@@ -25,13 +26,11 @@ export default function MappingInputs({
   /** X 前面的称呼 */
   prefix: string
 }) {
-  const input = 'h-7 w-12 text-right tabular-nums'
+  const input = 'h-7 w-12 text-right tabular-nums coarse:w-14'
+  const hint = mappingHint(prefix)
   return (
-    <span
-      className="flex items-center gap-1 text-xs text-muted-foreground"
-      title={mappingHint(prefix)}
-    >
-      {prefix}第
+    <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" title={hint}>
+      <span>{prefix}第</span>
       <Input
         aria-label={`${prefix}第几集`}
         className={input}
@@ -41,7 +40,7 @@ export default function MappingInputs({
         disabled={disabled}
         onChange={(e) => from.onChange(e.target.value)}
       />
-      集 = 本地第
+      <span>集 = 本地第</span>
       <Input
         aria-label="本地第几集"
         className={input}
@@ -51,7 +50,8 @@ export default function MappingInputs({
         disabled={disabled}
         onChange={(e) => to.onChange(e.target.value)}
       />
-      集
-    </span>
+      <span>集</span>
+      <InfoTip label="集号对应说明" content={hint} />
+    </div>
   )
 }

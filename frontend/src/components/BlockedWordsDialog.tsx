@@ -43,8 +43,8 @@ export default function BlockedWordsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* 贴顶显示：列表增删时只有底边动 */}
-      <DialogContent className="top-[10vh] translate-y-0 sm:max-w-lg">
+      {/* 贴顶显示：列表增删时只有底边动；移动端贴近顶部并按 dvh 限高，避免软键盘遮挡 */}
+      <DialogContent className="top-4 flex max-h-[calc(100dvh-2rem)] translate-y-0 flex-col sm:top-[10vh] sm:max-h-[80dvh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>屏蔽词</DialogTitle>
           <DialogDescription>
@@ -81,7 +81,7 @@ function AddBlockedWordForm() {
         create.mutate()
       }}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
         <div
           role="group"
           aria-label="类型"
@@ -102,14 +102,21 @@ function AddBlockedWordForm() {
         </div>
         <Input
           aria-label="屏蔽词"
-          className={cn(kind === 'regex' && 'font-mono')}
+          className={cn(
+            'order-first min-w-0 flex-1 basis-full sm:order-none sm:basis-auto',
+            kind === 'regex' && 'font-mono',
+          )}
           placeholder={placeholders[kind]}
           maxLength={100}
           value={pattern}
           disabled={create.isPending}
           onChange={(e) => setPattern(e.target.value)}
         />
-        <Button type="submit" disabled={create.isPending || !pattern.trim()}>
+        <Button
+          type="submit"
+          className="ml-auto sm:ml-0"
+          disabled={create.isPending || !pattern.trim()}
+        >
           {create.isPending ? <Loader2Icon className="animate-spin" /> : <PlusIcon />}
           添加
         </Button>
@@ -134,12 +141,12 @@ function BlockedWordList() {
   if (error) return <ErrorNote>{error.message}</ErrorNote>
   if (!data) return <p className="text-xs text-muted-foreground">加载中…</p>
   return (
-    <div className="grid gap-1.5">
+    <div className="flex min-h-0 flex-1 flex-col gap-1.5">
       {remove.error && <ErrorNote onClose={remove.reset}>{remove.error.message}</ErrorNote>}
       {data.length === 0 ? (
         <p className="text-xs text-muted-foreground">还没有屏蔽词</p>
       ) : (
-        <ul className="max-h-[50vh] divide-y overflow-y-auto rounded-md border">
+        <ul className="min-h-0 flex-1 divide-y overflow-y-auto rounded-md border">
           {data.map((word) => {
             const deleting = remove.isPending && remove.variables.id === word.id
             return (

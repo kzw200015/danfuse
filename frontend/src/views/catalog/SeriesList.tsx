@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ListFilterIcon, RadioTowerIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
+import { ListFilterIcon, RadioTowerIcon, SearchIcon, TriangleAlertIcon, XIcon } from 'lucide-react'
 import { Link, useLocation, useSearchParams } from 'react-router'
 
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -28,7 +28,13 @@ import { Hint, Poster, scrollIntoView, useCatalogPath } from './shared'
  * 左栏：剧列表，按分类（地址栏的 ?type=）、剧名或原名筛选，筛选条件弹出层里可以只看追更中的、没有 TMDB ID 的，按首播日期倒序。
  * 切换分类时选中的剧不变。没有 TMDB ID 的剧标出警告：同步时按标题和年份对应，Jellyfin 里改了标题或年份会多出一部剧
  */
-export default function SeriesList({ selectedId }: { selectedId?: number }) {
+export default function SeriesList({
+  selectedId,
+  className,
+}: {
+  selectedId?: number
+  className?: string
+}) {
   const [keyword, setKeyword] = useState('')
   const [filters, setFilters] = useState<Filters>({ followingOnly: false, noTmdbIdOnly: false })
   const { pathname } = useLocation()
@@ -39,17 +45,28 @@ export default function SeriesList({ selectedId }: { selectedId?: number }) {
   const list = data ? filterSeries(data, { keyword, category, ...filters }) : []
 
   return (
-    <aside className="flex min-h-0 flex-col border-r">
-      <div className="flex gap-1 p-2">
+    <aside className={cn('flex min-h-0 flex-col md:border-r', className)}>
+      <div className="flex items-center gap-1 p-2">
         <div className="relative min-w-0 flex-1">
-          <SearchIcon className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="pl-8"
+            className={cn('pl-8', keyword && 'pr-8')}
             placeholder="筛选剧名 / 原名"
             aria-label="筛选剧名或原名"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
+          {keyword && (
+            <button
+              type="button"
+              aria-label="清除搜索"
+              title="清除搜索"
+              onClick={() => setKeyword('')}
+              className="absolute top-1/2 right-1.5 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground coarse:after:absolute coarse:after:-inset-2 coarse:after:content-['']"
+            >
+              <XIcon className="size-3.5" />
+            </button>
+          )}
         </div>
         <FiltersPopover value={filters} onChange={setFilters} />
       </div>
@@ -95,7 +112,7 @@ export default function SeriesList({ selectedId }: { selectedId?: number }) {
                     ref={selected ? scrollIntoView : undefined}
                     aria-current={selected ? 'true' : undefined}
                     className={cn(
-                      'flex items-center gap-2.5 px-3 py-1.5 hover:bg-muted/60',
+                      'flex items-center gap-2.5 px-3 py-2.5 hover:bg-muted/60 md:py-1.5',
                       selected && 'bg-muted',
                     )}
                   >
@@ -164,7 +181,8 @@ function FiltersPopover({
   value: Filters
   onChange: (value: Filters) => void
 }) {
-  const active = filterOptions.some((o) => value[o.key])
+  const activeCount = filterOptions.filter((o) => value[o.key]).length
+  const active = activeCount > 0
   return (
     <Popover>
       <PopoverTrigger
@@ -172,19 +190,31 @@ function FiltersPopover({
           <Button
             variant={active ? 'secondary' : 'ghost'}
             size="icon"
+            className="relative"
             aria-label="筛选条件"
             title="筛选条件"
           />
         }
       >
         <ListFilterIcon />
+        {active && (
+          <span
+            aria-hidden="true"
+            className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground tabular-nums"
+          >
+            {activeCount}
+          </span>
+        )}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56 gap-2">
         <PopoverHeader>
           <PopoverTitle>筛选条件</PopoverTitle>
         </PopoverHeader>
         {filterOptions.map((o) => (
-          <label key={o.key} className="flex items-center gap-2 text-sm">
+          <label
+            key={o.key}
+            className="flex cursor-pointer items-center gap-2 text-sm coarse:min-h-10"
+          >
             <Checkbox
               checked={value[o.key]}
               onCheckedChange={(checked) => onChange({ ...value, [o.key]: checked })}
@@ -192,6 +222,16 @@ function FiltersPopover({
             {o.label}
           </label>
         ))}
+        <div className="grid gap-1 border-t pt-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <RadioTowerIcon className="size-3 shrink-0 text-emerald-700" />
+            <span>追更中（已开启合集追更）</span>
+          </div>
+          <div className="flex items-start gap-1.5">
+            <TriangleAlertIcon className="mt-0.5 size-3 shrink-0 text-amber-700" />
+            <span>无 TMDB ID（改标题或年份会新建剧）</span>
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   )

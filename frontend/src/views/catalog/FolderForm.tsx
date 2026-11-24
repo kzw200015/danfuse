@@ -164,8 +164,8 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
 
   async function pick(files: File[]) {
     if (files.length === 0) return
-    const grouped = groupFolderFiles(files)
     setPicked(null)
+    const grouped = groupFolderFiles(files)
     if (!grouped.ok) {
       setPickError(grouped.error)
       return
@@ -189,7 +189,7 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
         <div className="flex flex-wrap items-center gap-2">
           <label
             className={cn(
-              'inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm hover:bg-muted/50',
+              'inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm hover:bg-muted/50 coarse:min-h-9',
               busy && 'cursor-default opacity-50',
             )}
           >

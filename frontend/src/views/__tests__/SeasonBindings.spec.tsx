@@ -901,6 +901,20 @@ describe('上传弹幕文件夹', () => {
     expect(previewNewFolder).not.toHaveBeenCalled()
   })
 
+  it('仅保留选择文件夹入口；浏览器不提供目录路径时给出不支持提示', async () => {
+    const form = await openFolderForm()
+    expect(form.queryByLabelText('选择多份弹幕 XML 文件')).not.toBeInTheDocument()
+
+    await pickFolder(form, [new File(['<i></i>'], '1.xml', { type: 'text/xml' })])
+
+    expect(
+      await form.findByText(
+        '当前浏览器不支持选择文件夹，请改用桌面浏览器按季上传，或进入单集上传弹幕文件',
+      ),
+    ).toBeInTheDocument()
+    expect(previewNewFolder).not.toHaveBeenCalled()
+  })
+
   it('上传失败：提示留在表单里，预览不变，可以再点一次', async () => {
     vi.mocked(previewNewFolder).mockResolvedValue(archivePreview)
     vi.mocked(createFolder).mockRejectedValue(

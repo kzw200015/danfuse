@@ -146,7 +146,7 @@ function CollectionFormBody({ mode }: { mode: CollectionFormMode }) {
   return (
     <>
       <form
-        className="flex gap-2"
+        className="flex flex-col gap-2 sm:flex-row sm:items-center"
         onSubmit={(e) => {
           e.preventDefault()
           setKind(null)
