@@ -110,10 +110,10 @@ export function seasonBindingTag(
   seasonBindingId: number | null,
   season: Pick<Season, 'id' | 'seasonBindings'>,
   seriesId: number,
-  path: (...ids: number[]) => string,
+  path: (...segments: (number | 'season')[]) => string,
 ) {
   if (seasonBindingId === null) return null
-  const to = path(seriesId, season.id)
+  const to = path(seriesId, season.id, 'season')
   const sb = season.seasonBindings.find((s) => s.id === seasonBindingId)
   if (!sb) return { text: '季绑定', title: '由季绑定建出', to }
   const name = seasonBindingName(sb)

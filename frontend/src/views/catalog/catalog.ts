@@ -84,7 +84,7 @@ export type Selection =
   | { missing: 'episode'; season: Season; episode?: undefined }
   | { missing?: undefined; season?: Season; episode?: Episode }
 
-/** 解析地址栏里的季 ID、集 ID。没给季时选默认的季；电影没给集时选中唯一那一集（电影没有季面板） */
+/** 解析地址栏里的季 ID、集 ID。没给季时选默认的季；电影没给集（或误入 /season）时选中唯一那一集（电影没有季面板） */
 export function resolveSelection(
   series: SeriesDetail,
   seasonId: string | undefined,
@@ -97,7 +97,7 @@ export function resolveSelection(
   if (!season) {
     return seasonId === undefined ? {} : { missing: 'season' }
   }
-  if (episodeId === undefined) {
+  if (episodeId === undefined || episodeId === 'season') {
     return { season, episode: series.type === 'movie' ? season.episodes[0] : undefined }
   }
   const episode = season.episodes.find((e) => String(e.id) === episodeId)
@@ -209,9 +209,9 @@ export function parseTimestamp(text: string) {
   return ms <= MAX_TIME_MS ? ms : null
 }
 
-/** 目录页的地址：/catalog[/剧[/季[/集]]] */
-export function catalogPath(...ids: number[]) {
-  return ['/catalog', ...ids].join('/')
+/** 目录页的地址：/catalog[/剧[/季[/集 | /season]]] */
+export function catalogPath(...segments: (number | 'season')[]) {
+  return ['/catalog', ...segments].join('/')
 }
 
 /** 选择弹幕文件时的文件类型：目前只支持 B 站的 XML 弹幕文件 */

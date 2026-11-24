@@ -40,7 +40,47 @@ export function Poster({ imageId, className }: { imageId: number | null; classNa
 /** 目录页里的地址：带上地址栏现在的查询参数（剧列表的分类），在目录里点来点去分类不变 */
 export function useCatalogPath() {
   const { search } = useLocation()
-  return useCallback((...ids: number[]) => catalogPath(...ids) + search, [search])
+  return useCallback(
+    (...segments: (number | 'season')[]) => catalogPath(...segments) + search,
+    [search],
+  )
+}
+
+/** 窄屏单栏 / 双栏下钻时吸顶的返回栏 */
+export function DrillHeader({
+  backTo,
+  backLabel,
+  title,
+  className,
+}: {
+  backTo: string
+  backLabel: string
+  title?: string
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        'sticky top-0 z-10 flex min-h-11 shrink-0 items-center gap-2 border-b bg-background/95 px-2 backdrop-blur',
+        className,
+      )}
+    >
+      <Link
+        to={backTo}
+        className={buttonVariants({
+          variant: 'ghost',
+          size: 'sm',
+          className: 'max-w-[60%] shrink-0 px-2',
+        })}
+      >
+        <ArrowLeftIcon className="shrink-0" />
+        <span className="truncate">{backLabel}</span>
+      </Link>
+      {title && (
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{title}</span>
+      )}
+    </div>
+  )
 }
 
 /** 选中行的 ref：挂载时滚进可见区域，刷新页面后也能看到选中的剧或集 */

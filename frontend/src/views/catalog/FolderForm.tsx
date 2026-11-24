@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, type QueryKey } from '@tanstack/react-query'
-import { FolderOpenIcon, Loader2Icon } from 'lucide-react'
+import { FilesIcon, FolderOpenIcon, Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -26,8 +26,15 @@ import {
 } from '@/hooks/use-season-bindings'
 import { cn } from '@/lib/utils'
 
+import { DANMAKU_FILE_ACCEPT } from './catalog'
 import { defaultRules, savedRules } from './season-binding'
-import { groupFolderFiles, hashEntries, type UploadEntry } from './season-upload'
+import {
+  groupFlatXmlFiles,
+  groupFolderFiles,
+  hashEntries,
+  type FolderGrouping,
+  type UploadEntry,
+} from './season-upload'
 import {
   AddFormFrame,
   PreviewSection,
@@ -162,9 +169,7 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
   })
   const uploading = save.isPending && picked !== null
 
-  async function pick(files: File[]) {
-    if (files.length === 0) return
-    const grouped = groupFolderFiles(files)
+  async function applyGrouping(grouped: FolderGrouping) {
     setPicked(null)
     if (!grouped.ok) {
       setPickError(grouped.error)
@@ -182,14 +187,24 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
     }
   }
 
+  async function pick(files: File[]) {
+    if (files.length === 0) return
+    await applyGrouping(groupFolderFiles(files))
+  }
+
+  async function pickFlatFiles(files: File[]) {
+    if (files.length === 0) return
+    await applyGrouping(groupFlatXmlFiles(files))
+  }
+
   const busy = hashing || save.isPending
   return (
     <>
-      <div className="grid gap-1">
+      <div className="grid gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <label
             className={cn(
-              'inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm hover:bg-muted/50',
+              'inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm hover:bg-muted/50 md:min-h-0',
               busy && 'cursor-default opacity-50',
             )}
           >
@@ -210,6 +225,24 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
               onChange={(e) => void pick(takeFiles(e.target))}
             />
           </label>
+          <label
+            className={cn(
+              'inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground md:min-h-0',
+              busy && 'cursor-default opacity-50',
+            )}
+          >
+            <FilesIcon className="size-3.5" />
+            选择多份 XML（手机兼容）
+            <input
+              type="file"
+              multiple
+              accept={DANMAKU_FILE_ACCEPT}
+              className="sr-only"
+              aria-label="选择多份弹幕 XML 文件"
+              disabled={busy}
+              onChange={(e) => void pickFlatFiles(takeFiles(e.target))}
+            />
+          </label>
           {hashing && <span className="text-xs text-muted-foreground">正在计算文件哈希…</span>}
           {picked && (
             <span className="text-xs">
@@ -218,6 +251,10 @@ function FolderFormBody({ mode }: { mode: FolderFormMode }) {
             </span>
           )}
         </div>
+        <p className="text-xs text-muted-foreground md:hidden">
+          手机浏览器不支持选择文件夹时，可点「选择多份 XML」按文件名匹配集号（不支持子目录合并多
+          P，重名文件请先改名）。
+        </p>
         {pickError && <ErrorNote>{pickError}</ErrorNote>}
       </div>
 

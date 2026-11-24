@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useIsMutating, useMutation } from '@tanstack/react-query'
 import { Loader2Icon, LockIcon } from 'lucide-react'
 import { Link } from 'react-router'
@@ -9,6 +9,7 @@ import { bindingExportUrl } from '@/api/export'
 import type { Season } from '@/api/series'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
+import { InfoTip } from '@/components/InfoTip'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -82,6 +83,7 @@ export default function BindingCard({
   const refetching = useIsMutating({ mutationKey: bindingKeys.refetch(binding.id) }) > 0
 
   function commitOffset(text: string) {
+    if (saveOffset.isPending) return
     const offset = parseOffset(text)
     if (offset === null) {
       setError(invalidOffset)
@@ -98,7 +100,7 @@ export default function BindingCard({
       aria-label={binding.title}
       className={cn('grid gap-2 rounded-lg border p-3', dead && 'border-destructive/40')}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex flex-wrap items-start gap-2">
         <StatusBadge dead={dead} deadTitle="上次拉取时弹幕源已不存在；已保存的弹幕仍照常输出" />
         <div className="min-w-0 flex-1">
           {binding.kind === 'file' ? (
@@ -118,7 +120,7 @@ export default function BindingCard({
         {tag && (
           <Badge
             variant="secondary"
-            className="max-w-48"
+            className="max-w-full sm:max-w-48"
             title={tag.title}
             render={<Link to={tag.to} />}
           >
@@ -129,11 +131,7 @@ export default function BindingCard({
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <BindingDanmakuDialog binding={binding} />
-        {binding.lastFetchedAt && (
-          <span title={formatDateTime(binding.lastFetchedAt)}>
-            上次拉取 {formatAgo(binding.lastFetchedAt)}
-          </span>
-        )}
+        {binding.lastFetchedAt && <FetchedTime at={binding.lastFetchedAt} />}
         {binding.kind === 'link' && (
           <DurationCompare source={binding.duration} episode={episodeDuration} />
         )}
@@ -146,7 +144,7 @@ export default function BindingCard({
           disabled={busy || saveOffset.isPending}
           onCommit={commitOffset}
         />
-        <div className="ml-auto flex gap-1">
+        <div className="ml-auto flex flex-wrap justify-end gap-1.5">
           {binding.kind === 'file' ? (
             <FileBindingActions {...actions} />
           ) : (
@@ -196,7 +194,13 @@ export default function BindingCard({
   )
 }
 
-/** 偏移输入框：回车或失焦时交给 onCommit，由调用方校验后保存；输入不合法时标红 */
+/** 正在输入负号或小数点的中间态，不提前标红 */
+function isIntermediateOffset(text: string) {
+  const s = text.trim()
+  return s === '-' || s === '+' || s === '.' || s === '-.' || s === '+.'
+}
+
+/** 偏移输入框：回车、失焦或点保存时交给 onCommit；支持 ± 切换正负号，适配无负号的移动端数字键盘 */
 function OffsetInput({
   offset,
   disabled,
@@ -206,18 +210,44 @@ function OffsetInput({
   disabled: boolean
   onCommit: (text: string) => void
 }) {
+  const inputId = useId()
   const [text, setText] = useState(String(offset))
+  const parsed = parseOffset(text)
+  const dirty = parsed !== null && parsed !== offset
+  const invalid = parsed === null && !isIntermediateOffset(text)
+
+  const flipSign = () => {
+    const trimmed = text.trim()
+    if (!trimmed) {
+      setText('-')
+      return
+    }
+    if (trimmed.startsWith('-')) setText(trimmed.slice(1))
+    else if (trimmed.startsWith('+')) setText(`-${trimmed.slice(1)}`)
+    else setText(`-${trimmed}`)
+  }
+
   return (
-    <label
-      className="flex items-center gap-1 text-xs text-muted-foreground"
-      title="正数表示弹幕延后，负数表示提前"
-    >
-      偏移
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+      <label htmlFor={inputId}>偏移</label>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        aria-label="切换偏移正负号"
+        title="切换正负号"
+        disabled={disabled}
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={flipSign}
+      >
+        ±
+      </Button>
       <Input
+        id={inputId}
         aria-label="偏移（秒）"
-        className="h-7 w-20 text-right tabular-nums"
-        inputMode="decimal"
-        aria-invalid={parseOffset(text) === null}
+        className="h-9 w-20 text-right tabular-nums md:h-7"
+        inputMode="text"
+        aria-invalid={invalid}
         value={text}
         disabled={disabled}
         onChange={(e) => setText(e.target.value)}
@@ -226,8 +256,36 @@ function OffsetInput({
           if (e.key === 'Enter') e.currentTarget.blur()
         }}
       />
-      秒
-    </label>
+      <span>秒</span>
+      <InfoTip label="偏移说明" content="正数表示弹幕延后，负数表示提前" />
+      {dirty && (
+        <Button
+          type="button"
+          size="xs"
+          disabled={disabled}
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => onCommit(text)}
+        >
+          保存
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** 上次拉取时间：PC 悬停看精确时间，触屏点击可切换精确时间 */
+function FetchedTime({ at }: { at: string }) {
+  const [exact, setExact] = useState(false)
+  const full = formatDateTime(at)
+  return (
+    <button
+      type="button"
+      title={full}
+      className="cursor-pointer hover:text-foreground"
+      onClick={() => setExact((v) => !v)}
+    >
+      上次拉取 {exact ? full : formatAgo(at)}
+    </button>
   )
 }
 

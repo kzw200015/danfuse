@@ -25,8 +25,31 @@ function stripExtension(name: string) {
   return dot > 0 ? name.slice(0, dot) : name
 }
 
+/**
+ * 手机端多选 XML 兼容模式使用的虚拟文件夹名。
+ * 后端按「文件夹名 / 条目名」匹配集号，因此严禁包含数字，避免误匹配到文件夹名里的数字。
+ */
+export const MOBILE_UPLOAD_FOLDER = '手机上传'
+
+/** 给平铺多选的文件补上相对路径，兼容后端按 webkitRelativePath 分组 */
+function withRelativePath(file: File, relativePath: string): File {
+  if (file.webkitRelativePath === relativePath) return file
+  const wrapped = new File([file], file.name, {
+    type: file.type,
+    lastModified: file.lastModified,
+  })
+  Object.defineProperty(wrapped, 'webkitRelativePath', { value: relativePath })
+  return wrapped
+}
+
 /** 把目录选择选出的文件按相对路径（webkitRelativePath）分成条目 */
 export function groupFolderFiles(files: readonly File[]): FolderGrouping {
+  if (files.length > 0 && files.every((f) => !f.webkitRelativePath)) {
+    return {
+      ok: false,
+      error: '当前浏览器不支持读取文件夹结构，请改用「选择多份 XML」或桌面浏览器上传文件夹',
+    }
+  }
   // 浏览器给出的顺序不确定，先按路径的自然顺序排好（2 在 10 前面），条目里的文件与"第一份越界文件"都按这个顺序
   const sorted = files.toSorted((a, b) =>
     naturalOrder.compare(a.webkitRelativePath, b.webkitRelativePath),
@@ -74,6 +97,45 @@ export function groupFolderFiles(files: readonly File[]): FolderGrouping {
     ok: true,
     folder: folderName,
     entries: [...entries.values()].toSorted((a, b) => naturalOrder.compare(a.label, b.label)),
+    ignored,
+  }
+}
+
+/**
+ * 手机端兼容模式：平铺多选多份 XML 文件，按文件名各自作为一个条目并补上不含数字的虚拟文件夹路径。
+ * 不支持按子目录合并多 P，重名文件会直接拦截提示先改名。
+ */
+export function groupFlatXmlFiles(
+  files: readonly File[],
+  folderName = MOBILE_UPLOAD_FOLDER,
+): FolderGrouping {
+  const sorted = files.toSorted((a, b) => naturalOrder.compare(a.name, b.name))
+  const entries: UploadEntry[] = []
+  const labels = new Set<string>()
+  let ignored = 0
+
+  for (const file of sorted) {
+    if (!file.name.toLowerCase().endsWith('.xml')) {
+      ignored++
+      continue
+    }
+    const label = stripExtension(file.name)
+    if (labels.has(label)) {
+      return { ok: false, error: `条目名称重复：${label}（请先为重名 XML 文件改名后再选）` }
+    }
+    labels.add(label)
+    entries.push({
+      label,
+      files: [withRelativePath(file, `${folderName}/${file.name}`)],
+    })
+  }
+  if (entries.length === 0) {
+    return { ok: false, error: '所选文件里没有 XML 文件' }
+  }
+  return {
+    ok: true,
+    folder: folderName,
+    entries: entries.toSorted((a, b) => naturalOrder.compare(a.label, b.label)),
     ignored,
   }
 }

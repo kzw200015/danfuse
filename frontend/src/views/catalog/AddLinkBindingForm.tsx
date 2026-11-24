@@ -45,7 +45,7 @@ export default function AddLinkBindingForm({
           create.mutate(link.trim())
         }}
       >
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             aria-label="弹幕源链接"
             placeholder="粘贴 B 站投稿、番剧单集链接或 b23.tv 短链，或 BV / av / ep 号"
@@ -53,13 +53,19 @@ export default function AddLinkBindingForm({
             disabled={create.isPending}
             onChange={(e) => setLink(e.target.value)}
           />
-          <Button type="submit" disabled={create.isPending || !link.trim()}>
-            {create.isPending ? <Loader2Icon className="animate-spin" /> : <LinkIcon />}
-            {create.isPending ? `拉取中 ${elapsed}s` : '绑定'}
-          </Button>
-          <Button type="button" variant="ghost" disabled={create.isPending} onClick={onClose}>
-            取消
-          </Button>
+          <div className="flex items-center gap-2 sm:contents">
+            <Button
+              type="submit"
+              className="flex-1 sm:flex-none"
+              disabled={create.isPending || !link.trim()}
+            >
+              {create.isPending ? <Loader2Icon className="animate-spin" /> : <LinkIcon />}
+              {create.isPending ? `拉取中 ${elapsed}s` : '绑定'}
+            </Button>
+            <Button type="button" variant="ghost" disabled={create.isPending} onClick={onClose}>
+              取消
+            </Button>
+          </div>
         </div>
         {create.isPending && (
           <p className="text-xs text-muted-foreground">正在解析链接并拉取全部弹幕，最长约 25 秒…</p>

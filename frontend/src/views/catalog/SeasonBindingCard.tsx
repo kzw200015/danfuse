@@ -19,6 +19,7 @@ import {
 } from '@/api/season-bindings'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
+import { InfoTip } from '@/components/InfoTip'
 import { Button } from '@/components/ui/button'
 import { TableCell } from '@/components/ui/table'
 import { Switch } from '@/components/ui/switch'
@@ -139,18 +140,23 @@ export default function SeasonBindingCard({
           </div>
         </div>
         {collection && (
-          <label
-            className="flex shrink-0 items-center gap-1.5 text-xs"
-            title={settings && `开着时${followRuleText(settings.follow)}`}
-          >
-            <Switch
-              size="sm"
-              checked={collection.follow}
-              disabled={follow.isPending || busy}
-              onCheckedChange={(on) => follow.mutate(on)}
-            />
-            追更
-          </label>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <label
+              className="flex min-h-9 shrink-0 items-center gap-2 text-xs md:min-h-0 md:gap-1.5"
+              title={settings && `开着时${followRuleText(settings.follow)}`}
+            >
+              <Switch
+                size="sm"
+                checked={collection.follow}
+                disabled={follow.isPending || busy}
+                onCheckedChange={(on) => follow.mutate(on)}
+              />
+              追更
+            </label>
+            {settings && (
+              <InfoTip label="追更说明" content={`开着时${followRuleText(settings.follow)}`} />
+            )}
+          </div>
         )}
       </div>
 
@@ -179,7 +185,7 @@ export default function SeasonBindingCard({
         )}
       </div>
 
-      <div className="flex justify-end gap-1">
+      <div className="flex flex-wrap justify-end gap-1.5">
         <Button
           variant="outline"
           size="sm"
@@ -240,7 +246,7 @@ export default function SeasonBindingCard({
       <button
         type="button"
         aria-expanded={expanded}
-        className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        className="flex min-h-10 w-full items-center gap-1.5 rounded-md border bg-muted/20 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground md:inline-flex md:min-h-0 md:w-fit md:gap-1 md:border-0 md:bg-transparent md:px-0 md:font-normal"
         onClick={() => setExpanded(!expanded)}
       >
         {expanded ? (
@@ -289,6 +295,17 @@ function EntryTable({ detail, error }: { detail?: SeasonBindingDetail; error: Er
               {itemStatusText(item, detail.kind)}
               {item.lastError && ` · 上次失败：${item.lastError}`}
             </TableCell>
+          )}
+          renderMobileStatus={(item) => (
+            <span
+              className={cn(
+                'break-words',
+                item.lastError ? 'text-destructive' : itemStatusClass[item.status],
+              )}
+            >
+              {itemStatusText(item, detail.kind)}
+              {item.lastError && ` · 上次失败：${item.lastError}`}
+            </span>
           )}
         />
       )}

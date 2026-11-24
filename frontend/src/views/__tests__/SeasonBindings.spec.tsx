@@ -901,6 +901,33 @@ describe('上传弹幕文件夹', () => {
     expect(previewNewFolder).not.toHaveBeenCalled()
   })
 
+  it('手机端兼容模式：选择多份 XML 按文件名匹配并使用不含数字的虚拟文件夹名', async () => {
+    vi.mocked(previewNewFolder).mockResolvedValue(archivePreview)
+    const form = await openFolderForm()
+    const flatFiles = [
+      new File(['<i></i>'], '1.xml', { type: 'text/xml' }),
+      new File(['<i></i>'], '2.xml', { type: 'text/xml' }),
+    ]
+
+    fireEvent.change(await form.findByLabelText('选择多份弹幕 XML 文件'), {
+      target: { files: flatFiles },
+    })
+
+    expect(await form.findByText('已选：手机上传（2 个条目）')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(previewNewFolder).toHaveBeenCalledWith(11, {
+        folder: '手机上传',
+        entries: [
+          { label: '1', sha256s: [hash] },
+          { label: '2', sha256s: [hash] },
+        ],
+        episodePatterns: defaultPatterns,
+        mappingFrom: 1,
+        mappingTo: 1,
+      }),
+    )
+  })
+
   it('上传失败：提示留在表单里，预览不变，可以再点一次', async () => {
     vi.mocked(previewNewFolder).mockResolvedValue(archivePreview)
     vi.mocked(createFolder).mockRejectedValue(

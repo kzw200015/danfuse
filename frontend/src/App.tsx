@@ -17,8 +17,8 @@ export default function App() {
   const latestRun = useLatestSyncRun()
 
   return (
-    <div className="flex h-svh flex-col bg-background text-foreground">
-      <header className="flex h-12 shrink-0 items-center gap-4 border-b px-4">
+    <div className="flex h-dvh flex-col bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3 sm:gap-4 sm:px-4">
         <span className="font-semibold">Danfuse</span>
         <nav className="flex items-center gap-1">
           {navItems.map((item) => (

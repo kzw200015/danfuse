@@ -22,11 +22,17 @@ export default function BindingFilesPopover({ binding }: { binding: Binding }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        render={<button type="button" className="hover:underline" title="查看弹幕文件" />}
+        render={
+          <button
+            type="button"
+            className="inline-flex min-h-8 -ml-1.5 items-center gap-1 rounded px-1.5 underline decoration-muted-foreground/50 underline-offset-2 hover:bg-muted md:ml-0 md:min-h-0 md:px-0 md:no-underline md:hover:bg-transparent md:hover:underline"
+            title="查看弹幕文件"
+          />
+        }
       >
         {binding.sourceLabel}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-96 gap-2">
+      <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] gap-2">
         <PopoverHeader>
           <PopoverTitle>弹幕文件</PopoverTitle>
         </PopoverHeader>

@@ -4,6 +4,8 @@
 @import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant coarse (@media (pointer: coarse));
+@custom-variant hover-none (@media (hover: none));
 
 @theme inline {
   --font-sans: 'Geist Variable', sans-serif;
@@ -126,5 +128,12 @@
   }
   html {
     @apply font-sans;
+  }
+  button,
+  a,
+  [role='button'],
+  input,
+  label {
+    touch-action: manipulation;
   }
 }

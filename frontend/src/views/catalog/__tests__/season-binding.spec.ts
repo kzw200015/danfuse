@@ -52,7 +52,7 @@ describe('candidateText', () => {
 })
 
 /** 目录页的地址，带着分类的查询参数 */
-const tvPath = (...ids: number[]) => `/catalog/${ids.join('/')}?type=tv`
+const tvPath = (...ids: (number | 'season')[]) => `/catalog/${ids.join('/')}?type=tv`
 
 describe('seasonBindingTag', () => {
   // 剧 1 的季 11
@@ -71,7 +71,7 @@ describe('seasonBindingTag', () => {
       {
         text: '星海旅人 第一季',
         title: '由合集的季绑定「星海旅人 第一季」按集号对应建出',
-        to: '/catalog/1/11',
+        to: '/catalog/1/11/season',
       },
     ],
     // 合集标题为空时用合集的标签
@@ -80,7 +80,7 @@ describe('seasonBindingTag', () => {
       {
         text: 'B 站投稿合集 123',
         title: '由合集的季绑定「B 站投稿合集 123」按集号对应建出',
-        to: '/catalog/1/11',
+        to: '/catalog/1/11/season',
       },
     ],
     [
@@ -88,17 +88,17 @@ describe('seasonBindingTag', () => {
       {
         text: '来自新世界',
         title: '由文件夹的季绑定「来自新世界」建出',
-        to: '/catalog/1/11',
+        to: '/catalog/1/11/season',
       },
     ],
     // 找不到对应的季绑定
-    [9, { text: '季绑定', title: '由季绑定建出', to: '/catalog/1/11' }],
+    [9, { text: '季绑定', title: '由季绑定建出', to: '/catalog/1/11/season' }],
   ])('%s', (id, want) => {
     expect(seasonBindingTag(id, season, 1, catalogPath)).toEqual(want)
   })
 
   it('季面板的路径用给的 path 拼出，例如带上地址栏的查询参数', () => {
-    expect(seasonBindingTag(1, season, 1, tvPath)?.to).toBe('/catalog/1/11?type=tv')
+    expect(seasonBindingTag(1, season, 1, tvPath)?.to).toBe('/catalog/1/11/season?type=tv')
   })
 })
 

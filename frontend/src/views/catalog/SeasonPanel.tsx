@@ -13,7 +13,7 @@ import DeleteButton from './DeleteButton'
 import ExportButton from './ExportButton'
 import { AddFolderForm } from './FolderForm'
 import SeasonBindingCard from './SeasonBindingCard'
-import { useCatalogPath } from './shared'
+import { DrillHeader, useCatalogPath } from './shared'
 
 /**
  * 右栏：选中整季、没选集时的季面板：这一季的信息、季绑定，以及"删除这一季"。
@@ -30,70 +30,78 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
   const open = adding?.seasonId === season.id ? adding.kind : null
   const close = () => setAdding(null)
   return (
-    <div className="mx-auto grid max-w-3xl gap-4 p-5">
-      <div>
-        <div className="text-xs text-muted-foreground">{series.title}</div>
-        <h2 className="text-lg font-semibold">
-          {seasonName(season)}
-          {season.title && <span className="ml-2 font-normal">{season.title}</span>}
-        </h2>
-        <div className="text-xs text-muted-foreground">
-          {season.episodes.length} 集 · 已绑定 {stats.bound} 集
-          {stats.dead > 0 && <span className="text-destructive"> · {stats.dead} 个失效绑定</span>} ·
-          季 ID {season.id}
-        </div>
-      </div>
-
-      <section aria-label="季绑定" className="grid gap-3 border-t pt-4">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-medium">季绑定（{season.seasonBindings.length}）</h3>
-          <div className="flex gap-1">
-            <ExportButton
-              href={seasonExportUrl(season.id)}
-              title="导出这一季各集的弹幕（zip，每集一个子目录、每个绑定一份 XML，按偏移校正）"
-              disabled={!season.episodes.some(hasDanmaku)}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={open !== null}
-              onClick={() => setAdding({ seasonId: season.id, kind: 'collection' })}
-            >
-              <PlusIcon />
-              绑定合集
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={open !== null}
-              onClick={() => setAdding({ seasonId: season.id, kind: 'folder' })}
-            >
-              <FolderUpIcon />
-              上传弹幕文件夹
-            </Button>
+    <div>
+      <DrillHeader
+        backTo={path(series.id, season.id)}
+        backLabel={series.title}
+        title={seasonName(season)}
+        className="lg:hidden"
+      />
+      <div className="mx-auto grid max-w-3xl gap-4 px-3 py-4 md:p-5">
+        <div>
+          <div className="text-xs text-muted-foreground">{series.title}</div>
+          <h2 className="text-lg font-semibold">
+            {seasonName(season)}
+            {season.title && <span className="ml-2 font-normal">{season.title}</span>}
+          </h2>
+          <div className="text-xs text-muted-foreground">
+            {season.episodes.length} 集 · 已绑定 {stats.bound} 集
+            {stats.dead > 0 && <span className="text-destructive"> · {stats.dead} 个失效绑定</span>}{' '}
+            · 季 ID {season.id}
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          把 B 站番剧的一季、投稿合集或多 P
-          投稿绑到这一季上，按集号对应在后台为各集建出绑定，开着追更时自动补建新出的集；手上有整季的弹幕存档时上传弹幕文件夹。
-          季绑定建出的绑定只能在这里改。
-        </p>
-        {open === 'collection' && <AddCollectionForm season={season} onClose={close} />}
-        {open === 'folder' && <AddFolderForm season={season} onClose={close} />}
-        {season.seasonBindings.map((sb) => (
-          <SeasonBindingCard key={sb.id} binding={sb} summaryUpdatedAt={dataUpdatedAt} />
-        ))}
-      </section>
 
-      <div className="border-t pt-4">
-        <DeleteButton
-          key={season.id}
-          label="删除这一季"
-          name={seasonName(season)}
-          target={season}
-          remove={() => deleteSeason(season.id)}
-          backTo={path(series.id)}
-        />
+        <section aria-label="季绑定" className="grid gap-3 border-t pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium">季绑定（{season.seasonBindings.length}）</h3>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <ExportButton
+                href={seasonExportUrl(season.id)}
+                title="导出这一季各集的弹幕（zip，每集一个子目录、每个绑定一份 XML，按偏移校正）"
+                disabled={!season.episodes.some(hasDanmaku)}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={open !== null}
+                onClick={() => setAdding({ seasonId: season.id, kind: 'collection' })}
+              >
+                <PlusIcon />
+                绑定合集
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={open !== null}
+                onClick={() => setAdding({ seasonId: season.id, kind: 'folder' })}
+              >
+                <FolderUpIcon />
+                上传弹幕文件夹
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            把 B 站番剧的一季、投稿合集或多 P
+            投稿绑到这一季上，按集号对应在后台为各集建出绑定，开着追更时自动补建新出的集；手上有整季的弹幕存档时上传弹幕文件夹。
+            季绑定建出的绑定只能在这里改。
+          </p>
+          {open === 'collection' && <AddCollectionForm season={season} onClose={close} />}
+          {open === 'folder' && <AddFolderForm season={season} onClose={close} />}
+          {season.seasonBindings.map((sb) => (
+            <SeasonBindingCard key={sb.id} binding={sb} summaryUpdatedAt={dataUpdatedAt} />
+          ))}
+        </section>
+
+        <div className="border-t pt-4">
+          <DeleteButton
+            key={season.id}
+            label="删除这一季"
+            name={seasonName(season)}
+            target={season}
+            remove={() => deleteSeason(season.id)}
+            backTo={path(series.id)}
+          />
+        </div>
       </div>
     </div>
   )

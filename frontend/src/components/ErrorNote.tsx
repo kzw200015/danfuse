@@ -13,7 +13,7 @@ export function ErrorNote({ children, onClose }: { children: ReactNode; onClose?
       {onClose && (
         <button
           type="button"
-          className="opacity-60 hover:opacity-100"
+          className="relative -my-0.5 -mr-1 p-1 opacity-60 hover:opacity-100 coarse:after:absolute coarse:after:-inset-2 coarse:after:content-['']"
           title="关闭"
           aria-label="关闭"
           onClick={onClose}

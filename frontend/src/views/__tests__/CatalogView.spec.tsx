@@ -152,7 +152,7 @@ describe('CatalogView', () => {
 
     fireEvent.click(screen.getByTitle('查看整季'))
 
-    await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11/season'))
     expect(screen.getByText(/季 ID 11/)).toBeInTheDocument()
   })
 
@@ -397,8 +397,8 @@ describe('绑定', () => {
         name: '星海旅人 第一季',
       })
       expect(linkTag).toHaveAttribute('title', '由合集的季绑定「星海旅人 第一季」按集号对应建出')
-      // 地址栏里剧列表的分类跟着带过去
-      expect(linkTag).toHaveAttribute('href', '/catalog/1/11?type=tv')
+      // 地址栏里剧列表的分类跟着带过去，显式指向 /season 路径
+      expect(linkTag).toHaveAttribute('href', '/catalog/1/11/season?type=tv')
       expect((await card('20130709')).getByRole('link', { name: '来自新世界' })).toHaveAttribute(
         'title',
         '由文件夹的季绑定「来自新世界」建出',
@@ -407,7 +407,7 @@ describe('绑定', () => {
 
       fireEvent.click(linkTag)
 
-      await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11'))
+      await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11/season'))
       expect(screen.getByText(/季 ID 11/)).toBeInTheDocument()
     })
 
@@ -435,7 +435,7 @@ describe('绑定', () => {
 
       fireEvent.click(file.getByRole('link', { name: '在季绑定里改 →' }))
 
-      await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11'))
+      await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11/season'))
       expect(screen.getByText(/季 ID 11/)).toBeInTheDocument()
     })
 
@@ -695,6 +695,26 @@ describe('维护绑定', () => {
     await waitFor(() =>
       expect(first.getByRole('textbox', { name: '偏移（秒）' })).toHaveValue('-2.5'),
     )
+  })
+
+  it('偏移：支持点 ± 切换正负号并点击显式保存按钮（兼容无负号移动端键盘）', async () => {
+    vi.mocked(updateBindingOffset).mockImplementation(async (id, offset) => {
+      const b = bindingsOf110().find((x) => x.id === id)!
+      b.offset = offset
+      return b
+    })
+    renderRoutes('/catalog/1/11/110')
+    const first = await card('弹幕源 1')
+    const input = first.getByRole('textbox', { name: '偏移（秒）' })
+    expect(input).toHaveAttribute('inputmode', 'text')
+
+    fireEvent.change(input, { target: { value: '3.5' } })
+    fireEvent.click(first.getByRole('button', { name: '切换偏移正负号' }))
+    expect(input).toHaveValue('-3.5')
+
+    fireEvent.click(first.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(updateBindingOffset).toHaveBeenCalledTimes(1))
+    expect(updateBindingOffset).toHaveBeenCalledWith(1, -3.5)
   })
 
   it('删除绑定：确认框写明它的弹幕会一起删除，确认后才删除', async () => {
@@ -1119,6 +1139,11 @@ describe('查看弹幕', () => {
 
     jump('')
     expect(await dialog.findByText('开头')).toBeInTheDocument()
+
+    // 移动端显式点击"跳转"按钮同样生效
+    fireEvent.change(input, { target: { value: '1:30' } })
+    fireEvent.click(dialog.getByRole('button', { name: '跳转' }))
+    expect(await dialog.findByText('一分半')).toBeInTheDocument()
   })
 
   it('拖动条：长度到最晚一条弹幕，松手时跳转，输入框跟着显示时间', async () => {

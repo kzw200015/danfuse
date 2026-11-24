@@ -1,5 +1,6 @@
+import { useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Loader2Icon } from 'lucide-react'
+import { Loader2Icon, TriangleAlertIcon } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
@@ -38,23 +39,30 @@ export default function SyncView() {
   const runParam = searchParams.get('run')
   const selectedId = runParam === null ? latest?.id : parseId(runParam)
 
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  const handleSelect = (id: number) => {
+    setSearchParams({ run: String(id) })
+    if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches) {
+      panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto">
-      <div className="grid gap-5 p-5">
+      <div className="grid gap-4 px-3 py-4 md:gap-5 md:p-5">
         <SyncHeader latest={latest} />
         {runs.error && <ErrorNote>{runs.error.message}</ErrorNote>}
         {runs.data && (
-          <SyncRunTable
-            runs={runs.data}
-            selectedId={selectedId}
-            onSelect={(id) => setSearchParams({ run: String(id) })}
-          />
+          <SyncRunTable runs={runs.data} selectedId={selectedId} onSelect={handleSelect} />
         )}
-        {selectedId !== undefined ? (
-          <SyncRunPanel id={selectedId} />
-        ) : (
-          runParam !== null && <ErrorNote>同步记录不存在</ErrorNote>
-        )}
+        <div ref={panelRef} className="scroll-mt-3">
+          {selectedId !== undefined ? (
+            <SyncRunPanel id={selectedId} />
+          ) : (
+            runParam !== null && <ErrorNote>同步记录不存在</ErrorNote>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -86,7 +94,7 @@ function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
         )}
         <Button
           size="sm"
-          className="ml-auto"
+          className="ml-auto min-h-9 md:min-h-0"
           disabled={unconfigured || trigger.isPending || running}
           onClick={() => trigger.mutate()}
         >
@@ -109,53 +117,110 @@ function SyncRunTable({
   onSelect: (id: number) => void
 }) {
   return (
-    <Table>
-      <TableHeader>
-        <TableRow className="text-xs hover:bg-transparent">
-          <TableHead>编号</TableHead>
-          <TableHead>触发方式</TableHead>
-          <TableHead>状态</TableHead>
-          <TableHead>开始时间</TableHead>
-          <TableHead>进度</TableHead>
-          <TableHead>新增 剧 / 季 / 集</TableHead>
-          <TableHead>警告</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {runs.length === 0 && (
-          <TableRow className="hover:bg-transparent">
-            <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
-              还没有同步过
-            </TableCell>
-          </TableRow>
+    <>
+      <div className="hidden md:block">
+        <Table>
+          <TableHeader>
+            <TableRow className="text-xs hover:bg-transparent">
+              <TableHead>编号</TableHead>
+              <TableHead>触发方式</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead>开始时间</TableHead>
+              <TableHead>进度</TableHead>
+              <TableHead>新增 剧 / 季 / 集</TableHead>
+              <TableHead>警告</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {runs.length === 0 && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                  还没有同步过
+                </TableCell>
+              </TableRow>
+            )}
+            {runs.map((run) => (
+              <TableRow
+                key={run.id}
+                data-state={run.id === selectedId ? 'selected' : undefined}
+                className="cursor-pointer"
+                onClick={() => onSelect(run.id)}
+              >
+                <TableCell className="tabular-nums">#{run.id}</TableCell>
+                <TableCell>{triggerText[run.trigger]}</TableCell>
+                <TableCell>
+                  <span className="inline-flex items-center gap-1">
+                    <RunStatusIcon status={run.status} className="size-3.5" />
+                    {runStatusText[run.status]}
+                  </span>
+                </TableCell>
+                <TableCell className="tabular-nums">{formatDateTime(run.startedAt)}</TableCell>
+                <TableCell className="tabular-nums">{runProgressText(run)}</TableCell>
+                <TableCell className="tabular-nums">
+                  {run.createdSeries} / {run.createdSeasons} / {run.createdEpisodes}
+                </TableCell>
+                <TableCell className={cn('tabular-nums', run.warningCount > 0 && 'text-amber-700')}>
+                  {run.warningCount}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* 手机端卡片列表，避免 7 列宽表横向滚动；点击后平滑滚动至下方详情 */}
+      <div className="grid gap-2 md:hidden" aria-label="同步记录列表">
+        {runs.length === 0 ? (
+          <p className="rounded-lg border py-6 text-center text-sm text-muted-foreground">
+            还没有同步过
+          </p>
+        ) : (
+          runs.map((run) => {
+            const selected = run.id === selectedId
+            return (
+              <button
+                key={run.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => onSelect(run.id)}
+                className={cn(
+                  'grid gap-1.5 rounded-lg border bg-card p-3 text-left transition-colors',
+                  selected ? 'bg-muted/50 ring-2 ring-primary' : 'hover:bg-muted/40',
+                )}
+              >
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium tabular-nums">#{run.id}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {triggerText[run.trigger]}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-xs">
+                      <RunStatusIcon status={run.status} className="size-3.5" />
+                      {runStatusText[run.status]}
+                    </span>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {formatAgo(run.startedAt)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground tabular-nums">
+                  <span>
+                    进度 {runProgressText(run)} · 新增 {run.createdSeries} / {run.createdSeasons} /{' '}
+                    {run.createdEpisodes}
+                  </span>
+                  {run.warningCount > 0 && (
+                    <span className="inline-flex items-center gap-0.5 font-medium text-amber-700">
+                      <TriangleAlertIcon className="size-3" />
+                      {run.warningCount}
+                    </span>
+                  )}
+                </div>
+              </button>
+            )
+          })
         )}
-        {runs.map((run) => (
-          <TableRow
-            key={run.id}
-            data-state={run.id === selectedId ? 'selected' : undefined}
-            className="cursor-pointer"
-            onClick={() => onSelect(run.id)}
-          >
-            <TableCell className="tabular-nums">#{run.id}</TableCell>
-            <TableCell>{triggerText[run.trigger]}</TableCell>
-            <TableCell>
-              <span className="inline-flex items-center gap-1">
-                <RunStatusIcon status={run.status} className="size-3.5" />
-                {runStatusText[run.status]}
-              </span>
-            </TableCell>
-            <TableCell className="tabular-nums">{formatDateTime(run.startedAt)}</TableCell>
-            <TableCell className="tabular-nums">{runProgressText(run)}</TableCell>
-            <TableCell className="tabular-nums">
-              {run.createdSeries} / {run.createdSeasons} / {run.createdEpisodes}
-            </TableCell>
-            <TableCell className={cn('tabular-nums', run.warningCount > 0 && 'text-amber-700')}>
-              {run.warningCount}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+      </div>
+    </>
   )
 }
 
@@ -227,7 +292,7 @@ function WarningList({ run }: { run: SyncRunDetail }) {
       </p>
       <ul
         aria-label="警告"
-        className="max-h-80 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs leading-relaxed"
+        className="max-h-[60dvh] overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs leading-relaxed md:max-h-80"
       >
         {run.warnings.map((warning, i) => (
           <li key={i}>{warning}</li>

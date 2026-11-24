@@ -50,7 +50,7 @@ export default function AddFileBindingForm({
     <FormFrame label="上传弹幕文件">
       <label
         className={cn(
-          'flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed bg-background px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted/50',
+          'flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed bg-background px-3 py-4 text-center text-sm text-muted-foreground hover:bg-muted/50 sm:py-2.5 sm:text-left',
           dragging && 'border-primary bg-muted/50',
           create.isPending && 'cursor-default opacity-70',
         )}
@@ -62,13 +62,22 @@ export default function AddFileBindingForm({
         onDrop={onDrop}
       >
         {create.isPending ? (
-          <Loader2Icon className="size-4 animate-spin" />
+          <Loader2Icon className="size-4 shrink-0 animate-spin" />
         ) : (
-          <UploadIcon className="size-4" />
+          <UploadIcon className="size-4 shrink-0" />
         )}
-        {create.isPending
-          ? `上传中 ${elapsed}s`
-          : '点击选择或拖到这里（B 站 XML，可多选，同一个视频的几份合成一个绑定）'}
+        {create.isPending ? (
+          `上传中 ${elapsed}s`
+        ) : (
+          <>
+            <span className="hover-none:hidden">
+              点击选择或拖到这里（B 站 XML，可多选，同一个视频的几份合成一个绑定）
+            </span>
+            <span className="hidden hover-none:inline">
+              点击选择弹幕文件（B 站 XML，可多选，同一个视频的几份合成一个绑定）
+            </span>
+          </>
+        )}
         <input
           type="file"
           multiple
