@@ -43,14 +43,14 @@ export default function SyncView() {
 
   const handleSelect = (id: number) => {
     setSearchParams({ run: String(id) })
-    if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches) {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(width < 48rem)').matches) {
       panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="grid gap-4 px-3 py-4 md:gap-5 md:p-5">
+      <div className="grid gap-5 p-5">
         <SyncHeader latest={latest} />
         {runs.error && <ErrorNote>{runs.error.message}</ErrorNote>}
         {runs.data && (
@@ -94,7 +94,7 @@ function SyncHeader({ latest }: { latest: SyncRun | undefined }) {
         )}
         <Button
           size="sm"
-          className="ml-auto min-h-9 md:min-h-0"
+          className="ml-auto"
           disabled={unconfigured || trigger.isPending || running}
           onClick={() => trigger.mutate()}
         >
@@ -169,57 +169,58 @@ function SyncRunTable({
       </div>
 
       {/* 手机端卡片列表，避免 7 列宽表横向滚动；点击后平滑滚动至下方详情 */}
-      <div className="grid gap-2 md:hidden" aria-label="同步记录列表">
-        {runs.length === 0 ? (
-          <p className="rounded-lg border py-6 text-center text-sm text-muted-foreground">
-            还没有同步过
-          </p>
-        ) : (
-          runs.map((run) => {
+      {runs.length === 0 ? (
+        <p className="rounded-lg border py-6 text-center text-sm text-muted-foreground md:hidden">
+          还没有同步过
+        </p>
+      ) : (
+        <ul className="grid gap-2 md:hidden" aria-label="同步记录列表">
+          {runs.map((run) => {
             const selected = run.id === selectedId
             return (
-              <button
-                key={run.id}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => onSelect(run.id)}
-                className={cn(
-                  'grid gap-1.5 rounded-lg border bg-card p-3 text-left transition-colors',
-                  selected ? 'bg-muted/50 ring-2 ring-primary' : 'hover:bg-muted/40',
-                )}
-              >
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium tabular-nums">#{run.id}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {triggerText[run.trigger]}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-xs">
-                      <RunStatusIcon status={run.status} className="size-3.5" />
-                      {runStatusText[run.status]}
+              <li key={run.id}>
+                <button
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onSelect(run.id)}
+                  className={cn(
+                    'grid w-full gap-1.5 rounded-lg border bg-card p-3 text-left transition-colors',
+                    selected ? 'bg-muted/50 ring-2 ring-primary' : 'hover:bg-muted/40',
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium tabular-nums">#{run.id}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {triggerText[run.trigger]}
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-xs">
+                        <RunStatusIcon status={run.status} className="size-3.5" />
+                        {runStatusText[run.status]}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {formatAgo(run.startedAt)}
                     </span>
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {formatAgo(run.startedAt)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground tabular-nums">
-                  <span>
-                    进度 {runProgressText(run)} · 新增 {run.createdSeries} / {run.createdSeasons} /{' '}
-                    {run.createdEpisodes}
-                  </span>
-                  {run.warningCount > 0 && (
-                    <span className="inline-flex items-center gap-0.5 font-medium text-amber-700">
-                      <TriangleAlertIcon className="size-3" />
-                      {run.warningCount}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground tabular-nums">
+                    <span>
+                      进度 {runProgressText(run)} · 新增 {run.createdSeries} / {run.createdSeasons}{' '}
+                      / {run.createdEpisodes}
                     </span>
-                  )}
-                </div>
-              </button>
+                    {run.warningCount > 0 && (
+                      <span className="inline-flex items-center gap-0.5 font-medium text-amber-700">
+                        <TriangleAlertIcon className="size-3" />
+                        {run.warningCount}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              </li>
             )
-          })
-        )}
-      </div>
+          })}
+        </ul>
+      )}
     </>
   )
 }
@@ -292,7 +293,7 @@ function WarningList({ run }: { run: SyncRunDetail }) {
       </p>
       <ul
         aria-label="警告"
-        className="max-h-[60dvh] overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs leading-relaxed md:max-h-80"
+        className="max-h-80 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs leading-relaxed"
       >
         {run.warnings.map((warning, i) => (
           <li key={i}>{warning}</li>

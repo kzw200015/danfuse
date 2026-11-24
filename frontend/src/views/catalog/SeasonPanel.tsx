@@ -37,7 +37,7 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
         title={seasonName(season)}
         className="lg:hidden"
       />
-      <div className="mx-auto grid max-w-3xl gap-4 px-3 py-4 md:p-5">
+      <div className="mx-auto grid max-w-3xl gap-4 p-5">
         <div>
           <div className="text-xs text-muted-foreground">{series.title}</div>
           <h2 className="text-lg font-semibold">
@@ -54,7 +54,7 @@ export default function SeasonPanel({ series, season }: { series: SeriesDetail; 
         <section aria-label="季绑定" className="grid gap-3 border-t pt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-medium">季绑定（{season.seasonBindings.length}）</h3>
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1">
               <ExportButton
                 href={seasonExportUrl(season.id)}
                 title="导出这一季各集的弹幕（zip，每集一个子目录、每个绑定一份 XML，按偏移校正）"

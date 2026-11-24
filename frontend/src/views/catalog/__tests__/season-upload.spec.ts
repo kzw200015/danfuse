@@ -2,12 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { picked } from '@/__tests__/utils'
 
-import {
-  groupFlatXmlFiles,
-  groupFolderFiles,
-  hashEntries,
-  MOBILE_UPLOAD_FOLDER,
-} from '../season-upload'
+import { groupFolderFiles, hashEntries } from '../season-upload'
 
 /** 分组结果里看得到的部分：文件夹名、条目名称与各自文件的相对路径（顺序与文件相同） */
 function shape(paths: string[]) {
@@ -99,50 +94,7 @@ describe('groupFolderFiles', () => {
     const plain = [new File(['<i></i>'], 'E01.xml', { type: 'text/xml' })]
     expect(groupFolderFiles(plain)).toEqual({
       ok: false,
-      error: '当前浏览器不支持读取文件夹结构，请改用「选择多份 XML」或桌面浏览器上传文件夹',
-    })
-  })
-})
-
-describe('groupFlatXmlFiles', () => {
-  it('使用不含数字的默认虚拟文件夹名，按自然顺序分组并补齐相对路径', () => {
-    expect(MOBILE_UPLOAD_FOLDER).not.toMatch(/\d/)
-    const files = [
-      new File(['<i></i>'], 'EP10.xml', { type: 'text/xml' }),
-      new File(['<i></i>'], 'EP2.xml', { type: 'text/xml' }),
-      new File(['readme'], 'README.txt', { type: 'text/plain' }),
-    ]
-    const result = groupFlatXmlFiles(files)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.folder).toBe(MOBILE_UPLOAD_FOLDER)
-    expect(result.ignored).toBe(1)
-    expect(
-      result.entries.map((e) => ({
-        label: e.label,
-        paths: e.files.map((f) => f.webkitRelativePath),
-      })),
-    ).toEqual([
-      { label: 'EP2', paths: [`${MOBILE_UPLOAD_FOLDER}/EP2.xml`] },
-      { label: 'EP10', paths: [`${MOBILE_UPLOAD_FOLDER}/EP10.xml`] },
-    ])
-  })
-
-  it('重名 XML 文件拦截并提示改名', () => {
-    const files = [
-      new File(['<i></i>'], '01.xml', { type: 'text/xml' }),
-      new File(['<i></i>'], '01.XML', { type: 'text/xml' }),
-    ]
-    expect(groupFlatXmlFiles(files)).toEqual({
-      ok: false,
-      error: '条目名称重复：01（请先为重名 XML 文件改名后再选）',
-    })
-  })
-
-  it('没有 XML 文件时提示错误', () => {
-    expect(groupFlatXmlFiles([new File(['x'], 'a.txt')])).toEqual({
-      ok: false,
-      error: '所选文件里没有 XML 文件',
+      error: '当前浏览器不支持选择文件夹，请改用桌面浏览器按季上传，或进入单集上传弹幕文件',
     })
   })
 })

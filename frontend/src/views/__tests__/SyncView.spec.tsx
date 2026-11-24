@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import {
@@ -197,5 +197,31 @@ describe('同步详情', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('同步记录不存在')
     expect(await screen.findByRole('cell', { name: '#1' })).toBeInTheDocument()
     expect(getSyncRun).not.toHaveBeenCalled()
+  })
+
+  it('窄屏（< md）：点击同步记录卡片后滚动定位到下方详情面板', async () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = (query: string) => ({
+      matches: query === '(width < 48rem)',
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    onTestFinished(() => {
+      window.matchMedia = originalMatchMedia
+    })
+    server.runs = [syncRun(2), syncRun(1)]
+    renderRoutes('/sync')
+
+    const list = await screen.findByRole('list', { name: '同步记录列表' })
+    fireEvent.click(within(list).getByRole('button', { name: /#1/ }))
+
+    expect(await screen.findByText('同步 #1')).toBeInTheDocument()
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
   })
 })

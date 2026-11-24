@@ -24,7 +24,6 @@ export function InfoTip({
           <button
             type="button"
             aria-label={label}
-            title={content}
             className={cn(
               'relative inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none coarse:after:absolute coarse:after:-inset-2.5 coarse:after:content-[""]',
               className,

@@ -9,7 +9,6 @@ import { bindingExportUrl } from '@/api/export'
 import type { Season } from '@/api/series'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
-import { InfoTip } from '@/components/InfoTip'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -144,7 +143,7 @@ export default function BindingCard({
           disabled={busy || saveOffset.isPending}
           onCommit={commitOffset}
         />
-        <div className="ml-auto flex flex-wrap justify-end gap-1.5">
+        <div className="ml-auto flex flex-wrap justify-end gap-1">
           {binding.kind === 'file' ? (
             <FileBindingActions {...actions} />
           ) : (
@@ -200,7 +199,12 @@ function isIntermediateOffset(text: string) {
   return s === '-' || s === '+' || s === '.' || s === '-.' || s === '+.'
 }
 
-/** 偏移输入框：回车、失焦或点保存时交给 onCommit；支持 ± 切换正负号，适配无负号的移动端数字键盘 */
+/** 同时阻止 pointerdown 与 mousedown 转移焦点，避免点 ± 或保存时先触发 input.onBlur 提交旧值 */
+function keepFocus(e: { preventDefault: () => void }) {
+  e.preventDefault()
+}
+
+/** 偏移输入框：回车、失焦或点保存时交给 onCommit；触屏端显示 ± 切换正负号，聚焦时下方提示正负方向 */
 function OffsetInput({
   offset,
   disabled,
@@ -212,6 +216,7 @@ function OffsetInput({
 }) {
   const inputId = useId()
   const [text, setText] = useState(String(offset))
+  const [focused, setFocused] = useState(false)
   const parsed = parseOffset(text)
   const dirty = parsed !== null && parsed !== offset
   const invalid = parsed === null && !isIntermediateOffset(text)
@@ -223,51 +228,65 @@ function OffsetInput({
       return
     }
     if (trimmed.startsWith('-')) setText(trimmed.slice(1))
+    else if (Number(trimmed) === 0) setText('-')
     else if (trimmed.startsWith('+')) setText(`-${trimmed.slice(1)}`)
     else setText(`-${trimmed}`)
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-      <label htmlFor={inputId}>偏移</label>
-      <Button
-        type="button"
-        variant="outline"
-        size="xs"
-        aria-label="切换偏移正负号"
-        title="切换正负号"
-        disabled={disabled}
-        onPointerDown={(e) => e.preventDefault()}
-        onClick={flipSign}
-      >
-        ±
-      </Button>
-      <Input
-        id={inputId}
-        aria-label="偏移（秒）"
-        className="h-9 w-20 text-right tabular-nums md:h-7"
-        inputMode="text"
-        aria-invalid={invalid}
-        value={text}
-        disabled={disabled}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => onCommit(text)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur()
-        }}
-      />
-      <span>秒</span>
-      <InfoTip label="偏移说明" content="正数表示弹幕延后，负数表示提前" />
-      {dirty && (
+    <div className="grid gap-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <label htmlFor={inputId} title="正数表示弹幕延后，负数表示提前">
+          偏移
+        </label>
         <Button
           type="button"
+          variant="outline"
           size="xs"
+          className="hidden coarse:inline-flex"
+          aria-label="切换偏移正负号"
+          title="切换正负号"
           disabled={disabled}
-          onPointerDown={(e) => e.preventDefault()}
-          onClick={() => onCommit(text)}
+          onPointerDown={keepFocus}
+          onMouseDown={keepFocus}
+          onClick={flipSign}
         >
-          保存
+          ±
         </Button>
+        <Input
+          id={inputId}
+          aria-label="偏移（秒）"
+          className="h-7 w-20 text-right tabular-nums"
+          inputMode="decimal"
+          aria-invalid={invalid}
+          value={text}
+          disabled={disabled}
+          onFocus={() => setFocused(true)}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => {
+            setFocused(false)
+            onCommit(text)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+          }}
+        />
+        <span>秒</span>
+        {dirty && (
+          <Button
+            type="button"
+            size="xs"
+            disabled={disabled}
+            onPointerDown={keepFocus}
+            onMouseDown={keepFocus}
+            onClick={() => onCommit(text)}
+          >
+            保存
+          </Button>
+        )}
+      </div>
+      {focused && (
+        <p className="text-[11px] text-muted-foreground">正数表示弹幕延后，负数表示提前</p>
       )}
     </div>
   )

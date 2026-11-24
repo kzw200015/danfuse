@@ -44,7 +44,7 @@ export default function BlockedWordsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* 贴顶显示：列表增删时只有底边动；移动端贴近顶部并按 dvh 限高，避免软键盘遮挡 */}
-      <DialogContent className="top-4 flex max-h-[calc(100dvh-2rem)] translate-y-0 flex-col overflow-hidden sm:top-[10vh] sm:max-h-[80dvh] sm:max-w-lg">
+      <DialogContent className="top-4 flex max-h-[calc(100dvh-2rem)] translate-y-0 flex-col sm:top-[10vh] sm:max-h-[80dvh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>屏蔽词</DialogTitle>
           <DialogDescription>
@@ -150,7 +150,7 @@ function BlockedWordList() {
           {data.map((word) => {
             const deleting = remove.isPending && remove.variables.id === word.id
             return (
-              <li key={word.id} className="flex items-center gap-2 px-2.5 py-2 text-sm sm:py-1.5">
+              <li key={word.id} className="flex items-center gap-2 px-2.5 py-1.5 text-sm">
                 <Badge variant={word.kind === 'regex' ? 'outline' : 'secondary'}>
                   {blockedWordKindLabels[word.kind]}
                 </Badge>

@@ -50,7 +50,7 @@ export default function AddFileBindingForm({
     <FormFrame label="上传弹幕文件">
       <label
         className={cn(
-          'flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed bg-background px-3 py-4 text-center text-sm text-muted-foreground hover:bg-muted/50 sm:py-2.5 sm:text-left',
+          'flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed bg-background px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted/50',
           dragging && 'border-primary bg-muted/50',
           create.isPending && 'cursor-default opacity-70',
         )}

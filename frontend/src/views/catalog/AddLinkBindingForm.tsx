@@ -54,11 +54,7 @@ export default function AddLinkBindingForm({
             onChange={(e) => setLink(e.target.value)}
           />
           <div className="flex items-center gap-2 sm:contents">
-            <Button
-              type="submit"
-              className="flex-1 sm:flex-none"
-              disabled={create.isPending || !link.trim()}
-            >
+            <Button type="submit" disabled={create.isPending || !link.trim()}>
               {create.isPending ? <Loader2Icon className="animate-spin" /> : <LinkIcon />}
               {create.isPending ? `拉取中 ${elapsed}s` : '绑定'}
             </Button>

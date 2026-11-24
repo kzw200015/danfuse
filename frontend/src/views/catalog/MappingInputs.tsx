@@ -26,10 +26,10 @@ export default function MappingInputs({
   /** X 前面的称呼 */
   prefix: string
 }) {
-  const input = 'h-9 w-14 text-right tabular-nums md:h-7 md:w-12'
+  const input = 'h-7 w-12 text-right tabular-nums coarse:w-14'
   const hint = mappingHint(prefix)
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground" title={hint}>
+    <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" title={hint}>
       <span>{prefix}第</span>
       <Input
         aria-label={`${prefix}第几集`}

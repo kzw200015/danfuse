@@ -119,7 +119,7 @@ function BlockedWordsSummary({ onManage }: { onManage: () => void }) {
         <span className="flex-1">
           {data ? `${data.length} 条，` : ''}弹弹 API 输出弹幕时去掉正文命中的
         </span>
-        <Button size="xs" variant="outline" className="min-h-8 sm:min-h-0" onClick={onManage}>
+        <Button size="xs" variant="outline" onClick={onManage}>
           管理
         </Button>
       </div>
@@ -135,19 +135,21 @@ function DandanUrl({ token }: { token: string | null }) {
 
   async function copy() {
     setCopyFailed(false)
-    try {
-      // 剪贴板只在 https 或 localhost 页面可用，通过 http 访问内网地址时 navigator.clipboard 不存在
-      await navigator.clipboard.writeText(url)
-      toast.success('已复制弹弹 API 地址')
-      return
-    } catch {
-      // 局域网 HTTP 环境下尝试用临时 textarea + execCommand 降级复制
-      if (fallbackCopyText(url)) {
+    // 剪贴板只在 https 或 localhost 页面可用，通过 http 访问内网地址时 navigator.clipboard 不存在
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(url)
         toast.success('已复制弹弹 API 地址')
         return
+      } catch {
+        // 权限受限或拒绝时继续尝试降级复制
       }
-      setCopyFailed(true)
     }
+    if (fallbackCopyText(url)) {
+      toast.success('已复制弹弹 API 地址')
+      return
+    }
+    setCopyFailed(true)
   }
 
   return (
@@ -156,7 +158,7 @@ function DandanUrl({ token }: { token: string | null }) {
         <code className="min-w-0 flex-1 rounded bg-muted px-2 py-1 font-mono text-xs break-all whitespace-normal select-all sm:truncate">
           {url}
         </code>
-        <Button size="sm" variant="outline" className="shrink-0" onClick={copy}>
+        <Button size="sm" variant="outline" onClick={copy}>
           <CopyIcon />
           复制
         </Button>
@@ -174,22 +176,28 @@ function DandanUrl({ token }: { token: string | null }) {
   )
 }
 
-/** 非 HTTPS 局域网环境下用隐藏 textarea 尝试降级复制 */
+/** 非 HTTPS 局域网环境下用隐藏 textarea 尝试降级复制（兼容 iOS Safari 并恢复原焦点） */
 function fallbackCopyText(text: string): boolean {
   if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false
+  const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null
   const area = document.createElement('textarea')
   area.value = text
   area.setAttribute('readonly', '')
   area.style.position = 'fixed'
+  area.style.top = '0'
+  area.style.left = '0'
   area.style.opacity = '0'
   document.body.appendChild(area)
+  area.focus({ preventScroll: true })
   area.select()
+  area.setSelectionRange(0, text.length)
   try {
     return document.execCommand('copy')
   } catch {
     return false
   } finally {
     document.body.removeChild(area)
+    prev?.focus({ preventScroll: true })
   }
 }
 

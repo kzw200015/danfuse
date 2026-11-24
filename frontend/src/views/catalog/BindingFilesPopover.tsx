@@ -25,7 +25,7 @@ export default function BindingFilesPopover({ binding }: { binding: Binding }) {
         render={
           <button
             type="button"
-            className="inline-flex min-h-8 -ml-1.5 items-center gap-1 rounded px-1.5 underline decoration-muted-foreground/50 underline-offset-2 hover:bg-muted md:ml-0 md:min-h-0 md:px-0 md:no-underline md:hover:bg-transparent md:hover:underline"
+            className="inline-flex items-center hover:underline coarse:min-h-8"
             title="查看弹幕文件"
           />
         }

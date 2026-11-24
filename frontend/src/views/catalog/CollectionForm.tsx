@@ -160,12 +160,7 @@ function CollectionFormBody({ mode }: { mode: CollectionFormMode }) {
           disabled={save.isPending}
           onChange={(e) => setLink(e.target.value)}
         />
-        <Button
-          type="submit"
-          variant="outline"
-          className="sm:shrink-0"
-          disabled={save.isPending || !link.trim()}
-        >
+        <Button type="submit" variant="outline" disabled={save.isPending || !link.trim()}>
           <SearchIcon />
           预览
         </Button>

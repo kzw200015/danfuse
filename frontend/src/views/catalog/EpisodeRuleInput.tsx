@@ -33,66 +33,56 @@ export default function EpisodeRuleInput({
     onChange(next)
   }
   return (
-    <div role="group" aria-label="集号规则" className="grid gap-1.5 text-xs text-muted-foreground">
+    <div role="group" aria-label="集号规则" className="grid gap-1 text-xs text-muted-foreground">
       <div className="flex items-center gap-1.5">
         <span title={ruleHint}>集号规则（取最靠后的集号，位置一样时排在前面的优先）</span>
         <InfoTip label="集号规则说明" content={ruleHint} />
       </div>
       {value.map((pattern, i) => (
-        // 没有稳定的 ID，按位置作 key：输入框是受控的，移动之后内容跟着值走；
-        // 手机端拆成两行微卡片并隔离删除按钮，避免拇指误删手写正则
-        <div
-          key={i}
-          className="flex flex-col gap-2 rounded-md border bg-background p-2 sm:flex-row sm:items-center sm:gap-1.5 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0"
-        >
-          <span className="hidden w-4 shrink-0 text-right tabular-nums sm:inline">{i + 1}</span>
+        // 没有稳定的 ID，按位置作 key：输入框是受控的，移动之后内容跟着值走
+        <div key={i} className="flex items-center gap-1">
+          <span className="w-4 shrink-0 text-right tabular-nums">{i + 1}</span>
           <Input
             aria-label={`集号规则第 ${i + 1} 条`}
-            className="h-9 min-w-0 flex-1 font-mono sm:h-7"
+            className="h-7 min-w-0 flex-1 font-mono"
             placeholder="正则，如 第(\d+)集"
             value={pattern}
             disabled={disabled}
             onChange={(e) => onChange(value.map((p, j) => (j === i ? e.target.value : p)))}
           />
-          <div className="flex items-center justify-between gap-2 sm:contents">
-            <span className="text-xs tabular-nums sm:hidden">规则 #{i + 1}</span>
-            <div className="flex items-center gap-3 sm:gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                aria-label={`上移第 ${i + 1} 条`}
-                disabled={disabled || i === 0}
-                onClick={() => move(i, i - 1)}
-              >
-                <ArrowUpIcon />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                aria-label={`下移第 ${i + 1} 条`}
-                disabled={disabled || i === value.length - 1}
-                onClick={() => move(i, i + 1)}
-              >
-                <ArrowDownIcon />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="text-destructive sm:text-inherit"
-                aria-label={`删除第 ${i + 1} 条`}
-                disabled={disabled || value.length === 1}
-                onClick={() => onChange(value.filter((_, j) => j !== i))}
-              >
-                <XIcon />
-              </Button>
-            </div>
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`上移第 ${i + 1} 条`}
+            disabled={disabled || i === 0}
+            onClick={() => move(i, i - 1)}
+          >
+            <ArrowUpIcon />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`下移第 ${i + 1} 条`}
+            disabled={disabled || i === value.length - 1}
+            onClick={() => move(i, i + 1)}
+          >
+            <ArrowDownIcon />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`删除第 ${i + 1} 条`}
+            disabled={disabled || value.length === 1}
+            onClick={() => onChange(value.filter((_, j) => j !== i))}
+          >
+            <XIcon />
+          </Button>
         </div>
       ))}
-      <div className="flex items-center gap-1 sm:pl-5">
+      <div className="flex items-center gap-1 pl-5">
         <Button
           type="button"
           variant="ghost"

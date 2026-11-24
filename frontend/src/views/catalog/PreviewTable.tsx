@@ -1,5 +1,3 @@
-import type { ReactNode } from 'react'
-
 import type { Candidate, Item, ItemStatus } from '@/api/season-bindings'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -25,55 +23,80 @@ export const itemStatusClass: Record<ItemStatus, string> = {
   noEpisode: 'text-muted-foreground',
 }
 
+/** 一条条目的状态展示：调用方只描述一次，由 ItemTable 分别适配桌面表格与移动端双行卡片 */
+export interface ItemStatusDisplay {
+  text: string
+  className?: string
+  title?: string
+}
+
 /**
- * 条目的表格，预览表与条目表共用：序号 | 条目 | statusHead，第三列的格子由 renderStatus 渲染；
- * 外层限高内部滚动，避免几十集的长表把底部的保存/取消按钮顶出数屏；手机端切为紧凑双行卡片。
+ * 条目的表格，预览表与条目表共用：序号 | 条目 | statusHead；
+ * 桌面端自然展开保持原样，手机端切为限高滚动的紧凑双行卡片。
  */
 export function ItemTable({
   label,
   items,
   statusHead,
-  renderStatus,
-  renderMobileStatus,
-  mobileFooter,
-  children,
+  getStatus,
+  removed = [],
 }: {
   /** 表格的无障碍名称 */
   label: string
   items: Item[]
   statusHead: string
-  renderStatus: (item: Item) => ReactNode
-  renderMobileStatus?: (item: Item) => ReactNode
-  mobileFooter?: ReactNode
-  children?: ReactNode
+  getStatus: (item: Item) => ItemStatusDisplay
+  /** 保存后要删的槽位，接在表尾标红划掉 */
+  removed?: Candidate['removed']
 }) {
   return (
-    <div className="max-h-[45dvh] overflow-y-auto rounded-md border md:max-h-96">
-      <div className={cn(renderMobileStatus && 'hidden sm:block')}>
-        <Table aria-label={label} className="text-xs">
-          <TableHeader className="sticky top-0 bg-background">
-            <TableRow>
-              <TableHead className="w-12 text-right">序号</TableHead>
-              <TableHead>条目</TableHead>
-              <TableHead>{statusHead}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item, i) => (
-              // 条目名称在一组里不重复，但后端给出的顺序就是位置，按位置作 key
+    <>
+      <Table aria-label={label} className="text-xs" containerClassName="hidden sm:block">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-12 text-right">序号</TableHead>
+            <TableHead>条目</TableHead>
+            <TableHead>{statusHead}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item, i) => {
+            const status = getStatus(item)
+            // 条目名称在一组里不重复，但后端给出的顺序就是位置，按位置作 key
+            return (
               <TableRow key={i}>
                 <TableCell className="text-right tabular-nums">{item.number ?? '—'}</TableCell>
                 <TableCell className="whitespace-normal">{item.label}</TableCell>
-                {renderStatus(item)}
+                <TableCell
+                  className={cn('whitespace-normal', status.className)}
+                  title={status.title}
+                >
+                  {status.text}
+                </TableCell>
               </TableRow>
-            ))}
-            {children}
-          </TableBody>
-        </Table>
-      </div>
-      {renderMobileStatus && (
-        <ul className="divide-y text-xs sm:hidden" aria-label={`${label}（移动端列表）`}>
-          {items.map((item, i) => (
+            )
+          })}
+          {removed.map((slot) => (
+            <TableRow
+              key={`removed-${slot.bindingId}`}
+              className="bg-destructive/5 text-destructive"
+            >
+              <TableCell className="text-right">—</TableCell>
+              <TableCell className="whitespace-normal line-through">{slot.title}</TableCell>
+              <TableCell className="whitespace-normal">
+                {episodeText(slot.episodeNumber, '删除（没有条目对到这一集）')}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <ul
+        className="max-h-[45dvh] divide-y overflow-y-auto rounded-md border text-xs sm:hidden"
+        aria-label={`${label}（移动端列表）`}
+      >
+        {items.map((item, i) => {
+          const status = getStatus(item)
+          return (
             <li key={i} className="grid gap-1 px-2.5 py-2">
               <div className="flex items-start gap-2">
                 <Badge variant="secondary" className="shrink-0 tabular-nums">
@@ -81,13 +104,28 @@ export function ItemTable({
                 </Badge>
                 <span className="min-w-0 flex-1 font-medium break-all">{item.label}</span>
               </div>
-              <div className="pl-0.5">{renderMobileStatus(item)}</div>
+              <div className={cn('pl-0.5 break-words', status.className)} title={status.title}>
+                {status.text}
+              </div>
             </li>
-          ))}
-          {mobileFooter}
-        </ul>
-      )}
-    </div>
+          )
+        })}
+        {removed.map((slot) => (
+          <li
+            key={`removed-${slot.bindingId}`}
+            className="grid gap-1 bg-destructive/5 px-2.5 py-2 text-destructive"
+          >
+            <div className="flex items-start gap-2">
+              <Badge variant="destructive" className="shrink-0">
+                删
+              </Badge>
+              <span className="min-w-0 flex-1 break-all line-through">{slot.title}</span>
+            </div>
+            <div>{episodeText(slot.episodeNumber, '删除（没有条目对到这一集）')}</div>
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }
 
@@ -101,40 +139,11 @@ export default function PreviewTable({ candidate }: { candidate: Candidate }) {
       label="预览表"
       items={candidate.items}
       statusHead="保存后"
-      renderStatus={(item) => (
-        <TableCell className={cn('whitespace-normal', itemStatusClass[item.status])}>
-          {previewStatusText(item)}
-        </TableCell>
-      )}
-      renderMobileStatus={(item) => (
-        <span className={cn('break-words', itemStatusClass[item.status])}>
-          {previewStatusText(item)}
-        </span>
-      )}
-      mobileFooter={candidate.removed.map((slot) => (
-        <li
-          key={`removed-${slot.bindingId}`}
-          className="grid gap-1 bg-destructive/5 px-2.5 py-2 text-destructive"
-        >
-          <div className="flex items-start gap-2">
-            <Badge variant="destructive" className="shrink-0">
-              删
-            </Badge>
-            <span className="min-w-0 flex-1 break-all line-through">{slot.title}</span>
-          </div>
-          <div>{episodeText(slot.episodeNumber, '删除（没有条目对到这一集）')}</div>
-        </li>
-      ))}
-    >
-      {candidate.removed.map((slot) => (
-        <TableRow key={`removed-${slot.bindingId}`} className="bg-destructive/5 text-destructive">
-          <TableCell className="text-right">—</TableCell>
-          <TableCell className="whitespace-normal line-through">{slot.title}</TableCell>
-          <TableCell className="whitespace-normal">
-            {episodeText(slot.episodeNumber, '删除（没有条目对到这一集）')}
-          </TableCell>
-        </TableRow>
-      ))}
-    </ItemTable>
+      getStatus={(item) => ({
+        text: previewStatusText(item),
+        className: itemStatusClass[item.status],
+      })}
+      removed={candidate.removed}
+    />
   )
 }

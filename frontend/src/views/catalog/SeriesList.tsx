@@ -81,7 +81,6 @@ export default function SeriesList({
               className={buttonVariants({
                 size: 'xs',
                 variant: selected ? 'secondary' : 'ghost',
-                className: 'min-h-9 px-3 md:min-h-0 md:px-2',
               })}
             >
               {c.label}
@@ -191,6 +190,7 @@ function FiltersPopover({
           <Button
             variant={active ? 'secondary' : 'ghost'}
             size="icon"
+            className="relative"
             aria-label="筛选条件"
             title="筛选条件"
           />
@@ -206,24 +206,22 @@ function FiltersPopover({
           </span>
         )}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-60 gap-2">
+      <PopoverContent align="end" className="w-56 gap-2">
         <PopoverHeader>
           <PopoverTitle>筛选条件</PopoverTitle>
         </PopoverHeader>
-        <div className="grid gap-0.5">
-          {filterOptions.map((o) => (
-            <label
-              key={o.key}
-              className="flex min-h-10 cursor-pointer items-center gap-2.5 px-1 text-sm md:min-h-0 md:gap-2 md:py-1"
-            >
-              <Checkbox
-                checked={value[o.key]}
-                onCheckedChange={(checked) => onChange({ ...value, [o.key]: checked })}
-              />
-              {o.label}
-            </label>
-          ))}
-        </div>
+        {filterOptions.map((o) => (
+          <label
+            key={o.key}
+            className="flex cursor-pointer items-center gap-2 text-sm coarse:min-h-10"
+          >
+            <Checkbox
+              checked={value[o.key]}
+              onCheckedChange={(checked) => onChange({ ...value, [o.key]: checked })}
+            />
+            {o.label}
+          </label>
+        ))}
         <div className="grid gap-1 border-t pt-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <RadioTowerIcon className="size-3 shrink-0 text-emerald-700" />

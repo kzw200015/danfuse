@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import {
@@ -89,6 +89,24 @@ beforeEach(() => {
 })
 
 const seasonNav = () => within(screen.getByRole('navigation', { name: '季' }))
+
+/** 临时覆写 matchMedia 以覆盖窄屏响应式分支，用例结束时自动还原 */
+function mockMatchMedia(match: (query: string) => boolean) {
+  const original = window.matchMedia
+  window.matchMedia = (query: string) => ({
+    matches: match(query),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })
+  onTestFinished(() => {
+    window.matchMedia = original
+  })
+}
 /** 集面板右上角"导出 XML"的提示，用它和绑定卡片上的"导出 XML"区分 */
 const episodeExportTitle = '导出这一集各绑定的弹幕（zip，每个绑定一份 XML，按偏移校正）'
 /** 点删除剧、季或集的按钮，在确认框里确认 */
@@ -173,6 +191,30 @@ describe('CatalogView', () => {
     // 只能整部删除
     expect(screen.getByRole('button', { name: '删除这部剧' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '删除这一集' })).not.toBeInTheDocument()
+  })
+
+  it('窄屏（< lg）：电影直达正片展示完整剧头，剧停留在集列表时"整季"不标当前态', async () => {
+    mockMatchMedia((q) => q === '(width < 64rem)')
+    all[1]!.originalTitle = 'Long Night Lighthouse'
+    all[1]!.premiereDate = '2020-07-01'
+    const { router } = renderRoutes('/catalog/2')
+
+    expect(await screen.findByRole('heading', { name: '正片' })).toBeInTheDocument()
+    expect(screen.getByText('Long Night Lighthouse')).toBeInTheDocument()
+    expect(screen.getByText('2020 · 电影 · 首播 2020-07-01')).toBeInTheDocument()
+    expect(screen.getByText(/无 TMDB ID/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'B 站' })).toBeInTheDocument()
+    // 中栏未挂载，全页只有集面板内唯一一个"删除这部剧"按钮
+    expect(screen.getAllByRole('button', { name: '删除这部剧' })).toHaveLength(1)
+
+    await act(() => router.navigate('/catalog/1/11'))
+    const seasonLink = await screen.findByTitle('查看整季')
+    expect(seasonLink).not.toHaveAttribute('aria-current')
+    expect(screen.queryByRole('heading', { name: /^第 1 季/ })).not.toBeInTheDocument()
+
+    fireEvent.click(seasonLink)
+    await waitFor(() => expect(router.state.location.pathname).toBe('/catalog/1/11/season'))
+    expect(await screen.findByRole('heading', { name: /^第 1 季/ })).toBeInTheDocument()
   })
 
   it('有海报时显示图片，没有海报或加载失败时显示占位图', async () => {
@@ -697,7 +739,7 @@ describe('维护绑定', () => {
     )
   })
 
-  it('偏移：支持点 ± 切换正负号并点击显式保存按钮（兼容无负号移动端键盘）', async () => {
+  it('偏移：保留 decimal 数字键盘、聚焦提示正负方向、支持 ± 切换与显式保存', async () => {
     vi.mocked(updateBindingOffset).mockImplementation(async (id, offset) => {
       const b = bindingsOf110().find((x) => x.id === id)!
       b.offset = offset
@@ -706,7 +748,16 @@ describe('维护绑定', () => {
     renderRoutes('/catalog/1/11/110')
     const first = await card('弹幕源 1')
     const input = first.getByRole('textbox', { name: '偏移（秒）' })
-    expect(input).toHaveAttribute('inputmode', 'text')
+    expect(input).toHaveAttribute('inputmode', 'decimal')
+    expect(first.queryByText('正数表示弹幕延后，负数表示提前')).not.toBeInTheDocument()
+
+    fireEvent.focus(input)
+    expect(first.getByText('正数表示弹幕延后，负数表示提前')).toBeInTheDocument()
+
+    // 值为 0 时点 ± 变为 "-" 而不是 "-0"
+    fireEvent.click(first.getByRole('button', { name: '切换偏移正负号' }))
+    expect(input).toHaveValue('-')
+    expect(updateBindingOffset).not.toHaveBeenCalled()
 
     fireEvent.change(input, { target: { value: '3.5' } })
     fireEvent.click(first.getByRole('button', { name: '切换偏移正负号' }))
@@ -1171,7 +1222,7 @@ describe('查看弹幕', () => {
     expect(dialog.getByLabelText('跳到弹幕源时间')).toHaveValue('')
   })
 
-  it('拖动条：鼠标悬停时显示那个位置的时间，移开后消失', async () => {
+  it('拖动条：鼠标悬停时显示那个位置的时间，移开后消失；触屏指针不残留悬停气泡', async () => {
     vi.mocked(listBindingDanmaku).mockResolvedValue(danmakuPage(['开头'], null))
     renderRoutes('/catalog/1/11/110')
     fireEvent.click((await card('弹幕源 1')).getByRole('button', { name: '弹幕 1,234 条' }))
@@ -1184,12 +1235,13 @@ describe('查看弹幕', () => {
       DOMRect.fromRect({ x: 100, width: 1012 }),
     )
 
-    fireEvent.mouseMove(bar, { clientX: 100 + 6 + 400 })
+    fireEvent.pointerMove(bar, { clientX: 100 + 6 + 400, pointerType: 'touch' })
+    expect(dialog.queryByRole('tooltip')).not.toBeInTheDocument()
 
+    fireEvent.pointerMove(bar, { clientX: 100 + 6 + 400, pointerType: 'mouse' })
     expect(dialog.getByRole('tooltip')).toHaveTextContent('9:28')
 
-    fireEvent.mouseLeave(bar)
-
+    fireEvent.pointerLeave(bar)
     expect(dialog.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 

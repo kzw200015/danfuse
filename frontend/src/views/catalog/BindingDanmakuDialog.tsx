@@ -1,4 +1,4 @@
-import { useRef, useState, type ComponentProps, type MouseEvent, type UIEvent } from 'react'
+import { useRef, useState, type ComponentProps, type PointerEvent, type UIEvent } from 'react'
 import { Slider } from '@base-ui/react/slider'
 import { Loader2Icon, MessageSquareTextIcon } from 'lucide-react'
 
@@ -58,7 +58,7 @@ export default function BindingDanmakuDialog({ binding }: { binding: Binding }) 
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         {/* 贴顶显示：弹幕区域高度随内容伸缩；按 dvh 限高，避免移动端软键盘遮挡 */}
-        <DialogContent className="top-3 flex max-h-[calc(100dvh-1.5rem)] translate-y-0 flex-col overflow-hidden sm:top-[10vh] sm:max-h-[80dvh] sm:max-w-xl">
+        <DialogContent className="top-3 flex max-h-[calc(100dvh-1.5rem)] translate-y-0 flex-col sm:top-[10vh] sm:max-h-[80dvh] sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>弹幕</DialogTitle>
             <DialogDescription className="break-all">
@@ -130,7 +130,7 @@ function JumpControls({
         <Input
           aria-label="跳到弹幕源时间"
           title="输入秒、m:ss 或 h:mm:ss，回车或点跳转；清空后回到开头"
-          className="h-9 w-20 shrink-0 tabular-nums sm:h-7"
+          className="h-7 w-20 shrink-0 tabular-nums"
           placeholder="m:ss"
           aria-invalid={!empty && typed === null}
           value={text}
@@ -171,24 +171,28 @@ function TimeSlider({
   onDrag: (ms: number) => void
   onCommit: (ms: number) => void
 }) {
-  // 悬停的位置：相对拖动条左端的像素与对应的时间；鼠标不在拖动条上时为 null
-  const [hover, setHover] = useState<{ x: number; ms: number } | null>(null)
+  // 悬停的位置：相对拖动条宽度的百分比（0~100）与对应的时间；指针离开时为 null
+  const [hover, setHover] = useState<{ percent: number; ms: number } | null>(null)
   const thumbRef = useRef<HTMLDivElement>(null)
-  const onMouseMove = (e: MouseEvent<HTMLElement>) => {
+  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
+    // 触屏拖动由 dragging 状态驱动气泡，忽略 touch 指针避免轻点轨道后悬停气泡残留
+    if (e.pointerType === 'touch') return
     const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width <= 0) return
     // 滑块贴边对齐：0 和最大值分别在两端向内半个滑块处
     const thumb = thumbRef.current?.offsetWidth ?? 0
     const x = Math.min(Math.max(e.clientX - rect.left, 0), rect.width)
     const ratio = Math.min(Math.max((x - thumb / 2) / (rect.width - thumb), 0), 1)
     const ms = Math.round((ratio * max) / 1000) * 1000
-    setHover({ x, ms })
+    setHover({ percent: (x / rect.width) * 100, ms })
   }
   const dragPercent = max > 0 ? Math.min(Math.max((value / max) * 100, 0), 100) : 0
+  const tip = dragging ? { percent: dragPercent, ms: value } : hover
   return (
     <div
       className="relative min-w-[12rem] flex-1"
-      onMouseMove={onMouseMove}
-      onMouseLeave={() => setHover(null)}
+      onPointerMove={onPointerMove}
+      onPointerLeave={() => setHover(null)}
       onPointerCancel={() => setHover(null)}
     >
       {/* 直接用 Base UI 的原件拼，样式取自 shadcn 的 slider：只要一个滑块，读屏读出 m:ss，点击区域加大 */}
@@ -204,8 +208,8 @@ function TimeSlider({
           onCommit(v)
         }}
       >
-        {/* 移动端加厚点击轨道，触屏拖动更稳 */}
-        <Slider.Control className="relative flex w-full cursor-pointer touch-none items-center py-3 select-none md:py-2">
+        {/* 触屏端加厚点击轨道，拖动更稳 */}
+        <Slider.Control className="relative flex w-full cursor-pointer touch-none items-center py-2 select-none coarse:py-3">
           <Slider.Track className="relative h-1 w-full grow overflow-hidden rounded-full bg-muted select-none">
             <Slider.Indicator className="h-full bg-primary select-none" />
           </Slider.Track>
@@ -213,28 +217,19 @@ function TimeSlider({
             ref={thumbRef}
             aria-label="弹幕源时间轴"
             getAriaValueText={(_, v) => formatTime(v)}
-            className="relative block size-4 shrink-0 rounded-full border border-ring bg-white ring-ring/50 transition-[color,box-shadow] select-none after:absolute after:-inset-3 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 md:size-3 md:after:-inset-2"
+            className="relative block size-3 shrink-0 rounded-full border border-ring bg-white ring-ring/50 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 coarse:size-4 coarse:after:-inset-3"
           />
         </Slider.Control>
       </Slider.Root>
-      {dragging ? (
+      {tip && (
+        // 水平锚点随进度从左对齐 (0%) 线性过渡到右对齐 (-100%)，两端不会溢出轨道或被弹窗边缘裁切
         <span
           role="tooltip"
-          className="pointer-events-none absolute bottom-full -translate-x-1/2 rounded bg-foreground px-1.5 py-0.5 text-xs text-background tabular-nums"
-          style={{ left: `${dragPercent}%` }}
+          className="pointer-events-none absolute bottom-full rounded bg-foreground px-1.5 py-0.5 text-xs text-background tabular-nums"
+          style={{ left: `${tip.percent}%`, transform: `translateX(-${tip.percent}%)` }}
         >
-          {formatTime(value)}
+          {formatTime(tip.ms)}
         </span>
-      ) : (
-        hover && (
-          <span
-            role="tooltip"
-            className="pointer-events-none absolute bottom-full -translate-x-1/2 rounded bg-foreground px-1.5 py-0.5 text-xs text-background tabular-nums"
-            style={{ left: hover.x }}
-          >
-            {formatTime(hover.ms)}
-          </span>
-        )
       )}
     </div>
   )
@@ -284,15 +279,16 @@ function DanmakuTable({
     )
   }
   return (
-    // 换了查询（跳转、内容版本变了）时滚动区域重新挂载，滚动回到顶部；新数据到达之前显示上一份（变淡）
+    // 换了查询（跳转、内容版本变了）时滚动区域重新挂载，滚动回到顶部；新数据到达之前显示上一份（变淡）。
+    // Table 内层去掉独立滚动容器（overflow-visible），让外层 TableBox 成为唯一滚动容器以保证表头吸顶
     <TableBox
       key={`${binding.contentVersion}:${fromMs}`}
       aria-busy={isPlaceholderData}
-      className={cn('overflow-y-auto transition-opacity', isPlaceholderData && 'opacity-50')}
+      className={cn('overflow-auto transition-opacity', isPlaceholderData && 'opacity-50')}
       onScroll={onScroll}
     >
-      <Table aria-label="弹幕" className="text-xs">
-        <TableHeader className="sticky top-0 bg-popover">
+      <Table aria-label="弹幕" className="text-xs" containerClassName="overflow-visible">
+        <TableHeader className="sticky top-0 z-10 bg-popover">
           <TableRow>
             <TableHead className="w-16 px-1.5 sm:w-20 sm:px-2">弹幕源时间</TableHead>
             <TableHead className="w-10 px-1.5 sm:w-12 sm:px-2">类型</TableHead>

@@ -21,7 +21,6 @@ import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorNote } from '@/components/ErrorNote'
 import { InfoTip } from '@/components/InfoTip'
 import { Button } from '@/components/ui/button'
-import { TableCell } from '@/components/ui/table'
 import { Switch } from '@/components/ui/switch'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { isRunning, useSeasonBinding, useWatchSeasonBinding } from '@/hooks/use-season-bindings'
@@ -142,7 +141,7 @@ export default function SeasonBindingCard({
         {collection && (
           <div className="flex shrink-0 items-center gap-1.5">
             <label
-              className="flex min-h-9 shrink-0 items-center gap-2 text-xs md:min-h-0 md:gap-1.5"
+              className="flex shrink-0 items-center gap-1.5 text-xs coarse:min-h-9 coarse:gap-2"
               title={settings && `开着时${followRuleText(settings.follow)}`}
             >
               <Switch
@@ -185,7 +184,7 @@ export default function SeasonBindingCard({
         )}
       </div>
 
-      <div className="flex flex-wrap justify-end gap-1.5">
+      <div className="flex flex-wrap justify-end gap-1">
         <Button
           variant="outline"
           size="sm"
@@ -246,7 +245,7 @@ export default function SeasonBindingCard({
       <button
         type="button"
         aria-expanded={expanded}
-        className="flex min-h-10 w-full items-center gap-1.5 rounded-md border bg-muted/20 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground md:inline-flex md:min-h-0 md:w-fit md:gap-1 md:border-0 md:bg-transparent md:px-0 md:font-normal"
+        className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground coarse:min-h-8"
         onClick={() => setExpanded(!expanded)}
       >
         {expanded ? (
@@ -284,29 +283,11 @@ function EntryTable({ detail, error }: { detail?: SeasonBindingDetail; error: Er
           label="条目表"
           items={detail.items}
           statusHead="状态"
-          renderStatus={(item) => (
-            <TableCell
-              className={cn(
-                'whitespace-normal',
-                item.lastError ? 'text-destructive' : itemStatusClass[item.status],
-              )}
-              title={item.lastErrorAt ? `失败于 ${formatDateTime(item.lastErrorAt)}` : undefined}
-            >
-              {itemStatusText(item, detail.kind)}
-              {item.lastError && ` · 上次失败：${item.lastError}`}
-            </TableCell>
-          )}
-          renderMobileStatus={(item) => (
-            <span
-              className={cn(
-                'break-words',
-                item.lastError ? 'text-destructive' : itemStatusClass[item.status],
-              )}
-            >
-              {itemStatusText(item, detail.kind)}
-              {item.lastError && ` · 上次失败：${item.lastError}`}
-            </span>
-          )}
+          getStatus={(item) => ({
+            text: `${itemStatusText(item, detail.kind)}${item.lastError ? ` · 上次失败：${item.lastError}` : ''}`,
+            className: item.lastError ? 'text-destructive' : itemStatusClass[item.status],
+            title: item.lastErrorAt ? `失败于 ${formatDateTime(item.lastErrorAt)}` : undefined,
+          })}
         />
       )}
       {detail.emptySlots.length > 0 && (

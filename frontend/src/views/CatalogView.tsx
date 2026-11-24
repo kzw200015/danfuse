@@ -3,6 +3,7 @@ import { useParams } from 'react-router'
 
 import { isApiStatus } from '@/api/request'
 import type { SeriesDetail } from '@/api/series'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { useSeries } from '@/hooks/use-series'
 import { parseId } from '@/lib/route'
 import { cn } from '@/lib/utils'
@@ -54,6 +55,8 @@ function SelectedSeries({
   episodeId?: string
 }) {
   const path = useCatalogPath()
+  // 与 Tailwind v4 lg 断点（64rem）对齐的单一事实源：< lg 时中栏与右栏互斥下钻
+  const compact = useMediaQuery('(width < 64rem)')
   const { data: series, error } = useSeries(id)
 
   if (isApiStatus(error, 404)) {
@@ -78,20 +81,28 @@ function SelectedSeries({
   const rightPanelActive = Boolean(selection.missing || selection.episode || episodeId === 'season')
   return (
     <>
-      <SeriesColumn
-        series={series}
-        selection={selection}
-        className={cn(rightPanelActive && 'hidden lg:flex')}
-      />
-      <section className={cn('min-h-0 overflow-y-auto', !rightPanelActive && 'hidden lg:block')}>
-        <RightPanel series={series} selection={selection} />
-      </section>
+      {(!compact || !rightPanelActive) && (
+        <SeriesColumn series={series} selection={selection} compact={compact} />
+      )}
+      {(!compact || rightPanelActive) && (
+        <section className="min-h-0 overflow-y-auto">
+          <RightPanel series={series} selection={selection} compact={compact} />
+        </section>
+      )}
     </>
   )
 }
 
 /** 右栏：集面板、季面板，或季、集已经不存在时的提示 */
-function RightPanel({ series, selection }: { series: SeriesDetail; selection: Selection }) {
+function RightPanel({
+  series,
+  selection,
+  compact,
+}: {
+  series: SeriesDetail
+  selection: Selection
+  compact: boolean
+}) {
   const path = useCatalogPath()
   const { season, episode } = selection
   if (selection.missing === 'season') {
@@ -109,14 +120,14 @@ function RightPanel({ series, selection }: { series: SeriesDetail; selection: Se
     )
   }
   if (season && episode) {
-    return <EpisodePanel series={series} season={season} episode={episode} />
+    return <EpisodePanel series={series} season={season} episode={episode} compact={compact} />
   }
   return season ? <SeasonPanel series={series} season={season} /> : null
 }
 
 function MiddleColumn({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <section className={cn('min-h-0 overflow-y-auto md:border-r', className)}>{children}</section>
+    <section className={cn('min-h-0 overflow-y-auto lg:border-r', className)}>{children}</section>
   )
 }
 
